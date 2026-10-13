@@ -37,14 +37,16 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
     assert_eq!(proof.nullifiers.len(), 1);
     assert_eq!(proof.root, root_hint);
     assert!(
-        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
+        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture"),
         "generated confidential unshield v2 proof should verify against the cached canonical VK"
     );
     {
         const EXACT_BACKEND: &str = "pipa-r/pasta/confidential-unshield-full-v1";
         let (exact_proof, exact_vk) = relabel_native_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
         assert!(
-            crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
+            crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk))
+                .expect("verification attempt must complete for this semantic fixture"),
             "exact full-unshield registry label should reach the full-unshield verifier"
         );
     }
@@ -76,7 +78,8 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
             crate::ZK_BACKEND_NATIVE_PIPA_R,
             &explicit_path_proof.proof,
             Some(&vk_box),
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "explicit-path full redemption must use the terminal full-unshield verifier",
     );
     let mut wrong_leaf_path = input_path;
@@ -107,7 +110,8 @@ fn generated_confidential_unshield_v2_proof_verifies_against_cached_canonical_vk
     envelope.vk_hash[0] ^= 0x80;
     tampered.bytes = norito::to_bytes(&envelope).expect("OpenVerifyEnvelope encode");
     assert!(
-        !crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &tampered, Some(&vk_box)),
+        !crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &tampered, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture"),
         "unshield v2 proof must reject verifier-key hash substitution"
     );
 }
@@ -157,7 +161,8 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
             crate::ZK_BACKEND_NATIVE_PIPA_R,
             &terminal.proof,
             Some(&vk_box),
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "terminal full unshield must verify under the deployed V3 verifier",
     );
     let input_path =
@@ -182,11 +187,14 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     )
     .expect("build terminal one-note unshield against a full-capacity tree under V3");
     assert!(terminal_with_paths.output_commitments.is_empty());
-    assert!(crate::verify_backend(
-        crate::ZK_BACKEND_NATIVE_PIPA_R,
-        &terminal_with_paths.proof,
-        Some(&vk_box),
-    ));
+    assert!(
+        crate::verify_backend(
+            crate::ZK_BACKEND_NATIVE_PIPA_R,
+            &terminal_with_paths.proof,
+            Some(&vk_box),
+        )
+        .expect("verification attempt must complete for this semantic fixture")
+    );
     let missing_change = super::build_confidential_unshield_proof_v3(
         &network_id,
         asset_definition_id,
@@ -206,7 +214,9 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     )
     .expect_err("nonzero change must require a private change note");
     assert!(
-        missing_change.contains("requires a private change output"),
+        missing_change
+            .input_error()
+            .is_some_and(|message| message.contains("requires a private change output")),
         "unexpected missing-change error: {missing_change}"
     );
     let bad_change = super::build_confidential_unshield_proof_v3(
@@ -231,7 +241,9 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     )
     .expect_err("incorrect private change amount must reject");
     assert!(
-        bad_change.contains("change note amount mismatch"),
+        bad_change
+            .input_error()
+            .is_some_and(|message| message.contains("change note amount mismatch")),
         "unexpected bad-change error: {bad_change}"
     );
     let overflow_input_0_rho = [0xB1_u8; 32];
@@ -295,7 +307,9 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     )
     .expect_err("overflowing private input sum must reject");
     assert!(
-        overflow.contains("input amount sum overflows u128"),
+        overflow
+            .input_error()
+            .is_some_and(|message| message.contains("input amount sum overflows u128")),
         "unexpected overflow error: {overflow}"
     );
     let proof = super::build_confidential_unshield_proof_v3(
@@ -332,14 +346,16 @@ fn generated_confidential_unshield_v3_proof_verifies_and_rejects_bad_change() {
     assert_eq!(proof.nullifiers.len(), 1);
     assert_eq!(proof.root, root_hint);
     assert!(
-        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
+        crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture"),
         "generated confidential unshield v3 proof should verify against the cached canonical VK"
     );
     {
         const EXACT_BACKEND: &str = "pipa-r/pasta/confidential-unshield-change-v1";
         let (exact_proof, exact_vk) = relabel_native_fixture(&proof.proof, &vk_box, EXACT_BACKEND);
         assert!(
-            crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
+            crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk))
+                .expect("verification attempt must complete for this semantic fixture"),
             "exact change-unshield registry label should reach the change-unshield verifier"
         );
     }

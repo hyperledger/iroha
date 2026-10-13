@@ -22,7 +22,7 @@ pub(super) struct LaneLifecycleReleases<'state> {
     pub(super) shard_cursors: DeferredPublicationRwLock<'state, DaShardCursorIndex>,
     pub(super) pin_intents: DeferredPublicationRwLock<'state, DaPinStore>,
     pub(super) hydrated:
-        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationError>>>,
+        DeferredPublicationRwLock<'state, Option<Result<(), DaIndexHydrationFailure>>>,
 }
 
 impl<'state> LaneLifecycleReleases<'state> {

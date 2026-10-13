@@ -374,10 +374,10 @@ mod tests {
                 Err(CudaFailure::Quarantined)
             );
             assert_eq!(output, [91, 93]);
-            assert_eq!(
+            assert!(matches!(
                 publish([0, 0], Some(complete), width, &mut output, || true),
                 Ok(())
-            );
+            ));
             assert_eq!(output, [7, 11]);
         }
     }

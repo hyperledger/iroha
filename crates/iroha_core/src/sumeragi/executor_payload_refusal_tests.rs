@@ -42,7 +42,7 @@ fn original_available_payload_global_archive_cap_is_invalid_inside_wider_scope()
                 );
                 assert!(matches!(
                     worker.execute(&block, hash),
-                    Some(ExecOutcome::Invalid)
+                    Ok(Some(ExecOutcome::Invalid))
                 ));
             },
         );
@@ -52,7 +52,7 @@ fn original_available_payload_global_archive_cap_is_invalid_inside_wider_scope()
             .expect("completed negative result");
         assert_eq!(cached_source, block.source());
         assert!(matches!(verdict, ExecOutcome::Invalid));
-        assert!(worker.routing_refusal.is_none());
+
         assert!(worker.live.is_none());
         assert!(worker.finishing.is_none());
         assert!(worker.recovery.is_none());
@@ -63,7 +63,7 @@ fn original_available_payload_global_archive_cap_is_invalid_inside_wider_scope()
         assert_eq!(block.payload().as_slice().as_ptr(), bytes);
         assert!(matches!(
             worker.execute(&block, hash),
-            Some(ExecOutcome::Invalid)
+            Ok(Some(ExecOutcome::Invalid))
         ));
         assert_eq!(worker.results.len(), 1);
     });
@@ -85,14 +85,13 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
                 error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                 "genuine original decoder refusal: {error:?}"
             );
-            assert!(matches!(
-                norito::with_decode_limits_scope(limits, || worker.execute(&block, hash)),
-                Some(ExecOutcome::Failed(_))
-            ));
-            let owner = worker
-                .routing_refusal
-                .as_ref()
-                .expect("worker retains original typed decoder reason");
+            let failure = norito::with_decode_limits_scope(limits, || worker.execute(&block, hash))
+                .unwrap_err();
+            let PublicationError::Deferred(ref original) = failure else {
+                panic!("lost original decoder owner: {failure:?}");
+            };
+            let owner = original.execution().expect("typed original decoder reason");
+            assert!(owner.decode_refusal().is_some());
             assert_eq!(
                 owner.reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
@@ -113,9 +112,9 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
         }
         assert!(matches!(
             worker.execute(&block, hash),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ));
-        assert!(worker.routing_refusal.is_none());
+
         assert_eq!(
             worker.state.view().height(),
             height,
@@ -127,7 +126,7 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
 }
 
 #[test]
-fn original_available_payload_local_decode_refusal_keeps_typed_worker_reason_and_retry() {
+fn original_available_payload_local_decode_refusal_transfers_typed_original_reason_and_retry() {
     assert_original_local_refusal([
         norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 64),
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64),
@@ -135,7 +134,7 @@ fn original_available_payload_local_decode_refusal_keeps_typed_worker_reason_and
 }
 
 #[test]
-fn original_available_payload_narrow_depth_refusal_keeps_typed_worker_reason_and_retry() {
+fn original_available_payload_narrow_depth_refusal_transfers_typed_original_reason_and_retry() {
     assert_original_local_refusal([norito::DecodeLimits::new(
         usize::MAX,
         usize::MAX,

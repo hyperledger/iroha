@@ -1055,9 +1055,19 @@ mod tests {
                 Some(&peer.config_path),
             )
             .unwrap();
-            assert_eq!(table["zk"]["pipa_r"]["enabled"].as_bool(), Some(true));
-            assert!(table["zk"].get("halo2").is_none());
+            // Proof validity is committed chain policy; generated node settings must
+            // neither select a backend nor preserve a retired compatibility setting.
+            let local_zk = table.get("zk").and_then(toml::Value::as_table);
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("pipa_r")));
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("halo2")));
             assert!(config.zk.pipa_r.enabled);
+            for enabled in [true, false] {
+                let node_validity = Zeroizing::new(format!(
+                    "{}\n[zk.pipa_r]\nenabled = {enabled}\n",
+                    std::str::from_utf8(&bytes).unwrap(),
+                ));
+                assert!(parse_private_peer_config(&node_validity, Some(&peer.config_path)).is_err());
+            }
             let retired = Zeroizing::new(format!(
                 "{}\n[zk.halo2]\nenabled = true\n",
                 std::str::from_utf8(&bytes).unwrap()

@@ -255,7 +255,10 @@ fn foreign_vm_modules_cannot_enter_native_ivm_admission() {
     for artifact in [minimal_foreign_module.as_slice(), substituted.as_slice()] {
         let error = verify_contract_artifact(artifact)
             .expect_err("only canonical IVM artifacts may enter contract admission");
-        assert_eq!(error.into_vm_error(), ivm_abi::VMError::InvalidMetadata);
+        assert!(matches!(
+            error.into_vm_error(),
+            ivm_abi::VMError::InvalidMetadata
+        ));
     }
 }
 

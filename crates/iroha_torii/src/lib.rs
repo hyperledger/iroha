@@ -2869,14 +2869,14 @@ impl PipelineStatusEntry {
 }
 // Only actual local retry owners belong in the pending event. No VM resource
 // category or allocation demand is manufactured for a physical State writer.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum PendingBlockDeferral {
     #[error("original State event capture is busy")]
     StateViewBusy(iroha_allocation::release::ReleaseWait),
     #[error(transparent)]
     Execution(#[from] iroha_core::execution_attempt::ExecutionDeferred),
 }
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PendingBlockStatus {
     kind: PipelineStatusKind,
     block_hash: HashOf<BlockHeader>,
@@ -2900,7 +2900,7 @@ struct PipelineStatusCache {
     event_hints_trustworthy: AtomicBool,
     prune_lock: parking_lot::Mutex<()>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum BlockRecordOutcome {
     Recorded,
     MissingBlock,
@@ -3075,13 +3075,16 @@ impl PipelineStatusCache {
         let pending: Vec<_> = self
             .pending_blocks
             .iter()
-            .map(|entry| (*entry.key(), entry.value().clone()))
+            .map(|entry| {
+                let height = *entry.key();
+                if let Some(reason) = &entry.deferred {
+                    iroha_logger::trace!(height = height.get(), %reason, "retrying original deferred pipeline history read");
+                }
+                (height, entry.block_hash, entry.kind)
+            })
             .collect();
-        for (height, pending) in pending {
-            if let Some(reason) = &pending.deferred {
-                iroha_logger::trace!(height = height.get(), %reason, "retrying original deferred pipeline history read");
-            }
-            match self.record_block_results(height, pending.block_hash, pending.kind, state, now) {
+        for (height, block_hash, kind) in pending {
+            match self.record_block_results(height, block_hash, kind, state, now) {
                 BlockRecordOutcome::Recorded => {
                     self.remove_pending_by_height(&height);
                 }

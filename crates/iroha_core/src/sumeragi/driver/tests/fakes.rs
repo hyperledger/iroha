@@ -488,13 +488,20 @@ impl Executor for FakeExecutor {
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.wait_open();
         let mut state = self.state.lock();
         let parent = if block.header().parent_hash == state.applied.1 {
             state.applied.2
         } else {
-            state.cache.get(&block.header().parent_hash)?.1
+            let Some(parent) = state.cache.get(&block.header().parent_hash) else {
+                return Ok(None);
+            };
+            parent.1
         };
         let outcome = Self::run(&mut state, &parent, block, block_hash);
         if let ExecOutcome::Valid(result) = outcome {
@@ -502,7 +509,7 @@ impl Executor for FakeExecutor {
                 .cache
                 .insert(*block_hash, (block.header().height, result));
         }
-        Some(outcome)
+        Ok(Some(outcome))
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {

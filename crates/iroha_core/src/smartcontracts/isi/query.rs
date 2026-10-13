@@ -4043,8 +4043,10 @@ mod tests {
                 0,
             );
             assert_eq!(
-                query.execute(&view),
-                Err(QueryAttemptError::Rejected(Error::Find(expected)))
+                crate::execution_attempt::expect_completed_rejection(
+                    (query.execute(&view)).expect_err("completed rejection")
+                ),
+                Error::Find(expected)
             );
         }
     }
@@ -7385,8 +7387,8 @@ mod tests {
             )
             .expect_err("every original genesis and successor work unit must be charged");
             assert_eq!(
-                rejected,
-                QueryAttemptError::Rejected(Error::GasBudgetExceeded)
+                crate::execution_attempt::expect_completed_rejection(rejected),
+                Error::GasBudgetExceeded
             );
         }
         state_view.kura().reset_canonical_query_reads_for_test();
@@ -7438,7 +7440,10 @@ mod tests {
                     Some(item_budget),
                 )
                 .expect_err("exact full-history scan must exceed a one-item budget");
-            assert_eq!(err, QueryAttemptError::Rejected(Error::GasBudgetExceeded));
+            assert_eq!(
+                crate::execution_attempt::expect_completed_rejection(err),
+                Error::GasBudgetExceeded
+            );
         }
     }
     #[test]
@@ -7490,7 +7495,10 @@ mod tests {
                     Some(item_budget),
                 )
                 .expect_err("eager carrier projection must be precharged before proof work");
-            assert_eq!(err, QueryAttemptError::Rejected(Error::GasBudgetExceeded));
+            assert_eq!(
+                crate::execution_attempt::expect_completed_rejection(err),
+                Error::GasBudgetExceeded
+            );
             assert_eq!(
                 crate::smartcontracts::isi::tx::canonical_network_projection_calls_for_test(),
                 0,

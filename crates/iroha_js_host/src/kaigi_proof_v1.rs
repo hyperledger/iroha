@@ -70,10 +70,69 @@ pub fn encode_verified_envelope(
 ) -> napi::Result<Vec<u8>> {
     let encoded = norito::encode_canonical(envelope).map_err(failure)?;
     let proof = ProofBox::new(VK_BACKEND.to_owned(), encoded.clone());
-    if !iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(key)) {
-        return Err(failure(
+    finish_verified_envelope(
+        encoded,
+        iroha_core_zk::verify_backend(VK_BACKEND, &proof, Some(key)),
+    )
+}
+
+// This terminal SDK boundary returns no proof bytes unless the original verifier
+// completed successfully. Local refusal remains distinct from a completed false verdict.
+fn finish_verified_envelope(
+    encoded: Vec<u8>,
+    attempt: Result<bool, iroha_core_zk::VerificationRefusal>,
+) -> napi::Result<Vec<u8>> {
+    match attempt {
+        Ok(true) => Ok(encoded),
+        Ok(false) => Err(failure(
             "generated Kaigi proof failed canonical native verification",
-        ));
+        )),
+        Err(original) => Err(failure(format!(
+            "native_verification_unavailable: {original}"
+        ))),
     }
-    Ok(encoded)
+}
+
+#[cfg(test)]
+mod attempt_tests {
+    use super::*;
+
+    #[test]
+    fn only_completed_native_success_returns_the_original_encoded_envelope() {
+        let bytes = vec![17, 29, 43];
+        let pointer = bytes.as_ptr();
+        let complete = finish_verified_envelope(bytes, Ok(true)).unwrap();
+        assert_eq!(complete, [17, 29, 43]);
+        assert_eq!(complete.as_ptr(), pointer);
+        let false_verdict = finish_verified_envelope(vec![17, 29, 43], Ok(false)).unwrap_err();
+        assert_eq!(false_verdict.status, napi::Status::GenericFailure);
+        assert_eq!(
+            false_verdict.reason,
+            "generated Kaigi proof failed canonical native verification"
+        );
+    }
+
+    #[test]
+    fn actual_decoder_refusal_cannot_become_a_false_verdict_or_return_proof_bytes() {
+        let frame = norito::encode_canonical(&vec![1_u8; 32]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let attempt = norito::with_decode_limits_scope(limits, || {
+            norito::core::classify_decode_attempt(|| norito::decode_canonical::<Vec<u8>>(&frame))
+        })
+        .unwrap_err();
+        let original = attempt.into_local_refusal().unwrap();
+        let refusal = iroha_core_zk::VerificationRefusal::from_decode_refusal(original);
+        let error = finish_verified_envelope(vec![17, 29, 43], Err(refusal)).unwrap_err();
+        assert_eq!(error.status, napi::Status::GenericFailure);
+        assert!(error.reason.starts_with("native_verification_unavailable:"));
+        assert!(
+            !error
+                .reason
+                .contains("failed canonical native verification")
+        );
+        assert_eq!(
+            norito::decode_canonical::<Vec<u8>>(&frame).unwrap(),
+            vec![1_u8; 32]
+        );
+    }
 }

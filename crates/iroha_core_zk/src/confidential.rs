@@ -18,7 +18,7 @@ use super::{ProofRelation, confidential_v2 as native};
 /// Callers can distinguish malformed inputs from key preparation and proof
 /// failures without parsing text. Preflight messages never include note values,
 /// spend keys, nonces or path contents.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfidentialProverError {
     /// The reserved all-zero spend key is invalid.
     #[error("confidential spend key must not be all zero")]
@@ -61,10 +61,10 @@ pub enum ConfidentialProverError {
     InvalidChange,
     /// The canonical native proving key could not be prepared.
     #[error("confidential key preparation failed: {0}")]
-    KeyPreparation(String),
+    KeyPreparation(#[source] iroha_plonk::verification_attempt::NativeVerifierInitError),
     /// Native membership, relation, proof generation or self-verification failed.
     #[error("confidential proof generation failed: {0}")]
-    Proving(String),
+    Proving(#[source] native::ConfidentialProofProductionError),
 }
 
 impl native::ConfidentialUnshieldOutputV3 {

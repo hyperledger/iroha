@@ -108,10 +108,20 @@ fn assert_equivalent(frames: &CallFrameMemory) {
                 Perm::EXECUTE,
                 Perm::NONE,
             ] {
-                assert_eq!(
-                    frames.check_access(address, bytes, permission),
-                    summarized_access(frames, address, bytes, permission),
-                    "depth={} address={address} bytes={bytes} permission={permission:?}",
+                let actual = frames.check_access(address, bytes, permission);
+                let expected = summarized_access(frames, address, bytes, permission);
+                let equivalent = match (&actual, &expected) {
+                    (Ok(()), Ok(()))
+                    | (Err(VMError::MemoryOutOfBounds), Err(VMError::MemoryOutOfBounds)) => true,
+                    (
+                        Err(VMError::MemoryAccessViolation { addr: a, perm: p }),
+                        Err(VMError::MemoryAccessViolation { addr: b, perm: q }),
+                    ) => a == b && p == q,
+                    _ => false,
+                };
+                assert!(
+                    equivalent,
+                    "depth={} address={address} bytes={bytes} permission={permission:?}: {actual:?} != {expected:?}",
                     frames.frames.len(),
                 );
             }

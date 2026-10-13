@@ -914,9 +914,8 @@ fn local_refusal_after_native_work_restores_direct_transaction_and_witness() {
     cache_owner.set_checkout_refusal_for_test(Some(reason));
     let (mut block, _recording) = recorded_network_block(&state, &source);
     let before = exec_witness::snapshot_exec_witness();
-    assert_eq!(
-        execute(&mut block, &source),
-        Err(ExecutionOutputAttemptError::Deferred(reason.into()))
+    assert!(
+        matches!(&(execute(&mut block, &source)), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == reason && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
     );
     assert_eq!(exec_witness::snapshot_exec_witness(), before);
     assert_eq!(block.gas_used_in_block, 0);

@@ -6123,15 +6123,16 @@ mod bridge_finality_attestation_progress_tests {
             BuildError::InvalidStatus,
             BuildError::InvalidBody(FinalityError("changed identity or signature".into())),
         ];
-        for error in [
-            ProofError::Chain(ChainReadError::NotCommitted { height: 10 }),
-            ProofError::Chain(ChainReadError::MissingCertificate { height: 10 }),
-            ProofError::Chain(ChainReadError::HeaderMismatch { height: 10 }),
-            ProofError::UnverifiedCommittee(10),
-            ProofError::Portable(FinalityError("invalid certificate".into())),
-        ] {
-            failures.push(BuildError::FinalityProof(error.clone()));
-            failures.push(BuildError::GenesisFinalityProof(error));
+        let completed: [fn() -> ProofError; 5] = [
+            || ProofError::Chain(ChainReadError::NotCommitted { height: 10 }),
+            || ProofError::Chain(ChainReadError::MissingCertificate { height: 10 }),
+            || ProofError::Chain(ChainReadError::HeaderMismatch { height: 10 }),
+            || ProofError::UnverifiedCommittee(10),
+            || ProofError::Portable(FinalityError("invalid certificate".into())),
+        ];
+        for completed in completed {
+            failures.push(BuildError::FinalityProof(completed()));
+            failures.push(BuildError::GenesisFinalityProof(completed()));
         }
         for error in failures {
             let (node_id, network_id) = identity();
@@ -16122,9 +16123,9 @@ fn contract_vm_attempt_error<E>(
     error: ivm::VMError,
     rejected: impl FnOnce(ivm::VMError) -> E,
 ) -> iroha_core::execution_attempt::ExecutionAttemptError<E> {
-    match iroha_core::execution_attempt::ExecutionDeferred::from_vm_error(&error) {
-        Some(reason) => iroha_core::execution_attempt::ExecutionAttemptError::Deferred(reason),
-        None => iroha_core::execution_attempt::ExecutionAttemptError::Rejected(rejected(error)),
+    match iroha_core::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+        Ok(reason) => iroha_core::execution_attempt::ExecutionAttemptError::Deferred(reason),
+        Err(error) => iroha_core::execution_attempt::ExecutionAttemptError::Rejected(rejected(error)),
     }
 }
 
@@ -16614,11 +16615,13 @@ fn execute_contract_call_simulation(
     }
     let run_result = precharge_result.and_then(|()| vm.run_with_host(&mut host))
         .and_then(|()| host.finish_contract_result(&vm));
-    if let Err(error) = &run_result {
-        if let Some(reason) = iroha_core::execution_attempt::ExecutionDeferred::from_vm_error(error) {
-            return Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(reason));
-        }
-    }
+    let run_result = match run_result {
+        Ok(value) => Ok(value),
+        Err(error) => match iroha_core::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+            Ok(reason) => return Err(iroha_core::execution_attempt::ExecutionAttemptError::Deferred(reason)),
+            Err(error) => Err(error),
+        },
+    };
     if let Some(violation) = host.output_budget_violation() {
         return Err(ContractCallSimulationError {
             message: format!("contract call simulation output budget exceeded: {violation:?}"),

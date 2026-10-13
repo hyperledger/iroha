@@ -340,8 +340,8 @@ seiyaku OriginalRegistry { permission CanReadRegistry;
     let (_, chain) = certify_private_root(root);
     let view = chain.state().view();
     assert_eq!(
-        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact),
-        Ok(Some(bytes.clone()))
+        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact).unwrap(),
+        Some(bytes.clone())
     );
     let called = std::cell::Cell::new(false);
     let refused = norito::with_decode_limits_scope(
@@ -357,8 +357,8 @@ seiyaku OriginalRegistry { permission CanReadRegistry;
         "local refusal was returned as completed registry absence"
     );
     assert_eq!(
-        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact),
-        Ok(Some(bytes))
+        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact).unwrap(),
+        Some(bytes)
     );
     assert_eq!(view.height(), 1);
     assert_eq!(chain.kura().blocks_count(), 1);

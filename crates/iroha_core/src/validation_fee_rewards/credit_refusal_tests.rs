@@ -109,20 +109,44 @@ fn check_current_claim_identity_refusal(owner_revision: bool) {
             }
         })
         .unwrap_err();
-        assert!(
-            matches!(&target_refusal, ExecutionAttemptError::Deferred(reason)
-            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                && reason.allocation_refusal().is_none())
+        let ExecutionAttemptError::Deferred(target_refusal) = target_refusal else {
+            panic!("the targeted original identity reader must remain deferred");
+        };
+        assert_eq!(
+            target_refusal.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
+        assert!(target_refusal.allocation_refusal().is_none());
+        let target_decode = target_refusal
+            .decode_refusal()
+            .expect("the actual beneficiary reader retains its original scope")
+            .clone();
         let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
             fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane)
         })
         .unwrap_err();
-        assert!(matches!(&refused, ExecutionAttemptError::Deferred(reason)
-            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-                && reason.allocation_refusal().is_none()));
+        let ExecutionAttemptError::Deferred(refused) = refused else {
+            panic!("the actual fee claim plan must retain its failed reader");
+        };
+        assert_eq!(
+            refused.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(refused.allocation_refusal().is_none());
+        let plan_decode = refused
+            .decode_refusal()
+            .expect("the claim plan retains its actual decoder observer")
+            .clone();
+        assert_ne!(
+            plan_decode, target_decode,
+            "separate real parses have separate original observers"
+        );
+        let restored =
+            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(refused.into_vm_error())
+                .unwrap();
+        assert_eq!(restored.decode_refusal(), Some(&plan_decode));
         assert!(
-            stx.execution_deferral().is_none(),
+            !stx.is_execution_deferred(),
             "a read-only plan retains the original error"
         );
         assert_eq!(
@@ -155,13 +179,19 @@ fn check_current_claim_identity_refusal(owner_revision: bool) {
         });
         assert!(refused.is_err());
         let deferred = stx
-            .execution_deferral()
+            .borrow_execution_deferral()
             .expect("connected signed-claim preparation is sticky");
         assert_eq!(
             deferred.reason(),
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(deferred.allocation_refusal().is_none());
+        let prepared_decode = deferred
+            .decode_refusal()
+            .expect("signed claim preparation keeps the original identity reader");
+        assert_ne!(prepared_decode, &plan_decode);
+        assert_ne!(prepared_decode, &target_decode);
+        drop(deferred);
         assert_eq!(
             stx.world.smart_contract_state.get(&credit_key),
             Some(&before_credit)
@@ -212,7 +242,7 @@ fn check_current_claim_identity_refusal(owner_revision: bool) {
         let retry = block.transaction();
         let prepared = prepare_fee_reward_claim(&retry, &claimant, lane, &plan).unwrap();
         assert_eq!(prepared.plan, plan);
-        assert!(retry.execution_deferral().is_none());
+        assert!(!retry.is_execution_deferred());
     });
 }
 

@@ -203,14 +203,20 @@ fn memory_trap_priority_preserves_architecture_after_exact_gas_debit() {
             vm.registers.set_tag(1, mixed_values);
             let before = registers(&vm);
             let result = vm.run();
-            assert_eq!(
-                result,
-                Err(if insufficient_gas {
-                    VMError::OutOfGas
-                } else {
-                    expected_error.clone()
-                })
-            );
+            let error = result.expect_err("the invalid request must fail before publication");
+            if insufficient_gas {
+                assert!(matches!(error, VMError::OutOfGas));
+            } else {
+                match (&error, &expected_error) {
+                    (VMError::VectorExtensionDisabled, VMError::VectorExtensionDisabled)
+                    | (VMError::PrivacyViolation, VMError::PrivacyViolation) => {}
+                    (
+                        VMError::MisalignedAccess { addr },
+                        VMError::MisalignedAccess { addr: expected },
+                    ) => assert_eq!(addr, expected),
+                    _ => panic!("request returned {error:?}, expected {expected_error:?}"),
+                }
+            }
             assert_eq!(registers(&vm), before);
             assert_eq!((vm.pc(), vm.get_cycle_count()), (0, 0));
             assert_eq!(
@@ -260,7 +266,7 @@ fn public_half_store_preserves_other_half_private_tag_and_mixed_wide_load_reject
         let bytes = vm.memory.load_u128(Memory::STACK_START).unwrap();
         vm.set_program_counter(32).unwrap();
         let gas = vm.gas_remaining;
-        assert_eq!(vm.run(), Err(VMError::PrivacyViolation));
+        assert!(matches!(vm.run(), Err(VMError::PrivacyViolation)));
         assert_eq!(registers(&vm), before);
         assert_eq!(vm.memory.load_u128(Memory::STACK_START).unwrap(), bytes);
         assert_eq!(vm.gas_remaining, gas - 5);
@@ -287,13 +293,10 @@ fn output_forward_gap_is_preserved_and_rewind_traps_without_mutation() {
     vm.set_program_counter(8).unwrap();
     let before = registers(&vm);
     let gas = vm.gas_remaining;
-    assert_eq!(
-        vm.run(),
-        Err(VMError::MemoryAccessViolation {
+    assert!(matches!((&(vm.run()), &(VMError::MemoryAccessViolation {
             addr: (Memory::OUTPUT_START + 8) as u32,
             perm: Perm::WRITE
-        })
-    );
+        })), (Err(VMError::MemoryAccessViolation { addr: __actual_addr, perm: __actual_perm }), VMError::MemoryAccessViolation { addr: __expected_addr, perm: __expected_perm }) if __actual_addr == __expected_addr && __actual_perm == __expected_perm));
     assert_eq!(vm.memory.read_output_used(), original.as_slice());
     assert_eq!(vm.memory.output_used_len(), 24);
     assert_eq!(registers(&vm), before);
@@ -329,13 +332,10 @@ fn signed_immediate_wrap_resolves_the_address_before_region_checks() {
         vm.set_register(3, u64::MAX);
         let before = registers(&vm);
         let code = vm.memory.load_u64(0).unwrap();
-        assert_eq!(
-            vm.run(),
-            Err(VMError::MemoryAccessViolation {
+        assert!(matches!((&(vm.run()), &(VMError::MemoryAccessViolation {
                 addr: 0,
                 perm: Perm::WRITE
-            })
-        );
+            })), (Err(VMError::MemoryAccessViolation { addr: __actual_addr, perm: __actual_perm }), VMError::MemoryAccessViolation { addr: __expected_addr, perm: __expected_perm }) if __actual_addr == __expected_addr && __actual_perm == __expected_perm));
         assert_eq!(registers(&vm), before);
         assert_eq!(vm.memory.load_u64(0).unwrap(), code);
         assert_eq!(vm.gas_remaining, 97);
@@ -353,7 +353,10 @@ fn zk_padding_gas_failure_preserves_completed_memory_effects_and_padded_cycles()
         vm.set_register(3, address);
         let before = registers(&vm);
         assert_eq!(vm.memory.load_u64(address).unwrap(), 0);
-        assert_eq!(vm.run(), outcome);
+        assert!(matches!(
+            (vm.run(), outcome),
+            (Ok(()), Ok(())) | (Err(VMError::OutOfGas), Err(VMError::OutOfGas))
+        ));
         assert_eq!(registers(&vm), before);
         assert_eq!(vm.memory.load_u64(address).unwrap(), LOW);
         assert_eq!(vm.gas_remaining, remaining);

@@ -193,10 +193,10 @@ mod tests {
             let result = tx.authenticate_musubi_pin_outbox_floor(floor, work, max_bytes);
             assert_eq!(result.is_ok(), succeeds);
             if succeeds {
-                assert_eq!(tx.execution_deferral(), None);
+                assert!(!tx.is_execution_deferred());
                 assert_eq!(chain.kura().canonical_query_reads_for_test(), (1, bytes));
             } else {
-                let refusal = tx.execution_deferral().unwrap();
+                let refusal = tx.borrow_execution_deferral().unwrap();
                 assert_eq!(
                     refusal.reason(),
                     ExecutionDeferral::CanonicalHistoryCapacity
@@ -238,7 +238,7 @@ mod tests {
                     .authenticate_musubi_pin_outbox_floor(floor, 1, u64::MAX))
                 .is_err()
             );
-            let refusal = tx.execution_deferral().unwrap();
+            let refusal = tx.borrow_execution_deferral().unwrap();
             assert_eq!(refusal.reason(), ExecutionDeferral::ActiveMemoryCapacity);
             assert_eq!(refusal.allocation_refusal(), sticky.then_some(&original));
         }
@@ -251,7 +251,7 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            tx.execution_deferral().unwrap().allocation_refusal(),
+            tx.borrow_execution_deferral().unwrap().allocation_refusal(),
             Some(&original)
         );
         drop(tx);
@@ -343,12 +343,20 @@ mod tests {
             .state()
             .read_committed_execution(height, work - 1, bytes)
             .unwrap_err();
-        assert_eq!(
-            work_refusal,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into()
-            )
-        );
+        {
+            let crate::execution_attempt::ExecutionAttemptError::Deferred(actual) = work_refusal
+            else {
+                panic!("local refusal cannot become a completed verdict")
+            };
+            assert_eq!(
+                actual.reason(),
+                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity
+            );
+            assert_eq!(actual.phase(), None);
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.decode_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+        };
         let byte_refusal = chain
             .state()
             .read_committed_execution(height, work, bytes - 1)

@@ -452,21 +452,21 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
                         Some(&Json::new(role))
                     );
                     let asset_id = AssetId::new(localnet_xor_asset_definition_id(), id.clone());
-                    assert_eq!(
-                        iroha_data_model::query::asset::prelude::FindAssetById {
-                            id: asset_id.clone()
-                        }
-                        .execute(staged),
-                        Err(
+                    let error = iroha_data_model::query::asset::prelude::FindAssetById {
+                        id: asset_id.clone(),
+                    }
+                    .execute(staged)
+                    .expect_err("native reserve accounts start without a funded asset");
+                    assert!(
+                        matches!(
+                            error,
                             iroha_core::execution_attempt::ExecutionAttemptError::Rejected(
                                 iroha_data_model::query::error::QueryExecutionFail::Find(
-                                    iroha_data_model::query::error::FindError::Asset(Box::new(
-                                        asset_id
-                                    )),
-                                ),
-                            )
+                                    iroha_data_model::query::error::FindError::Asset(found)
+                                )
+                            ) if *found == asset_id
                         ),
-                        "native reserve accounts start without a funded asset",
+                        "the exact missing asset must be a completed rejection, not a local refusal",
                     );
                 }
                 let policy = iroha_core::sumeragi::staged_genesis_execution_policy_hash(staged)

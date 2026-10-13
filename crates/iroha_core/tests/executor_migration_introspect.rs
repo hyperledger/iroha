@@ -83,9 +83,11 @@ fn tiny_halt_bytecode_cannot_select_fixture_migration_behavior() {
         let error = executor
             .migrate(raw, &mut state_transaction, &ALICE_ID)
             .expect_err("a HALT-only program does not return a canonical migration result");
-        assert_eq!(
-            error,
-            VMError::DecodeError,
+        assert!(
+            matches!(
+                error,
+                iroha_core::executor::ExecutorMigrationError::Rejected(VMError::DecodeError)
+            ),
             "vector-length metadata must not select host fixture behavior"
         );
         assert!(

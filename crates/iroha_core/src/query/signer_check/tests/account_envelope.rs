@@ -247,9 +247,8 @@ fn native_signed_envelope_owner_rejects_sidecars_extras_signatures_and_other_ent
             salt: [1; 32],
         }),
     ] {
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&entry),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(final_promotion_native_signed_entry_frame_v1(&entry), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 FinalPromotionAccountObservationErrorV1::Transaction
             ))
         );
@@ -270,16 +269,17 @@ fn native_signed_envelope_owner_uses_the_same_exact_complete_frame_ceiling() {
                 .checked_add_signed(delta)
                 .unwrap()
         );
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&entry),
-            if delta <= 0 {
-                Ok(exact)
-            } else {
+        let actual = final_promotion_native_signed_entry_frame_v1(&entry);
+        if delta <= 0 {
+            assert_eq!(actual.expect("fitting native frame"), exact);
+        } else {
+            assert!(matches!(
+                actual,
                 Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
-                    FinalPromotionAccountObservationErrorV1::Transaction,
+                    FinalPromotionAccountObservationErrorV1::Transaction
                 ))
-            }
-        );
+            ));
+        }
     }
 }
 
@@ -303,15 +303,13 @@ fn native_signed_envelope_rejects_genuinely_signed_genesis_and_missing_lifetime(
     assert!(missing_ttl.time_to_live().is_none());
     for signed in [genesis, missing_ttl] {
         signed.verify_signature().unwrap();
-        assert_eq!(
-            native_signed_transaction_frame_attempt_v1(&signed),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(native_signed_transaction_frame_attempt_v1(&signed), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 Error::Transaction
             ))
         );
-        assert_eq!(
-            final_promotion_native_signed_entry_frame_v1(&TransactionEntrypoint::External(signed)),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(final_promotion_native_signed_entry_frame_v1(&TransactionEntrypoint::External(signed)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 FinalPromotionAccountObservationErrorV1::Transaction
             ))
         );

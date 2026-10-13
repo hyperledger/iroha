@@ -887,22 +887,26 @@ mod prefetch_tests {
         let detail_key = format!("account.detail:{alice}:quota");
         let expected = alice.clone();
         assert_eq!(
-            parse_account_from_access_key(
+            (parse_account_from_access_key(
                 &world_view,
                 &DataSpaceCatalog::default(),
                 &format!("account:{alice}"),
                 0,
-            ),
-            Ok(Some(expected.clone()))
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(expected.clone()))
         );
         assert_eq!(
-            parse_account_from_access_key(
+            (parse_account_from_access_key(
                 &world_view,
                 &DataSpaceCatalog::default(),
                 &detail_key,
                 0,
-            ),
-            Ok(Some(expected.clone()))
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(expected.clone()))
         );
         assert_eq!(expected.subject_id(), alice.subject_id());
         assert!(
@@ -928,13 +932,15 @@ mod prefetch_tests {
         let i105 = alice.canonical_i105().expect("i105 encoding");
         let literal = format!("{i105}@{wonderland}");
         assert_eq!(
-            parse_account_literal_with_world(
+            (parse_account_literal_with_world(
                 &world_view,
                 &DataSpaceCatalog::default(),
                 &literal,
                 0,
-            ),
-            Ok(None)
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(None)
         );
     }
     #[test]
@@ -947,10 +953,8 @@ mod prefetch_tests {
         let world = World::with([domain], [account], []);
         let world_view = world.view();
         let i105 = alice.canonical_i105().expect("i105 encoding");
-        assert_eq!(
-            parse_account_literal_with_world(&world_view, &DataSpaceCatalog::default(), &i105, 0,),
-            Ok(Some(alice))
-        );
+        assert_eq!((parse_account_literal_with_world(&world_view, &DataSpaceCatalog::default(), &i105, 0,)).as_ref().expect("the operation must complete successfully"),
+&(Some(alice)));
     }
     #[test]
     fn parse_account_literal_accepts_canonical_i105_without_domain_materialization() {
@@ -966,13 +970,15 @@ mod prefetch_tests {
             .canonical_i105()
             .expect("canonical I105 account literal");
         assert_eq!(
-            parse_account_literal_with_world(
+            (parse_account_literal_with_world(
                 &world_view,
                 &DataSpaceCatalog::default(),
                 &encoded,
                 0,
-            ),
-            Ok(Some(account)),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(account)),
             "canonical I105 account ids must remain valid without domain-linked account materialization"
         );
     }
@@ -1017,13 +1023,15 @@ mod prefetch_tests {
         );
         let world_view = world.view();
         assert_eq!(
-            parse_account_literal_with_world(
+            (parse_account_literal_with_world(
                 &world_view,
                 &DataSpaceCatalog::default(),
                 "gas@ivm.universal",
                 0,
-            ),
-            Ok(Some(account_id)),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(account_id)),
             "account selectors must resolve active on-chain aliases to canonical account ids"
         );
     }
@@ -1081,13 +1089,15 @@ mod prefetch_tests {
         let state_view = state.view();
         let world_view = state_view.world();
         assert_eq!(
-            parse_account_literal_with_world(
+            (parse_account_literal_with_world(
                 world_view,
                 &state_view.nexus.dataspace_catalog,
                 "treasury@retail",
                 0,
-            ),
-            Ok(Some(account_id.clone())),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(account_id.clone())),
             "account selectors must resolve aliases in non-default dataspaces"
         );
     }
@@ -1891,23 +1901,29 @@ impl BlockValidationError {
             Self::StateStorageAdmission(local.clone())
         } else if let Some(local) = error.downcast_ref::<crate::state::EvidencePreparationError>() {
             Self::EvidencePreparation(local.clone())
-        } else if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-            error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<String>>()
-        {
-            Self::ExecutionDeferred(reason.clone())
-        } else if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-            error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<
-                iroha_data_model::isi::error::InstructionExecutionError,
-            >>()
-        {
-            Self::ExecutionDeferred(reason.clone())
-        } else if let Some(crate::sumeragi::evidence::EvidenceAdmissionError::Policy(
-            crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
-        )) = error.downcast_ref::<crate::sumeragi::evidence::EvidenceAdmissionError>()
-        {
-            Self::ExecutionDeferred(reason.clone())
         } else {
-            Self::NposEffectsInvalid(format!("{stage}: {error}"))
+            use crate::execution_attempt::ExecutionAttemptError;
+            let error = match error.downcast::<ExecutionAttemptError<String>>() {
+                Ok(ExecutionAttemptError::Deferred(original)) => {
+                    return Self::ExecutionDeferred(original);
+                }
+                Ok(ExecutionAttemptError::Rejected(completed)) => {
+                    return Self::NposEffectsInvalid(format!("{stage}: {completed}"));
+                }
+                Err(error) => error,
+            };
+            let error = match error.downcast::<ExecutionAttemptError<iroha_data_model::isi::error::InstructionExecutionError>>() {
+                Ok(ExecutionAttemptError::Deferred(original)) => return Self::ExecutionDeferred(original),
+                Ok(ExecutionAttemptError::Rejected(completed)) => return Self::NposEffectsInvalid(format!("{stage}: {completed}")),
+                Err(error) => error,
+            };
+            match error.downcast::<crate::sumeragi::evidence::EvidenceAdmissionError>() {
+                Ok(crate::sumeragi::evidence::EvidenceAdmissionError::Policy(
+                    ExecutionAttemptError::Deferred(original),
+                )) => Self::ExecutionDeferred(original),
+                Ok(completed) => Self::NposEffectsInvalid(format!("{stage}: {completed}")),
+                Err(error) => Self::NposEffectsInvalid(format!("{stage}: {error}")),
+            }
         }
     }
 }
@@ -6452,8 +6468,16 @@ pub(crate) mod valid {
             // Reserve evidence space for mandatory historical reward progress
             // before the optional idle-wallet batch. The sweep's own budget
             // check rolls its batch back when the remaining corpus is full.
-            crate::retail_fee::process_idle_accounts(state_block)
-                .map_err(BlockValidationError::StateStorageAdmission)?;
+            crate::retail_fee::process_idle_accounts(state_block).map_err(
+                |attempt| match attempt {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
+                        BlockValidationError::ExecutionDeferred(original)
+                    }
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                        BlockValidationError::StateStorageAdmission(error)
+                    }
+                },
+            )?;
             let finalize = |state: &mut StateBlock<'_>,
                             source: &SignedBlock,
                             routes: &[crate::queue::RoutingDecision]| {
@@ -6469,7 +6493,45 @@ pub(crate) mod valid {
                             BlockValidationError::from(error)
                         }
                     })?;
+                // TODO: Retire these test-only observations after the real finite-pool
+                // finalizer fixture records the cumulative demand at this boundary.
+                #[cfg(test)]
+                eprintln!(
+                    "native lane finalizer before: height={}, reserved={}, limit={}, peak={}, samples={}",
+                    source.header().height().get(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .reserved_bytes(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .limit_bytes(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .peak_reserved_bytes(),
+                    state.world.sumeragi_lanes().samples.len(),
+                );
                 let lane_outcome = state.advance_requested_sumeragi_lanes();
+                #[cfg(test)]
+                eprintln!(
+                    "native lane finalizer after: height={}, reserved={}, limit={}, peak={}, samples={}, outcome={lane_outcome:?}",
+                    source.header().height().get(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .reserved_bytes(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .limit_bytes(),
+                    state
+                        .pipeline_ivm_prepared_cache
+                        .execution_budget()
+                        .peak_reserved_bytes(),
+                    state.world.sumeragi_lanes().samples.len(),
+                );
                 // A local lane refusal must return the original proposal from validation,
                 // before any successful seal transfers it to the executor's one-shot takes.
                 if !cfg!(all(test, sumeragi_core_mutation = "HC133")) {
@@ -9603,7 +9665,8 @@ pub(crate) mod tests {
         )
         .into();
         let expected_confidential_gas =
-            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS);
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed fixture gas quote");
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority,
@@ -9698,7 +9761,8 @@ pub(crate) mod tests {
             let expected_gas = crate::gas::meter_instructions(
                 core::slice::from_ref(&instruction),
                 &crate::gas::DEFAULT_ZK_GAS,
-            );
+            )
+            .expect("completed fixture gas quote");
             assert!(expected_gas > 0, "the fixture must consume gas");
             let accepted = [0_u64, 1_u64, 2_u64]
                 .into_iter()
@@ -9797,7 +9861,8 @@ pub(crate) mod tests {
         let expected_gas = crate::gas::meter_instructions(
             core::slice::from_ref(&instruction),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
+        )
+        .expect("completed fixture gas quote");
         assert!(expected_gas > 0, "the fixture must consume gas");
         let transaction = TransactionBuilder::new(
             state.network_id,

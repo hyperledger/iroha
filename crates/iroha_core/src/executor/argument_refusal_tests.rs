@@ -4,7 +4,7 @@ mod argument_refusal_tests {
     use crate::execution_attempt::{ExecutionAttemptError, expect_completed_rejection};
     use norito::core::{DecodeLimits, with_decode_limits_measured, with_decode_limits_scope};
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, ::core::fmt::Debug)]
     enum Route {
         Invocation,
         Metadata,
@@ -147,15 +147,17 @@ mod argument_refusal_tests {
                 owner.allocation_refusal().is_none(),
                 "no invented pool wake source"
             );
-            assert!(transaction.execution_deferral().is_none());
+            assert!(!transaction.is_execution_deferred());
             transaction.attempt_error_to_validation_fail(error);
-            let sticky = transaction.execution_deferral().unwrap();
+            let sticky = transaction.take_execution_deferral().unwrap();
             assert_eq!(sticky.decode_refusal(), Some(&original));
-            let roundtrip = crate::execution_attempt::ExecutionDeferred::from_vm_error(
-                &sticky.clone().into_vm_error(),
+            let roundtrip = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                sticky.into_vm_error(),
             )
             .unwrap();
-            assert_eq!(roundtrip, sticky);
+            assert_eq!(roundtrip.decode_refusal(), Some(&original));
+            assert!(transaction.is_execution_deferred());
+            assert!(transaction.borrow_execution_deferral().is_none());
             assert_eq!(
                 (
                     transaction.last_tx_gas_used,
@@ -362,24 +364,25 @@ seiyaku DeferredArguments { permission Admin;
             );
             if refuse {
                 result.expect_err("canonical argument admission must defer the actual executor");
-                let sticky = tx.execution_deferral().expect(
+                let sticky = tx.take_execution_deferral().expect(
                     "the live executor boundary, without a manual test bridge, must arm State",
                 );
                 let original = sticky
                     .decode_refusal()
-                    .expect("the original argument counter owner");
+                    .expect("the original argument counter owner")
+                    .clone();
                 assert_eq!(
                     original.kind(),
                     norito::core::DecodeLocalRefusalKind::EnclosingLimit
                 );
-                assert_eq!(
-                    crate::execution_attempt::ExecutionDeferred::from_vm_error(
-                        &sticky.clone().into_vm_error(),
-                    )
-                    .unwrap(),
-                    sticky
-                );
                 assert!(sticky.allocation_refusal().is_none());
+                let roundtrip = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                    sticky.into_vm_error(),
+                )
+                .unwrap();
+                assert_eq!(roundtrip.decode_refusal(), Some(&original));
+                assert!(tx.is_execution_deferred());
+                assert!(tx.borrow_execution_deferral().is_none());
                 assert_eq!(
                     (
                         tx.last_tx_gas_used,
@@ -403,7 +406,7 @@ seiyaku DeferredArguments { permission Admin;
             } else {
                 result
                     .expect("the unchanged signed call must execute after the local scope retires");
-                assert!(tx.execution_deferral().is_none());
+                assert!(!tx.is_execution_deferred());
                 tx.finish_execution_effect_budget().unwrap();
             }
             assert_eq!(invocation.arguments.as_deref(), Some(record.as_slice()));

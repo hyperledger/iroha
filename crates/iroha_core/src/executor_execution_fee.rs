@@ -254,7 +254,7 @@ impl ExecutionFeeSettlement {
             // A fee its signed intent does not cover, or its payer cannot pay, is not charged
             // to a root exempt on success; the failure keeps its own rejection reason and the
             // caller drops this fee-only overlay. A local deferral is never absorbed.
-            Err(_) if on_success_only && state.execution_deferral().is_none() => Ok(false),
+            Err(_) if on_success_only && !state.is_execution_deferred() => Ok(false),
             Err(error) => Err(ExecutionFeeSettlementError::Charge(error)),
         }
     }

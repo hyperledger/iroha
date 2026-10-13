@@ -1,5 +1,6 @@
 //! Native dispatch, governed key identity and policy regressions using real proofs.
 use super::*;
+use crate::verification::expect_rejected;
 use crate::{
     PreparedVerifyingKeyMaterialV1, ProofRelation, ProofVerificationError, ZkVerifyGuardrails,
 };
@@ -22,11 +23,15 @@ fn native_proof_carrier_cap_precedes_decode_and_includes_the_boundary() {
     // Malformed frames within the cap reach the canonical decoder. The exact
     // boundary is a resource admission boundary, not a valid circuit proof size.
     for len in [MAX_PROOF_BYTES - 1, MAX_PROOF_BYTES] {
-        let error = decode_native(kind, &vec![0; len]).unwrap_err();
+        let error = decode_native(kind, &vec![0; len])
+            .map_err(|original| expect_rejected(original).to_string())
+            .unwrap_err();
         assert_ne!(error, cap_error);
     }
     assert_eq!(
-        decode_native(kind, &vec![0; MAX_PROOF_BYTES + 1]).unwrap_err(),
+        decode_native(kind, &vec![0; MAX_PROOF_BYTES + 1])
+            .map_err(|original| expect_rejected(original).to_string())
+            .unwrap_err(),
         cap_error
     );
 }
@@ -40,6 +45,7 @@ fn native_confidential_fixture_is_genuine_cached_and_relation_scoped() {
     let key = first.vk_box(BACKEND).unwrap();
     assert!(
         crate::verify_for_relation(ProofRelation::ConfidentialTransfer, &proof, &key, policy(),)
+            .map_err(expect_rejected)
             .is_ok()
     );
     for relation in [
@@ -47,7 +53,7 @@ fn native_confidential_fixture_is_genuine_cached_and_relation_scoped() {
         ProofRelation::ConfidentialFullUnshield,
     ] {
         assert!(matches!(
-            crate::verify_for_relation(relation, &proof, &key, policy()),
+            crate::verify_for_relation(relation, &proof, &key, policy()).map_err(expect_rejected),
             Err(ProofVerificationError::RelationMismatch { .. }),
         ));
     }
@@ -86,6 +92,7 @@ fn native_key_records_bind_curve_schema_relation_length_and_compiled_key() {
                     kind.circuit_id(),
                     &VerifyingKeyBox::new(BACKEND.into(), bytes),
                 )
+                .map_err(expect_rejected)
                 .is_err()
             );
         }
@@ -103,33 +110,61 @@ fn native_key_records_bind_curve_schema_relation_length_and_compiled_key() {
         record.gas_schedule_id = Some("native-kaigi".into());
         record.key = Some(key);
         assert_eq!(
-            crate::validate_and_prepare_verifying_key_record_v1(&id, &record).unwrap(),
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &record)
+                .map_err(expect_rejected)
+                .unwrap(),
             Some(PreparedVerifyingKeyMaterialV1::NativePipaRPasta { ipa_k: kind.k() })
         );
         let mut changed = record.clone();
         changed.curve = "pallas".into();
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         let mut changed = record.clone();
         changed.public_inputs_schema_hash[0] ^= 1;
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         let mut changed = record.clone();
         changed.vk_len += 1;
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         let mut changed = record.clone();
         changed.key.as_mut().unwrap().bytes[0] ^= 1;
         changed.commitment = crate::hash_vk(changed.key.as_ref().unwrap());
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         let mut changed = record.clone();
         changed.circuit_id = "pipa-r/pasta/unreviewed".into();
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         let mut changed = record.clone();
         changed.key = None;
         assert_eq!(
-            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).unwrap(),
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .unwrap(),
             None
         );
         changed.vk_len = MAX_KEY_BYTES as u32 + 1;
-        assert!(crate::validate_and_prepare_verifying_key_record_v1(&id, &changed).is_err());
+        assert!(
+            crate::validate_and_prepare_verifying_key_record_v1(&id, &changed)
+                .map_err(expect_rejected)
+                .is_err()
+        );
     }
 }
 #[test]
@@ -146,6 +181,7 @@ fn native_real_proofs_obey_relation_policy_caps_and_preverify() {
     ] {
         assert_eq!(
             crate::verify_for_relation(relation, &proof, &key, policy())
+                .map_err(expect_rejected)
                 .unwrap()
                 .relation(),
             relation
@@ -156,36 +192,43 @@ fn native_real_proofs_obey_relation_policy_caps_and_preverify() {
             ProofRelation::KaigiUsage
         };
         assert!(matches!(
-            crate::verify_for_relation(wrong, &proof, &key, policy()),
+            crate::verify_for_relation(wrong, &proof, &key, policy()).map_err(expect_rejected),
             Err(ProofVerificationError::RelationMismatch { .. })
         ));
         let envelope: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
         let kind = validate_metadata(BACKEND, &envelope).unwrap();
         assert_eq!(
-            public_instances(BACKEND, &envelope).unwrap()[0].len(),
+            public_instances(BACKEND, &envelope)
+                .map_err(expect_rejected)
+                .unwrap()[0]
+                .len(),
             kind.instance_rows()
         );
         let mut limits = policy();
         limits.pipa_r_enabled = false;
         assert_eq!(
-            crate::verify_for_relation(relation, &proof, &key, limits),
+            crate::verify_for_relation(relation, &proof, &key, limits).map_err(expect_rejected),
             Err(ProofVerificationError::BackendDisabled)
         );
         limits = policy();
         limits.pipa_r_max_envelope_bytes = proof.bytes.len() - 1;
         assert!(matches!(
-            crate::verify_for_relation(relation, &proof, &key, limits),
+            crate::verify_for_relation(relation, &proof, &key, limits).map_err(expect_rejected),
             Err(ProofVerificationError::EnvelopeTooLarge { .. })
         ));
         limits = policy();
         limits.pipa_r_max_proof_bytes = envelope.proof_bytes.len() - 1;
         assert!(matches!(
-            crate::verify_for_relation(relation, &proof, &key, limits),
+            crate::verify_for_relation(relation, &proof, &key, limits).map_err(expect_rejected),
             Err(ProofVerificationError::ProofTooLarge { .. })
         ));
         limits.pipa_r_max_proof_bytes += 1;
         limits.pipa_r_max_envelope_bytes = proof.bytes.len();
-        assert!(crate::verify_for_relation(relation, &proof, &key, limits).is_ok());
+        assert!(
+            crate::verify_for_relation(relation, &proof, &key, limits)
+                .map_err(expect_rejected)
+                .is_ok()
+        );
         let mut dedup = crate::DedupCache::new();
         assert_eq!(
             crate::preverify_with_budget(
@@ -196,26 +239,47 @@ fn native_real_proofs_obey_relation_policy_caps_and_preverify() {
                 Some(crate::hash_vk(&key)),
                 Some(crate::hash_vk(&key)),
                 true
-            ),
+            )
+            .expect("completed preverification"),
             crate::PreverifyResult::Accepted
         );
-        assert!(!verify(BACKEND, &proof, None));
+        assert!(
+            !verify(BACKEND, &proof, None)
+                .map_err(expect_rejected)
+                .is_ok()
+        );
         let mut bad = envelope.clone();
         bad.aux.push(1);
-        assert!(public_instances(BACKEND, &bad).is_err());
+        assert!(
+            public_instances(BACKEND, &bad)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         bad = envelope.clone();
         bad.proof_bytes.resize(128 * 1024 + 1, 0);
-        assert!(public_instances(BACKEND, &bad).is_err());
+        assert!(
+            public_instances(BACKEND, &bad)
+                .map_err(expect_rejected)
+                .is_err()
+        );
         bad = envelope.clone();
         let mut inner: NativePipaRProofV1 = norito::decode_canonical(&bad.proof_bytes).unwrap();
         inner.public_inputs[0] = [255; 32];
         bad.proof_bytes = norito::encode_canonical(&inner).unwrap();
-        assert!(public_instances(BACKEND, &bad).is_err());
-        assert!(!verify(
-            BACKEND,
-            &ProofBox::new(BACKEND.into(), norito::encode_canonical(&bad).unwrap()),
-            Some(&key)
-        ));
+        assert!(
+            public_instances(BACKEND, &bad)
+                .map_err(expect_rejected)
+                .is_err()
+        );
+        assert!(
+            !verify(
+                BACKEND,
+                &ProofBox::new(BACKEND.into(), norito::encode_canonical(&bad).unwrap()),
+                Some(&key)
+            )
+            .map_err(expect_rejected)
+            .is_ok()
+        );
     }
 }
 
@@ -246,18 +310,25 @@ fn native_framing_fixture_has_exact_schema_but_cannot_verify() {
         );
         let kind = validate_metadata(BACKEND, &envelope).unwrap();
         assert_eq!(
-            public_instances(BACKEND, &envelope).unwrap()[0].len(),
+            public_instances(BACKEND, &envelope)
+                .map_err(expect_rejected)
+                .unwrap()[0]
+                .len(),
             kind.instance_rows()
         );
         assert_eq!(
             fixture.schema_hash,
             <[u8; 32]>::from(iroha_crypto::Hash::new(&fixture.public_inputs))
         );
-        assert!(!verify(
-            BACKEND,
-            &ProofBox::new(BACKEND.into(), fixture.proof_bytes),
-            Some(&key)
-        ));
+        assert!(
+            !verify(
+                BACKEND,
+                &ProofBox::new(BACKEND.into(), fixture.proof_bytes),
+                Some(&key)
+            )
+            .map_err(expect_rejected)
+            .is_ok()
+        );
     }
 }
 
@@ -328,10 +399,14 @@ fn native_compiled_descriptors_bind_pinned_parameters_and_exact_domains() {
             };
             let key =
                 VerifyingKeyBox::new(BACKEND.into(), norito::encode_canonical(&foreign).unwrap());
-            assert_eq!(
-                validate_key(BACKEND, kind.circuit_id(), &key).unwrap_err(),
-                "native PIPA-R key differs from the compiled relation"
-            );
+            assert!(matches!(
+                validate_key(BACKEND, kind.circuit_id(), &key)
+                    .map_err(expect_rejected)
+                    .unwrap_err(),
+                NativeVerificationError::Invalid(
+                    "native PIPA-R key differs from the compiled relation"
+                )
+            ));
         }
     }
 }
@@ -345,24 +420,158 @@ fn native_parameter_admission_rejects_unadmitted_and_oversized_sources() {
         "halo2/pasta/ipa/kaigi-roster-v1",
     ] {
         assert_eq!(relation(BACKEND, circuit), None);
-        assert_eq!(
-            validate_key(BACKEND, circuit, &key).unwrap_err(),
-            "unadmitted native PIPA-R key relation"
-        );
+        assert!(matches!(
+            validate_key(BACKEND, circuit, &key)
+                .map_err(expect_rejected)
+                .unwrap_err(),
+            NativeVerificationError::Invalid("unadmitted native PIPA-R key relation")
+        ));
     }
     for kind in NativeRelationV1::ALL {
         for backend in ["PIPA-R/PASTA", "pipa-r/pasta ", "halo2/ipa", "stark/fri"] {
             assert_eq!(relation(backend, kind.circuit_id()), None);
             let foreign = VerifyingKeyBox::new(backend.into(), Vec::new());
-            assert_eq!(
-                validate_key(backend, kind.circuit_id(), &foreign).unwrap_err(),
-                "unadmitted native PIPA-R key relation"
-            );
+            assert!(matches!(
+                validate_key(backend, kind.circuit_id(), &foreign)
+                    .map_err(expect_rejected)
+                    .unwrap_err(),
+                NativeVerificationError::Invalid("unadmitted native PIPA-R key relation")
+            ));
         }
         let oversized = VerifyingKeyBox::new(BACKEND.into(), vec![0; MAX_KEY_BYTES + 1]);
-        assert_eq!(
-            validate_key(BACKEND, kind.circuit_id(), &oversized).unwrap_err(),
-            "invalid native PIPA-R key container"
-        );
+        assert!(matches!(
+            validate_key(BACKEND, kind.circuit_id(), &oversized)
+                .map_err(expect_rejected)
+                .unwrap_err(),
+            NativeVerificationError::Invalid("invalid native PIPA-R key container")
+        ));
     }
+}
+
+#[test]
+fn original_refusal_native_dispatch_and_preverify_retry_without_verdict_or_dedup() {
+    let (proof, key) = crate::kaigi_authorization_v1_tests::valid_envelope(BACKEND);
+    let input = proof.bytes.clone();
+    let envelope: OpenVerifyEnvelope = norito::decode_canonical(&proof.bytes).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        crate::verify_backend_with_timing_guardrails(BACKEND, &proof, Some(&key), policy())
+    })
+    .unwrap_err();
+    let owner = refused
+        .decode_refusal()
+        .expect("original outer reader refusal")
+        .clone();
+    assert_eq!(
+        owner.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(refused.decode_refusal(), Some(&owner));
+    });
+    let inner = norito::with_decode_limits_scope(limits, || public_instances(BACKEND, &envelope))
+        .unwrap_err();
+    assert!(inner.local_refusal().is_some());
+    let purpose = norito::with_decode_limits_scope(limits, || {
+        crate::verify_for_relation(ProofRelation::KaigiAuthorization, &proof, &key, policy())
+    })
+    .unwrap_err();
+    assert!(purpose.local_refusal().is_some());
+    let mut dedup = crate::DedupCache::new();
+    let commitment = crate::hash_vk(&key);
+    let refused_preverify = norito::with_decode_limits_scope(limits, || {
+        crate::preverify_with_budget(
+            &proof,
+            Some(&key),
+            &mut dedup,
+            0,
+            Some(commitment),
+            Some(commitment),
+            true,
+        )
+    })
+    .unwrap_err();
+    assert!(refused_preverify.decode_refusal().is_some());
+    assert_eq!(
+        crate::preverify_with_budget(
+            &proof,
+            Some(&key),
+            &mut dedup,
+            0,
+            Some(commitment),
+            Some(commitment),
+            true
+        )
+        .unwrap(),
+        crate::PreverifyResult::Accepted
+    );
+    assert_eq!(
+        crate::preverify_with_budget(
+            &proof,
+            Some(&key),
+            &mut dedup,
+            0,
+            Some(commitment),
+            Some(commitment),
+            true
+        )
+        .unwrap(),
+        crate::PreverifyResult::Duplicate
+    );
+    assert!(
+        crate::verify_backend_with_timing_guardrails(BACKEND, &proof, Some(&key), policy())
+            .unwrap()
+            .ok
+    );
+    assert_eq!(
+        public_instances(BACKEND, &envelope).unwrap()[0].len(),
+        KaigiRelation::Authorization.instance_rows()
+    );
+    assert_eq!(proof.bytes, input);
+    let malformed = ProofBox::new(BACKEND.into(), vec![0, 1, 2]);
+    assert!(
+        !norito::with_decode_limits_scope(limits, || {
+            crate::verify_backend_with_timing_guardrails(BACKEND, &malformed, Some(&key), policy())
+        })
+        .unwrap()
+        .ok
+    );
+}
+
+#[test]
+fn original_refusal_compiled_key_decoder_leaves_success_cache_retryable() {
+    let cache = OnceLock::new();
+    let gate = Mutex::new(());
+    let carrier = CompiledVerifyingKeyV1 {
+        descriptor: vec![7; 48],
+        key: vec![11; 64],
+    };
+    let encoded = norito::encode_canonical(&carrier).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    assert_eq!(
+        norito::with_decode_limits_scope(limits, || norito::encode_canonical(&carrier)).unwrap(),
+        encoded
+    );
+    // This generic initializer control uses a real canonical reader refusal, followed by the
+    // same-carrier decode/encode retry. It makes no claim about writer allocation refusal.
+    // TODO: qualify actual native writer allocation refusal separately.
+    let build = || {
+        codec_attempt(
+            || {
+                let decoded: CompiledVerifyingKeyV1 = norito::decode_canonical(&encoded)?;
+                norito::encode_canonical(&decoded)
+            },
+            NativeVerificationError::Codec,
+        )
+    };
+    let error =
+        norito::with_decode_limits_scope(limits, || initialize_compiled_key(&cache, &gate, build))
+            .unwrap_err();
+    assert!(error.local_refusal().is_some());
+    assert!(cache.get().is_none());
+    let ready = initialize_compiled_key(&cache, &gate, build).unwrap();
+    assert_eq!(ready, norito::encode_canonical(&carrier).unwrap());
+    let repeated =
+        initialize_compiled_key(&cache, &gate, || panic!("successful key rebuilt")).unwrap();
+    assert!(std::ptr::eq(ready, repeated));
 }

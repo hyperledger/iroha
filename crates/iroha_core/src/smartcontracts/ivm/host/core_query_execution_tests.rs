@@ -89,7 +89,10 @@ fn execute_query_rejects_oversized_singular_response_before_output_allocation() 
     let error = host
         .syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY, &mut vm)
         .expect_err("oversized singular query must exhaust its byte budget");
-    assert_eq!(error, ivm::VMError::OutOfGas);
+    assert!(matches!(
+        (&(error), &(ivm::VMError::OutOfGas)),
+        (ivm::VMError::OutOfGas, ivm::VMError::OutOfGas)
+    ));
     assert_eq!(
         vm.register(10),
         request_ptr,
@@ -562,10 +565,15 @@ fn core_query_get_respects_user_executor_denial_for_every_entity() {
             let error = host
                 .syscall(ivm_sys::SYSCALL_CORE_QUERY_GET, &mut vm)
                 .expect_err("deny-all executor must reject typed entity reads");
-            assert_eq!(
-                error,
-                ivm::VMError::PermissionDenied,
-                "{presence} entity {tag:?}",
+            assert!(
+                matches!(
+                    (&(error), &(ivm::VMError::PermissionDenied)),
+                    (
+                        ivm::VMError::PermissionDenied,
+                        ivm::VMError::PermissionDenied
+                    )
+                ),
+                "{presence} entity {tag:?}"
             );
             assert_eq!(
                 vm.register(10),
@@ -640,7 +648,16 @@ fn core_query_page_respects_user_executor_denial_for_every_entity() {
         let error = host
             .syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)
             .expect_err("deny-all executor must reject typed page reads");
-        assert_eq!(error, ivm::VMError::PermissionDenied, "entity {tag:?}");
+        assert!(
+            matches!(
+                (&(error), &(ivm::VMError::PermissionDenied)),
+                (
+                    ivm::VMError::PermissionDenied,
+                    ivm::VMError::PermissionDenied
+                )
+            ),
+            "entity {tag:?}"
+        );
         assert_eq!(
             vm.register(10),
             tag.as_u64(),
@@ -922,18 +939,27 @@ fn account_asset_pages_filter_before_pagination_and_enforce_account_access() {
         vm.set_register(11, 0);
         vm.set_register(12, 1);
         vm.set_register(13, owner);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
-            Err(ivm::VMError::PermissionDenied)
-        );
+        assert!(matches!(
+            (
+                &(host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)),
+                &(ivm::VMError::PermissionDenied)
+            ),
+            (
+                Err(ivm::VMError::PermissionDenied),
+                ivm::VMError::PermissionDenied
+            )
+        ));
         assert_eq!(vm.register(10), CoreQueryEntityTagV1::Asset.as_u64());
     }
     vm.set_register(10, CoreQueryEntityTagV1::Account.as_u64());
     vm.set_register(13, alice_pointer);
-    assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(host.syscall(ivm_sys::SYSCALL_CORE_QUERY_PAGE, &mut vm)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
 }
 
 #[test]

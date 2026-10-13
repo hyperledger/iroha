@@ -19,7 +19,7 @@ macro_rules! effect_indexes {
             da_pin_intents: DaPinStore,
             lane_manifests: LaneManifestRegistryHandle,
             lane_privacy_registry: LanePrivacyRegistryHandle,
-            da_indexes_hydrated: Option<Result<(), DaIndexHydrationError>>,
+            da_indexes_hydrated: Option<Result<(), DaIndexHydrationFailure>>,
         }
     };
 }

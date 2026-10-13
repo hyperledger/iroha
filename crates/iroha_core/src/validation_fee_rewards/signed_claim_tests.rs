@@ -276,7 +276,7 @@ fn public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_
                 "global network XOR with scale nine"
             };
             assert!(error.to_string().contains(expected), "{error}");
-            assert!(stx.execution_deferral().is_none());
+            assert!(!stx.is_execution_deferred());
             assert_eq!(
                 stx.world
                     .smart_contract_state

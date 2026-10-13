@@ -56,19 +56,15 @@ fn pc_copy_scope_refusal_and_unwind_preserve_the_original() {
     for pc in 1..=4 {
         log.record_reserved(pc);
     }
-    assert_eq!(
-        log.prepare(0, None),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(log.prepare(0, None), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
     foreign.with_deferred_refund_notifications(|scope| {
-        assert_eq!(
-            log.reset(Some(scope)),
-            Err(VMError::ExecutionDeferred(
+        assert!(matches!(log.reset(Some(scope)), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 crate::error::ExecutionDeferral::TraceOwnerUnavailable
-            ))
-        );
+            )));
         assert!(matches!(
             log.try_clone_allocation(Some(scope)),
             Err(VMError::ExecutionDeferred(

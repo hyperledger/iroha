@@ -140,9 +140,10 @@ fn bfv_full_bootstrap_air_transcript_label_is_canonical_base_label() {
 fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let env: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
     assert!(bfv_full_bootstrap_stark_air_transcript_label_allowed_v1(
@@ -168,7 +169,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         "compressed BFV STARK envelope must decode to the same typed proof as canonical bytes"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&compressed_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&compressed_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "artifact-bound BFV verifier must reject noncanonical compressed proof framing"
     );
     let expected_params =
@@ -200,7 +202,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
             material.arithmetic_trace_material_digest,
             witness.slot_index,
             witness.bound_mode,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "full-material verification still needs the public-padding structural precheck"
     );
     assert!(
@@ -248,7 +251,7 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
                     .arithmetic_air_evaluation_material
                     .composition_values,
                 &expected_base_indices,
-            ),
+            ).expect("verification attempt must complete for this semantic fixture"),
             "suffixed-label envelope must remain a valid explicit-schedule AIR proof"
         );
     assert!(
@@ -262,7 +265,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         "public-padding BFV verifier must reject suffixed-label alternate proof encodings"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&suffixed_label_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&suffixed_label_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "artifact-bound BFV verifier must reject suffixed-label alternate proof encodings"
     );
     assert!(
@@ -864,7 +868,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         "public-padding BFV verifier must reject duplicated sampled public openings"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&duplicate_opening_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&duplicate_opening_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "artifact-bound BFV verifier must reject duplicated sampled public openings"
     );
     let mut reordered_opening_env = env.clone();
@@ -888,7 +893,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         "public-padding BFV verifier must reject reordered public openings"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&reordered_opening_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&reordered_opening_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "artifact-bound BFV verifier must reject reordered public openings"
     );
     let mut truncated_opening_env = env.clone();
@@ -912,7 +918,8 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         "public-padding BFV verifier must reject truncated sampled public openings"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&truncated_opening_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&truncated_opening_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "artifact-bound BFV verifier must reject truncated sampled public openings"
     );
     let generic_bfv_err = prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes(
@@ -928,7 +935,7 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
     )
     .expect_err("generic explicit AIR builder must reject BFV circuit ids");
     assert!(
-        generic_bfv_err.contains("BFV full-bootstrap"),
+        generic_bfv_err.to_string().contains("BFV full-bootstrap"),
         "generic BFV AIR rejection must name the reserved family: {generic_bfv_err}"
     );
     let mut stale_domain = env.clone();
@@ -937,17 +944,17 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
     )
     .domain_tag;
     let stale_domain_bytes = norito::to_bytes(&stale_domain).expect("encode stale domain");
-    assert!(!verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        &stale_domain_bytes,
-        material
-    ));
+    assert!(
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&stale_domain_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let mut stale_material = (*material).clone();
     stale_material.proof_input_material.statement_hash =
         iroha_crypto::Hash::new(b"stale BFV full-bootstrap statement hash");
-    assert!(!verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes,
-        &stale_material
-    ));
+    assert!(
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, &stale_material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let mut tampered_opening = env;
     tampered_opening
         .proof
@@ -958,10 +965,10 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
         .row[9] = 1;
     let tampered_opening_bytes =
         norito::to_bytes(&tampered_opening).expect("encode tampered opening");
-    assert!(!verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        &tampered_opening_bytes,
-        material
-    ));
+    assert!(
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(&tampered_opening_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     assert!(
         !verify_stark_fri_bfv_full_bootstrap_air_public_padding_envelope(
             &tampered_opening_bytes,
@@ -977,9 +984,10 @@ fn bfv_full_bootstrap_air_prover_binds_statement_and_public_openings() {
 fn bfv_full_bootstrap_air_rejects_auxiliary_generic_composition_sidecars() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let mut sidecar_envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
     assert!(sidecar_envelope.proof.commits.comp_root.is_none());
@@ -1023,11 +1031,13 @@ fn bfv_full_bootstrap_air_rejects_auxiliary_generic_composition_sidecars() {
                 &material
                     .arithmetic_air_evaluation_material
                     .composition_values,
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "caller-owned BFV explicit AIR must reject {case}"
         );
         assert!(
-            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&auxiliary_bytes, material),
+            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&auxiliary_bytes, material)
+                .expect("verification attempt must complete for this semantic fixture"),
             "BFV native AIR verifier must reject {case}"
         );
         assert!(
@@ -1046,9 +1056,10 @@ fn bfv_full_bootstrap_air_rejects_auxiliary_generic_composition_sidecars() {
 fn bfv_full_bootstrap_air_rejects_malformed_proof_and_air_bindings() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
     let public_digest = bfv_test_public_digest(
@@ -1068,11 +1079,13 @@ fn bfv_full_bootstrap_air_rejects_malformed_proof_and_air_bindings() {
                 &material
                     .arithmetic_air_evaluation_material
                     .composition_values,
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "caller-owned BFV explicit AIR must reject {case}"
         );
         assert!(
-            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material),
+            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material)
+                .expect("verification attempt must complete for this semantic fixture"),
             "BFV native AIR verifier must reject {case}"
         );
         assert!(
@@ -1150,9 +1163,10 @@ fn bfv_full_bootstrap_air_rejects_malformed_proof_and_air_bindings() {
 fn bfv_full_bootstrap_air_rejects_opening_path_and_sample_drift() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
     let public_digest = bfv_test_public_digest(
@@ -1172,11 +1186,13 @@ fn bfv_full_bootstrap_air_rejects_opening_path_and_sample_drift() {
                 &material
                     .arithmetic_air_evaluation_material
                     .composition_values,
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "caller-owned BFV explicit AIR must reject {case}"
         );
         assert!(
-            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material),
+            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material)
+                .expect("verification attempt must complete for this semantic fixture"),
             "BFV native AIR verifier must reject {case}"
         );
         assert!(
@@ -1290,15 +1306,17 @@ fn bfv_full_bootstrap_air_rejects_opening_path_and_sample_drift() {
 fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     assert!(
         verify_stark_fri_bfv_full_bootstrap_air_envelope_with_limits(
             bytes,
             &StarkVerifierLimits::default(),
             material,
         )
+        .expect("verification attempt must complete for this semantic fixture")
     );
     let envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
@@ -1311,7 +1329,8 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
             bytes,
             &tight_envelope_bytes,
             material,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "BFV native AIR verifier must honor envelope byte limits"
     );
     assert!(
@@ -1333,7 +1352,8 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
             bytes,
             &tight_transcript_label,
             material,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "BFV native AIR verifier must honor transcript-label limits"
     );
     assert!(
@@ -1354,7 +1374,8 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
             bytes,
             &tight_queries,
             material,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "BFV native AIR verifier must honor query-count limits"
     );
     assert!(
@@ -1375,7 +1396,8 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
             bytes,
             &tight_air_width,
             material,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "BFV native AIR verifier must honor AIR width limits"
     );
     assert!(
@@ -1396,7 +1418,8 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
             bytes,
             &tight_merkle_depth,
             material,
-        ),
+        )
+        .expect("verification attempt must complete for this semantic fixture"),
         "BFV native AIR verifier must honor Merkle-depth limits"
     );
     assert!(
@@ -1415,9 +1438,10 @@ fn bfv_full_bootstrap_air_verifier_limits_are_enforced() {
 fn bfv_full_bootstrap_air_rejects_parameter_profile_drift() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(bytes).expect("decode BFV STARK envelope");
     let public_digest = bfv_test_public_digest(
@@ -1437,11 +1461,13 @@ fn bfv_full_bootstrap_air_rejects_parameter_profile_drift() {
                 &material
                     .arithmetic_air_evaluation_material
                     .composition_values,
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "caller-owned BFV explicit AIR must reject {case}"
         );
         assert!(
-            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material),
+            !verify_stark_fri_bfv_full_bootstrap_air_envelope(&malformed_bytes, material)
+                .expect("verification attempt must complete for this semantic fixture"),
             "BFV native AIR verifier must reject {case}"
         );
         assert!(
@@ -1484,9 +1510,10 @@ fn bfv_full_bootstrap_air_rejects_parameter_profile_drift() {
 fn bfv_full_bootstrap_air_rejects_stale_prover_input_material() {
     let material = bfv_full_bootstrap_stark_test_prover_input_material();
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes();
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let assert_rejected_material =
         |case: &str, material: iroha_crypto::BfvFullBootstrapExecutionProverInputMaterialV1| {
             assert!(
@@ -1497,7 +1524,8 @@ fn bfv_full_bootstrap_air_rejects_stale_prover_input_material() {
                 "mutated BFV prover input material must fail validation: {case}"
             );
             assert!(
-                !verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, &material),
+                !verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, &material)
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "BFV native AIR verifier must reject {case}"
             );
             assert!(
@@ -1590,24 +1618,27 @@ fn bfv_full_bootstrap_air_rejects_valid_cross_statement_material_replay() {
         "alternate slot must bind distinct AIR evaluation material"
     );
     let bytes = bfv_full_bootstrap_stark_test_envelope_bytes_for_slot(0);
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        bytes, material
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, material)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     let alternate_bytes = bfv_full_bootstrap_stark_test_envelope_bytes_for_slot(1);
-    assert!(verify_stark_fri_bfv_full_bootstrap_air_envelope(
-        alternate_bytes,
-        alternate_material,
-    ));
+    assert!(
+        verify_stark_fri_bfv_full_bootstrap_air_envelope(alternate_bytes, alternate_material,)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
     assert_ne!(
         bytes, alternate_bytes,
         "statement-specific BFV native AIR envelopes must differ"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, alternate_material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(bytes, alternate_material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "valid BFV native AIR envelope must not replay against another valid statement package"
     );
     assert!(
-        !verify_stark_fri_bfv_full_bootstrap_air_envelope(alternate_bytes, material),
+        !verify_stark_fri_bfv_full_bootstrap_air_envelope(alternate_bytes, material)
+            .expect("verification attempt must complete for this semantic fixture"),
         "alternate BFV native AIR envelope must not replay against the original statement package"
     );
 }
@@ -1625,7 +1656,7 @@ fn synthesized_envelope_rejects_unsupported_fold_arity() {
     let err = synthesize_stark_fri_envelope_bytes(params, "IROHA-TEST-STARK".to_owned())
         .expect_err("unsupported fold_arity must fail");
     assert!(
-        err.contains("fold_arity"),
+        err.to_string().contains("fold_arity"),
         "error should mention fold_arity, got: {err}"
     );
 }
@@ -1643,7 +1674,7 @@ fn synthesized_envelope_rejects_blowup_larger_than_domain() {
     let err = synthesize_stark_fri_envelope_bytes(params, "IROHA-TEST-STARK".to_owned())
         .expect_err("blowup_log2 larger than n_log2 must fail");
     assert!(
-        err.contains("blowup factor"),
+        err.to_string().contains("blowup factor"),
         "error should mention blowup factor, got: {err}"
     );
 }
@@ -1669,7 +1700,10 @@ fn synthesized_envelope_rejects_tampered_domain_tag() {
         norito::decode_from_bytes(&bytes).expect("decode synthesized envelope");
     envelope.params.domain_tag.push_str(":mutated");
     let tampered = norito::to_bytes(&envelope).expect("encode mutated envelope");
-    assert!(!verify_stark_fri_envelope(&tampered));
+    assert!(
+        !verify_stark_fri_envelope(&tampered)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }
 #[test]
 fn synthesized_envelope_rejects_malformed_payload() {
@@ -1685,5 +1719,8 @@ fn synthesized_envelope_rejects_malformed_payload() {
     let mut bytes =
         synthesize_stark_fri_envelope_bytes(params, "IROHA-TEST-STARK".to_owned()).expect("ok");
     bytes.truncate(bytes.len().saturating_sub(1));
-    assert!(!verify_stark_fri_envelope(&bytes));
+    assert!(
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }

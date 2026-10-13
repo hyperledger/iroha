@@ -48,7 +48,7 @@ use sorafs_manifest::{
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 /// Redacted signer or current-state failure before any Queue admission.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MusubiPublicationPinSigningErrorV1 {
     /// Original local allocation admission is unfinished; retain its exact retry owner.
     Deferred(ExecutionDeferred),
@@ -741,19 +741,19 @@ mod tests {
     #[test]
     fn runtime_key_binding_rejects_wrong_authority_and_unfundable_horizon() {
         let (_, mut policy, key_pair) = fixture();
-        assert_eq!(require_key_and_policy(&policy, &key_pair), Ok(()));
+        assert!(require_key_and_policy(&policy, &key_pair).is_ok());
         let other =
             KeyPair::try_from_seed(vec![0xC9; 32], Algorithm::Ed25519).expect("other fixture key");
-        assert_eq!(
+        assert!(matches!(
             require_key_and_policy(&policy, &other),
-            Err(MusubiPublicationPinSigningErrorV1::AuthorityMismatch),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::AuthorityMismatch)
+        ));
         policy.retention_horizon_secs =
             u64::from(SORAFS_AUTO_REPLICATION_ORDER_INGEST_DEADLINE_SECS_V1);
-        assert_eq!(
+        assert!(matches!(
             require_key_and_policy(&policy, &key_pair),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
     }
 
     #[test]
@@ -788,21 +788,32 @@ mod tests {
         use iroha_core::{
             execution_attempt::ExecutionAttemptError, executor::NexusFeeAdmissionError,
         };
-        for original in [
+        let original: ExecutionAttemptError<NexusFeeAdmissionError> =
             ExecutionAttemptError::Rejected(NexusFeeAdmissionError::ConfigInvalid(
                 "exact fee configuration refusal".to_owned(),
-            )),
-            ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
-            ),
-        ] {
-            let expected = original.clone();
-            let report = eyre::Report::new(original);
-            assert_eq!(
-                report.downcast_ref::<ExecutionAttemptError<NexusFeeAdmissionError>>(),
-                Some(&expected)
-            );
-        }
+            ));
+        let report = eyre::Report::new(original);
+        assert!(matches!(
+            report.downcast_ref::<ExecutionAttemptError<NexusFeeAdmissionError>>(),
+            Some(ExecutionAttemptError::Rejected(NexusFeeAdmissionError::ConfigInvalid(message)))
+                if message == "exact fee configuration refusal"
+        ));
+        let pool = iroha_allocation::AllocationBudget::new(8);
+        let held = pool.try_reserve_bytes(8).unwrap();
+        let original = pool.try_reserve_bytes(1).unwrap_err();
+        let expected = original.clone();
+        let report = eyre::Report::new(ExecutionAttemptError::<NexusFeeAdmissionError>::Deferred(
+            original.into(),
+        ));
+        let ExecutionAttemptError::Deferred(original) = report
+            .downcast::<ExecutionAttemptError<NexusFeeAdmissionError>>()
+            .expect("consume the same typed native fee report")
+        else {
+            panic!("the original local refusal cannot become a fee verdict");
+        };
+        assert_eq!(original.allocation_refusal(), Some(&expected));
+        drop(held);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 
     #[test]
@@ -838,28 +849,28 @@ mod tests {
         let (mut archive, mut policy, _) = fixture();
         let mut governance = SorafsPinPolicyConstraints::default();
         archive.chunker.name.push('x');
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Manifest),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Manifest)
+        ));
         archive.chunker.name.pop();
         governance.require_council_signatures = true;
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
         governance.require_council_signatures = false;
         policy.storage_class = StorageClass::Warm;
         governance.allowed_storage_classes = Some([StorageClass::Hot].into());
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 42_001),
-            Err(MusubiPublicationPinSigningErrorV1::Policy),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Policy)
+        ));
         governance.allowed_storage_classes = None;
-        assert_eq!(
+        assert!(matches!(
             build_exact_pin_manifest(&archive, &policy, &governance, 0),
-            Err(MusubiPublicationPinSigningErrorV1::Clock),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::Clock)
+        ));
     }
 
     #[test]
@@ -916,15 +927,15 @@ mod tests {
             .quote
             .authority_charge_assets
             .remove(&FeeChargeKind::PipelineGas);
-        assert_eq!(
+        assert!(matches!(
             quoted_authority_requirements(
                 &policy.transaction_authority,
                 pin_asset,
                 Quantity::from(7_u32),
                 &quote,
             ),
-            Err(MusubiPublicationPinSigningErrorV1::TransactionFee),
-        );
+            Err(MusubiPublicationPinSigningErrorV1::TransactionFee)
+        ));
     }
 
     #[test]

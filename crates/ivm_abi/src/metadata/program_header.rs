@@ -118,10 +118,10 @@ mod tests {
         let header = ProgramMetadata::parse_header(&bytes).unwrap();
         assert!(core::ptr::eq(header.bytes.as_ptr(), bytes.as_ptr()));
         assert!(header.declares_contract_interface());
-        assert_eq!(
+        assert!(matches!(
             header.parse_sections().unwrap_err(),
             VMError::InvalidMetadata
-        );
+        ));
         let header = ProgramMetadata::default().encode();
         let parsed = ProgramMetadata::parse_header(&header).unwrap();
         assert!(!parsed.declares_contract_interface());
@@ -140,9 +140,8 @@ mod tests {
         let outcome = norito::core::with_decode_limits_scope(limits, || {
             ProgramMetadata::parse_header(&bytes)
         });
-        assert_eq!(
-            outcome.unwrap_err(),
-            VMError::UnsupportedProgramVersion { major: 2, minor: 1 }
+        assert!(
+            matches!((&(outcome.unwrap_err()), &(VMError::UnsupportedProgramVersion { major: 2, minor: 1 })), (VMError::UnsupportedProgramVersion { major: __actual_major, minor: __actual_minor }, VMError::UnsupportedProgramVersion { major: __expected_major, minor: __expected_minor }) if __actual_major == __expected_major && __actual_minor == __expected_minor)
         );
     }
     #[test]
@@ -165,9 +164,14 @@ mod tests {
                         ProgramMetadata::parse(&bytes),
                     )
                 });
-                let expected = VMError::UnsupportedProgramVersion { major: 1, minor: 0 };
-                assert_eq!(header.unwrap_err(), expected);
-                assert_eq!(sections.unwrap_err(), expected);
+                assert!(matches!(
+                    header.unwrap_err(),
+                    VMError::UnsupportedProgramVersion { major: 1, minor: 0 }
+                ));
+                assert!(matches!(
+                    sections.unwrap_err(),
+                    VMError::UnsupportedProgramVersion { major: 1, minor: 0 }
+                ));
             }
         }
     }

@@ -351,25 +351,27 @@ mod tests {
     fn generation_options_require_exactly_one_mode_and_accept_an_explicit_root() {
         let default_root = std::path::PathBuf::from("/workspace");
         assert_eq!(
-            parse_generation_options(["--check".to_owned()], &default_root),
-            Ok(super::GenerationOptions {
+            (parse_generation_options(["--check".to_owned()], &default_root))
+                .expect("expected successful fixture result"),
+            super::GenerationOptions {
                 mode: GenerationMode::Check,
                 root: default_root.clone(),
-            })
+            }
         );
         assert_eq!(
-            parse_generation_options(
+            (parse_generation_options(
                 [
                     "--root".to_owned(),
                     "/staged/repository".to_owned(),
                     "--write".to_owned(),
                 ],
                 &default_root,
-            ),
-            Ok(super::GenerationOptions {
+            ))
+            .expect("expected successful fixture result"),
+            super::GenerationOptions {
                 mode: GenerationMode::Write,
                 root: std::path::PathBuf::from("/staged/repository"),
-            })
+            }
         );
         assert!(parse_generation_options(Vec::new(), &default_root).is_err());
         assert!(

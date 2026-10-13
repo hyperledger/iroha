@@ -112,10 +112,10 @@ fn twelve_cycle_instruction_admits_all_rows_before_overshooting_one_cycle_limit(
         let baseline = original.reserved_bytes();
         let start = vm.pc;
         let cycles = allowance(12);
-        assert_eq!(
+        assert!(matches!(
             vm.run_with_host_and_cycle_budget(&mut DefaultHost::default(), &cycles),
             Err(VMError::ExceededMaxCycles)
-        );
+        ));
         assert_eq!(vm.pc, start + 4);
         assert_eq!(vm.cycles, 12);
         assert_eq!(cycles.consumed(), 12);
@@ -198,10 +198,10 @@ fn known_padding_out_of_gas_keeps_its_existing_outcome_without_root_growth() {
     let rows = 4 * size_of::<zk::StepEntry>();
     original.set_limit_bytes(baseline + shell + rows + delta_bytes(1));
     let cycles = allowance(9);
-    assert_eq!(
+    assert!(matches!(
         vm.run_with_host_and_cycle_budget(&mut DefaultHost::default(), &cycles),
         Err(VMError::OutOfGas)
-    );
+    ));
     assert_eq!(vm.cycles, 9);
     assert_eq!(vm.gas_remaining, 3);
     assert_eq!(cycles.consumed(), 9);

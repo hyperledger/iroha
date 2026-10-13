@@ -1703,6 +1703,37 @@ fn proof_processing_context_hash(
     }
     hex::encode(hasher.finalize())
 }
+/// Local worker failure without publishing a proof verdict.
+#[derive(Debug, thiserror::Error)]
+pub enum ProverAttemptError {
+    /// Persistence failed with its original I/O error.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// Verification did not complete; the original non-wire cause stays owned here.
+    #[error(transparent)]
+    VerificationDeferred(#[from] iroha_core_zk::VerificationRefusal),
+}
+impl ProverAttemptError {
+    /// Borrow an original persistence error only when this is an I/O failure.
+    pub fn io_error(&self) -> Option<&std::io::Error> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::VerificationDeferred(_) => None,
+        }
+    }
+    /// Borrow the unfinished verifier owner without cloning or serializing it.
+    pub fn verification_refusal(&self) -> Option<&iroha_core_zk::VerificationRefusal> {
+        match self {
+            Self::VerificationDeferred(original) => Some(original),
+            Self::Io(_) => None,
+        }
+    }
+}
+#[cfg(test)]
+thread_local! {
+    // Limit only the actual verification phase, after durable receipt/body loading.
+    static TEST_VERIFICATION_DECODE_LIMITS: std::cell::Cell<Option<norito::DecodeLimits>> = const { std::cell::Cell::new(None) };
+}
 struct ProofProcessingResult {
     report: ProofReportEntry,
     retryable: bool,
@@ -1730,7 +1761,7 @@ fn cached_successful_proof_report(
 fn process_proof_attachment_with_disposition(
     ctx: &ProverContext,
     attachment: &ProofAttachment,
-) -> ProofProcessingResult {
+) -> Result<ProofProcessingResult, iroha_core_zk::VerificationRefusal> {
     let verifier_view = ctx.state.as_ref().map(|state| state.query_view());
     process_proof_attachment_in_view(ctx, verifier_view.as_ref(), attachment)
 }
@@ -1738,7 +1769,7 @@ fn process_proof_attachment_in_view(
     ctx: &ProverContext,
     verifier_view: Option<&StateQueryView<'_>>,
     attachment: &ProofAttachment,
-) -> ProofProcessingResult {
+) -> Result<ProofProcessingResult, iroha_core_zk::VerificationRefusal> {
     let backend = attachment.backend.clone();
     let backend_str = backend.as_str();
     let proof_hash = Some(hex::encode(hash_proof(&attachment.proof)));
@@ -1750,7 +1781,7 @@ fn process_proof_attachment_in_view(
     let result =
         |errors: Vec<String>, circuit_id: Option<String>, retryable: bool, terminal_error: bool| {
             let ok = errors.is_empty();
-            ProofProcessingResult {
+            Ok(ProofProcessingResult {
                 report: ProofReportEntry {
                     backend: backend.clone(),
                     ok,
@@ -1760,7 +1791,7 @@ fn process_proof_attachment_in_view(
                     circuit_id,
                 },
                 retryable: !ok && retryable && !terminal_error,
-            }
+            })
         };
     if attachment.proof.backend.as_str() != backend_str {
         errors.push("proof backend does not match attachment backend".into());
@@ -1812,10 +1843,16 @@ fn process_proof_attachment_in_view(
                 retryable = true;
             }
             Some(BackendTag::NativePipaRPasta) => {
-                if let Ok(envelope) = norito::decode_canonical::<
-                    iroha_data_model::zk::OpenVerifyEnvelope,
-                >(&attachment.proof.bytes)
-                    && envelope.backend == BackendTag::NativePipaRPasta
+                if let Some(envelope) = iroha_core_zk::verification_attempt::completed_result(
+                    iroha_core_zk::verification_attempt::codec_attempt(
+                        || {
+                            norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
+                                &attachment.proof.bytes,
+                            )
+                        },
+                        |error| error,
+                    ),
+                )? && envelope.backend == BackendTag::NativePipaRPasta
                     && envelope.proof_bytes.len() > zk.pipa_r.max_proof_bytes
                 {
                     errors.push(format!(
@@ -1841,10 +1878,16 @@ fn process_proof_attachment_in_view(
                 retryable = true;
             }
             Some(BackendTag::Stark) => {
-                if let Ok(envelope) = norito::decode_canonical::<
-                    iroha_data_model::zk::OpenVerifyEnvelope,
-                >(&attachment.proof.bytes)
-                    && envelope.backend == BackendTag::Stark
+                if let Some(envelope) = iroha_core_zk::verification_attempt::completed_result(
+                    iroha_core_zk::verification_attempt::codec_attempt(
+                        || {
+                            norito::decode_canonical::<iroha_data_model::zk::OpenVerifyEnvelope>(
+                                &attachment.proof.bytes,
+                            )
+                        },
+                        |error| error,
+                    ),
+                )? && envelope.backend == BackendTag::Stark
                 {
                     if envelope.proof_bytes.len() > zk.stark.max_envelope_bytes {
                         errors.push(format!(
@@ -1852,9 +1895,17 @@ fn process_proof_attachment_in_view(
                             zk.stark.max_envelope_bytes
                         ));
                         retryable = true;
-                    } else if let Ok(open) = norito::decode_canonical::<
-                        iroha_data_model::zk::StarkFriOpenProofV1,
-                    >(&envelope.proof_bytes)
+                    } else if let Some(open) =
+                        iroha_core_zk::verification_attempt::completed_result(
+                            iroha_core_zk::verification_attempt::codec_attempt(
+                                || {
+                                    norito::decode_canonical::<
+                                        iroha_data_model::zk::StarkFriOpenProofV1,
+                                    >(&envelope.proof_bytes)
+                                },
+                                |error| error,
+                            ),
+                        )?
                         && open.envelope_bytes.len() > zk.stark.max_proof_bytes
                     {
                         errors.push(format!(
@@ -1976,7 +2027,7 @@ fn process_proof_attachment_in_view(
                     &attachment.proof,
                     Some(vk_box),
                     &view.zk,
-                )
+                )?
                 .ok;
                 if !verified {
                     errors.push("verification failed".into());
@@ -1989,16 +2040,19 @@ fn process_proof_attachment_in_view(
 }
 #[cfg(test)]
 fn process_proof_attachment(ctx: &ProverContext, attachment: &ProofAttachment) -> ProofReportEntry {
-    process_proof_attachment_with_disposition(ctx, attachment).report
+    process_proof_attachment_with_disposition(ctx, attachment)
+        .expect("completed test proof attempt")
+        .report
 }
 /// Process a single attachment id, emitting a report if not present yet.
 ///
 /// # Errors
 ///
 /// Returns a persistence error when attachment discovery, receipt recovery, or
-/// durable report publication cannot be completed safely.
+/// durable report publication cannot be completed safely, or the exact local
+/// verification refusal before any terminal report is published.
 #[cfg(test)]
-pub fn process_attachment_once(id: &str) -> std::io::Result<Option<ProverReport>> {
+pub fn process_attachment_once(id: &str) -> Result<Option<ProverReport>, ProverAttemptError> {
     let clean = sanitize_attachment_id(id)
         .filter(|clean| clean == id)
         .ok_or_else(|| IoError::new(IoErrorKind::InvalidInput, "invalid attachment id"))?;
@@ -2114,10 +2168,12 @@ fn checkpoint_completed_proofs(
     }
 }
 #[cfg(test)]
-fn process_attachment_once_at(loc: &AttachmentLocation) -> std::io::Result<Option<ProverReport>> {
+fn process_attachment_once_at(
+    loc: &AttachmentLocation,
+) -> Result<Option<ProverReport>, ProverAttemptError> {
     ensure_prover_processing_reference(&loc.tenant_key, &loc.id)?;
     if processing_retry_count(&loc.id)?.is_none() {
-        return try_load_report(&loc.id);
+        return try_load_report(&loc.id).map_err(Into::into);
     }
     let Some(snapshot) = load_attachment_snapshot(loc, PROOF_ATTACHMENT_BODY_MAX_BYTES_V1)? else {
         return Ok(None);
@@ -2156,7 +2212,7 @@ fn validate_attachment_snapshot<'a>(
 fn process_attachment_snapshot_at(
     loc: &AttachmentLocation,
     snapshot: AttachmentSnapshot,
-) -> std::io::Result<Option<ProverReport>> {
+) -> Result<Option<ProverReport>, ProverAttemptError> {
     // One atomic configuration snapshot supplies every verifier input, including
     // the executable identity, before this attempt can publish durable state.
     let ctx = with_cfg(|cfg| ProverContext {
@@ -2172,10 +2228,10 @@ fn process_attachment_snapshot_at(
     // A direct request and the background scan may race. Only one claimant may
     // verify a content id; later claimants observe its durable receipt/report.
     let Some(_claim) = AttachmentProcessingClaim::acquire(&loc.id) else {
-        return try_load_report(&loc.id);
+        return try_load_report(&loc.id).map_err(Into::into);
     };
     let Some(previous_retry_count) = processing_retry_count(&loc.id)? else {
-        return try_load_report(&loc.id);
+        return try_load_report(&loc.id).map_err(Into::into);
     };
     let previous_completed_proofs = completed_proof_cache_for_retry(&loc.id)?;
     let retry_count = previous_retry_count.saturating_add(1);
@@ -2249,8 +2305,17 @@ fn process_attachment_snapshot_at(
                         ));
                         continue;
                     }
+                    let verify = || {
+                        process_proof_attachment_in_view(&ctx, verifier_view.as_ref(), &attachment)
+                    };
+                    #[cfg(test)]
                     let processed =
-                        process_proof_attachment_in_view(&ctx, verifier_view.as_ref(), &attachment);
+                        TEST_VERIFICATION_DECODE_LIMITS.with(|limits| match limits.get() {
+                            Some(limits) => norito::with_decode_limits_scope(limits, verify),
+                            None => verify(),
+                        })?;
+                    #[cfg(not(test))]
+                    let processed = verify()?;
                     if !processed.report.ok {
                         saw_retryable_failure |= processed.retryable;
                         saw_terminal_failure |= !processed.retryable;
@@ -2370,7 +2435,7 @@ fn process_attachment_snapshot_at(
     }
     #[cfg(test)]
     if TEST_REPORT_SAVE_FAILURE.swap(false, AtomicOrdering::SeqCst) {
-        return Err(IoError::other("injected report publication failure"));
+        return Err(IoError::other("injected report publication failure").into());
     }
     save_report(&rep)?;
     if !persist_prover_processing_receipt_if_referenced(&receipt)? {
@@ -2383,6 +2448,48 @@ fn process_attachment_snapshot_at(
     Ok(Some(rep))
 }
 /// Scan one bounded attachment-discovery window, generating missing reports.
+/// All original failures from one bounded prover scan.
+///
+/// Failure storage is reserved before discovery or worker scheduling. A scan
+/// stops scheduling on its first failure, then drains every already admitted
+/// task exactly once. Moving a cause into that reserved storage never allocates.
+#[derive(Debug, thiserror::Error)]
+pub enum ProverScanError {
+    /// The scan could not reserve its local failure slots before starting work.
+    #[error("prover scan failure storage could not be reserved: {0}")]
+    FailureStorage(#[source] std::collections::TryReserveError),
+    /// Every failed admitted task plus any discovery or scheduling failure.
+    #[error("one or more prover scan operations did not complete")]
+    Attempts(Vec<ProverAttemptError>),
+}
+impl ProverScanError {
+    /// Inspect the original persistence cause, if any, independent of arrival order.
+    pub fn io_error(&self) -> Option<&IoError> {
+        match self {
+            Self::FailureStorage(_) => None,
+            Self::Attempts(errors) => errors.iter().find_map(ProverAttemptError::io_error),
+        }
+    }
+    /// Borrow every admitted operation's exact original cause.
+    pub fn attempts(&self) -> &[ProverAttemptError] {
+        match self {
+            Self::FailureStorage(_) => &[],
+            Self::Attempts(errors) => errors,
+        }
+    }
+}
+fn reserve_scan_failure_slots(
+    max_inflight: usize,
+) -> Result<Vec<ProverAttemptError>, ProverScanError> {
+    let mut errors = Vec::new();
+    // Saturation still makes reserve fail before work for an impossible geometry.
+    // At most max_inflight worker results and one scheduling/discovery result can
+    // be outstanding once the first failure stops admission.
+    errors
+        .try_reserve_exact(max_inflight.saturating_add(1))
+        .map_err(ProverScanError::FailureStorage)?;
+    Ok(errors)
+}
 #[derive(Debug, Clone, Default)]
 struct ScanStats {
     processed_reports: usize,
@@ -2401,37 +2508,49 @@ fn scan_shutdown_requested(shutdown: Option<&ShutdownSignal>) -> bool {
     shutdown.is_some_and(ShutdownSignal::is_sent)
 }
 fn record_prover_join_result(
-    result: Result<std::thread::Result<std::io::Result<bool>>, tokio::task::JoinError>,
+    result: Result<std::thread::Result<Result<bool, ProverAttemptError>>, tokio::task::JoinError>,
     processed_reports: &mut usize,
-    first_error: &mut Option<IoError>,
+    errors: &mut Vec<ProverAttemptError>,
 ) {
+    // Caller reserved max_inflight + 1 slots before starting work, ceases
+    // admission on the first failure and removes each task from JoinSet once.
+    // No push below can grow the vector on this bounded path.
     match result {
         Ok(Ok(Ok(true))) => *processed_reports = (*processed_reports).saturating_add(1),
         Ok(Ok(Ok(false))) => {}
-        Ok(Ok(Err(error))) => {
-            if first_error.is_none() {
-                *first_error = Some(error);
-            }
-        }
-        Ok(Err(_)) => {
-            if first_error.is_none() {
-                *first_error = Some(IoError::other(
-                    "background prover task panicked inside its recovery boundary",
-                ));
-            }
-        }
-        Err(error) => {
-            if first_error.is_none() {
-                *first_error = Some(IoError::other(format!(
-                    "background prover task join failed: {error}"
-                )));
-            }
-        }
+        Ok(Ok(Err(error))) => errors.push(error),
+        Ok(Err(_)) => errors.push(
+            IoError::other("background prover task panicked inside its recovery boundary").into(),
+        ),
+        Err(error) => errors
+            .push(IoError::other(format!("background prover task join failed: {error}")).into()),
     }
 }
 async fn run_budgeted_scan_with_shutdown(
     shutdown: Option<&ShutdownSignal>,
-) -> std::io::Result<BudgetedScanOutcome> {
+) -> Result<BudgetedScanOutcome, ProverScanError> {
+    if scan_shutdown_requested(shutdown) {
+        return Ok(BudgetedScanOutcome::StoppedByShutdown);
+    }
+    let max_inflight = cfg_max_inflight();
+    let mut errors = reserve_scan_failure_slots(max_inflight)?;
+    let outcome = run_budgeted_scan_reserved(shutdown, max_inflight, &mut errors).await;
+    match outcome {
+        Err(original) => {
+            // Early discovery errors occur before jobs are scheduled. All errors
+            // after scheduling are collected in place before the JoinSet drains.
+            errors.push(original);
+            Err(ProverScanError::Attempts(errors))
+        }
+        Ok(_) if !errors.is_empty() => Err(ProverScanError::Attempts(errors)),
+        Ok(outcome) => Ok(outcome),
+    }
+}
+async fn run_budgeted_scan_reserved(
+    shutdown: Option<&ShutdownSignal>,
+    max_inflight: usize,
+    errors: &mut Vec<ProverAttemptError>,
+) -> Result<BudgetedScanOutcome, ProverAttemptError> {
     if scan_shutdown_requested(shutdown) {
         return Ok(BudgetedScanOutcome::StoppedByShutdown);
     }
@@ -2440,7 +2559,6 @@ async fn run_budgeted_scan_with_shutdown(
     let telemetry = telemetry_handle();
     let max_bytes = cfg_max_scan_bytes();
     let max_millis = cfg_max_scan_millis();
-    let max_inflight = cfg_max_inflight();
     let start = std::time::Instant::now();
     // Reserve half of the wall-clock budget for loading and scheduling the
     // bounded window. Otherwise a large directory can consume the entire
@@ -2468,7 +2586,6 @@ async fn run_budgeted_scan_with_shutdown(
     let mut processed_reports = 0usize;
     let mut join_set = JoinSet::new();
     let mut retry_locations = Vec::new();
-    let mut first_error = None;
     let mut stopped_by_shutdown = false;
     while let Some(loc) = pending.next() {
         if scan_shutdown_requested(shutdown) {
@@ -2481,8 +2598,8 @@ async fn run_budgeted_scan_with_shutdown(
             let Some(res) = join_set.join_next().await else {
                 break;
             };
-            record_prover_join_result(res, &mut processed_reports, &mut first_error);
-            if first_error.is_some() {
+            record_prover_join_result(res, &mut processed_reports, errors);
+            if !errors.is_empty() {
                 break;
             }
             if scan_shutdown_requested(shutdown) {
@@ -2494,7 +2611,7 @@ async fn run_budgeted_scan_with_shutdown(
                 break;
             }
         }
-        if first_error.is_some() || stopped_by_shutdown || budget_reason.is_some() {
+        if !errors.is_empty() || stopped_by_shutdown || budget_reason.is_some() {
             retry_locations.push(loc);
             retry_locations.extend(pending);
             break;
@@ -2516,15 +2633,16 @@ async fn run_budgeted_scan_with_shutdown(
         let snapshot_load = match snapshot_result {
             Ok(Ok(snapshot_load)) => snapshot_load,
             Ok(Err(error)) => {
-                first_error = Some(error);
+                errors.push(error.into());
                 retry_locations.push(loc);
                 retry_locations.extend(pending);
                 break;
             }
             Err(error) => {
-                first_error = Some(IoError::other(format!(
-                    "background prover snapshot load failed: {error}"
-                )));
+                errors.push(
+                    IoError::other(format!("background prover snapshot load failed: {error}"))
+                        .into(),
+                );
                 retry_locations.push(loc);
                 retry_locations.extend(pending);
                 break;
@@ -2567,9 +2685,9 @@ async fn run_budgeted_scan_with_shutdown(
         };
         let bytes_read = snapshot.body_load.bytes_read;
         if bytes_read > remaining_read_budget {
-            first_error = Some(IoError::other(format!(
+            errors.push(IoError::other(format!(
                 "bounded attachment snapshot read {bytes_read} bytes beyond its {remaining_read_budget}-byte budget"
-            )));
+            )).into());
             retry_locations.push(loc);
             retry_locations.extend(pending);
             break;
@@ -2580,7 +2698,7 @@ async fn run_budgeted_scan_with_shutdown(
         let permit = match semaphore.clone().acquire_owned().await {
             Ok(permit) => permit,
             Err(error) => {
-                first_error = Some(IoError::other(format!("prover semaphore closed: {error}")));
+                errors.push(IoError::other(format!("prover semaphore closed: {error}")).into());
                 retry_locations.push(loc);
                 retry_locations.extend(pending);
                 break;
@@ -2608,7 +2726,7 @@ async fn run_budgeted_scan_with_shutdown(
             let report = result.map_err(|error| {
                 IoError::other(format!("background prover processing panicked: {error}"))
             })??;
-            Ok::<_, IoError>(report.is_some())
+            Ok::<_, ProverAttemptError>(report.is_some())
         }));
         if scan_shutdown_requested(shutdown) {
             stopped_by_shutdown = true;
@@ -2624,7 +2742,7 @@ async fn run_budgeted_scan_with_shutdown(
         }
     }
     while let Some(res) = join_set.join_next().await {
-        record_prover_join_result(res, &mut processed_reports, &mut first_error);
+        record_prover_join_result(res, &mut processed_reports, errors);
     }
     retry_pending_attachment_locations(retry_locations);
     stopped_by_shutdown |= scan_shutdown_requested(shutdown);
@@ -2642,14 +2760,11 @@ async fn run_budgeted_scan_with_shutdown(
         tel.set_torii_zk_prover_pending(remaining);
         tel.record_torii_zk_prover_scan(bytes_processed, start.elapsed().as_millis() as u64);
     });
-    if first_error.is_none()
+    if errors.is_empty()
         && !stopped_by_shutdown
         && let Some(reason) = budget_reason
     {
         telemetry.with_metrics(|tel| tel.inc_torii_zk_prover_budget_exhausted(reason));
-    }
-    if let Some(error) = first_error {
-        return Err(error);
     }
     if stopped_by_shutdown {
         return Ok(BudgetedScanOutcome::StoppedByShutdown);
@@ -2665,7 +2780,7 @@ async fn run_budgeted_scan_with_shutdown(
     }))
 }
 #[cfg(test)]
-async fn run_budgeted_scan() -> std::io::Result<ScanStats> {
+async fn run_budgeted_scan() -> Result<ScanStats, ProverScanError> {
     match run_budgeted_scan_with_shutdown(None).await? {
         BudgetedScanOutcome::Completed(stats) => Ok(stats),
         BudgetedScanOutcome::StoppedByShutdown => {
@@ -2674,7 +2789,7 @@ async fn run_budgeted_scan() -> std::io::Result<ScanStats> {
     }
 }
 #[cfg(test)]
-fn block_on_scan() -> std::io::Result<ScanStats> {
+fn block_on_scan() -> Result<ScanStats, ProverScanError> {
     Handle::try_current().map_or_else(
         |_| {
             tokio::runtime::Builder::new_current_thread()
@@ -2712,10 +2827,11 @@ fn block_on_scan() -> std::io::Result<ScanStats> {
 ///
 /// # Errors
 ///
-/// Returns a storage error when the attachment or prover persistence tree
-/// cannot be enumerated or updated safely.
+/// Returns all original worker/scan failures, or a local failure to reserve the
+/// bounded cause storage before work. Completed reports are never fabricated
+/// for unfinished verification.
 #[cfg(test)]
-pub fn scan_once() -> std::io::Result<usize> {
+pub fn scan_once() -> Result<usize, ProverScanError> {
     Ok(block_on_scan()?.processed_reports)
 }
 /// Start the enabled background scan worker.
@@ -2738,8 +2854,26 @@ pub(crate) fn start_worker(
                 Ok(BudgetedScanOutcome::StoppedByShutdown) => {
                     return crate::ToriiCriticalWorkerExit::StoppedByShutdown;
                 }
-                Err(error) => {
-                    iroha_logger::error!(%error, "ZK prover worker stopped after a persistence failure");
+                Err(errors) if errors.io_error().is_none() => {
+                    // Borrow every original before the completed local attempts
+                    // are retired; each job's durable receipt remains retryable.
+                    for original in errors.attempts() {
+                        iroha_logger::debug!(error = %original, "ZK verification attempt deferred; no verdict published");
+                    }
+                    if let ProverScanError::FailureStorage(original) = &errors {
+                        iroha_logger::debug!(error = %original, "ZK prover scan could not reserve failure storage");
+                    }
+                    tokio::select! {
+                        () = shutdown.receive() => return crate::ToriiCriticalWorkerExit::StoppedByShutdown,
+                        () = tokio::time::sleep(period) => {}
+                    }
+                    continue;
+                }
+                Err(errors) => {
+                    for original in errors.attempts() {
+                        iroha_logger::error!(error = %original, "ZK prover scan original failure");
+                    }
+                    iroha_logger::error!(error = %errors, "ZK prover worker stopped after a persistence failure");
                     return crate::ToriiCriticalWorkerExit::UnexpectedExit;
                 }
             };
@@ -2968,19 +3102,20 @@ mod tests {
             );
             panic!("injected prover wrapper panic outside blocking verification");
             #[allow(unreachable_code)]
-            Ok::<bool, IoError>(true)
+            Ok::<bool, ProverAttemptError>(true)
         }));
         let result = tasks
             .join_next()
             .await
             .expect("wrapper task must produce one join result");
         let mut processed = 0;
-        let mut first_error = None;
-        record_prover_join_result(result, &mut processed, &mut first_error);
+        let mut errors = reserve_scan_failure_slots(1).unwrap();
+        record_prover_join_result(result, &mut processed, &mut errors);
 
         assert_eq!(processed, 0);
         assert!(
-            first_error
+            errors
+                .first()
                 .expect("wrapper panic must become a controlled scan error")
                 .to_string()
                 .contains("inside its recovery boundary")
@@ -3731,7 +3866,8 @@ mod tests {
             ProofBox::new("stark/fri".to_owned(), vec![0x42]),
             VerifyingKeyId::new("halo2/ipa", "tiny-add"),
         );
-        let processed = process_proof_attachment_with_disposition(&ctx, &attachment);
+        let processed = process_proof_attachment_with_disposition(&ctx, &attachment)
+            .expect("fixture verification attempt must complete");
         assert!(!processed.report.ok);
         assert!(
             processed
@@ -3758,7 +3894,8 @@ mod tests {
             })),
             verification_attempts: None,
         };
-        let disabled = process_proof_attachment_with_disposition(&disabled_ctx, &attachment);
+        let disabled = process_proof_attachment_with_disposition(&disabled_ctx, &attachment)
+            .expect("fixture verification attempt must complete");
         assert!(!disabled.report.ok);
         assert!(
             disabled
@@ -3783,7 +3920,8 @@ mod tests {
             })),
             verification_attempts: None,
         };
-        let undersized = process_proof_attachment_with_disposition(&undersized_ctx, &attachment);
+        let undersized = process_proof_attachment_with_disposition(&undersized_ctx, &attachment)
+            .expect("fixture verification attempt must complete");
         assert!(!undersized.report.ok);
         assert!(
             undersized
@@ -3805,7 +3943,8 @@ mod tests {
             state: Some(fixture_state()),
             verification_attempts: None,
         };
-        let enabled = process_proof_attachment_with_disposition(&enabled_ctx, &attachment);
+        let enabled = process_proof_attachment_with_disposition(&enabled_ctx, &attachment)
+            .expect("fixture verification attempt must complete");
         assert!(
             enabled.report.ok,
             "the same proof must verify once STARK is enabled"

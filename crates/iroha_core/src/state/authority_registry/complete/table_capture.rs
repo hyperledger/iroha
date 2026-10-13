@@ -1114,22 +1114,22 @@ mod tests {
 
     #[test]
     fn exact_table_catalog_rejects_missing_duplicate_and_noncanonical_readers() {
-        assert_eq!(
+        assert!(matches!(
             require_exact_table_materializers(TWO_TABLES, ALIAS_ONLY),
             Err(TableCaptureError::MissingMaterializer("world.accounts"))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(ONE_TABLE, &[ALIAS_MATERIALIZER, ALIAS_MATERIALIZER],),
             Err(TableCaptureError::DuplicateMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(&[], ALIAS_ONLY),
             Err(TableCaptureError::UnexpectedMaterializer(
                 "world.account_aliases"
             ))
-        );
+        ));
         let reversed = [
             TableMaterializer::Single {
                 id: "world.accounts",
@@ -1137,24 +1137,24 @@ mod tests {
             },
             ALIAS_MATERIALIZER,
         ];
-        assert_eq!(
+        assert!(matches!(
             require_exact_table_materializers(TWO_TABLES, &reversed),
             Err(TableCaptureError::DisplacedMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             require_exact_table_materializers(DUPLICATE_TABLE, ALIAS_ONLY),
             Err(TableCaptureError::DisplacedMaterializer(
                 "world.account_aliases"
             ))
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             capture_actual_state_tables_once(&state(), policy(limits()))
                 .err()
                 .expect("three slots cannot retain the complete table catalog"),
             TableCaptureError::MaterializerLimit
-        );
+        ));
     }
 
     #[test]
@@ -1440,8 +1440,9 @@ mod tests {
             "actual table readers must be exhaustive: {missing:?}"
         );
         assert_eq!(
-            require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS),
-            Ok(fixture_tables.len())
+            (require_exact_table_materializers(STATE_FIELDS, TABLE_MATERIALIZERS))
+                .expect("exact complete catalog admitted"),
+            fixture_tables.len()
         );
         assert_eq!(TABLE_MATERIALIZERS.len(), fixture_tables.len() - 1);
         assert_eq!(
@@ -2296,7 +2297,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [0, 1, 1]
         );
-        assert_eq!(
+        assert!(matches!(
             capture_tables_once(
                 &state,
                 FIRST_THREE_TABLES,
@@ -2309,7 +2310,7 @@ mod tests {
             .err()
             .expect("aggregate row bound"),
             TableCaptureError::AggregateRowLimit
-        );
+        ));
 
         let empty = self::state();
         let omitted = capture_tables_once(&empty, ONE_TABLE, ALIAS_ONLY, policy(limits()))
@@ -2378,7 +2379,7 @@ mod tests {
             capture: capture_account_alias_table_once,
         }];
         let state = state();
-        assert_eq!(
+        assert!(matches!(
             capture_tables_once(&state, ACCOUNTS_ONLY, WRONG_READER, policy(limits()))
                 .err()
                 .expect("wrong table node"),
@@ -2386,8 +2387,8 @@ mod tests {
                 expected: "world.accounts",
                 actual: "world.account_aliases",
             }
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             capture_tables_once(
                 &state,
                 ONE_TABLE,
@@ -2400,7 +2401,7 @@ mod tests {
             .err()
             .expect("table count bound"),
             TableCaptureError::MaterializerLimit
-        );
+        ));
     }
 }
 

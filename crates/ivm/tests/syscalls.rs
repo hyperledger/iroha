@@ -77,7 +77,9 @@ fn syscall_policy_gating_allows_known_and_rejects_unknown_v1() {
     let mut bad = assemble_syscall(0xDF);
     bad[4 + 1 + 1 + 1 + 1 + 8] = 1; // ABI v1
     let mut vm2 = IVM::new(u64::MAX);
-    assert_eq!(vm2.load_program(&bad), Err(VMError::UnknownSyscall(0xDF)));
+    assert!(
+        matches!(vm2.load_program(&bad), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xDF))
+    );
 }
 #[test]
 fn syscall_exit_halts_execution() {
@@ -302,9 +304,8 @@ fn removed_hw_probe_syscalls_reject() {
     for number in [0xF2, 0xF3] {
         let mut vm = IVM::new(u64::MAX);
         let program = assemble_syscall(number);
-        assert_eq!(
-            vm.load_program(&program),
-            Err(VMError::UnknownSyscall(u32::from(number)))
+        assert!(
+            matches!(vm.load_program(&program), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (u32::from(number)))
         );
     }
 }

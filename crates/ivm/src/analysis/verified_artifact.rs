@@ -78,7 +78,7 @@ mod tests {
         let owner = AllocationBudget::new(0);
         let error =
             analyze_verified_artifact_with_memory_budget(&bytes, &verified, &owner).unwrap_err();
-        assert_eq!(error.into_vm_error(), VMError::InvalidMetadata);
+        assert!(matches!(error.into_vm_error(), VMError::InvalidMetadata));
         assert_eq!(owner.reserved_bytes(), 0);
     }
 

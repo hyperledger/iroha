@@ -2,6 +2,17 @@
   "consumers": [
     {
       "dependency": "dev-dependencies",
+      "manifest": "crates/iroha/Cargo.toml",
+      "package": "iroha",
+      "sites": [
+        {
+          "path": "crates/iroha/tests/sdk_phase_tree_measurement.rs",
+          "use": "Diagnostic integration target: actual account-context transaction preparation/signing and canonical frame readback. Public phase labels, counters and failure codes only; no recorder in shipping SDK code."
+        }
+      ]
+    },
+    {
+      "dependency": "dev-dependencies",
       "manifest": "crates/iroha_core_privacy/Cargo.toml",
       "package": "iroha_core_privacy",
       "sites": [
@@ -31,6 +42,17 @@
         {
           "path": "crates/iroha_fhe/tests/bgv_cost_measurement.rs",
           "use": "Integration test: measures the equal RNS-BGV workload over the F257 sparse encoding and a fully splitting modulus phase by phase. Records static labels, sizes, operation counts, model work units and bit lengths of public noise bounds; no key, plaintext or coin."
+        }
+      ]
+    },
+    {
+      "package": "iroha_plonk",
+      "manifest": "crates/iroha_plonk/Cargo.toml",
+      "dependency": "dev-dependencies",
+      "sites": [
+        {
+          "path": "crates/iroha_plonk/src/prover/quotient/tile_experiment.rs",
+          "use": "Test-only ignored real-descriptor DAG tiling diagnostic: fallible process CPU and kernel peak RSS probes; never a proof, protocol gate or measurement qualification by itself."
         }
       ]
     },

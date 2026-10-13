@@ -42,7 +42,7 @@ pub(crate) struct FinalizedAxtSourceTransferFactV1 {
 }
 
 /// Failure to confirm a claimed physical transfer against finalized execution.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 #[allow(dead_code)]
 pub(crate) enum FinalizedAxtSourceTransferErrorV1 {
     /// The original finalized-history read is unfinished because its local resources are occupied.

@@ -231,10 +231,7 @@ fn typed_mock_call_rejects_wrong_instance_hash_suspension_reentry_and_view_mutat
     host.syscall(syscalls::SYSCALL_CALL_CONTRACT, &mut vm)
         .unwrap();
     assert_eq!(render(&host, &target, "value", &vm), norito::json!(true));
-    for (selector, expected) in [
-        ("write", VMError::PermissionDenied),
-        ("value", VMError::PermissionDenied),
-    ] {
+    for selector in ["write", "value"] {
         let mut vm = caller(&mut host, &root);
         let registers = request(&host, &mut vm, &target, selector, &[]);
         if selector == "value" {
@@ -245,12 +242,12 @@ fn typed_mock_call_rejects_wrong_instance_hash_suspension_reentry_and_view_mutat
                 .lifecycle
                 .active_code_hash = None;
         }
-        assert_eq!(
+        assert!(matches!(
             host.syscall(syscalls::SYSCALL_CALL_CONTRACT, &mut vm)
                 .unwrap_err()
                 .as_unmetered(),
-            &expected
-        );
+            VMError::PermissionDenied
+        ));
         assert_eq!(vm.load_u64(registers[4]).unwrap(), 0);
     }
     let mut vm = caller(&mut host, &root);

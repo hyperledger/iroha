@@ -437,11 +437,12 @@ seiyaku RootResult { permission AssetOps;
                 "rollback cannot refund executed work"
             );
             assert_eq!(
-                ivm::sum::entrypoint_return_is_error(
+                (ivm::sum::entrypoint_return_is_error(
                     &vm,
                     descriptor.return_schema.as_ref().unwrap()
-                ),
-                Ok(expected_error)
+                ))
+                .expect("expected successful VM operation"),
+                expected_error
             );
             if expected_error {
                 assert!(host.state_access_log.write_keys.is_empty());
@@ -510,9 +511,8 @@ seiyaku FaultChild {
         1_000_000,
     );
     let error = outcome.expect_err("division by zero must trap after the staged write");
-    assert_eq!(
-        error.as_unmetered(),
-        &ivm::VMError::NumericFault(ivm::numeric::NumericFaultV1::DivisionByZero)
+    assert!(
+        matches!((&(error.as_unmetered()), &(ivm::VMError::NumericFault(ivm::numeric::NumericFaultV1::DivisionByZero))), (ivm::VMError::NumericFault(__actual_0), ivm::VMError::NumericFault(__expected_0)) if __actual_0 == __expected_0)
     );
     let ValidationFail::IvmFault(fault) = crate::execution_attempt::expect_completed_rejection(
         crate::smartcontracts::ivm::map_vm_error_with_context_to_validation(&vm, error),

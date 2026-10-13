@@ -12,7 +12,8 @@ pub(crate) use fee_proposal::install_executed_fee_proposal_fixture;
 
 use crate::{
     execution_attempt::{
-        ExecutionAttemptError as Attempt, json_decode_attempt_error, norito_decode_attempt_error,
+        ExecutionAttemptError as Attempt, canonical_decode_attempt_error,
+        json_decode_attempt_error, norito_decode_attempt_error,
     },
     smartcontracts::Execute,
     smartcontracts::isi::domain::isi::ensure_controller_capabilities,
@@ -3043,11 +3044,13 @@ fn retain_multisig_read_attempt(
     }
 }
 
-fn multisig_decode_attempt(error: norito::Error) -> Attempt<ValidationFail> {
+fn multisig_decode_attempt(error: norito::core::DecodeAttemptError) -> Attempt<ValidationFail> {
     if cfg!(all(test, sumeragi_core_mutation = "HC67")) {
-        return Attempt::Rejected(multisig_state_decode_error(error));
+        return Attempt::Rejected(multisig_state_decode_error(error.into_error()));
     }
-    norito_decode_attempt_error(error, multisig_state_decode_error)
+    canonical_decode_attempt_error(error, |error| {
+        multisig_state_decode_error(error.into_error())
+    })
 }
 
 fn proposal_state_attempt(
@@ -3096,12 +3099,23 @@ fn decode_proposal_state_at_key(
     key: &StatePath,
     bytes: &[u8],
 ) -> Result<MultisigProposalState, Attempt<ValidationFail>> {
-    let proposal = norito::decode_from_bytes::<MultisigProposalState>(bytes)
-        .map_err(multisig_decode_attempt)?;
+    let proposal = norito::core::classify_decode_attempt(|| {
+        norito::decode_from_bytes::<MultisigProposalState>(bytes)
+    })
+    .map_err(multisig_decode_attempt)?;
     // Stream the existing V1 hash domain, retaining original serializer refusal. Never buffer
     // a second encoded proposal or rewrite an inconsistent row to fit its lookup key.
-    let hash = HashOf::try_new(&proposal.instructions)
-        .map_err(|error| multisig_instruction_decode_attempt(error, multisig_state_encode_error))?;
+    let hash = norito::core::classify_decode_attempt(|| {
+        HashOf::try_new(&proposal.instructions).map_err(|error| match error {
+            norito::Error::Json(original) => original.into_core_error(),
+            original => original,
+        })
+    })
+    .map_err(|error| {
+        canonical_decode_attempt_error(error, |error| {
+            multisig_state_encode_error(error.into_error())
+        })
+    })?;
     if !cfg!(all(test, sumeragi_core_mutation = "HC68"))
         && (proposal.instructions_hash != hash
             || *key != multisig_proposal_state_key(&proposal.multisig_account_id, &hash))

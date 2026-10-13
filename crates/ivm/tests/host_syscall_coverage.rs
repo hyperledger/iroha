@@ -74,8 +74,9 @@ where
 {
     let mut vm = IVM::new(u64::MAX);
     assert_eq!(
-        host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-        Ok(gas::G_FASTPQ_BATCH)
+        (host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+            .expect("expected successful fixture result"),
+        gas::G_FASTPQ_BATCH
     );
     let error = host
         .syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_END, &mut vm)
@@ -154,10 +155,11 @@ where
     vm.set_register(10, malformed);
     let mut host = make_host();
     assert_eq!(
-        host.prepare_syscall(syscalls::SYSCALL_NORMALIZE_NORITO_BYTES, &vm),
-        Ok(gas::HOST_BYTE_GAS_BASE.saturating_add(
+        (host.prepare_syscall(syscalls::SYSCALL_NORMALIZE_NORITO_BYTES, &vm))
+            .expect("expected successful fixture result"),
+        gas::HOST_BYTE_GAS_BASE.saturating_add(
             gas::SYSCALL_GAS_PER_BYTE.saturating_mul(b"corrupt digest".len() as u64)
-        ))
+        )
     );
     assert!(
         host.syscall(syscalls::SYSCALL_NORMALIZE_NORITO_BYTES, &mut vm)

@@ -112,7 +112,7 @@ state_test! { sync replay_private_da_hydration_reconstructs_exact_prefix_and_rej
     let before = da_index_debug_snapshot(&state);
     state.ensure_da_indexes_hydrated_for_replay_prevalidation()
         .expect("authenticate and reconstruct private DA prefix");
-    assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+    assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
     assert_ne!(da_index_debug_snapshot(&state), before,
         "private hydration must rebuild real DA indexes, not mark an empty cache ready");
     assert_eq!(state.da_commitments.read().get_committed_by_key(&DaCommitmentKey::from_record(&record))
@@ -127,12 +127,21 @@ state_test! { sync replay_private_da_hydration_reconstructs_exact_prefix_and_rej
     *state.da_indexes_hydrated.write() = None;
     let error = state.ensure_da_indexes_hydrated_for_replay_prevalidation()
         .expect_err("private hydration cannot accept an unauthenticated Kura body");
-    assert!(matches!(error, DaIndexHydrationError::BlockHashMismatch {
+    assert!(matches!(error, DaIndexHydrationError::Completed(DaIndexHydrationFailure::BlockHashMismatch {
         height, expected: found_expected, actual,
-    } if height == nonzero!(1_u64) && found_expected == expected && actual == block.hash()));
+    }) if height == nonzero!(1_u64) && found_expected == expected && actual == block.hash()));
     assert_eq!(da_index_debug_snapshot(&state), published,
         "failed private hydration cannot publish partial DA indexes");
-    assert_eq!(*state.da_indexes_hydrated.read(), Some(Err(error)));
+    let DaIndexHydrationError::Completed(failure) = error else { panic!("exact completed mismatch") };
+    assert_eq!(*state.da_indexes_hydrated.read(), Some(Err(failure.clone())));
+    // Repeated invalid reads reuse the completed verdict and never read Kura again.
+    kura.reset_canonical_query_reads_for_test();
+    for _ in 0..2 {
+        let DaIndexHydrationError::Completed(repeated) = state.ensure_da_indexes_hydrated_for_replay_prevalidation().unwrap_err() else { panic!("cached completed mismatch remains completed") };
+        assert_eq!(repeated, failure);
+        assert_eq!(kura.canonical_query_reads_for_test(), (0, 0));
+        assert_eq!(da_index_debug_snapshot(&state), published);
+    }
 }
 state_test! { sync failed_da_rewind_on_missing_body_preserves_all_published_indexes
     let (state, kura) = blank_test_state_with_kura();
@@ -187,7 +196,7 @@ state_test! { sync failed_da_rewind_on_missing_body_preserves_all_published_inde
     let_row! { error = state .rewind_da_indexes_to_height(2) .expect_err("a non-hash-only committed body must exist") };
     assert!(matches!(
         error,
-        DaIndexHydrationError::MissingBlock { height } if height == nonzero!(2_u64)
+        DaIndexHydrationError::Completed(DaIndexHydrationFailure::MissingBlock { height }) if height == nonzero!(2_u64)
     ));
     assert_eq!(
         da_index_debug_snapshot(&state),
@@ -211,11 +220,11 @@ state_test! { sync hydrate_da_indexes_rejects_kura_body_hash_mismatch
     let_row! { error = state .ensure_da_indexes_hydrated() .expect_err("Kura body must authenticate against the WSV prefix") };
     assert!(matches!(
         error,
-        DaIndexHydrationError::BlockHashMismatch {
+        DaIndexHydrationError::Completed(DaIndexHydrationFailure::BlockHashMismatch {
             height,
             expected: observed_expected,
             actual: observed_actual,
-        } if height == nonzero!(1_u64)
+        }) if height == nonzero!(1_u64)
             && observed_expected == expected
             && observed_actual == actual
     ));
@@ -246,13 +255,13 @@ state_test! { sync hydrate_da_indexes_rejects_cursor_regression
     }
     let_row! { err = state .ensure_da_indexes_hydrated() .expect_err("hydration should fail on regression") };
     match err {
-        DaIndexHydrationError::ShardCursor(DaShardCursorError::Regression {
+        DaIndexHydrationError::Completed(DaIndexHydrationFailure::ShardCursor(DaShardCursorError::Regression {
             shard_id,
             lane_id,
             observed_sequence,
             current_sequence,
             ..
-        }) => {
+        })) => {
             assert_eq!(shard_id, 0);
             assert_eq!(lane_id, LaneId::new(0));
             assert_eq!(observed_sequence, 0);
@@ -289,12 +298,12 @@ state_test! { sync hydrate_da_indexes_rejects_receipt_sequence_gap
     let_row! { err = state .ensure_da_indexes_hydrated() .expect_err("hydration should fail on receipt cursor gap") };
     assert!(matches!(
         err,
-        DaIndexHydrationError::ReceiptCursor(DaReceiptCursorError::MissingSequence {
+        DaIndexHydrationError::Completed(DaIndexHydrationFailure::ReceiptCursor(DaReceiptCursorError::MissingSequence {
             lane,
             epoch: 1,
             expected: 2,
             observed: 3
-        }) if lane == LaneId::new(0)
+        })) if lane == LaneId::new(0)
     ));
 }
 
@@ -346,7 +355,13 @@ state_test! { sync da_hydration_capacity_refusal_preserves_indexes_and_original_
             state.da_shard_cursor_index().err(),
             state.da_pin_intents().err(),
         ] {
-            assert!(matches!(refusal, Some(DaIndexHydrationError::Deferred(_))));
+            let Some(DaIndexHydrationError::Deferred(repeated)) = refusal else { panic!("each fresh read must return an unfinished original owner") };
+            assert_eq!(repeated.reason(), original.reason());
+            assert_eq!(repeated.phase(), original.phase());
+            assert_eq!(repeated.allocation_refusal(), original.allocation_refusal());
+            assert!(repeated.decode_refusal().is_none());
+            assert!(repeated.verification_refusal().is_none());
+            assert!(state.da_indexes_hydrated.read().is_none());
         }
         assert!(state.da_indexes_hydrated.read().is_none(), "unfinished reads cannot be cached as verdicts");
         assert_eq!(da_index_debug_snapshot(state), published);
@@ -358,7 +373,7 @@ state_test! { sync da_hydration_capacity_refusal_preserves_indexes_and_original_
         } else {
             state.ensure_da_indexes_hydrated().expect("retry the exact committed prefix");
         }
-        assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+        assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
         assert!(state.da_commitments().unwrap().get_by_manifest(&sentinel.manifest_hash).is_none(),
             "successful atomic replay replaces the sentinel with authenticated history");
     }

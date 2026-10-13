@@ -89,7 +89,7 @@ fn field_inverse_rejects_noncanonical_zero() {
     let program = assemble_zk(&program, 16);
     vm.load_program(&program).unwrap();
 
-    assert_eq!(vm.run(), Err(ivm::VMError::AssertionFailed));
+    assert!(matches!(vm.run(), Err(ivm::VMError::AssertionFailed)));
 }
 #[test]
 fn test_assert_range() {

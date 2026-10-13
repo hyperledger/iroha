@@ -114,7 +114,7 @@ impl NativeFixture {
         deadline: Option<Instant>,
     ) -> Result<VerifiedStreamTokenCustodyStateV1> {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        let budget = self.chain.state().ivm_execution_budget();
         let capture = || {
             self.chain
                 .state()
@@ -134,9 +134,9 @@ impl NativeFixture {
             Some(deadline) => bounded_native_snapshot(&budget, deadline, capture)?,
             None => capture().map_err(|error| crate::managed::Error::Invalid(error.to_string()))?,
         };
-        if deadline.is_none() {
-            assert_eq!(budget.reserved_bytes(), 0);
-        }
+        // Shared executed State generations may retire concurrently. Exact operation
+        // refunds belong to reader_busy_tests' pre-construction-pinned custody control,
+        // not an assertion about this shared State's global reservation total.
         let current = StreamTokenCustodyProofV1::decode_frame(&bytes).unwrap().verify(
             authority.config.network_id,
             authority.provider_id().unwrap(),
@@ -837,7 +837,8 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         assert_eq!(instructions.len(), instruction_count);
         let view = native.chain.state().view();
         assert_eq!(
-            iroha_core::gas::meter_instructions(instructions, &view.zk.gas),
+            iroha_core::gas::meter_instructions(instructions, &view.zk.gas)
+                .expect("native instruction metering completes without a local refusal"),
             gas
         );
         assert_eq!(

@@ -1,13 +1,32 @@
 //! Actual Kaigi instruction refusal, sticky publication and original-source retry controls.
 
 use super::*;
-use crate::{
-    execution_attempt::ExecutionDeferred, kura::Kura, query::store::LiveQueryStore, state::State,
-};
+use crate::{kura::Kura, query::store::LiveQueryStore, state::State};
 use core::num::NonZeroU64;
 use iroha_data_model::{Registrable, asset::AssetDefinition, prelude::Account};
 use iroha_test_samples::ALICE_ID;
 use ivm::ExecutionDeferral;
+
+/// The real retired JSON scope must retain its opaque cause, not only its reason.
+/// Exact same-attempt/pool comparisons live in the dedicated custody regressions.
+fn assert_captured_scope(owner: &crate::execution_attempt::ExecutionDeferred) {
+    assert_eq!(owner.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+    assert!(
+        owner.allocation_refusal().is_none(),
+        "decoder custody must not invent a pool release observation"
+    );
+    let original = owner
+        .decode_refusal()
+        .expect("actual JSON scope refusal must retain its captured cause");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert!(matches!(
+        original.clone().into_error(),
+        norito::Error::ScopedDecodeResource(_)
+    ));
+}
 
 fn create_instruction(record: &KaigiRecord, host: &AccountId) -> CreateKaigi {
     CreateKaigi {
@@ -136,12 +155,13 @@ fn stored_record_refusal_is_sticky_and_retries_original_json_without_publication
             })
             .expect_err("the original stored record must refuse a zero inner quota");
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "Kaigi record refusal must retain its original sticky execution deferral: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
         assert_eq!(transaction.last_tx_gas_used, 0);
         assert!(transaction.world.take_external_events().is_empty());
         transaction.apply();
@@ -215,7 +235,7 @@ fn stored_record_refusal_is_sticky_and_retries_original_json_without_publication
         original_context
             .with(|| instruction.execute(&participant, &mut transaction))
             .expect("same original stored Json retries in the original finite context");
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         transaction.apply();
     }
     assert_eq!(
@@ -288,7 +308,7 @@ fn indexed_record_refusal_preserves_unregister_guard_and_original_retry() {
             .with(|| ensure_kaigi_account_can_unregister(&transaction, &host))
             .expect_err("an active call genuinely prevents unregistering its original host");
         assert!(completed.to_string().contains("referenced by active Kaigi"));
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
     }
     let demand = usize::try_from(measurement.consumed_allocated_bytes()).unwrap();
     assert!(demand > 0);
@@ -314,12 +334,13 @@ fn indexed_record_refusal_preserves_unregister_guard_and_original_retry() {
             })
             .expect_err("indexed original call read must refuse its inner quota");
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferred::from(
-                ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            transaction
+                .borrow_execution_deferral()
+                .map(|owner| owner.reason()),
+            Some(ExecutionDeferral::ActiveMemoryCapacity),
             "Kaigi indexed record refusal must retain the original sticky execution deferral: {error:?}"
         );
+        assert_captured_scope(&transaction.borrow_execution_deferral().unwrap());
     }
     let before_retry = original_context.consumed_allocated_bytes();
     {
@@ -328,7 +349,7 @@ fn indexed_record_refusal_preserves_unregister_guard_and_original_retry() {
             .with(|| ensure_kaigi_account_can_unregister(&transaction, &host))
             .expect_err("same original source completes with its genuine active-call rejection");
         assert!(error.to_string().contains("referenced by active Kaigi"));
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
     }
     assert_eq!(
         original_context.consumed_allocated_bytes() - before_retry,

@@ -23,7 +23,7 @@ use iroha_core::{
         ValidSingularQuery,
         isi::query::{QueryLimits, validate_fresh_query_for_client_world_parts},
     },
-    state::{AllocationBudget, State, StateReadOnly},
+    state::{State, StateReadOnly},
     sumeragi::{
         finality::{FinalityProofReader, build_attestation, build_proof, with_proof_reader},
         lanes::merge::NoLanes,
@@ -245,7 +245,9 @@ impl NativeFixture {
     }
     pub(in crate::managed) fn policy_proof(&self, manager: &AccountId) -> ReservePolicyProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -274,7 +276,7 @@ impl NativeFixture {
         let proof = ReservePolicyProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }
@@ -286,7 +288,9 @@ impl NativeFixture {
         provider: ProviderId,
     ) -> ReserveAccountProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -318,7 +322,7 @@ impl NativeFixture {
         let proof = ReserveAccountProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }

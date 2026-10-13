@@ -11421,7 +11421,9 @@ fn vm_error_label(error: &VMError) -> &'static str {
     match error.as_unmetered() {
         VMError::ExecutionDeferred(_) => "execution_deferred",
         VMError::AllocationDeferred(_) => "allocation_deferred",
+        VMError::AllocatorDeferred(_) => "allocator_deferred",
         VMError::DecodeDeferred(_) => "decode_deferred",
+        VMError::VerificationDeferred(_) => "verification_deferred",
         VMError::OutOfGas => "out_of_gas",
         VMError::OutOfMemory => "out_of_memory",
         VMError::MemoryAccessViolation { .. } => "memory_access_violation",
@@ -11469,7 +11471,9 @@ fn vm_error_kind(error: &VMError) -> SoracloudRuntimeExecutionErrorKind {
     match error.as_unmetered() {
         VMError::ExecutionDeferred(_)
         | VMError::AllocationDeferred(_)
-        | VMError::DecodeDeferred(_) => SoracloudRuntimeExecutionErrorKind::Unavailable,
+        | VMError::AllocatorDeferred(_)
+        | VMError::DecodeDeferred(_)
+        | VMError::VerificationDeferred(_) => SoracloudRuntimeExecutionErrorKind::Unavailable,
         _ => SoracloudRuntimeExecutionErrorKind::Internal,
     }
 }

@@ -168,10 +168,16 @@ mod tests {
             rho: [1; 32],
             owner_tag: scalar_bytes(1),
         };
-        let check = |result: Result<(), String>, expected: &str| {
+        let check = |result: Result<(), super::ConfidentialProofProductionError>,
+                     expected: &str| {
             let error =
                 result.expect_err("public shape must reject before the invalid verifier key");
-            assert!(error.contains(expected), "unexpected error: {error}");
+            assert!(
+                error
+                    .input_error()
+                    .is_some_and(|message| message.contains(expected)),
+                "expected completed input validation, got: {error}"
+            );
             assert_eq!(super::confidential_commitment_leaf_hash_calls_v3(), 0);
         };
         for (tree_len, indices, expected) in [
@@ -1149,10 +1155,28 @@ mod tests {
         let unshield_key = unshield.key.as_ref().expect("unshield key");
         let unshield_v3_key = unshield_v3.key.as_ref().expect("unshield v3 key");
         super::native::validate_key(super::native::Kind::Transfer, transfer_key)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("transfer key must parse as confidential transfer v2");
         super::native::validate_key(super::native::Kind::Full, unshield_key)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("unshield key must parse as confidential unshield v2");
         super::native::validate_key(super::native::Kind::Change, unshield_v3_key)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("unshield v3 key must parse as confidential unshield v3");
     }
     #[test]
@@ -1366,6 +1390,12 @@ mod tests {
             "confidential transfer v2 verifier key generation should be cached and deterministic"
         );
         super::ensure_confidential_transfer_v2_canonical_vk_box(&canonical)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("canonical transfer verifier key should pass");
         let mut mutated = canonical.clone();
         let last = mutated
@@ -1374,20 +1404,45 @@ mod tests {
             .expect("canonical transfer verifier key bytes");
         *last ^= 0x01;
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&mutated)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("mutated self-consistent verifier key must reject");
         assert!(
-            err.contains("foreign native confidential compiled key"),
+            err.to_string()
+                .contains("foreign native confidential compiled key"),
             "unexpected mutated-key error: {err}"
         );
         let wrong_backend =
             VerifyingKeyBox::new("halo2/ipa:kzg".to_owned(), canonical.bytes.clone());
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&wrong_backend)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("wrong backend must reject before canonical bytes are considered");
-        assert!(err.contains("backend"), "unexpected backend error: {err}");
+        assert!(
+            err.to_string().contains("backend"),
+            "unexpected backend error: {err}"
+        );
         let empty = VerifyingKeyBox::new(crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(), Vec::new());
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&empty)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("empty verifier key must reject");
-        assert!(err.contains("length"), "unexpected empty-key error: {err}");
+        assert!(
+            err.to_string().contains("length"),
+            "unexpected empty-key error: {err}"
+        );
     }
     #[test]
     fn confidential_transfer_v2_canonical_vk_guard_rejects_malformed_key_preflight() {
@@ -1395,9 +1450,15 @@ mod tests {
         let malformed =
             VerifyingKeyBox::new(crate::ZK_BACKEND_NATIVE_PIPA_R.to_owned(), vec![0xC9; 32]);
         let err = super::ensure_confidential_transfer_v2_canonical_vk_box(&malformed)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("malformed verifier key must reject before canonical key generation");
         assert!(
-            err.contains("compiled key"),
+            err.to_string().contains("compiled key"),
             "unexpected malformed-key error: {err}"
         );
     }
@@ -1408,38 +1469,57 @@ mod tests {
         let v2_cached = super::confidential_unshield_v2_vk_box().expect("cached unshield v2 vk");
         assert_eq!(v2, v2_cached);
         super::ensure_confidential_unshield_v2_canonical_vk_box(&v2)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("canonical unshield v2 verifier key should pass");
         let v3 = super::confidential_unshield_v3_vk_box().expect("canonical unshield v3 vk");
         let v3_cached = super::confidential_unshield_v3_vk_box().expect("cached unshield v3 vk");
         assert_eq!(v3, v3_cached);
         super::ensure_confidential_unshield_v3_canonical_vk_box(&v3)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect("canonical unshield v3 verifier key should pass");
         fn assert_rejects_key_substitution(
             label: &str,
             canonical: &VerifyingKeyBox,
-            ensure: fn(&VerifyingKeyBox) -> Result<(), String>,
+            ensure: fn(
+                &VerifyingKeyBox,
+            ) -> Result<
+                (),
+                crate::VerificationAttemptError<crate::native_pipa_r::NativeVerificationError>,
+            >,
         ) {
             let mut mutated = canonical.clone();
             *mutated
                 .bytes
                 .last_mut()
                 .expect("canonical unshield verifier key bytes") ^= 0x01;
-            let err = match ensure(&mutated) {
+            let err = match ensure(&mutated).map_err(crate::verification::expect_rejected) {
                 Ok(()) => panic!("{label} mutated verifier key must reject"),
                 Err(err) => err,
             };
             assert!(
-                err.contains("foreign native confidential compiled key"),
+                matches!(&err, crate::native_pipa_r::NativeVerificationError::Invalid(message)
+                    if *message == "foreign native confidential compiled key"),
                 "unexpected {label} mutated-key error: {err}"
             );
             let wrong_backend =
                 VerifyingKeyBox::new("halo2/ipa:kzg".to_owned(), canonical.bytes.clone());
-            let err = match ensure(&wrong_backend) {
+            let err = match ensure(&wrong_backend).map_err(crate::verification::expect_rejected) {
                 Ok(()) => panic!("{label} wrong backend must reject"),
                 Err(err) => err,
             };
             assert!(
-                err.contains("backend"),
+                matches!(&err, crate::native_pipa_r::NativeVerificationError::Invalid(message)
+                    if *message == "invalid native confidential key backend or length"),
                 "unexpected {label} backend error: {err}"
             );
         }
@@ -1454,15 +1534,27 @@ mod tests {
             super::ensure_confidential_unshield_v3_canonical_vk_box,
         );
         let err = super::ensure_confidential_unshield_v3_canonical_vk_box(&v2)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("unshield v2 key must not satisfy unshield v3 canonical guard");
         assert!(
-            err.contains("compiled key"),
+            err.to_string().contains("compiled key"),
             "unexpected v2-as-v3 canonical-guard error: {err}"
         );
         let err = super::ensure_confidential_unshield_v2_canonical_vk_box(&v3)
+            .map_err(|error| match error {
+                crate::VerificationAttemptError::Rejected(error) => error,
+                crate::VerificationAttemptError::Deferred(original) => {
+                    panic!("unexpected local verification refusal: {original}")
+                }
+            })
             .expect_err("unshield v3 key must not satisfy unshield v2 canonical guard");
         assert!(
-            err.contains("compiled key"),
+            err.to_string().contains("compiled key"),
             "unexpected v3-as-v2 canonical-guard error: {err}"
         );
     }
@@ -1578,7 +1670,8 @@ mod tests {
                 crate::ZK_BACKEND_NATIVE_PIPA_R,
                 &proof.proof,
                 Some(transfer_key),
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "generated one-input one-output confidential transfer v2 proof should verify against the generated VK"
         );
         {
@@ -1586,7 +1679,8 @@ mod tests {
             let (exact_proof, exact_vk) =
                 relabel_native_fixture(&proof.proof, transfer_key, EXACT_BACKEND);
             assert!(
-                crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk)),
+                crate::verify_backend(EXACT_BACKEND, &exact_proof, Some(&exact_vk))
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "exact confidential-transfer registry label should reach the transfer verifier"
             );
         }
@@ -1616,7 +1710,7 @@ mod tests {
         )
         .expect_err("proof builder must reject a verifier key for another circuit");
         assert!(
-            wrong_cid_error.contains("compiled key"),
+            wrong_cid_error.to_string().contains("compiled key"),
             "{wrong_cid_error}"
         );
         assert!(
@@ -1624,7 +1718,8 @@ mod tests {
                 crate::ZK_BACKEND_NATIVE_PIPA_R,
                 &proof.proof,
                 Some(&wrong_cid_key),
-            ),
+            )
+            .expect("verification attempt must complete for this semantic fixture"),
             "verifier must reject a cryptographically valid proof whose compiled key names another relation"
         );
     }
@@ -1715,7 +1810,8 @@ mod tests {
         )
         .expect("build transfer proof");
         assert!(
-            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
+            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture"),
             "generated confidential transfer v2 proof should verify against the generated VK"
         );
     }
@@ -1775,7 +1871,8 @@ mod tests {
         )
         .expect("build transfer proof");
         assert!(
-            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box)),
+            crate::verify_backend(crate::ZK_BACKEND_NATIVE_PIPA_R, &proof.proof, Some(&vk_box))
+                .expect("verification attempt must complete for this semantic fixture"),
             "generated one-input confidential transfer v2 proof should verify against the generated VK"
         );
     }

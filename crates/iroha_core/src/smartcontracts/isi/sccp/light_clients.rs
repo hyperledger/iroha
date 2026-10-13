@@ -1259,7 +1259,7 @@ mod tests {
     }
 
     fn deferred(stx: &StateTransaction<'_, '_>) -> bool {
-        stx.execution_deferral().is_some_and(|deferral| {
+        stx.borrow_execution_deferral().is_some_and(|deferral| {
             deferral.reason() == ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable
         })
     }

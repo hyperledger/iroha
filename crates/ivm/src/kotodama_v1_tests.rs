@@ -268,7 +268,7 @@ fn fused_rounding_matches_constant_folding_through_generated_code_in_every_mode(
             .unwrap_or_else(|error| {
                 panic!("generated fused arithmetic differs in {mode}: {error}")
             });
-        assert_eq!(vm.public_call_result_word(0), Ok(0));
+        assert!(matches!(vm.public_call_result_word(0), Ok(0)));
     }
 }
 

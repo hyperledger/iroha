@@ -78,12 +78,22 @@ fn successful_memory_stores_initialize_exact_bytes_and_failed_stores_leave_no_ma
         .enter_root(TOP, &callable(128, 2), tables(ARG, RESULT, 2), TOP)
         .unwrap();
     assert_eq!(top_mask(&memory.call_frames, RESULT & !15), 0);
-    assert_eq!(
-        memory.store_u128(RESULT, 1),
-        Err(VMError::MisalignedAccess {
+    assert!(match (
+        &(memory.store_u128(RESULT, 1)),
+        &(VMError::MisalignedAccess {
             addr: RESULT as u32
         })
-    );
+    ) {
+        (
+            Err(VMError::MisalignedAccess {
+                addr: actual_field_0,
+            }),
+            VMError::MisalignedAccess {
+                addr: expected_field_0,
+            },
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
     assert!(
         memory.store_u64(ARG, 1).is_err(),
         "argument table remains read-only"

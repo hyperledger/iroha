@@ -471,15 +471,13 @@ pub mod isi {
         )
         .summarize_executable(bytecode)
         .map_err(|error| {
-            if let Some(reason) = crate::execution_attempt::ExecutionDeferred::from_vm_error(&error)
-            {
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason)
-            } else {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(Error::InvalidParameter(
-                    InvalidParameterError::SmartContract(format!(
+            match crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error) {
+                Ok(original) => crate::execution_attempt::ExecutionAttemptError::Deferred(original),
+                Err(error) => crate::execution_attempt::ExecutionAttemptError::Rejected(
+                    Error::InvalidParameter(InvalidParameterError::SmartContract(format!(
                         "invalid IVM trigger program: {error}"
-                    )),
-                ))
+                    ))),
+                ),
             }
         })?;
         if matches!(

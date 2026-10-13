@@ -193,6 +193,17 @@ fn ascending_native_genesis_waits_for_genuine_successor_quorum() {
     assert_eq!(blocks[0].verification(), QcVerification::Genesis);
     assert_eq!(blocks[1].verification(), QcVerification::Verified);
     assert!(blocks[1].extends(&blocks[0]));
+    // Both the genesis walk and successor verifier count the exact original
+    // canonical certificate bytes without changing the signed source.
+    for (index, block) in blocks.iter().enumerate() {
+        let original = chain.committed(index as u64 + 1);
+        let certificate = original.block().commit_certificate().unwrap();
+        assert_eq!(
+            block.certificate_len(),
+            norito::encode_canonical(certificate).unwrap().len()
+        );
+        assert_eq!(block.id(), original.id());
+    }
     chain.corrupt_local_quorum_for_test(2, Signers::BelowQuorum);
     let mut denied =
         reader.walk_from_execution(NonZeroUsize::MIN, NonZeroUsize::new(2).unwrap(), |_, _| {
@@ -795,15 +806,134 @@ fn state_certificate_signed_availability_scratch_uses_original_query_allowance()
             },
         )
     };
-    assert!(matches!(
-        check(scratch - 1, &payload),
-        Err(VerificationReadError::Resource(
-            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
-        )) if attempted == scratch as u64 && limit == (scratch - 1) as u64
-    ));
+    let Err(VerificationReadError::Deferred(original)) = check(scratch - 1, &payload) else {
+        panic!("actual availability admission");
+    };
+    let expected = original
+        .decode_refusal()
+        .expect("actual scratch scope")
+        .clone();
+    assert_eq!(
+        expected.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted: scratch as u64,
+            limit: (scratch - 1) as u64,
+        }
+    );
+    assert!(original.allocation_refusal().is_none());
+    let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+    assert_eq!(returned.decode_refusal(), Some(&expected));
+    let Err(VerificationReadError::Deferred(second)) = check(scratch - 1, &payload) else {
+        panic!("same source second refusal");
+    };
+    assert_ne!(
+        second.decode_refusal(),
+        Some(&expected),
+        "separate scopes have independent identity"
+    );
     assert_eq!(budget.reserved_bytes(), retained);
     check(scratch, &payload).expect("same source and original owners retry at the exact allowance");
     assert_eq!(budget.reserved_bytes(), retained);
+    // Deny only the real empty-vector backing, after the signed table has been prepared.
+    // These are actual verifier operations, not lower failures inserted into wrappers.
+    for layout in [
+        std::alloc::Layout::array::<u8>(shape.encoded_bytes()).unwrap(),
+        std::alloc::Layout::array::<u16>(shape.workspace_words()).unwrap(),
+    ] {
+        let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+            check(usize::MAX, &payload)
+        });
+        assert!(
+            denied,
+            "the selected real scratch allocation must be reached"
+        );
+        let Err(VerificationReadError::Deferred(original)) = result else {
+            panic!("actual allocation must remain local");
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(original.decode_refusal().is_none() && original.allocation_refusal().is_none());
+        let allocator = original
+            .allocator_refusal()
+            .expect("unchanged allocator original");
+        let (error, actual_layout) = allocator
+            .vec_reserve_error()
+            .expect("actual Vec reservation error");
+        assert_eq!(actual_layout, layout);
+        assert!(std::ptr::eq(
+            std::error::Error::source(allocator)
+                .unwrap()
+                .downcast_ref::<std::collections::TryReserveError>()
+                .unwrap(),
+            error
+        ));
+        let mut returned = None;
+        let allocations = crate::test_allocations::allocations_during(|| {
+            returned =
+                Some(ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap());
+        });
+        assert_eq!(
+            allocations, 0,
+            "retaining actual reservation errors needs no new allocation"
+        );
+        let returned = returned.unwrap();
+        let (_, returned_layout) = returned
+            .allocator_refusal()
+            .unwrap()
+            .vec_reserve_error()
+            .unwrap();
+        assert_eq!(returned_layout, layout);
+        let ivm::error::VMError::AllocatorDeferred(owner) = returned.into_vm_error() else {
+            panic!("same allocator owner");
+        };
+        let owner = owner.into_buffer_error().unwrap_err();
+        let (cause, consumed_layout) = owner.into_vec_reserve_error().unwrap();
+        assert_eq!(consumed_layout, layout);
+        assert!(!cause.to_string().is_empty());
+        // The public portable wrapper keeps the same failure category through Core's proof adapter.
+        let (portable, portable_denied) =
+            crate::test_allocations::refuse_one_layout_during(layout, || {
+                iroha_data_model::sumeragi_finality::verify_payload_availability(
+                    current.header.as_ref().unwrap().instance,
+                    &config,
+                    current.header.as_ref().unwrap(),
+                    &table,
+                    payload.as_slice(),
+                    &authority.crypto,
+                )
+            });
+        assert!(portable_denied);
+        let iroha_data_model::sumeragi_finality::FinalityReadError::Allocator(original) =
+            portable.unwrap_err()
+        else {
+            panic!("portable wrapper retains actual allocation failure");
+        };
+        assert_eq!(original.vec_reserve_error().unwrap().1, layout);
+        let crate::sumeragi::finality::ProofError::Deferred(original) =
+            crate::sumeragi::finality::ProofError::from(
+                iroha_data_model::sumeragi_finality::FinalityReadError::Allocator(original),
+            )
+        else {
+            panic!("portable allocator refusal cannot become invalid proof");
+        };
+        assert_eq!(
+            original
+                .allocator_refusal()
+                .unwrap()
+                .vec_reserve_error()
+                .unwrap()
+                .1,
+            layout
+        );
+        assert!(original.decode_refusal().is_none() && original.allocation_refusal().is_none());
+        assert_eq!(budget.reserved_bytes(), retained);
+        check(scratch, &payload)
+            .expect("same exact signed source retries after allocator restoration");
+        assert_eq!(budget.reserved_bytes(), retained);
+    }
+
     assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
         &current.block,
         &source
@@ -852,12 +982,19 @@ fn state_certificate_native_qc_decode_refusal_is_capacity_and_retries_original_s
             },
         )
     };
+    let Err(VerificationReadError::Deferred(original)) = check(1) else {
+        panic!("actual QC decoder refusal");
+    };
+    let expected = original
+        .decode_refusal()
+        .expect("original QC decoder scope")
+        .clone();
     assert!(matches!(
-        check(1),
-        Err(VerificationReadError::Resource(
-            norito::core::DecodeResourceError::FieldLengthExceeded { limit: 1, .. }
-        ))
+        expected.resource_error(),
+        norito::core::DecodeResourceError::FieldLengthExceeded { limit: 1, .. }
     ));
+    let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+    assert_eq!(returned.decode_refusal(), Some(&expected));
     let certified =
         check(usize::MAX).expect("exact original source retries without a new authority");
     assert_eq!(certified.id(), current.id());
@@ -887,18 +1024,26 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
             relations.qcs.is_empty(),
             "constructor admission precedes any QC relation"
         );
-        // Pure epoch validation first attempts its native context roundtrip under this same
-        // cumulative allowance. Refused optional insertion retains those original charges;
-        // the next failed charge must still be the exact pairing constructor backing.
+        // EpochValidationScope uses exact inline snapshots and performs no decoder charge.
+        // The first inherited allocation charge is this exact pairing constructor backing.
         let prelude = usage.total_allocated_bytes();
-        assert!(prelude > 0 && prelude < backing);
-        assert!(matches!(
-            result,
-            Err(VerificationReadError::Resource(
-                norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
-            )) if attempted == u64::try_from(prelude.checked_add(backing).unwrap()).unwrap()
-                && limit == u64::try_from(backing - 1).unwrap()
-        ));
+        assert_eq!(prelude, 0);
+        let Err(VerificationReadError::Deferred(original)) = result else {
+            panic!("pairing constructor admission");
+        };
+        let expected = original
+            .decode_refusal()
+            .expect("original pairing constructor scope")
+            .clone();
+        assert_eq!(
+            expected.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted: u64::try_from(prelude.checked_add(backing).unwrap()).unwrap(),
+                limit: u64::try_from(backing - 1).unwrap(),
+            }
+        );
+        let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+        assert_eq!(returned.decode_refusal(), Some(&expected));
         assert_eq!(parent.id(), chain.committed(2).id());
         assert_eq!(current.id(), chain.committed(3).id());
     }
@@ -924,24 +1069,40 @@ fn state_certificate_original_qc_inner_limit_is_not_adopted_by_wider_query_scope
     norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
         || {
-            let error = norito::core::with_decode_limits_scope(
-                norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 128),
-                || norito::decode_canonical::<iroha_sumeragi::message::Qc>(bytes).unwrap_err(),
-            );
-            assert!(
-                matches!(&error, norito::Error::FieldLengthExceeded { length, limit: 1 } if *length > 1)
-            );
+            // The narrower bound belongs to this decode operation. Observe the
+            // actual operation outside that bound, so its retired protocol limit
+            // cannot be adopted as the wider caller's resource refusal.
+            let error = norito::core::classify_decode_attempt(|| {
+                norito::core::with_decode_limits_scope(
+                    norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 128),
+                    || norito::decode_canonical::<iroha_sumeragi::message::Qc>(bytes),
+                )
+            })
+            .unwrap_err();
+            assert!(matches!(
+                error.error().decode_resource_error(),
+                Some(norito::core::DecodeResourceError::FieldLengthExceeded { length, limit: 1 })
+                    if length > 1
+            ));
+            assert_eq!(error.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+            assert!(error.local_refusal().is_none());
             let expected = error.to_string();
             assert!(matches!(verification_codec_error(3, error),
                 VerificationReadError::Source(ChainReadError::Malformed { height: 3, reason }) if reason == expected));
             let mut malformed = bytes.to_vec();
             malformed.push(0);
-            let error =
-                norito::decode_canonical::<iroha_sumeragi::message::Qc>(&malformed).unwrap_err();
-            assert!(error.decode_resource_error().is_none());
+            let error = norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical::<iroha_sumeragi::message::Qc>(&malformed)
+            })
+            .unwrap_err();
+            assert!(error.error().decode_resource_error().is_none());
+            assert_eq!(error.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+            assert!(error.local_refusal().is_none());
+            let expected = error.to_string();
             assert!(matches!(
                 verification_codec_error(3, error),
-                VerificationReadError::Source(ChainReadError::Malformed { height: 3, .. })
+                VerificationReadError::Source(ChainReadError::Malformed { height: 3, reason })
+                    if reason == expected
             ));
         },
     );
@@ -1102,7 +1263,15 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
         || reader.verify_parent_service_at(&proposal, &predecessor, &current, offered),
     );
-    assert!(matches!(refused, Err(ParentServiceError::Deferred(_))));
+    let Err(ParentServiceError::Deferred(original)) = refused else {
+        panic!("actual offered QC decoder");
+    };
+    let expected = original
+        .decode_refusal()
+        .expect("original offered QC scope survives return")
+        .clone();
+    let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+    assert_eq!(returned.decode_refusal(), Some(&expected));
     let retry = reader
         .verify_parent_service_at(&proposal, &predecessor, &current, offered)
         .unwrap()
@@ -1414,4 +1583,21 @@ fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slo
     ));
     drop(receipt);
     assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+#[test]
+fn certificate_verifier_completed_codec_error_keeps_exact_height_and_diagnostic() {
+    let wire = [0xff];
+    let expected = norito::decode_canonical::<Qc>(&wire)
+        .unwrap_err()
+        .to_string();
+    let original = norito::core::classify_decode_attempt(|| norito::decode_canonical::<Qc>(&wire))
+        .unwrap_err();
+    let VerificationReadError::Source(ChainReadError::Malformed { height, reason }) =
+        verification_codec_error(7, original)
+    else {
+        panic!("completed malformed certificate remains a completed source rejection");
+    };
+    assert_eq!(height, 7);
+    assert_eq!(reason, expected);
 }

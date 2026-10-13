@@ -1217,7 +1217,7 @@ impl CertifiedTestChain {
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
         let result = match self.executor.execute(&block, &block_hash) {
-            Some(ExecOutcome::Valid(result)) => result,
+            Ok(Some(ExecOutcome::Valid(result))) => result,
             other => {
                 use iroha_data_model::events::{
                     EventBox,

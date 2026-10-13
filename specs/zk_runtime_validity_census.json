@@ -1048,12 +1048,12 @@
    "path": "crates/iroha_core/src/gas.rs",
    "symbol": "pub fn meter_instruction",
    "gates": "Confidential verification gas was metered from one process-wide schedule (ZK_GAS_BASE_VERIFY and four more) rather than from the ZK settings a block froze.",
-   "decided_by": "The schedule is an argument of the meter: `meter_instruction`, `meter_instructions`, `confidential_gas_cost` and `sum_confidential_gas_costs` take the verification gas schedule of the executing block (`StateBlock::zk.gas`, the committed `zk_validity_policy_v1` or the protocol default). The executor and trigger execution pass the transaction's frozen settings, the IVM host the settings it was configured with for the block, queue admission and the fee quotes the schedule of the view they read. The five process statics, their installers and the test lock are deleted; two States with different committed schedules run in one process. Torii's configuration record, the telemetry gauges and `iroha confidential gas get` report the schedule State charges.",
+   "decided_by": "The schedule is an argument of the meter: `meter_instruction`, `meter_instructions`, `confidential_gas_cost` and `sum_confidential_gas_costs` take the verification gas schedule of the executing block (`StateBlock::zk.gas`, the committed `zk_validity_policy_v1` or the protocol default). The executor and trigger execution pass the transaction's frozen settings, the IVM host the settings it was configured with for the block, queue admission and the fee quotes the schedule of the view they read. The five process statics, their installers and the test lock are deleted; two States with different committed schedules run in one process. Torii's configuration record, the telemetry gauges and `iroha confidential gas get` report the schedule State charges. The four meters now return the original VerificationRefusal if native proof metadata cannot be read, before producing a price; this local failure is not a zero-cost quote or a change of schedule.",
    "attribution": "read",
    "anchors": [
     {
      "path": "crates/iroha_core/src/gas.rs",
-     "contains": "pub fn meter_instruction(instr: &InstructionBox, zk_gas: &ActualConfidentialGas) -> u64 {"
+     "contains": "pub fn meter_instruction(\n    instr: &InstructionBox,\n    zk_gas: &ActualConfidentialGas,\n) -> Result<u64, VerificationRefusal> {"
     },
     {
      "path": "crates/iroha_core/src/executor.rs",
@@ -1142,6 +1142,10 @@
     {
      "path": "crates/iroha_torii/tests/sumeragi_params_endpoint.rs",
      "name": "configuration_endpoint_reports_the_committed_confidential_gas_schedule"
+    },
+    {
+     "path": "crates/iroha_core/src/gas.rs",
+     "name": "original_gas_refusal_never_becomes_a_discount_and_input_retries"
     }
    ],
    "sites": []
@@ -2486,6 +2490,49 @@
    ]
   },
   {
+   "id": "generic_zk.initialization_outcome",
+   "kind": "activation_lifecycle",
+   "status": "not_a_gate",
+   "owner": null,
+   "path": "crates/iroha_plonk/src/verification_attempt.rs",
+   "symbol": "InitializationUnavailable",
+   "gates": "The borrowed diagnostic category of a trusted verifier initializer that did not provide usable material; the four identifier hits are the enum variant and three projections in VerificationRefusal::kind.",
+   "decided_by": "The actual local initializer result decides whether this verification attempt can continue. VerificationRefusal retains the original typed cause and VerificationAttemptError::Deferred does not produce a verdict about the supplied proof. No activation bit, feature, configuration or elapsed-time permission is consulted by this category.",
+   "attribution": "read",
+   "note": "InitializationUnavailable is a diagnostic projection, not a declaration that a protocol or engine is unimplemented. It includes original bounded-writer allocation/scoped failures and other parameter/key/protocol/codec initializer causes; it therefore does not prove that every cause is transient or physical allocator exhaustion. Native cancellation and explicit MSM budget refusal have separate categories. A trusted invariant, poisoned initializer, oversized bounded output or completed serializer defect has LocalInvariantViolation instead. VM maps the unavailable category to VerifierInitializationUnavailable while retaining the move-only owner. No decoder scope, pool waiter or incoming rejection is reconstructed. This census records those actual outcomes only; it neither closes remaining caller/producer custody defects nor certifies native delivery.",
+   "anchors": [
+    {
+     "path": "crates/iroha_plonk/src/verification_attempt.rs",
+     "contains": "Initialization(NativeVerifierInitError)"
+    },
+    {
+     "path": "crates/iroha_plonk/src/verification_attempt.rs",
+     "contains": "Err(VerificationAttemptError::Deferred(original)) => Err(original)"
+    },
+    {
+     "path": "crates/ivm_abi/src/error.rs",
+     "contains": "Kind::InitializationUnavailable => {\n                        ExecutionDeferral::VerifierInitializationUnavailable"
+    }
+   ],
+   "tests": [
+    {
+     "path": "crates/iroha_plonk/src/verification_attempt/tests.rs",
+     "name": "initializer_diagnostics_borrow_exact_causes_without_inventing_capacity_owners"
+    },
+    {
+     "path": "crates/iroha_plonk/src/verification_attempt/tests.rs",
+     "name": "actual_bounded_output_cap_and_trusted_serializer_defect_require_recovery"
+    },
+    {
+     "path": "crates/iroha_plonk/src/verification_attempt/tests.rs",
+     "name": "bounded_writer_preserves_real_nested_scope_without_decoder_reclassification"
+    }
+   ],
+   "sites": [
+    ["crates/iroha_plonk/src/verification_attempt.rs", "unavailable", "unavailable", 4]
+   ]
+  },
+  {
    "id": "generic_zk.local_resource",
    "kind": "activation_lifecycle",
    "status": "local_resource",
@@ -2527,11 +2574,11 @@
    "gates": "generic proof admission: a wall clock or elapsed-time reading on the proof path.",
    "decided_by": "Committed State already decides it.",
    "attribution": "path_rule",
-   "note": "Verification latency measured and returned with the outcome (iroha_core_zk::lib) and the deadline of the proof-registry query service (iroha_core::torii::zk::proofs). The first is reported, the second bounds one local query; no proof is rejected by a clock.",
+   "note": "Three timing pairs in iroha_core_zk::lib: verify_backend_with_timing, the native PIPA-R branch of verify_backend_with_timing_guardrails, and its STARK branch. Each reads Instant::now before verification and reports elapsed only after a completed result; an original VerificationRefusal returns through ? before constructing VerifyReport, and elapsed is never compared with a validity limit. The two iroha_core::torii::zk::proofs clock sites bound one local proof-registry query. These readings do not reject proofs by elapsed time; existing backend switches and committed size caps remain separately classified gates.",
    "sites": [
     ["crates/iroha_core/src/torii/zk/proofs.rs", "wall_clock", "instant", 2],
-    ["crates/iroha_core_zk/src/lib.rs", "wall_clock", "elapsed", 2],
-    ["crates/iroha_core_zk/src/lib.rs", "wall_clock", "instant", 2]
+    ["crates/iroha_core_zk/src/lib.rs", "wall_clock", "elapsed", 3],
+    ["crates/iroha_core_zk/src/lib.rs", "wall_clock", "instant", 3]
    ]
   },
   {
@@ -5972,9 +6019,9 @@
   }
  },
  "summary": {
-  "entries": 217,
-  "sites": 1460,
-  "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 94, "open": 56, "out_of_plan": 20, "unsupported": 15},
-  "by_owner": {"-": 114, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 218,
+  "sites": 1461,
+  "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 95, "open": 56, "out_of_plan": 20, "unsupported": 15},
+  "by_owner": {"-": 115, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

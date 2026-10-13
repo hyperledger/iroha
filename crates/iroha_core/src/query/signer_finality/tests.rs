@@ -40,9 +40,8 @@ fn invalid_or_absent_coordinates_fail_closed() {
         (4, hash(&chain, 3)),
         (u64::MAX, [1; 32]),
     ] {
-        assert_eq!(
-            verify_signer_finality_v1(&view, height, hash),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(verify_signer_finality_v1(&view, height, hash), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 SignerFinalityErrorV1
             ))
         );
@@ -65,9 +64,8 @@ fn every_certified_height_is_final_with_its_certified_block_id() {
         assert_eq!(verified.context_id(), chain.committed(height).id());
     }
     // Another height's hash is not this height's block.
-    assert_eq!(
-        verify_signer_finality_v1(&view, 2, hash(&chain, 3)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&view, 2, hash(&chain, 3)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -84,9 +82,8 @@ fn native_hash_cache_without_a_durable_block_is_not_finality() {
         chain.network_id(),
     );
     state.push_block_hash_for_testing(chain.genesis().hash());
-    assert_eq!(
-        verify_signer_finality_v1(&state.view(), 1, hash(&chain, 1)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&state.view(), 1, hash(&chain, 1)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -108,21 +105,18 @@ fn durable_certificate_cannot_substitute_for_the_same_state_history() {
     other.push_block_hash_for_testing(foreign);
     // Shared signed genesis identity is insufficient: this view has no authenticated
     // successor anchoring the genesis execution result.
-    assert_eq!(
-        verify_signer_finality_v1(&other.view(), 1, hash(&chain, 1)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&other.view(), 1, hash(&chain, 1)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
-    assert_eq!(
-        verify_signer_finality_v1(&other.view(), 2, hash(&chain, 2)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&other.view(), 2, hash(&chain, 2)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
-    assert_eq!(
-        verify_signer_finality_v1(&other.view(), 2, *foreign.as_ref()),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&other.view(), 2, *foreign.as_ref()), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -158,9 +152,8 @@ fn identical_blocks_and_certificates_cannot_authorize_a_foreign_state_network() 
         "both States retain the same ordered block history"
     );
     for height in 1..=3 {
-        assert_eq!(
-            verify_signer_finality_v1(&foreign.view(), height, hash(&chain, height)),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(verify_signer_finality_v1(&foreign.view(), height, hash(&chain, height)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 SignerFinalityErrorV1
             ))
         );
@@ -175,9 +168,8 @@ fn an_invalid_local_certificate_is_not_signer_finality() {
     chain.commit_at(4_000, Vec::new());
     chain.corrupt_local_quorum_for_test(4, Signers::BelowQuorum);
     let view = chain.state().view();
-    assert_eq!(
-        verify_signer_finality_v1(&view, 4, hash(&chain, 4)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&view, 4, hash(&chain, 4)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -202,9 +194,8 @@ fn original_genesis_without_a_successor_has_execution_but_no_signer_finality() {
         QcVerification::Genesis
     );
     assert!(super::certified_block_v1(&reader, 1, hash(&chain, 1)).is_err());
-    assert_eq!(
-        verify_signer_finality_v1(&view, 1, hash(&chain, 1)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&view, 1, hash(&chain, 1)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -298,9 +289,8 @@ fn genesis_execution_finality_requires_a_verified_successor() {
             QcVerification::Genesis
         );
         assert!(super::certified_block_v1(&reader, 1, *genesis.hash().as_ref()).is_err());
-        assert_eq!(
-            verify_signer_finality_v1(&view, 1, *genesis.hash().as_ref()),
-            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+        assert!(
+            matches!(verify_signer_finality_v1(&view, 1, *genesis.hash().as_ref()), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                 SignerFinalityErrorV1
             ))
         );
@@ -348,9 +338,8 @@ fn genesis_result_rejects_a_substituted_native_lane_witness_root() {
     assert!(matches!(CertifiedChain::new(&view).unwrap().certified(1),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 1, reason }))
             if reason.contains("invalid native context proof")));
-    assert_eq!(
-        verify_signer_finality_v1(&view, 1, *original.hash().as_ref()),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&view, 1, *original.hash().as_ref()), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );
@@ -374,9 +363,8 @@ fn imported_genesis_frame_and_hash_journal_cannot_replace_original_execution() {
     state.push_block_hash_for_testing(genesis.hash());
     let view = state.view();
     assert!(committed_block(&view, 1).is_err());
-    assert_eq!(
-        verify_signer_finality_v1(&view, 1, hash(&chain, 1)),
-        Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(verify_signer_finality_v1(&view, 1, hash(&chain, 1)), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             SignerFinalityErrorV1
         ))
     );

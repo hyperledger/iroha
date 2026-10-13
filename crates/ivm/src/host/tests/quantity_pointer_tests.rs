@@ -116,8 +116,8 @@ fn quantity_arguments_require_canonical_quantity_pointer() {
         .expect("allocate canonical quantity");
     vm.set_register(13, canonical_ptr);
     assert_eq!(
-        DefaultHost::expect_quantity(&vm, 13),
-        Ok(canonical_payload.len())
+        (DefaultHost::expect_quantity(&vm, 13)).expect("expected successful fixture result"),
+        canonical_payload.len()
     );
     let account_ptr = vm
         .alloc_input_tlv(&test_tlv(PointerType::AccountId, &[]))
@@ -135,21 +135,25 @@ fn quantity_arguments_require_canonical_quantity_pointer() {
     let expected_gas = DefaultHost::mutation_gas(canonical_payload.len());
     let mut scoped_host = DefaultHost::new();
     assert_eq!(
-        scoped_host.prepare_syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
-        Ok(expected_gas)
+        (scoped_host.prepare_syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &vm))
+            .expect("expected successful fixture result"),
+        expected_gas
     );
     assert_eq!(
-        scoped_host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm),
-        Ok(expected_gas)
+        (scoped_host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm))
+            .expect("expected successful fixture result"),
+        expected_gas
     );
     let mut batch_host = DefaultHost::new();
     assert_eq!(
-        batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-        Ok(gas::G_FASTPQ_BATCH)
+        (batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+            .expect("expected successful fixture result"),
+        gas::G_FASTPQ_BATCH
     );
     assert_eq!(
-        batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm),
-        Ok(expected_gas)
+        (batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm))
+            .expect("expected successful fixture result"),
+        expected_gas
     );
     assert!(batch_host.fastpq_batch_has_entries);
     let legacy_payload =
@@ -158,10 +162,10 @@ fn quantity_arguments_require_canonical_quantity_pointer() {
         .alloc_input_tlv(&test_tlv(PointerType::NoritoBytes, &legacy_payload))
         .expect("allocate legacy Numeric pointer");
     vm.set_register(13, legacy_ptr);
-    assert_eq!(
+    assert!(matches!(
         DefaultHost::expect_quantity(&vm, 13),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     let noncanonical = Numeric::new(1_250_u32, 3);
     let noncanonical_ptr = vm
         .alloc_input_tlv(&test_tlv(
@@ -170,10 +174,10 @@ fn quantity_arguments_require_canonical_quantity_pointer() {
         ))
         .expect("allocate noncanonical quantity");
     vm.set_register(13, noncanonical_ptr);
-    assert_eq!(
+    assert!(matches!(
         DefaultHost::expect_quantity(&vm, 13),
         Err(VMError::DecodeError)
-    );
+    ));
 }
 #[test]
 fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
@@ -215,18 +219,21 @@ fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
         .expect("allocate maximum-sized noncanonical quantity");
     vm.set_register(13, maximum_sized_noncanonical_ptr);
     assert_eq!(
-        read_bounded_tlv_payload_len_at(
+        (read_bounded_tlv_payload_len_at(
             &vm,
             maximum_sized_noncanonical_ptr,
             PointerType::Quantity,
             MAX_QUANTITY_FRAME_BYTES_V1,
-        ),
-        Ok(MAX_QUANTITY_FRAME_BYTES_V1),
+        ))
+        .expect("expected successful fixture result"),
+        MAX_QUANTITY_FRAME_BYTES_V1,
         "the exact V1 maximum must reach canonical frame validation"
     );
-    assert_eq!(
-        DefaultHost::expect_quantity(&vm, 13),
-        Err(VMError::DecodeError),
+    assert!(
+        matches!(
+            DefaultHost::expect_quantity(&vm, 13),
+            Err(VMError::DecodeError)
+        ),
         "size admission must not replace canonical frame validation"
     );
     for (label, pointer) in [
@@ -236,9 +243,11 @@ fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
     ] {
         vm.set_register(13, pointer);
         vm.memory.clear_tracking();
-        assert_eq!(
-            DefaultHost::expect_quantity(&vm, 13),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                DefaultHost::expect_quantity(&vm, 13),
+                Err(VMError::NoritoInvalid)
+            ),
             "{label}"
         );
         assert_eq!(
@@ -273,10 +282,10 @@ fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
     ];
     let mut scoped_host = DefaultHost::new();
     vm.memory.clear_tracking();
-    assert_eq!(
+    assert!(matches!(
         scoped_host.prepare_syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert!(
         vm.memory
             .try_read_log_snapshot()
@@ -291,10 +300,10 @@ fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
             .is_empty()
     );
     vm.memory.clear_tracking();
-    assert_eq!(
+    assert!(matches!(
         scoped_host.syscall(syscalls::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(
         vm.memory
             .try_read_log_snapshot()
@@ -323,14 +332,15 @@ fn oversized_quantity_fails_from_bounded_header_before_hash_or_mutation() {
     );
     let mut batch_host = DefaultHost::new();
     assert_eq!(
-        batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm),
-        Ok(gas::G_FASTPQ_BATCH)
+        (batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1_BATCH_BEGIN, &mut vm))
+            .expect("expected successful fixture result"),
+        gas::G_FASTPQ_BATCH
     );
     vm.memory.clear_tracking();
-    assert_eq!(
+    assert!(matches!(
         batch_host.syscall(syscalls::SYSCALL_TRANSFER_V1, &mut vm),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(
         vm.memory
             .try_read_log_snapshot()

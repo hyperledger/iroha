@@ -2973,7 +2973,7 @@ pub mod isi {
                         authority,
                         &binding.alias,
                     ) {
-                        if state_transaction.execution_deferral().is_some() {
+                        if state_transaction.is_execution_deferred() {
                             return Err(error.into());
                         }
                         ensure_authority_can_manage_stale_contract_alias(

@@ -1433,44 +1433,61 @@ fn availability_scratch_refusal_preserves_signed_source_for_retry() {
                     &payload,
                     &crypto,
                     |bytes| {
-                        norito::core::reserve_decode_allocation(bytes).map_err(|error| {
-                            error
-                                .decode_resource_error()
-                                .expect("allocation admission error")
+                        norito::core::classify_decode_attempt(|| {
+                            norito::core::reserve_decode_allocation(bytes)
                         })
                     },
                 )
             },
         )
     };
+    let Err(PayloadAvailabilityError::Admission(original)) = check(scratch - 1) else {
+        panic!("signed availability scratch must preserve actual admission before allocation");
+    };
+    let original = original
+        .into_local_refusal()
+        .expect("scope retired, original remains local");
     assert_eq!(
-        check(scratch - 1),
-        Err(PayloadAvailabilityError::Resource(
-            norito::core::DecodeResourceError::TotalAllocationExceeded {
-                attempted: scratch as u64,
-                limit: (scratch - 1) as u64,
-            },
-        )),
-        "signed availability scratch must be admitted before allocation"
+        original.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted: scratch as u64,
+            limit: (scratch - 1) as u64,
+        }
+    );
+    let Err(PayloadAvailabilityError::Admission(second)) = check(scratch - 1) else {
+        panic!("repeat original scope");
+    };
+    assert_ne!(
+        second.into_local_refusal().unwrap(),
+        original,
+        "independent attempts retain distinct original scopes"
     );
     check(scratch).expect("same signed source retries at its exact scratch allowance");
 }
 
 #[test]
 fn availability_scratch_resource_keeps_its_exact_category() {
-    let resource =
-        PayloadAvailabilityError::Resource(norito::core::DecodeResourceError::AllocationFailed {
-            bytes: 37,
-        });
+    let cap = MAX_FINALITY_AVAILABILITY_SCRATCH_BYTES;
+    check_portable_scratch_limit(cap).expect("exact bound admitted without allocation");
+    let original = check_portable_scratch_limit(cap + 1).unwrap_err();
+    let resource = PayloadAvailabilityError::<std::convert::Infallible>::Limit(original);
+    let FinalityReadError::ScratchLimit(original) = FinalityReadError::from(resource) else {
+        panic!("finite local reader policy is not signed-source invalidity");
+    };
     assert_eq!(
-        FinalityError::from(resource),
-        FinalityError("failed to allocate 37 bytes while decoding".into())
+        original,
+        iroha_allocation::AllocationRefusal::ExceedsLimit {
+            requested_bytes: cap + 1,
+            limit_bytes: cap,
+        }
     );
     let invalid = FinalityError("invalid signed source".into());
-    assert_eq!(
-        FinalityError::from(PayloadAvailabilityError::from(invalid.clone())),
-        invalid
-    );
+    let FinalityReadError::Invalid(actual) = FinalityReadError::from(PayloadAvailabilityError::<
+        std::convert::Infallible,
+    >::from(invalid.clone())) else {
+        panic!("completed source rejection stays completed");
+    };
+    assert_eq!(actual, invalid);
 }
 
 #[test]

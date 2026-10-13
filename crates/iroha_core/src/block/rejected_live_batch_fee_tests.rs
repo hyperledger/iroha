@@ -416,7 +416,8 @@ fn successful_live_batches_accumulate_parent_block_gas() {
         let expected_gas = crate::gas::meter_instructions(
             core::slice::from_ref(&log_instruction),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
+        )
+        .expect("gas quote must complete for this fixture");
         assert!(expected_gas > 0, "the fixture must consume gas");
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();

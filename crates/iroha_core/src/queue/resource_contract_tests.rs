@@ -360,7 +360,9 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     let refused_by_queue = |state: &State| refused_by(&Queue::test(config_factory(), &time), state);
 
     // No lane policy: the global budget decides.
-    assert_eq!(check(&state), Err(ExecutionAttemptError::Rejected(never)));
+    assert!(
+        matches!(check(&state), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (never))
+    );
     assert!(matches!(
         refused_by_queue(&state),
         Error::UnsupportedTransactionAdmission { reason } if reason == never.to_string()
@@ -377,7 +379,9 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
             .expect("valid fixture parameters");
         world.commit();
     }
-    assert_eq!(check(&state), Err(ExecutionAttemptError::Rejected(never)));
+    assert!(
+        matches!(check(&state), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (never))
+    );
     assert!(matches!(
         refused_by_queue(&state),
         Error::UnsupportedTransactionAdmission { reason } if reason == never.to_string()
@@ -399,13 +403,44 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     let queue = Queue::test(config_factory(), &time);
     let starved_push =
         norito::with_decode_limits_scope(starved_limits(), || refused_by(&queue, &state));
-    assert!(
-        matches!(&starved_push, Error::Deferred(reason) if *reason == local_refusal),
-        "a starved policy read defers queue admission with its refusal: {starved_push:?}"
-    );
+    let Error::Deferred(queued_refusal) = starved_push else {
+        panic!("a starved policy read must defer queue admission: {starved_push:?}");
+    };
+    assert_eq!(queued_refusal.reason(), local_refusal.reason());
+    assert_eq!(queued_refusal.phase(), local_refusal.phase());
+    assert!(queued_refusal.allocation_refusal().is_none());
+    assert!(local_refusal.allocation_refusal().is_none());
+    assert!(queued_refusal.verification_refusal().is_none());
+    assert!(local_refusal.verification_refusal().is_none());
+    let payload_cause = local_refusal
+        .decode_refusal()
+        .expect("actual payload policy read");
+    let queued_cause = queued_refusal
+        .decode_refusal()
+        .expect("actual queue policy/root read");
+    // The actual operations may first inspect different committed JSON owners. Both
+    // preserve their real zero-budget refusal; unrelated attempts never share identity.
+    for cause in [payload_cause, queued_cause] {
+        assert_eq!(
+            cause.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert!(matches!(cause.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }
+            if attempted > 0));
+    }
+    assert_ne!(payload_cause, queued_cause);
+    let observed = queued_cause.clone();
+    let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+        queued_refusal.into_vm_error(),
+    )
+    .unwrap();
+    assert_eq!(moved.decode_refusal(), Some(&observed));
     // The same queue admits nothing and rejects nothing because of the deferral: once the
     // read completes it gives the deterministic verdict.
-    assert_eq!(check(&state), Err(ExecutionAttemptError::Rejected(never)));
+    assert!(
+        matches!(check(&state), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (never))
+    );
     assert!(matches!(
         refused_by_queue(&state),
         Error::UnsupportedTransactionAdmission { reason } if reason == never.to_string()
@@ -414,25 +449,36 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     // A transaction within the global budget needs no policy read, so nothing defers it.
     let roomy = resource_contract_state(global + 1);
     let within = norito::with_decode_limits_scope(starved_limits(), || check(&roomy));
-    assert_eq!(within, Ok(()));
+    assert_eq!(
+        (within)
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(())
+    );
 }
 
-/// Today's default parameters at their actual maximum: the largest includable transaction
-/// is admitted and selected, and the 10 MiB cap is inclusive for transaction validation at
-/// admission and in block validation. Queue admission refuses everything above the
-/// includable bound, the cap included, because no block can carry it until the payload
-/// limit grows (contract relation `transaction_cap_fits_block_payload`).
+/// The default 16 MiB block policy admits and selects the full 10 MiB transaction cap.
+/// Admission and block validation both reject the next byte. The same cap-sized
+/// transaction is refused without queue custody under an explicitly smaller route,
+/// preserving the independent includability boundary.
 #[test]
 fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let (_, time) = TimeSource::new_mock(Duration::default());
     let limits = TransactionParameters::default();
     let parameters = iroha_data_model::parameter::Parameters::default();
+    assert_eq!(
+        parameters.sumeragi.max_block_bytes().get(),
+        16 * 1024 * 1024
+    );
     let includable = parameters.max_includable_transaction_bytes(
         iroha_data_model::parameter::system::TransactionInclusionRoute::Global,
     );
-    assert_eq!(includable, 4_128_768);
     let cap = limits.max_tx_bytes().get();
     assert_eq!(cap, 10_485_760);
+    assert_eq!(
+        includable, cap,
+        "the default block carries the full transaction cap"
+    );
     // A signed transaction of exactly `target` framed bytes, measured by admission itself.
     let measure = |message_len: usize| {
         let signed = resource_contract_signed_log(&time, message_len);
@@ -454,7 +500,6 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         signed
     };
     let largest = sized(includable);
-    let over_includable = sized(includable + 1);
     let at_cap = sized(cap);
     let over_cap = sized(cap + 1);
 
@@ -471,8 +516,6 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         )
     };
     let largest = resource_contract_accept(largest, limits, &time).expect("includable");
-    let over_includable =
-        resource_contract_accept(over_includable, limits, &time).expect("below the cap");
     follower(&at_cap).expect("block validation accepts the cap itself");
     let at_cap = resource_contract_accept(at_cap, limits, &time).expect("the cap itself");
     assert!(matches!(
@@ -503,22 +546,28 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         includable
     );
     let queue = Arc::new(Queue::test(config_factory(), &time));
-    for refused in [over_includable, at_cap] {
-        let bytes = refused.encoded_len();
-        let failure = queue
-            .push(refused, state.view())
-            .expect_err("no block can carry it");
-        assert!(
-            matches!(failure.err, Error::UnsupportedTransactionAdmission { .. }),
-            "{bytes} bytes: {:?}",
-            failure.err
-        );
+    let reserve = iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
+    let smaller_block = reserve + u32::try_from(includable).unwrap() - 1;
+    let mut smaller_state = resource_contract_state(smaller_block);
+    register_accepted_tx_authority_for_queue_test(&mut smaller_state, &at_cap);
+    let smaller_queue = Arc::new(Queue::test(config_factory(), &time));
+    let failure = smaller_queue
+        .push(at_cap, smaller_state.view())
+        .expect_err("one byte above this route's includable bound takes no custody");
+    let expected = iroha_data_model::parameter::system::TransactionNeverIncludable {
+        encoded_bytes: cap,
+        max_bytes: cap - 1,
     }
+    .to_string();
+    assert!(
+        matches!(failure.err, Error::UnsupportedTransactionAdmission { ref reason } if reason == &expected)
+    );
+    assert_eq!(smaller_queue.active_len(), 0);
     assert_eq!(queue.active_len(), 0);
     queue
         .push(largest.clone(), state.view())
         .expect("the largest includable transaction is admitted");
-    // The proposer's budget is the committed payload limit less the reserve.
+    // A cap-sized proposal budget selects the full accepted transaction.
     let budget = usize::try_from(includable).unwrap();
     let selected = crate::sumeragi::payload::select(&state, &queue, budget, 0).unwrap();
     assert_eq!(selected.len(), 1);
@@ -531,7 +580,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
 
 /// Admission state whose includable assessment is one fixed local refusal. Every later
 /// admission step panics: a deferred assessment ends admission before any custody is taken.
-struct DeferredInclusionAccess(crate::execution_attempt::ExecutionDeferred);
+struct DeferredInclusionAccess(Option<crate::execution_attempt::ExecutionDeferred>);
 
 impl QueueAdmissionStateAccess for DeferredInclusionAccess {
     fn authority_exists(&mut self, _authority: &AccountId) -> bool {
@@ -550,7 +599,9 @@ impl QueueAdmissionStateAccess for DeferredInclusionAccess {
         >,
     > {
         Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-            self.0.clone(),
+            self.0
+                .take()
+                .expect("one includable assessment transfers the original once"),
         ))
     }
     fn sccp_exempt_admission(
@@ -612,8 +663,14 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
     install_single_validator_topology_for_queue_test(&mut state, 0xB7);
     register_accepted_tx_authority_for_queue_test(&mut state, &transaction);
     let queue = Queue::test(config_factory(), &time);
-    let original: crate::execution_attempt::ExecutionDeferred =
-        ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into();
+    let budget = iroha_allocation::AllocationBudget::new(8);
+    let occupied = budget
+        .try_reserve_bytes(8)
+        .expect("occupy the original pool");
+    let original = budget
+        .try_reserve_bytes(1)
+        .expect_err("actual capacity refusal");
+    let observation = original.clone();
     let plan = queue
         .route_plan_with_state(&transaction, &state)
         .expect("the fixture transaction has a route");
@@ -622,7 +679,7 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
         let Err(failure) = queue.prepare_checked_for_enqueue(
             CheckedTransaction::new_unchecked(transaction.clone()),
             plan,
-            &mut DeferredInclusionAccess(original.clone()),
+            &mut DeferredInclusionAccess(Some(original.into())),
             None,
             #[cfg(feature = "telemetry")]
             view.telemetry,
@@ -636,7 +693,18 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
                 failure.err
             );
         };
-        assert_eq!(reason, original, "the original local refusal is retained");
+        assert_eq!(
+            reason.allocation_refusal(),
+            Some(&observation),
+            "the original local refusal is retained"
+        );
+        assert_eq!(
+            reason.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(reason.decode_refusal().is_none());
+        assert!(reason.verification_refusal().is_none());
+        assert!(reason.phase().is_none());
         assert_eq!(
             failure.tx.hash_as_entrypoint(),
             transaction.hash_as_entrypoint(),
@@ -646,6 +714,8 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
     assert_eq!(queue.active_len(), 0);
     assert_eq!(queue.queued_len(), 0);
     assert_eq!(queue.retained_bytes(), 0);
+    drop(occupied);
+    assert!(budget.try_reserve_bytes(1).is_ok());
     queue
         .push(transaction, state.view())
         .expect("the completed assessment admits the same transaction");
@@ -730,8 +800,9 @@ fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() 
     let instruction: InstructionBox = VerifyProof::new(attachment).into();
     let delta = 17 + 5 * public_inputs + 3 * proof_bytes;
     assert_eq!(
-        gas::meter_instruction(&instruction, &committed)
-            - gas::meter_instruction(&instruction, &gas::DEFAULT_ZK_GAS),
+        gas::meter_instruction(&instruction, &committed).expect("completed proof gas quote")
+            - gas::meter_instruction(&instruction, &gas::DEFAULT_ZK_GAS)
+                .expect("completed proof gas quote"),
         delta
     );
 
@@ -752,12 +823,6 @@ fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() 
         let under_committed = Queue::compute_proposal_gas_cost(&tx, &committed)
             .expect("the committed schedule prices the transaction");
         assert_eq!(under_committed - under_default, delta);
-        // The TEU weight of the same transaction follows the schedule too.
-        assert_eq!(
-            Queue::compute_teu_weight(&tx, &committed)
-                - Queue::compute_teu_weight(&tx, &gas::DEFAULT_ZK_GAS),
-            delta
-        );
         queue
             .push(tx, state.view())
             .expect("the proof-bearing transaction is admitted");
@@ -768,6 +833,12 @@ fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() 
                 .expect("admission stored a cost"),
             under_committed,
             "admission priced the proof with the committed schedule"
+        );
+        #[cfg(feature = "telemetry")]
+        assert_eq!(
+            queue.tx_teu.get(&hash).expect("admitted TEU").teu,
+            under_committed,
+            "telemetry uses the same admitted quote and never independently re-decodes"
         );
     }
     // A chain that commits no policy prices the same transaction with the protocol default.
@@ -792,5 +863,139 @@ fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() 
     assert_eq!(
         *queue.tx_gas_cost.get(&hash).expect("stored"),
         under_default
+    );
+}
+
+#[test]
+fn proposal_gas_quote_preserves_actual_canonical_refusal_and_retries_original_transaction() {
+    use crate::execution_attempt::ExecutionAttemptError;
+    use iroha_data_model::{
+        isi::zk::VerifyProof,
+        proof::{ProofAttachment, VerifyingKeyId},
+    };
+    let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        [0; 32],
+    );
+    let proof = fixture.proof_box("pipa-r/pasta");
+    let instruction: InstructionBox = VerifyProof::new(ProofAttachment::new_ref(
+        proof.backend.clone(),
+        proof,
+        VerifyingKeyId::new("pipa-r/pasta", "quote-owner"),
+    ))
+    .into();
+    let (_, time) = TimeSource::new_mock(Duration::default());
+    let transaction = accepted_tx_with(
+        AccountId::new(ALICE_KEYPAIR.public_key().clone()),
+        &ALICE_KEYPAIR,
+        &time,
+        vec![instruction],
+        Metadata::default(),
+    );
+    let source = transaction.entrypoint_bytes();
+    let refused = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || Queue::compute_proposal_gas_cost(&transaction, &gas::DEFAULT_ZK_GAS),
+    )
+    .unwrap_err();
+    let ExecutionAttemptError::Deferred(original) = refused else {
+        panic!("an unfinished quote cannot reject signed gas metadata");
+    };
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert!(original.verification_refusal().is_some());
+    assert!(original.decode_refusal().is_some());
+    assert!(original.allocation_refusal().is_none());
+    let observation = original.decode_refusal().cloned();
+    let returned =
+        crate::execution_attempt::ExecutionDeferred::try_from_vm_error(original.into_vm_error())
+            .unwrap();
+    assert_eq!(returned.decode_refusal(), observation.as_ref());
+    assert!(Queue::compute_proposal_gas_cost(&transaction, &gas::DEFAULT_ZK_GAS).unwrap() > 0);
+    assert_eq!(source.as_slice(), transaction.entrypoint_bytes().as_slice());
+}
+
+#[cfg(feature = "telemetry")]
+#[test]
+fn route_refresh_keeps_admitted_quote_and_missing_cache_faults_before_teu_publication() {
+    use iroha_data_model::zk_validity_policy::ZkValidityPolicyV1;
+    let policy = ZkValidityPolicyV1::protocol_default();
+    let state = committed_zk_policy_state(&policy, None);
+    let (_, time) = TimeSource::new_mock(Duration::default());
+    let queue = Arc::new(Queue::test(config_factory(), &time));
+    let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        [0; 32],
+    );
+    let proof = fixture.proof_box("pipa-r/pasta");
+    let instruction: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(
+        iroha_data_model::proof::ProofAttachment::new_ref(
+            proof.backend.clone(),
+            proof,
+            iroha_data_model::proof::VerifyingKeyId::new("pipa-r/pasta", "route-quote"),
+        ),
+    )
+    .into();
+    let transaction = accepted_tx_with(
+        AccountId::new(ALICE_KEYPAIR.public_key().clone()),
+        &ALICE_KEYPAIR,
+        &time,
+        vec![instruction],
+        Metadata::default(),
+    );
+    let hash = transaction.hash_as_entrypoint();
+    queue.push(transaction.clone(), state.view()).unwrap();
+    let admitted = queue.admitted_proposal_gas_cost(&hash).unwrap();
+    assert_eq!(queue.tx_teu.get(&hash).unwrap().teu, admitted);
+    let mut changed_policy = policy;
+    changed_policy.gas.proof_base += 37;
+    let changed_state = committed_zk_policy_state(&changed_policy, None);
+    let view = changed_state.view();
+    assert!(
+        Queue::compute_proposal_gas_cost(&transaction, &view.zk.gas).unwrap() > admitted,
+        "the new committed schedule would reprice this proof if the refresh decoded it again"
+    );
+    let router = queue.router.read().clone();
+    queue.revalidate_pending_transactions(
+        &router,
+        &view,
+        &view.nexus.lane_catalog,
+        &view.nexus.dataspace_catalog,
+        true,
+    );
+    assert_eq!(queue.admitted_proposal_gas_cost(&hash).unwrap(), admitted);
+    assert_eq!(queue.tx_teu.get(&hash).unwrap().teu, admitted);
+    assert!(!queue.accepted_work_validation_faulted());
+    let before_plan = queue.routing_plans.get(&hash).unwrap().clone();
+    let before_teu = *queue.tx_teu.get(&hash).unwrap();
+    queue.tx_gas_cost.remove(&hash);
+    let invariant = queue.admitted_proposal_gas_cost(&hash).unwrap_err();
+    assert_eq!(
+        invariant.reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation
+    );
+    queue.revalidate_pending_transactions(
+        &router,
+        &view,
+        &view.nexus.lane_catalog,
+        &view.nexus.dataspace_catalog,
+        true,
+    );
+    assert!(queue.accepted_work_validation_faulted());
+    assert_eq!(
+        queue.routing_plans.get(&hash).unwrap().value(),
+        &before_plan
+    );
+    let after_teu = *queue.tx_teu.get(&hash).unwrap();
+    assert_eq!(
+        (after_teu.lane_id, after_teu.dataspace_id, after_teu.teu),
+        (before_teu.lane_id, before_teu.dataspace_id, before_teu.teu)
+    );
+    assert_eq!(
+        queue.active_len(),
+        1,
+        "an internal fault cannot evict accepted original work"
     );
 }

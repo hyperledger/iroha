@@ -58,12 +58,12 @@ fn unaffordable_concat_precedes_digest_validation_and_output_allocation() {
     let pointer = input(&mut vm, PointerType::Blob, b"abcdef");
     vm.set_register(10, pointer);
     vm.set_register(11, pointer);
-    assert_eq!(
+    assert!(matches!(
         execute(syscalls::SYSCALL_BLOB_CONCAT, &mut vm)
             .unwrap_err()
             .into_unmetered(),
         VMError::OutOfGas
-    );
+    ));
     assert_eq!(vm.register(10), pointer);
 }
 #[test]

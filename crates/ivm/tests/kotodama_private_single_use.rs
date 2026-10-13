@@ -55,10 +55,13 @@ fn execute(
         .any(|entrypoint| entrypoint.name == "hajimari")
     {
         let (vm, result) = run_entry(program, "hajimari", host);
-        assert_eq!(result, Ok(()), "actual constructor for {}", case.id);
-        assert_eq!(
-            vm.public_call_result_word(0),
-            Ok(0),
+        assert!(
+            matches!(result, Ok(())),
+            "actual constructor for {}",
+            case.id
+        );
+        assert!(
+            matches!(vm.public_call_result_word(0), Ok(0)),
             "constructor Unit is canonical"
         );
     }
@@ -68,14 +71,23 @@ fn execute(
 fn assert_outcome(case: &cases::Case, vm: &IVM, result: Result<(), VMError>) {
     match case.outcome {
         cases::Outcome::Success(words) => {
-            assert_eq!(result, Ok(()), "actual source result for {}", case.id);
-            assert_eq!(vm.call_result_word_count(), Ok(words.len()));
+            assert!(
+                matches!(result, Ok(())),
+                "actual source result for {}",
+                case.id
+            );
+            assert_eq!(
+                (vm.call_result_word_count()).expect("expected successful fixture result"),
+                words.len()
+            );
             for (index, word) in words.iter().enumerate() {
                 match word {
                     cases::Word::Int(value) => {
                         assert_eq!(common::decode_i64_return_word(vm, index), *value)
                     }
-                    cases::Word::Unit => assert_eq!(vm.public_call_result_word(index), Ok(0)),
+                    cases::Word::Unit => {
+                        assert!(matches!(vm.public_call_result_word(index), Ok(0)))
+                    }
                 }
             }
         }
@@ -84,9 +96,8 @@ fn assert_outcome(case: &cases::Case, vm: &IVM, result: Result<(), VMError>) {
                 cases::Fault::DivisionByZero => NumericFaultV1::DivisionByZero,
                 cases::Fault::MantissaOverflow => NumericFaultV1::MantissaOverflow,
             };
-            assert_eq!(
-                result,
-                Err(VMError::NumericFault(expected)),
+            assert!(
+                matches!((&(result), &(VMError::NumericFault(expected))), (Err(VMError::NumericFault(__actual_value)), VMError::NumericFault(__expected_value)) if __actual_value == __expected_value),
                 "the exact checked fault must remain observable"
             );
             assert!(

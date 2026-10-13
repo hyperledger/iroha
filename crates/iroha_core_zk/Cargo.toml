@@ -32,6 +32,10 @@ name = "iroha_core_zk_group"
 path = "tests/grouped.rs"
 required-features = ["zk-tests"]
 
+[[test]]
+name = "native_key_writer_allocation"
+path = "tests/native_key_writer_allocation.rs"
+
 [features]
 # Offline packaging generators are built only through explicit artifact selection.
 dev-tools = []

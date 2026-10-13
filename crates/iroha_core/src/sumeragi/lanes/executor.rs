@@ -121,10 +121,6 @@ pub struct LaneExecutor<A, C, T> {
     cache: BTreeMap<Hash32, Executed>,
     budget: AllocationBudget,
     payload_build: Option<LanePayloadBuild>,
-    /// Exact latest local routing refusal, retained by the original lane builder.
-    routing_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
-    /// The exact original anchor history refusal while the driver retains the lane body.
-    anchor_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
 }
 
 struct LanePayloadBuild {
@@ -202,8 +198,6 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
                 cache: BTreeMap::new(),
                 budget,
                 payload_build: None,
-                routing_refusal: None,
-                anchor_refusal: None,
             },
             store,
             crypto,
@@ -268,7 +262,6 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         block_hash: &Hash32,
         parent: ChainState,
     ) -> Result<ExecOutcome, AdmissionAttemptError> {
-        self.anchor_refusal = None;
         if !block.admitted_to(&self.budget)
             || block.source().instance() != self.instance
             || block.source().config() != &self.config
@@ -296,7 +289,6 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
                 Ok(batch) => batch,
                 Err(error @ AdmissionAttemptError::Deferred(_)) => return Err(error),
                 Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                    self.anchor_refusal = Some(reason.clone());
                     return Err(AdmissionAttemptError::AnchorDeferred(reason));
                 }
                 Err(AdmissionAttemptError::Rejected(_)) => return Ok(ExecOutcome::Invalid),
@@ -329,7 +321,6 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
             }
             Err(error @ AdmissionAttemptError::Deferred(_)) => Err(error),
             Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                self.anchor_refusal = Some(reason.clone());
                 Err(AdmissionAttemptError::AnchorDeferred(reason))
             }
         }
@@ -475,20 +466,35 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         if !block.admitted_to(&self.budget)
             || block.source().instance() != self.instance
             || block.source().config() != &self.config
         {
-            return Some(ExecOutcome::Invalid);
+            return Ok(Some(ExecOutcome::Invalid));
         }
         if let Some(executed) = self.cache.get(block_hash) {
-            return Some(ExecOutcome::Valid(executed.result));
+            return Ok(Some(ExecOutcome::Valid(executed.result)));
         }
-        let parent = self.parent_state(block)?;
+        let Some(parent) = self.parent_state(block) else {
+            return Ok(None);
+        };
         match self.run(block, block_hash, parent) {
-            Ok(outcome) => Some(outcome),
-            Err(_) => None,
+            Ok(ExecOutcome::Failed(reason)) => Err(PublicationError::Retryable(reason)),
+            Ok(outcome) => Ok(Some(outcome)),
+            Err(AdmissionAttemptError::AnchorDeferred(original)) => {
+                Err(PublicationError::Deferred(original.into()))
+            }
+            Err(AdmissionAttemptError::Deferred(original)) => Err(PublicationError::Deferred(
+                crate::execution_attempt::ExecutionDeferred::from(original).into(),
+            )),
+            Err(AdmissionAttemptError::Rejected(_)) => {
+                unreachable!("completed rejection is Invalid")
+            }
         }
     }
 
@@ -528,10 +534,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
             Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
                 Err(PublicationError::Deferred(reason.into()))
             }
-            // Allocate no diagnostic while the driver retains its original body for retry.
-            Err(AdmissionAttemptError::Deferred(_)) => {
-                Err(PublicationError::Retryable(String::new()))
-            }
+            Err(AdmissionAttemptError::Deferred(original)) => Err(PublicationError::Deferred(
+                crate::execution_attempt::ExecutionDeferred::from(original).into(),
+            )),
             Err(AdmissionAttemptError::Rejected(_)) => {
                 unreachable!("completed rejection is Invalid")
             }
@@ -612,14 +617,9 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> Executor
         // The batch merges after the anchor: route as of the next global height.
         let selected = match transactions.candidates(anchor_height.saturating_add(1), budget, &skip)
         {
-            Ok(selected) => {
-                self.routing_refusal = None;
-                selected
-            }
+            Ok(selected) => selected,
             Err(reason) => {
-                let message = reason.to_string();
-                self.routing_refusal = Some(reason);
-                return Err(PublicationError::Retryable(message));
+                return Err(PublicationError::Deferred(reason.into()));
             }
         };
         if selected.is_empty() {
@@ -944,10 +944,10 @@ mod tests {
             parent_result: context.parent_result,
         };
         assert_eq!(
-            lane.build_control_witness(&witness),
-            Ok(ControlWitness::empty())
+            lane.build_control_witness(&witness).unwrap(),
+            ControlWitness::empty()
         );
-        assert_eq!(lane.drive_control(&context), Ok(None));
+        assert!(lane.drive_control(&context).unwrap().is_none());
         let control = ControlWitness::try_from_slice(b"unsolicited global control").unwrap();
         let sender = PublicKey::new(
             record().committee[0]
@@ -958,15 +958,15 @@ mod tests {
                 .to_vec(),
         )
         .unwrap();
-        assert_eq!(
+        assert!(
             lane.receive_application_control(
                 &sender,
                 &ApplicationControl {
                     context,
                     bytes: control
                 }
-            ),
-            Ok(())
+            )
+            .is_ok()
         );
         assert!(lane.cache.is_empty());
         assert_eq!(lane.applied.height, 0);
@@ -977,17 +977,18 @@ mod tests {
         let foreign = authored(&lane, header, valid.payload().clone());
         let foreign_hash = foreign.hash(&BlsCrypto::new());
         assert_eq!(
-            lane.execute(&foreign, &foreign_hash),
+            lane.execute(&foreign, &foreign_hash).unwrap(),
             Some(ExecOutcome::Invalid)
         );
         assert_eq!(
-            lane.prepare(&foreign, &qc(&foreign, Hash32([0; 32]))),
-            Ok(None)
+            lane.prepare(&foreign, &qc(&foreign, Hash32([0; 32])))
+                .unwrap(),
+            None
         );
         assert!(lane.cache.is_empty());
         assert!(matches!(
             lane.execute(&valid, &valid.hash(&BlsCrypto::new())),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ));
     }
 
@@ -1007,10 +1008,10 @@ mod tests {
         assert_eq!(batch.transactions, vec![first.clone()]);
         let b1 = block(&lane, 1, Hash32::ZERO, payload);
         let h1 = b1.hash(&BlsCrypto::new());
-        let Some(ExecOutcome::Valid(r1)) = lane.execute(&b1, &h1) else {
+        let Ok(Some(ExecOutcome::Valid(r1))) = lane.execute(&b1, &h1) else {
             panic!("valid");
         };
-        assert_eq!(lane.prepare(&b1, &qc(&b1, r1)), Ok(Some(r1)));
+        assert_eq!(lane.prepare(&b1, &qc(&b1, r1)).unwrap(), Some(r1));
         lane.commit(&b1, &qc(&b1, r1)).expect("commit");
         // The committed transaction is not proposed again, and a block repeating it is invalid.
         assert!(lane.build(2, 0, 1 << 20, 100).unwrap().is_none());
@@ -1022,12 +1023,12 @@ mod tests {
         .to_payload();
         let b2 = block(&lane, 2, h1, funded(&lane, repeat));
         assert_eq!(
-            lane.execute(&b2, &b2.hash(&BlsCrypto::new())),
+            lane.execute(&b2, &b2.hash(&BlsCrypto::new())).unwrap(),
             Some(ExecOutcome::Invalid)
         );
         // A block whose parent is neither applied nor executed is parked.
         let orphan = block(&lane, 3, Hash32([9; 32]), b1.payload().clone());
-        assert_eq!(lane.execute(&orphan, &Hash32([8; 32])), None);
+        assert!(matches!(lane.execute(&orphan, &Hash32([8; 32])), Ok(None)));
     }
 
     /// The framed length queue admission and the queue-backed source measure.
@@ -1211,7 +1212,7 @@ mod tests {
         let body = block(&lane, 1, Hash32::ZERO, payload);
         assert!(matches!(
             lane.execute(&body, &body.hash(&BlsCrypto::new())),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ));
     }
 
@@ -1231,12 +1232,12 @@ mod tests {
         let h1 = b1.hash(&BlsCrypto::new());
         assert!(matches!(
             lane.execute(&b1, &h1),
-            Some(ExecOutcome::Failed(_))
+            Err(PublicationError::Retryable(_))
         ));
         global.applied.store(6, Ordering::SeqCst);
         assert!(matches!(
             lane.execute(&b1, &h1),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid(_)))
         ));
         // A lane without a transaction source builds nothing.
         assert!(lane.build(1, 0, 1 << 20, 100).unwrap().is_none());

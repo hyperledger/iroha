@@ -738,7 +738,8 @@ fn real_nexus_fee_is_not_charged_for_quota_refusal_before_business_execution() {
                     gas_used: crate::gas::meter_instructions(
                         &[write_quarantine("paid_quarantine_effect", 1)],
                         &crate::gas::DEFAULT_ZK_GAS,
-                    ),
+                    )
+                    .expect("gas quote must complete for this fixture"),
                     base_fee: Quantity::from(1_u32),
                     per_byte_fee: Quantity::zero(),
                     per_instruction_fee: Quantity::zero(),

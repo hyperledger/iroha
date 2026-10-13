@@ -810,7 +810,8 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
             )));
         }
         let expected_nested_gas =
-            crate::gas::meter_instructions(&nested_instructions, &crate::gas::DEFAULT_ZK_GAS);
+            crate::gas::meter_instructions(&nested_instructions, &crate::gas::DEFAULT_ZK_GAS)
+                .expect("gas quote must complete for this fixture");
         let trigger = Trigger::new(
             trigger_id.clone(),
             Action::new(
@@ -836,7 +837,8 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
         let expected_base_gas = crate::gas::meter_instructions(
             core::slice::from_ref(&execute_instruction),
             &crate::gas::DEFAULT_ZK_GAS,
-        );
+        )
+        .expect("gas quote must complete for this fixture");
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();
             let params = state_view.parameters();

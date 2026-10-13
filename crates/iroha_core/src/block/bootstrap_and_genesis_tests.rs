@@ -507,8 +507,10 @@ async fn genesis_domain_registration_bootstraps_domain_name_lease() {
     let state = chain.state();
     let view = state.view();
     assert_eq!(
-        crate::sns::active_domain_owner(view.world(), &wonderland_domain_id, 0),
-        Ok(Some(genesis_account_id)),
+        (crate::sns::active_domain_owner(view.world(), &wonderland_domain_id, 0))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(Some(genesis_account_id)),
         "genesis registration should leave an active domain-name record behind"
     );
 }

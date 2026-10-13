@@ -106,10 +106,12 @@ fn hydration_source_reader_callbacks_follow_rebuild_fences_on_success_and_failur
         if mode == 2 {
             assert!(matches!(
                 result,
-                Err(DaIndexHydrationError::MissingBlock { .. })
+                Err(DaIndexHydrationError::Completed(
+                    DaIndexHydrationFailure::MissingBlock { .. }
+                ))
             ));
         } else {
-            assert_eq!(result, Ok(()));
+            assert!(matches!(result, Ok(())));
         }
         assert_eq!(probe.blocked.load(Ordering::SeqCst), 0);
         assert_eq!(probe.calls.load(Ordering::SeqCst), pending.len());
@@ -169,7 +171,7 @@ fn hydration_and_rewind_release_every_index_and_fence_before_retry_callbacks() {
         } else {
             state.ensure_da_indexes_hydrated()
         };
-        assert_eq!(result, Ok(()));
+        assert!(matches!(result, Ok(())));
         assert!(probe.calls.load(Ordering::SeqCst) > 0);
         assert_eq!(probe.blocked.load(Ordering::SeqCst), 0);
         assert!(
@@ -177,7 +179,7 @@ fn hydration_and_rewind_release_every_index_and_fence_before_retry_callbacks() {
                 .iter_mut()
                 .all(|f| f.as_mut().poll(&mut context).is_ready())
         );
-        assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+        assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
         let journal = state.da_shard_cursor_journal_path();
         assert!(
             journal.is_file(),
@@ -219,9 +221,14 @@ fn failed_rewind_releases_its_status_and_state_fences_before_retry() {
     let result = state.rewind_da_indexes_to_height(1);
     assert!(matches!(
         result,
-        Err(DaIndexHydrationError::MissingBlock { .. })
+        Err(DaIndexHydrationError::Completed(
+            DaIndexHydrationFailure::MissingBlock { .. }
+        ))
     ));
-    assert_eq!(*state.da_indexes_hydrated.read(), Some(result));
+    let Err(DaIndexHydrationError::Completed(failure)) = result else {
+        panic!("expected completed missing-body failure")
+    };
+    assert_eq!(*state.da_indexes_hydrated.read(), Some(Err(failure)));
     assert!(pending.as_mut().poll(&mut context).is_ready());
     assert!(probe.calls.load(Ordering::SeqCst) > 0);
     assert_eq!(probe.blocked.load(Ordering::SeqCst), 0);
@@ -375,12 +382,35 @@ fn original_cold_da_refunds_follow_all_rebuild_and_rewind_writers() {
             rebuild()
         };
         if failed {
-            assert_eq!(result, Err(DaIndexHydrationError::Deferred(expected)));
+            let Err(DaIndexHydrationError::Deferred(actual)) = result else {
+                panic!("unfinished cold read must retain original owner")
+            };
+            // Independent invocations own different scopes; compare every resource fact,
+            // then require each captured identity to stay distinct.
+            assert_eq!(actual.reason(), expected.reason());
+            assert_eq!(actual.phase(), expected.phase());
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+            let actual_decode = actual
+                .decode_refusal()
+                .expect("actual captured decoder owner");
+            let reference_decode = expected
+                .decode_refusal()
+                .expect("reference captured decoder owner");
+            assert_eq!(actual_decode.kind(), reference_decode.kind());
+            assert_eq!(
+                actual_decode.resource_error(),
+                reference_decode.resource_error()
+            );
+            assert_ne!(
+                actual_decode, reference_decode,
+                "fresh attempts never share scoped identity"
+            );
             assert!(state.da_indexes_hydrated.read().is_none());
             assert_eq!(projection(state), published);
             assert_eq!(std::fs::read(&journal).unwrap(), journal_before);
         } else {
-            assert_eq!(result, Ok(()));
+            assert!(matches!(result, Ok(())));
             assert_eq!(projection(state), published);
         }
         if let Some(original) = acquired.take() {
@@ -417,6 +447,6 @@ fn original_cold_da_refunds_follow_all_rebuild_and_rewind_writers() {
         assert_eq!(projection(state), published);
         assert_eq!(std::fs::read(&journal).unwrap(), journal_before);
         assert_eq!(state.latest_block_hash_fast(), tip);
-        assert_eq!(*state.da_indexes_hydrated.read(), Some(Ok(())));
+        assert!(matches!(&(*state.da_indexes_hydrated.read()), Some(Ok(()))));
     }
 }

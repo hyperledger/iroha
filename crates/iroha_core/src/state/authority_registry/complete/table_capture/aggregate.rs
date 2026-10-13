@@ -17,7 +17,7 @@ use super::{MusubiSourceAcquisitionError, StateMusubiSourceCut};
 use iroha_allocation::{AllocationRefusal, ChargedBuffer, ChargedBufferError};
 
 /// Why the declared State table set cannot be captured as one retained owner.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub(super) enum TableCaptureError {
     /// A canonical table has no actual State reader.
     #[error("State canonical table has no capture owner: {0}")]

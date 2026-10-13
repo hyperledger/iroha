@@ -126,7 +126,10 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
 
     // Height 2: the largest includable transaction.
     let largest = sized(&chain, &clock, INCLUDABLE, 1_500);
-    assert_eq!(admission(&chain, &largest), Ok(()));
+    assert_eq!(
+        (admission(&chain, &largest)).expect("completed fixture operation"),
+        ()
+    );
     let wire = chain
         .proposal(None, vec![largest.clone()])
         .resultless_proposal_wire_len()
@@ -147,13 +150,13 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
     // is still within the payload limit and valid, so block validity is unchanged.
     let window = sized(&chain, &clock, INCLUDABLE + 1, 2_500);
     assert_eq!(
-        admission(&chain, &window),
-        Err(ExecutionAttemptError::Rejected(
-            TransactionNeverIncludable {
-                encoded_bytes: u64::from(INCLUDABLE) + 1,
-                max_bytes: u64::from(INCLUDABLE),
-            }
-        ))
+        crate::execution_attempt::expect_completed_rejection(
+            (admission(&chain, &window)).expect_err("completed rejection")
+        ),
+        TransactionNeverIncludable {
+            encoded_bytes: u64::from(INCLUDABLE) + 1,
+            max_bytes: u64::from(INCLUDABLE),
+        }
     );
     let wire = chain
         .proposal(None, vec![window.clone()])
@@ -324,16 +327,29 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
             assert_eq!(inputs.route(direct, height).unwrap(), Some(GLOBAL_LANE));
         }
     }
-    assert_eq!(admission(&above_global), Ok(()));
-    assert_eq!(admission(&at_lane), Ok(()));
     assert_eq!(
-        admission(&over_lane),
-        Err(ExecutionAttemptError::Rejected(never(lane + 1, lane)))
+        (admission(&above_global)).expect("completed fixture operation"),
+        ()
     );
-    assert_eq!(admission(&at_global), Ok(()));
     assert_eq!(
-        admission(&over_global),
-        Err(ExecutionAttemptError::Rejected(never(global + 1, global)))
+        (admission(&at_lane)).expect("completed fixture operation"),
+        ()
+    );
+    assert_eq!(
+        crate::execution_attempt::expect_completed_rejection(
+            (admission(&over_lane)).expect_err("completed rejection")
+        ),
+        never(lane + 1, lane)
+    );
+    assert_eq!(
+        (admission(&at_global)).expect("completed fixture operation"),
+        ()
+    );
+    assert_eq!(
+        crate::execution_attempt::expect_completed_rejection(
+            (admission(&over_global)).expect_err("completed rejection")
+        ),
+        never(global + 1, global)
     );
 
     // Queue admission makes the same decisions and retains nothing it refuses.

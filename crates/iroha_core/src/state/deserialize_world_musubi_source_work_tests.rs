@@ -188,8 +188,9 @@ fn source_work_refusal_precedes_validation_but_sufficient_work_preserves_rejecti
         panic!("complete admission preserves original semantic error")
     };
     assert_eq!(actual.to_string(), direct.to_string());
+    let actual = actual.map_rejection(ProjectionRejection::into_json);
     assert!(
-        matches!(&actual.clone().map_rejection(ProjectionRejection::into_json), ExecutionAttemptError::Rejected(json::Error::InvalidField { field, .. })
+        matches!(&actual, ExecutionAttemptError::Rejected(json::Error::InvalidField { field, .. })
         if field == "world.musubi_resolver_index"),
         "{actual:?}"
     );
@@ -357,7 +358,9 @@ fn live_model_rejection_keeps_static_reason_before_original_pool_admission() {
     else {
         panic!("source work must retain the completed semantic rejection")
     };
-    assert_eq!(actual, ExecutionAttemptError::Rejected(rejection));
+    assert!(
+        matches!(actual, ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (rejection))
+    );
     assert_eq!(budget.peak_reserved_bytes(), 0);
     assert_eq!(json::to_json(&world).unwrap(), before);
 }

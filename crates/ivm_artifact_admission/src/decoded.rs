@@ -72,7 +72,7 @@ mod tests {
         let budget = AllocationBudget::new(0);
         let error = instructions(&code, Some(&budget)).err().unwrap();
         assert!(
-            matches!(error.local_vm_error(), Some(VMError::AllocationDeferred(
+            matches!(error.try_into_local_vm_error(), Ok(VMError::AllocationDeferred(
             AllocationRefusal::ExceedsLimit { requested_bytes, limit_bytes: 0 }
         )) if requested_bytes == bytes)
         );
@@ -102,8 +102,11 @@ mod tests {
         for length in [1, 2, 3, 5, 6, 7] {
             let code = vec![0; length];
             let error = instructions(&code, Some(&budget)).err().unwrap();
-            assert_eq!(error, instructions(&code, None).err().unwrap());
-            assert_eq!(error.local_vm_error(), None);
+            assert_eq!(
+                error.to_string(),
+                instructions(&code, None).err().unwrap().to_string()
+            );
+            assert!(!error.is_local_deferral());
             assert_eq!(budget.peak_reserved_bytes(), 0);
         }
         assert!(instructions(&[], Some(&budget)).unwrap().is_empty());

@@ -186,7 +186,7 @@ fn instruction_bridges_keep_original_refusal_without_discarded_diagnostic_alloca
             0,
         ));
         let mut transaction = block.transaction();
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         for first in [true, false] {
             let reason = if first {
                 original.clone().into()
@@ -221,7 +221,7 @@ fn instruction_bridges_keep_original_refusal_without_discarded_diagnostic_alloca
                     "local instruction read did not complete"
                 }
             );
-            let retained = transaction.execution_deferral().unwrap();
+            let retained = transaction.borrow_execution_deferral().unwrap();
             assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
             assert_eq!(retained.allocation_refusal(), Some(&original));
             assert_eq!(budget.reserved_bytes(), 8);

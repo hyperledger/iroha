@@ -51,7 +51,7 @@ pub(in crate::state) enum WorkRefusal {
 }
 
 /// Validation remains incomplete locally or completes with its original error.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(in crate::state) enum SourceValidationError {
     Work(WorkRefusal),
     Attempt(ExecutionAttemptError<ProjectionRejection>),

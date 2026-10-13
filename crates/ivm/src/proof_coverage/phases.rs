@@ -137,7 +137,7 @@ pub const RUN_PHASES: &[RunPhase] = &[
             "recorder.finish_step",
             "reservation.complete",
         ],
-        result_sources: &["contract_abort_error", "ensure_healthy"],
+        result_sources: &["contract_abort_error", "ensure_healthy", "into_vm_error"],
     },
 ];
 

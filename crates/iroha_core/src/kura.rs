@@ -4691,7 +4691,10 @@ impl Kura {
         }
         let expected_len = usize::try_from(metadata.file.len())?;
         // The cumulative decode allowance and physical pool are separate obligations.
-        norito::core::reserve_decode_allocation(expected_len).map_err(Error::NoritoFrame)?;
+        norito::core::classify_decode_attempt(|| {
+            norito::core::reserve_decode_allocation(expected_len)
+        })
+        .map_err(Error::CodecAttempt)?;
         let mut bytes = allocate(expected_len)?;
         if bytes.as_ref().len() != expected_len || bytes.as_mut().len() != expected_len {
             return Err(Error::CanonicalBlockWireMismatch { height: 0 });
@@ -4923,7 +4926,7 @@ impl Kura {
                 buffer.resize(length, 0);
                 block_store.read_block_data(slot.start, &mut buffer)?;
             }
-            let block = decode_framed_signed_block(&buffer).map_err(Error::BlockDecode)?;
+            let block = decode_framed_signed_block(&buffer).map_err(Error::CodecAttempt)?;
             if block.header().height().get() != height
                 || block.hash() != expected[position]
                 || block.header().prev_block_hash() != previous
@@ -5545,7 +5548,7 @@ impl Kura {
                             ?error,
                             block_index, height, "Failed to decode evicted block payload"
                         );
-                        return Err(canonical_decode_attempt_error(error, Error::BlockDecode));
+                        return Err(canonical_decode_attempt_error(error, Error::CodecAttempt));
                     }
                 };
                 shell.initialize(decoded)
@@ -5580,7 +5583,7 @@ impl Kura {
                                 "committed inline block body is not decodable",
                             );
                         }
-                        return Err(canonical_decode_attempt_error(error, Error::BlockDecode));
+                        return Err(canonical_decode_attempt_error(error, Error::CodecAttempt));
                     }
                 }
             };
@@ -9845,19 +9848,19 @@ impl BlockStore {
                 marker_path,
             ));
         };
-        let marker =
-            norito::decode_canonical::<BlockStoreCommitMarker>(&marker_bytes).map_err(|error| {
-                match error {
-                    norito::Error::NonCanonicalEncoding => Error::IO(
-                        std::io::Error::new(
-                            ErrorKind::InvalidData,
-                            "block commit marker is non-canonical or structurally invalid",
-                        ),
-                        marker_path.clone(),
-                    ),
-                    other => Error::NoritoFrame(other),
-                }
-            })?;
+        let marker = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical::<BlockStoreCommitMarker>(&marker_bytes)
+        })
+        .map_err(|error| match error.error() {
+            norito::Error::NonCanonicalEncoding => Error::IO(
+                std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "block commit marker is non-canonical or structurally invalid",
+                ),
+                marker_path.clone(),
+            ),
+            _ => Error::CodecAttempt(error),
+        })?;
         if marker.version != BlockStoreCommitMarker::VERSION
             || (marker.count == 0) != marker.tip_hash.is_none()
         {

@@ -314,7 +314,7 @@ fn metadata_turn_preserves_the_active_stream_poll() {
         "metadata response must not erase the pending stream wakeup"
     );
     let mut scheduler = ServeSched::new(ServeLimits::default());
-    scheduler.done(12, &metadata);
+    scheduler.done(12, metadata);
     assert_eq!(scheduler.wakeup(), 12);
 }
 

@@ -32,8 +32,11 @@ pub mod shared;
 
 use crate::release::{ReleaseNotification, ReleaseWait};
 
+#[path = "allocation/allocator_refusal.rs"]
+mod allocator_refusal;
 #[path = "allocation/buffer.rs"]
 mod buffer;
+pub use allocator_refusal::AllocatorRefusal;
 #[path = "allocation/shared.rs"]
 mod charged_shared;
 #[path = "allocation/refund_batch.rs"]

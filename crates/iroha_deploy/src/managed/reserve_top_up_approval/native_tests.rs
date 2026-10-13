@@ -51,13 +51,16 @@ fn assert_only_original(verifier: &FinalityVerifier, original: &SignedTransactio
 }
 
 fn assert_unfunded(state: &State, asset: &AssetId) {
-    assert_eq!(
-        FindAssetById::new(asset.clone())
-            .execute(&state.view())
-            .unwrap_err(),
-        ExecutionAttemptError::Rejected(QueryExecutionFail::Find(FindError::Asset(Box::new(
-            asset.clone()
-        )))),
+    let error = FindAssetById::new(asset.clone())
+        .execute(&state.view())
+        .expect_err("the generated non-signing reserve account remains unfunded");
+    assert!(
+        matches!(
+            error,
+            ExecutionAttemptError::Rejected(QueryExecutionFail::Find(FindError::Asset(found)))
+                if found.as_ref() == asset
+        ),
+        "the exact missing asset must be a completed rejection, not a local refusal",
     );
 }
 

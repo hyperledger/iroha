@@ -636,14 +636,10 @@ fn native_late_privacy_and_permission_failures_keep_reads_but_no_store_effects()
             vm.memory.clear_tracking();
             let result = vm.run();
             let ok = f.control[COMMIT] == F::ONE;
-            assert_eq!(
-                result,
-                if ok {
-                    Ok(())
-                } else {
-                    Err(VMError::PrivacyViolation)
-                }
-            );
+            assert!(matches!(
+                (ok, result),
+                (true, Ok(())) | (false, Err(VMError::PrivacyViolation))
+            ));
             assert_native_reads(&vm, &f);
             assert_native_write(&vm, &f);
             assert_eq!(
@@ -671,13 +667,25 @@ fn native_late_privacy_and_permission_failures_keep_reads_but_no_store_effects()
         vm.set_register(i, values[i]);
     }
     vm.memory.clear_tracking();
-    assert_eq!(
-        vm.run(),
-        Err(VMError::MemoryAccessViolation {
+    assert!(match (
+        &(vm.run()),
+        &(VMError::MemoryAccessViolation {
             addr: 0,
             perm: Perm::WRITE
         })
-    );
+    ) {
+        (
+            Err(VMError::MemoryAccessViolation {
+                addr: actual_field_0,
+                perm: actual_field_1,
+            }),
+            VMError::MemoryAccessViolation {
+                addr: expected_field_0,
+                perm: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
     assert_native_reads(&vm, &f);
     assert!(vm.memory.try_write_log_snapshot().unwrap().is_empty());
     assert_eq!(vm.memory.load_u64(0).unwrap(), code_before);
@@ -781,13 +789,25 @@ fn native_public_half_overwrite_clears_only_selected_private_bytes_and_output_re
     );
     assert!(f.accepts());
     vm.memory.clear_tracking();
-    assert_eq!(
-        vm.run(),
-        Err(VMError::MemoryAccessViolation {
+    assert!(match (
+        &(vm.run()),
+        &(VMError::MemoryAccessViolation {
             addr: (Memory::OUTPUT_START + 8) as u32,
             perm: Perm::WRITE
         })
-    );
+    ) {
+        (
+            Err(VMError::MemoryAccessViolation {
+                addr: actual_field_0,
+                perm: actual_field_1,
+            }),
+            VMError::MemoryAccessViolation {
+                addr: expected_field_0,
+                perm: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
     assert_native_reads(&vm, &f);
     assert_native_write(&vm, &f);
     assert_eq!(vm.memory.read_output_used(), old.as_slice());
@@ -911,14 +931,20 @@ fn native_early_trap_priority_and_scalar_late_alignment_keep_exact_read_prefix()
             vm.registers.set_tag(1, value_private);
             vm.registers.set_tag(3, base_private);
             vm.memory.clear_tracking();
-            assert_eq!(
-                vm.run(),
-                Err(if out_of_gas {
-                    VMError::OutOfGas
-                } else {
-                    expected.clone()
-                })
-            );
+            let result = vm.run();
+            if out_of_gas {
+                assert!(matches!(result, Err(VMError::OutOfGas)));
+            } else {
+                assert!(match (result, &expected) {
+                    (Err(VMError::VectorExtensionDisabled), VMError::VectorExtensionDisabled)
+                    | (Err(VMError::PrivacyViolation), VMError::PrivacyViolation) => true,
+                    (
+                        Err(VMError::MisalignedAccess { addr: actual }),
+                        VMError::MisalignedAccess { addr: expected },
+                    ) => actual == *expected,
+                    _ => false,
+                });
+            }
             let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
             let snapshot = vm.try_diagnostic_snapshot(&budget).unwrap();
             let actual = snapshot

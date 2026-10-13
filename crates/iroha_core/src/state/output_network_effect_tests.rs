@@ -129,7 +129,8 @@ fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
     let mut state = fixture(65_536, Some(512));
     let root: InstructionBox = ExecuteTrigger::new("network_callback".parse().unwrap()).into();
     let direct_gas =
-        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS);
+        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
     state.pipeline.overlay_max_instructions = 1;
     state.pipeline.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
     let source = carrier(
@@ -265,7 +266,8 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
     let direct_gas = crate::gas::meter_instructions(
         std::slice::from_ref(&instruction),
         &crate::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     state.pipeline.overlay_max_instructions = 1;
     state.pipeline.overlay_max_bytes = u64::try_from(instruction.encode().len()).unwrap();
     let entrypoint = if quarantine {

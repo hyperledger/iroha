@@ -1180,7 +1180,7 @@ impl IVM {
         }
         if short { return Err(VMError::OutOfGas); }
         if let Some(error) = self.contract_abort_error.clone() {
-            Err(error)
+            Err(error.into_vm_error())
         } else {
             self.call_result_word_count()?;
             budget.ensure_healthy()
@@ -1227,9 +1227,17 @@ impl IVM {
         );
         assert_eq!(
             dispatch.terminal.calls,
-            set(&["call_result_word_count", "clone", "ensure_healthy"])
+            set(&[
+                "call_result_word_count",
+                "clone",
+                "ensure_healthy",
+                "into_vm_error"
+            ])
         );
-        assert_eq!(dispatch.terminal.err_arguments, set(&["error"]));
+        assert_eq!(
+            dispatch.terminal.err_arguments,
+            set(&["error.into_vm_error()"])
+        );
     }
 
     #[test]

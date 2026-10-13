@@ -201,9 +201,11 @@ mod tests {
             da_hydration_error(deferred).into_response().status(),
             axum::http::StatusCode::TOO_MANY_REQUESTS
         );
-        let missing = iroha_core::state::DaIndexHydrationError::MissingBlock {
-            height: std::num::NonZeroU64::new(1).unwrap(),
-        };
+        let missing = iroha_core::state::DaIndexHydrationError::Completed(
+            iroha_core::state::DaIndexHydrationFailure::MissingBlock {
+                height: std::num::NonZeroU64::new(1).unwrap(),
+            },
+        );
         assert!(matches!(
             da_hydration_error(missing),
             crate::Error::Query(iroha_data_model::ValidationFail::InternalError(_))

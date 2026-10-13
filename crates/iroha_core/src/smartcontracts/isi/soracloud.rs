@@ -2196,47 +2196,54 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
     public_padding_context: Option<BfvFullBootstrapNativeAirPublicPaddingContext>,
     guardrails: crate::zk::ZkVerifyGuardrails,
     outer_proof_bytes_len: usize,
-) -> Result<bool, InstructionExecutionError> {
+) -> Result<bool, crate::zk::VerificationAttemptError<InstructionExecutionError>> {
     if envelope.backend != BackendTag::Stark {
         return Err(invalid_parameter(format!(
             "{label} proof envelope must declare STARK backend"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if !guardrails.stark_enabled {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR STARK verification is disabled by the committed ZK validity policy"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if outer_proof_bytes_len > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
             "{label} proof exceeds the committed STARK envelope byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     if envelope.proof_bytes.len() > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
             "{label} STARK public-input wrapper exceeds the committed STARK envelope byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
-    let open =
-        norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes).map_err(|err| {
-            invalid_parameter(format!("invalid {label} STARK public-input wrapper: {err}"))
-        })?;
+    let open = crate::zk::verification_attempt::codec_attempt(
+        || norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes),
+        |err| invalid_parameter(format!("invalid {label} STARK public-input wrapper: {err}")),
+    )?;
     if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR envelope exceeds the committed STARK proof byte cap"
-        )));
+        )))
+        .map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     let native: crate::zk_stark::StarkVerifyEnvelopeV1 =
-        norito::decode_canonical(&open.envelope_bytes).map_err(|err| {
-            invalid_parameter(format!(
-                "{label} native AIR envelope must decode as STARK/FRI v1: {err}"
-            ))
-        })?;
+        crate::zk::verification_attempt::codec_attempt(
+            || norito::decode_canonical(&open.envelope_bytes),
+            |err| {
+                invalid_parameter(format!(
+                    "{label} native AIR envelope must decode as STARK/FRI v1: {err}"
+                ))
+            },
+        )?;
     if native.transcript_label == crate::zk::STARK_OPEN_VERIFY_AIR_TRANSCRIPT_LABEL_V1 {
         validate_soracloud_fhe_stark_native_air_binding(label, backend, envelope, statement_hash)?;
         return Err(invalid_parameter(format!(
             "{label} proof requires a dedicated BFV full-bootstrap arithmetic STARK/AIR proof; {FHE_FULL_BOOTSTRAP_GENERIC_BINDING_AIR_REJECTED}"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     let mut limits = crate::zk_stark::StarkVerifierLimits::default();
     limits.max_envelope_bytes = guardrails.stark_max_proof_bytes;
@@ -2259,10 +2266,10 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         public_padding_context.trace_material_digest,
         public_padding_context.slot_index,
         public_padding_context.bound_mode,
-    ) {
+    ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR shared public-padding verifier rejected public openings"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     let expected_trace_rows = public_padding_context
         .expected_trace_rows
@@ -2314,10 +2321,10 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         expected_trace_rows,
         expected_composition_values,
         &expected_base_indices,
-    ) {
+    ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
         return Err(invalid_parameter(format!(
             "{label} native BFV AIR explicit STARK verifier rejected governed trace material"
-        )));
+        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
     }
     Ok(true)
 }
@@ -3497,7 +3504,8 @@ fn verify_soracloud_fhe_full_bootstrap_execution_proof_backend(
             Some(public_padding_context),
             crate::zk_guardrails::guardrails_from_config(&state_transaction.zk),
             attachment.proof.bytes.len(),
-        )?;
+        )
+        .map_err(|error| state_transaction.attempt_error_to_instruction_error(error.into()))?;
         state_transaction
             .register_confidential_proof(attachment.proof.bytes.len())
             .map_err(|err| {
@@ -16433,7 +16441,9 @@ fn build_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_from_p
         &envelope_bytes,
         &limits,
         prover_input_material,
-    ) {
+    )
+    .expect("test prover verification must complete")
+    {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope shared BFV verifier rejected release-prover material",
         ));
@@ -16518,7 +16528,7 @@ fn validate_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_for
         public_padding_context.trace_material_digest,
         slot_index,
         bound_mode,
-    ) {
+    ).expect("test prover verification must complete") {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope shared public-padding verifier rejected release-prover public openings",
         ));
@@ -16558,7 +16568,7 @@ fn validate_soracloud_fhe_full_bootstrap_execution_native_air_envelope_bytes_for
         &arithmetic_trace_material.rows,
         &arithmetic_air_evaluation_material.composition_values,
         &expected_base_indices,
-    ) {
+    ).expect("test prover verification must complete") {
         return Err(invalid_parameter(
             "FHE full-bootstrap execution native AIR envelope replay rejected release-prover trace material",
         ));

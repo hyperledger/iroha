@@ -519,7 +519,11 @@ impl Executor for Panicking {
         panic!("boom")
     }
 
-    fn execute(&mut self, _: &AvailableBody, _: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        _: &AvailableBody,
+        _: &Hash32,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         panic!("boom")
     }
     fn discard(&mut self, _: u64, _: &[Hash32]) {}
@@ -563,7 +567,7 @@ fn executor_panics_become_local_failures() {
     );
     assert!(matches!(
         done,
-        ExecDone::Executed(Some(ExecOutcome::Failed(_)))
+        ExecDone::Executed(Err(PublicationError::RecoveryRequired(_)))
     ));
     let commit = std::sync::Arc::new(super::super::exec::Commit {
         qc: commit_qc(&b1, r1),
@@ -644,7 +648,11 @@ impl Executor for Overlay {
         Ok(())
     }
 
-    fn execute(&mut self, block: &AvailableBody, block_hash: &Hash32) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        block: &AvailableBody,
+        block_hash: &Hash32,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.other("execute");
         self.inner.execute(block, block_hash)
     }

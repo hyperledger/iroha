@@ -1081,7 +1081,7 @@ impl StateTransaction<'_, '_> {
         prepared: Result<PreparedQuantityCapture, QuantityCaptureIssue>,
         apply: impl FnOnce(&mut Self) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        if self.execution_deferral().is_some() {
+        if self.is_execution_deferred() {
             return Err(InstructionExecutionError::InvariantViolation(
                 "local execution attempt did not complete".into(),
             )

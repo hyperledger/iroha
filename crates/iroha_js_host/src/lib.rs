@@ -11,6 +11,10 @@
     clippy::unnecessary_wraps
 )]
 mod authenticated_block_proofs;
+mod transaction_attachment_context;
+pub use transaction_attachment_context::{
+    JsTransactionAttachmentContextV1, inspect_transaction_attachment_context_v1,
+};
 mod kaigi_authorization_v1;
 mod kaigi_proof_v1;
 mod kaigi_usage_v1;

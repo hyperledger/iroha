@@ -29,7 +29,10 @@ fn arguments_require_one_input_and_one_output_without_retired_options() {
             out: "manifest.json".into(),
         })
     );
-    assert_eq!(parse_args(["--help".into()]), Ok(None));
+    assert_eq!(
+        (parse_args(["--help".into()])).expect("expected successful fixture result"),
+        None
+    );
     for args in [
         vec![],
         vec!["--code-file"],

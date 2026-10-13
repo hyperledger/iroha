@@ -291,7 +291,7 @@ fn executed_successor_authority(
         #[cfg(not(all(test, sumeragi_core_mutation = "HC13")))]
         query_scratch_admission(bytes)
     })
-    .map_err(VerificationReadError::Resource)?;
+    .map_err(VerificationReadError::Deferred)?;
     let authority = VerifiedAuthority::with_crypto(
         scheduled.epoch.clone(),
         height,
@@ -302,20 +302,20 @@ fn executed_successor_authority(
 }
 
 /// Charge the inherited request allowance before allocating verification scratch.
-pub(super) fn query_scratch_admission(
-    bytes: usize,
-) -> Result<(), norito::core::DecodeResourceError> {
+pub(super) fn query_scratch_admission(bytes: usize) -> Result<(), ExecutionDeferred> {
     #[cfg(all(test, sumeragi_core_mutation = "HC10"))]
     {
         let _ = bytes;
         return Ok(());
     }
     #[cfg(not(all(test, sumeragi_core_mutation = "HC10")))]
-    norito::core::reserve_decode_allocation(bytes).map_err(|error| {
-        error
-            .decode_resource_error()
-            .expect("allocation admission is a resource error")
-    })
+    norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(bytes))
+        .map_err(|original| {
+            original
+                .into_local_refusal()
+                .expect("allocation admission captures its actual enclosing refusal")
+                .into()
+        })
 }
 
 // Resource locality was established by the verifier's original scratch admission or
@@ -324,15 +324,6 @@ pub(super) fn verification_attempt_failure(
     error: VerificationReadError,
 ) -> ExecutionAttemptError<QueryExecutionFail> {
     match error {
-        VerificationReadError::Resource(error) => {
-            let reason = match error {
-                norito::core::DecodeResourceError::AllocationFailed { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable
-                }
-                _ => ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
-            };
-            ExecutionAttemptError::Deferred(reason.into())
-        }
         VerificationReadError::Deferred(original) => ExecutionAttemptError::Deferred(original),
         VerificationReadError::Source(error) => {
             ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(error.to_string()))
@@ -456,7 +447,7 @@ mod allocation_tests {
         let Err(ExecutionAttemptError::Deferred(actual)) = refused else {
             panic!("the exact original receipt slot must refuse before decoding")
         };
-        assert_eq!(actual, expected);
+        assert_eq!(actual.allocation_refusal(), expected.allocation_refusal());
         assert_eq!(budget.reserved_bytes(), baseline + occupied_bytes);
         assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
             &block, &original
@@ -631,14 +622,14 @@ mod allocation_tests {
         let target = NonZeroUsize::new(3).unwrap();
         let budget = iroha_allocation::AllocationBudget::new(1);
         let occupied = budget.try_reserve_bytes(1).unwrap();
-        let refusal: ExecutionDeferred = budget.try_reserve_bytes(1).unwrap_err().into();
+        let refusal = budget.try_reserve_bytes(1).unwrap_err();
         for refused_at in 0..4 {
             let mut original_reads = 0;
             let original = pair_identity(&reader, target, |_, _| {
                 let index = original_reads;
                 original_reads += 1;
                 if index == refused_at {
-                    Err(ExecutionAttemptError::Deferred(refusal.clone()))
+                    Err(ExecutionAttemptError::Deferred(refusal.clone().into()))
                 } else {
                     Ok(())
                 }
@@ -652,7 +643,7 @@ mod allocation_tests {
                         let index = completed_reads;
                         completed_reads += 1;
                         if index == refused_at {
-                            Err(ExecutionAttemptError::Deferred(refusal.clone()))
+                            Err(ExecutionAttemptError::Deferred(refusal.clone().into()))
                         } else {
                             Ok(())
                         }
@@ -674,8 +665,11 @@ mod allocation_tests {
             let Err(ParentServiceError::Deferred(completed)) = completed else {
                 panic!("completion source refusal")
             };
-            assert_eq!(completed, original);
-            assert_eq!(completed, refusal);
+            assert_eq!(
+                completed.allocation_refusal(),
+                original.allocation_refusal()
+            );
+            assert_eq!(completed.allocation_refusal(), Some(&refusal));
 
             let mut original_reads = 0;
             let original = pair_identity(&reader, target, |_, _| {
@@ -794,7 +788,9 @@ mod allocation_tests {
         let refusal = budget.try_reserve_bytes(1).unwrap_err();
         let expected: ExecutionDeferred = refusal.clone().into();
         let error = parent_verification_source(VerificationReadError::Deferred(refusal.into()));
-        assert!(matches!(error, ParentServiceError::Deferred(actual) if actual == expected));
+        assert!(
+            matches!(error, ParentServiceError::Deferred(actual) if actual.allocation_refusal() == expected.allocation_refusal())
+        );
         assert_eq!(budget.reserved_bytes(), 1);
         drop(occupied);
         let retry = budget
@@ -807,18 +803,38 @@ mod allocation_tests {
 
     #[test]
     fn state_certificate_maps_local_scratch_refusal_without_source_invalidity() {
-        let error = VerificationReadError::Resource(
+        let original = norito::core::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 16, 128),
+            || query_scratch_admission(17),
+        )
+        .unwrap_err();
+        let expected = original
+            .decode_refusal()
+            .expect("actual scratch refusal")
+            .clone();
+        assert_eq!(
+            expected.resource_error(),
             norito::core::DecodeResourceError::TotalAllocationExceeded {
                 attempted: 17,
-                limit: 16,
-            },
+                limit: 16
+            }
         );
+        let ExecutionAttemptError::Deferred(original) =
+            verification_attempt_failure(VerificationReadError::Deferred(original))
+        else {
+            panic!("scratch refusal must defer locally");
+        };
         assert_eq!(
-            verification_attempt_failure(error),
-            ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into()
-            )
+            original.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
+        assert_eq!(original.phase(), None);
+        assert!(original.allocation_refusal().is_none());
+        assert_eq!(original.decode_refusal(), Some(&expected));
+        assert!(original.verification_refusal().is_none());
+        let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
+        assert_eq!(returned.decode_refusal(), Some(&expected));
+        query_scratch_admission(17).expect("same demand after original scope retirement");
     }
 }
 
@@ -874,8 +890,9 @@ fn parent_source_failure(error: impl std::fmt::Display) -> ParentServiceError {
     ParentServiceError::Source(QueryExecutionFail::Conversion(error.to_string()))
 }
 
-fn parent_proof_decode_failure(error: norito::Error) -> ParentServiceError {
-    match crate::execution_attempt::norito_decode_attempt_error(error, |error| error.to_string()) {
+fn parent_proof_decode_failure(error: norito::core::DecodeAttemptError) -> ParentServiceError {
+    match crate::execution_attempt::canonical_decode_attempt_error(error, |error| error.to_string())
+    {
         crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
             ParentServiceError::Deferred(reason)
         }
@@ -900,7 +917,6 @@ fn parent_source_attempt(
 
 fn parent_verification_source(error: VerificationReadError) -> ParentServiceError {
     match error {
-        VerificationReadError::Resource(error) => parent_proof_decode_failure(error.into()),
         VerificationReadError::Deferred(reason) => ParentServiceError::Deferred(reason),
         error => parent_source_failure(error),
     }
@@ -1024,12 +1040,13 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
                 "parent service original exceeds the protocol bound".into(),
             ));
         }
-        norito::core::reserve_decode_allocation(original.len())
-            .map_err(parent_proof_decode_failure)?;
+        query_scratch_admission(original.len()).map_err(ParentServiceError::Deferred)?;
+        let layout =
+            std::alloc::Layout::array::<u8>(original.len()).expect("bounded parent QC layout");
         let mut owned = Vec::new();
-        owned.try_reserve_exact(original.len()).map_err(|_| {
+        owned.try_reserve_exact(original.len()).map_err(|error| {
             ParentServiceError::Deferred(
-                ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+                iroha_allocation::AllocatorRefusal::from_vec_reserve(error, layout).into(),
             )
         })?;
         owned.extend_from_slice(original);
@@ -1092,7 +1109,8 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
                 "proposal does not extend the authenticated parent".into(),
             ));
         }
-        let qc: Qc = norito::decode_canonical(offered).map_err(parent_proof_decode_failure)?;
+        let qc: Qc = norito::core::classify_decode_attempt(|| norito::decode_canonical(offered))
+            .map_err(parent_proof_decode_failure)?;
         let (authority, _config) = self
             .executed_successor_authority(parent, current)
             .map_err(parent_verification_source)?;
@@ -1106,10 +1124,12 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         let bytes = count
             .checked_mul(std::mem::size_of::<iroha_model_base::peer::PeerId>())
             .ok_or_else(|| ParentServiceError::Invalid("signer count overflow".into()))?;
-        norito::core::reserve_decode_allocation(bytes).map_err(parent_proof_decode_failure)?;
-        signers.try_reserve_exact(count).map_err(|_| {
+        query_scratch_admission(bytes).map_err(ParentServiceError::Deferred)?;
+        let layout = std::alloc::Layout::array::<iroha_model_base::peer::PeerId>(count)
+            .expect("bounded authenticated committee signer layout");
+        signers.try_reserve_exact(count).map_err(|error| {
             ParentServiceError::Deferred(
-                ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+                iroha_allocation::AllocatorRefusal::from_vec_reserve(error, layout).into(),
             )
         })?;
         for index in qc.signers.ones() {

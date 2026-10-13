@@ -86,5 +86,8 @@ fn debug_info_logs_full_width_int_envelope_at_runtime() {
         .downcast_mut::<CapturingHost>()
         .expect("capturing host");
     assert_eq!(host.logs.len(), 1, "exactly one source debug event");
-    assert_eq!(numeric_tlv::decode_int_bytes(&host.logs[0]), Ok(expected));
+    assert_eq!(
+        (numeric_tlv::decode_int_bytes(&host.logs[0])).expect("expected successful fixture result"),
+        expected
+    );
 }

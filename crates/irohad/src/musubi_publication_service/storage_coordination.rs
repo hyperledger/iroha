@@ -81,7 +81,9 @@ impl MusubiStorageCoordinationBackendV1 for FinalizedRegistrationCheckedStorageB
         if std::time::Instant::now() >= request.deadline() {
             return Err(MusubiPublicationServiceBackendErrorV1::Retryable);
         }
-        self.verify_archive(request.request())?;
+        // Fresh dispatch must honor both native finality and the delegate
+        // preflight, just as replay does, before any storage effect is invoked.
+        self.verify_current_registration(request.request())?;
         if std::time::Instant::now() >= request.deadline() {
             return Err(MusubiPublicationServiceBackendErrorV1::Retryable);
         }

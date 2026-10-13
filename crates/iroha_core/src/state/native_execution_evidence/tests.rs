@@ -183,11 +183,10 @@ fn live_reader_reuses_original_archived_contexts_through_actual_native_tip() {
         crate::query::native_context_archive::NativeContextArchiveError::Io(error)
             if error.kind() == std::io::ErrorKind::NotFound
     ));
-    assert_eq!(
-        chain.state().verified_sumeragi_lane_state().unwrap_err(),
-        crate::execution_attempt::ExecutionAttemptError::Rejected(format!(
+    assert!(
+        matches!(chain.state().verified_sumeragi_lane_state().unwrap_err(), crate::execution_attempt::ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (format!(
             "required historical native lane state source 2: {missing_source}"
-        )),
+        ))),
         "the live reader must propagate the original missing-record refusal"
     );
     std::fs::write(&path, &original).unwrap();

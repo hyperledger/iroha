@@ -300,7 +300,7 @@ impl Fixture {
         let block = authored.body;
         let block_hash = block.hash(&*self.crypto);
         let outcome = executor.execute(&block, &block_hash);
-        let Some(ExecOutcome::Valid(result)) = outcome else {
+        let Ok(Some(ExecOutcome::Valid(result))) = outcome else {
             panic!("original lane execution must succeed: {outcome:?}");
         };
         let crypto = BlsCrypto::new();

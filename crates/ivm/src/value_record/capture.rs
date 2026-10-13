@@ -866,7 +866,7 @@ mod tests {
         );
         assert!(matches!(
             quote_value_record(&vm, &schema, base, 1, quote.gas - 1),
-            Err(error) if error.as_unmetered() == &VMError::OutOfGas
+            Err(error) if matches!(error.as_unmetered(), VMError::OutOfGas)
         ));
         vm.store_u64(base, 1).unwrap();
         assert!(capture_value_record(&vm, &schema, base, 1).is_err());
@@ -943,10 +943,10 @@ mod tests {
         vm.store_u64(base + 8, 1).unwrap();
         let schema_bytes = norito::canonical_frame_len(&schema).unwrap() as u64;
         let failure = quote_value_record(&vm, &schema, base, 1, u64::MAX).unwrap_err();
-        assert_eq!(failure.as_unmetered(), &VMError::DecodeError);
+        assert!(matches!(failure.as_unmetered(), VMError::DecodeError));
         assert_eq!(failure.metered_gas(), Some(64 + schema_bytes));
         let limited = quote_value_record(&vm, &schema, base, 1, 33).unwrap_err();
-        assert_eq!(limited.as_unmetered(), &VMError::OutOfGas);
+        assert!(matches!(limited.as_unmetered(), VMError::OutOfGas));
         assert_eq!(limited.metered_gas(), Some(33));
         let first = EntrypointValueTypeV1 {
             nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Bool)],
@@ -967,7 +967,7 @@ mod tests {
             ],
         };
         let failure = quote_argument_record(&vm, &arguments, base, 2, u64::MAX).unwrap_err();
-        assert_eq!(failure.as_unmetered(), &VMError::DecodeError);
+        assert!(matches!(failure.as_unmetered(), VMError::DecodeError));
         assert_eq!(
             failure.metered_gas(),
             Some(32 + first_gas + 64 + schema_bytes)
@@ -977,8 +977,11 @@ mod tests {
     #[test]
     fn quote_metering_preserves_local_refusal_without_a_gas_wrapper() {
         let error = VMError::ExecutionDeferred(crate::ExecutionDeferral::AllocationUnavailable);
-        let actual = meter_quote_error(77, 100, error.clone());
-        assert_eq!(actual, error);
+        let actual = meter_quote_error(77, 100, error);
+        assert!(matches!(
+            actual,
+            VMError::ExecutionDeferred(crate::ExecutionDeferral::AllocationUnavailable)
+        ));
         assert_eq!(actual.metered_gas(), None);
     }
 }

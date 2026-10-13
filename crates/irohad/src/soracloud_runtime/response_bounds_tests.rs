@@ -251,7 +251,7 @@ fn soracloud_response_frame_gas_boundary_precedes_state_observation() -> Result<
         let result = vm.run_with_host(&mut host);
         assert_eq!(host.metering_query_count(), 1);
         if reserve < response_gas {
-            assert_eq!(result, Err(VMError::OutOfGas));
+            assert!(matches!(result, Err(VMError::OutOfGas)));
             assert_eq!(vm.register(10), request_ptr);
             assert_eq!(host.metering_allocation_count(), 0);
             assert!(

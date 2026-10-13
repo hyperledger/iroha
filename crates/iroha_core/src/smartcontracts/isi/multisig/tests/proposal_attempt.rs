@@ -115,11 +115,10 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         &mut crate::smartcontracts::ivm::cache::IvmCache::new(),
                     )
                     .expect_err("the signed hash cannot authorize a substituted retained body");
-                assert_eq!(
-                    error,
-                    ExecutionAttemptError::Rejected(invalid_proposal_binding())
+                assert!(
+                    matches!(error, ExecutionAttemptError::Rejected(actual) if actual == invalid_proposal_binding())
                 );
-                assert!(tx.execution_deferral().is_none());
+                assert!(!tx.is_execution_deferred());
                 assert_eq!(
                     tx.world.smart_contract_state.get(&key),
                     Some(&altered_bytes)
@@ -159,20 +158,29 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         norito::decode_from_bytes::<MultisigProposalState>(&bytes),
                         Err(norito::Error::TotalAllocationExceeded { limit: 0, .. })
                     ));
-                    assert_eq!(
-                        live_proposal_instructions_for_approval(&tx, &approval),
-                        Err(ExecutionAttemptError::Deferred(expected.clone()))
-                    );
+                    {
+                        let ExecutionAttemptError::Deferred(actual) =
+                            (live_proposal_instructions_for_approval(&tx, &approval))
+                                .expect_err("the original operation must defer")
+                        else {
+                            panic!("expected an unfinished local attempt")
+                        };
+                        assert_reason_only_deferral(&actual, expected.reason());
+                    };
                 });
                 let opaque: InstructionBox = approval.clone().into();
                 limited(|| {
                     let error = MultisigInstructionBox::try_from(&opaque).expect_err(
                         "canonical CustomInstruction parsing uses the actual decoder scope",
                     );
-                    assert_eq!(
-                        multisig_instruction_decode_attempt(error, |_| ()),
-                        ExecutionAttemptError::Deferred(expected.clone()),
-                    );
+                    {
+                        let ExecutionAttemptError::Deferred(actual) =
+                            multisig_instruction_decode_attempt(error, |_| ())
+                        else {
+                            panic!("expected an unfinished local attempt")
+                        };
+                        assert_reason_only_deferral(&actual, expected.reason());
+                    };
                 });
                 let projected = limited(|| {
                     crate::deferred_authority::reject_opaque_instruction_authority(
@@ -180,15 +188,22 @@ fn signed_xor_transfer_retry(check_body_binding: bool) {
                         &tx,
                     )
                 });
-                assert_eq!(
-                    projected,
-                    Err(ExecutionAttemptError::Deferred(expected.clone()))
-                );
+                {
+                    let ExecutionAttemptError::Deferred(actual) =
+                        (projected).expect_err("the original operation must defer")
+                    else {
+                        panic!("expected an unfinished local attempt")
+                    };
+                    assert_reason_only_deferral(&actual, expected.reason());
+                };
                 // The native approval entry point retains the same read refusal in
                 // its model-owned error bridge, before recording an approval outcome.
                 limited(|| execute_approve(&mut tx, authority, &approval))
                     .expect_err("an unfinished native read must stop approval");
-                assert_eq!(tx.execution_deferral(), Some(expected.clone()));
+                assert_reason_only_deferral(
+                    &tx.borrow_execution_deferral().unwrap(),
+                    expected.reason(),
+                );
                 assert!(
                     expected.allocation_refusal().is_none(),
                     "a Norito ceiling has no invented pool notification"
@@ -303,7 +318,7 @@ fn live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals(
             matches!(live_proposal_instructions_for_approval(&tx, &approval), Err(ExecutionAttemptError::Rejected(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(ref message)))) if message.contains("exact account and instruction-hash key"))
         );
     }
-    assert!(tx.execution_deferral().is_none());
+    assert!(!tx.is_execution_deferred());
     let ordinary: InstructionBox = Log::new(Level::INFO, "ordinary non-multisig".into()).into();
     limited(|| {
         crate::deferred_authority::reject_opaque_instruction_authority(
@@ -438,10 +453,15 @@ fn terminal_decode_retry(expired: bool) {
                     norito::with_decode_limits_scope(limits, || {
                         let exact = proposal_state_attempt(&tx, &account, &hash)
                             .expect("the funded retained row read completes first");
-                        assert_eq!(
-                            proposal_instruction_attempt(&exact.instructions[0]),
-                            Err(ExecutionAttemptError::Deferred(expected.clone()))
-                        );
+                        {
+                            let ExecutionAttemptError::Deferred(actual) =
+                                (proposal_instruction_attempt(&exact.instructions[0]))
+                                    .expect_err("the original operation must defer")
+                            else {
+                                panic!("expected an unfinished local attempt")
+                            };
+                            assert_reason_only_deferral(&actual, expected.reason());
+                        };
                     });
                     norito::with_decode_limits_scope(limits, || {
                         prune_expired(&mut tx, &account, &hash, &account)
@@ -451,10 +471,15 @@ fn terminal_decode_retry(expired: bool) {
                     );
                 } else {
                     limited(|| {
-                        assert_eq!(
-                            proposal_is_cancel_wrapper(&proposal),
-                            Err(ExecutionAttemptError::Deferred(expected.clone()))
-                        );
+                        {
+                            let ExecutionAttemptError::Deferred(actual) =
+                                (proposal_is_cancel_wrapper(&proposal))
+                                    .expect_err("the original operation must defer")
+                            else {
+                                panic!("expected an unfinished local attempt")
+                            };
+                            assert_reason_only_deferral(&actual, expected.reason());
+                        };
                         maybe_store_terminal_proposal_state(
                             &mut tx,
                             &proposal,
@@ -466,7 +491,10 @@ fn terminal_decode_retry(expired: bool) {
                         );
                     });
                 }
-                assert_eq!(tx.execution_deferral(), Some(expected.clone()));
+                assert_reason_only_deferral(
+                    &tx.borrow_execution_deferral().unwrap(),
+                    expected.reason(),
+                );
                 assert_eq!(
                     tx.world
                         .smart_contract_state
@@ -530,9 +558,18 @@ fn terminal_decode_retry(expired: bool) {
                     )
                 })
                 .expect_err("the unchanged signed operation also preserves its local read refusal");
-                assert_eq!(error, ExecutionAttemptError::Deferred(expected.clone()));
+                {
+                    let ExecutionAttemptError::Deferred(actual) = error else {
+                        panic!("expected an unfinished local attempt")
+                    };
+                    assert_reason_only_deferral(&actual, expected.reason());
+                };
                 assert!(tx.require_storage_admission().is_ok());
-                assert_eq!(tx.execution_deferral(), Some(expected));
+                assert!(tx.is_execution_deferred());
+                assert!(
+                    tx.borrow_execution_deferral().is_none(),
+                    "outer terminal transferred the sole cause"
+                );
             }
             assert_eq!(block.committed_fragment_count(), fragments);
             assert_eq!(
@@ -656,7 +693,7 @@ fn proposal_migration_validates_original_physical_key_and_body_before_writes() {
             validate_persisted_proposals(&tx.world),
             Err(ExecutionAttemptError::Rejected(_))
         ));
-        assert!(tx.execution_deferral().is_none());
+        assert!(!tx.is_execution_deferred());
         assert_eq!(
             tx.world
                 .smart_contract_state
@@ -674,9 +711,9 @@ fn proposal_migration_validates_original_physical_key_and_body_before_writes() {
         let mut tx = block.transaction_for_callback_testing();
         limited(|| move_multisig_proposals(&mut tx, &owner, &next))
             .expect_err("original decode refusal cannot become migration corruption");
-        assert_eq!(
-            tx.execution_deferral(),
-            Some(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
+        assert_reason_only_deferral(
+            &tx.borrow_execution_deferral().unwrap(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
         );
         assert_eq!(tx.world.smart_contract_state.get(&key), Some(&bytes));
         assert!(tx.world.smart_contract_state.get(&next_key).is_none());
@@ -709,4 +746,17 @@ fn proposal_migration_validates_original_physical_key_and_body_before_writes() {
     );
     assert!(tx.world.smart_contract_state.get(&key).is_none());
     tx.apply();
+}
+
+/// Assert every field of the historical reason-only decoder outcome without
+/// imposing equality or cloning on carriers that can own native verifier errors.
+fn assert_reason_only_deferral(
+    actual: &ExecutionDeferred,
+    expected: ivm::error::ExecutionDeferral,
+) {
+    assert_eq!(actual.reason(), expected);
+    assert_eq!(actual.phase(), None);
+    assert!(actual.allocation_refusal().is_none());
+    assert!(actual.decode_refusal().is_none());
+    assert!(actual.verification_refusal().is_none());
 }

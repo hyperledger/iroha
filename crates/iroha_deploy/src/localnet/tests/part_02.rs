@@ -1798,10 +1798,11 @@ fn generated_fee_unshield_verifier_uses_canonical_native_registry_material() {
         iroha_data_model::zk::verifier_backend_registry_tag_v1(&retired_id.backend),
         None
     );
-    assert_eq!(
+    assert!(matches!(
         validate_and_prepare_verifying_key_record_v1(&retired_id, &record).unwrap_err(),
-        "verifying-key record backend does not match the production registry backend"
-    );
+        iroha_core_zk::VerificationAttemptError::Rejected(error)
+            if error == "verifying-key record backend does not match the production registry backend"
+    ));
     assert_eq!(
         validate_and_prepare_verifying_key_record_v1(&id, &record).unwrap(),
         expected,

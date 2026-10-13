@@ -862,7 +862,7 @@ mod tests {
             )
             .expect_err("not above version 1");
             assert!(error.to_string().contains("does not exceed"), "{error}");
-            assert!(stx.execution_deferral().is_none());
+            assert!(!stx.is_execution_deferred());
             assert_eq!(store::governance_revision(&*stx.world, &subject), 0);
         }
         {
@@ -878,7 +878,7 @@ mod tests {
                 effect_cause(),
             )
             .expect_err("version 2 is not compiled");
-            assert!(stx.execution_deferral().is_some());
+            assert!(stx.is_execution_deferred());
             assert!(store::light_client_profiles::is_empty(&*stx.world));
         }
     }

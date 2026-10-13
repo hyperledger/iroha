@@ -117,13 +117,25 @@ fn decode_artifact_invariant_across_metadata_fields() {
     let mut artifact = m.encode();
     artifact.extend_from_slice(&code);
     let err = IvmCache::decode_artifact(&artifact).expect_err("oversize vector length rejects");
-    assert_eq!(
-        err,
-        VMError::ProgramVectorLengthTooLarge {
+    assert!(match (
+        &(err),
+        &(VMError::ProgramVectorLengthTooLarge {
             vector_length: 65,
             max_allowed: ivm::VECTOR_LENGTH_MAX,
-        }
-    );
+        })
+    ) {
+        (
+            VMError::ProgramVectorLengthTooLarge {
+                vector_length: actual_field_0,
+                max_allowed: actual_field_1,
+            },
+            VMError::ProgramVectorLengthTooLarge {
+                vector_length: expected_field_0,
+                max_allowed: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
 }
 #[test]
 fn decode_artifact_rejects_retired_or_unknown_minor_version() {
@@ -141,22 +153,48 @@ fn decode_artifact_rejects_retired_or_unknown_minor_version() {
     retired.version_minor = 0;
     let mut retired_artifact = retired.encode();
     retired_artifact.extend_from_slice(&code);
-    assert_eq!(
-        IvmCache::decode_artifact(&retired_artifact)
-            .expect_err("the sole header policy rejects retired 1.0 artifacts"),
-        VMError::UnsupportedProgramVersion { major: 1, minor: 0 }
-    );
+    assert!(match (
+        &(IvmCache::decode_artifact(&retired_artifact)
+            .expect_err("the sole header policy rejects retired 1.0 artifacts")),
+        &(VMError::UnsupportedProgramVersion { major: 1, minor: 0 })
+    ) {
+        (
+            VMError::UnsupportedProgramVersion {
+                major: actual_field_0,
+                minor: actual_field_1,
+            },
+            VMError::UnsupportedProgramVersion {
+                major: expected_field_0,
+                minor: expected_field_1,
+            },
+        ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+        _ => false,
+    });
     for vmin in [2u8, 7, 42] {
         let mut m = base.clone();
         m.version_minor = vmin;
         let mut artifact = m.encode();
         artifact.extend_from_slice(&code);
         let err = IvmCache::decode_artifact(&artifact).expect_err("invalid minor should reject");
-        assert_eq!(
-            err,
-            VMError::UnsupportedProgramVersion {
-                major: 1,
-                minor: vmin,
+        assert!(
+            match (
+                &(err),
+                &(VMError::UnsupportedProgramVersion {
+                    major: 1,
+                    minor: vmin,
+                })
+            ) {
+                (
+                    VMError::UnsupportedProgramVersion {
+                        major: actual_field_0,
+                        minor: actual_field_1,
+                    },
+                    VMError::UnsupportedProgramVersion {
+                        major: expected_field_0,
+                        minor: expected_field_1,
+                    },
+                ) => actual_field_0 == expected_field_0 && actual_field_1 == expected_field_1,
+                _ => false,
             },
             "minor {vmin}"
         );

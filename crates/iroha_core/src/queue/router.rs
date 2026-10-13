@@ -196,7 +196,7 @@ pub use iroha_data_model::block::lane_admission::{
     NativeAmxRoutingPlan, RouteLeg, RouteLegRole, RoutingDecision, RoutingPlan,
 };
 /// Routing resolution failure or unfinished local read against configured Nexus catalogs.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum RoutingResolveError {
     /// An original local routing read did not complete; this is never a route rejection.
     #[error("routing deferred: {0}")]
@@ -346,6 +346,209 @@ pub enum RoutingResolveError {
         reason: String,
     },
 }
+
+/// Assert every field of a completed routing verdict without comparing local owners.
+#[cfg(test)]
+pub(crate) fn assert_completed_routing_error_eq(
+    actual: &RoutingResolveError,
+    expected: &RoutingResolveError,
+    context: core::fmt::Arguments<'_>,
+) {
+    use RoutingResolveError::*;
+    match (actual, expected) {
+        (UnauthenticatedRootScope, UnauthenticatedRootScope) => {}
+        (
+            InvalidAtomicSettlement { reason: a_reason },
+            InvalidAtomicSettlement { reason: b_reason },
+        ) => {
+            assert_eq!(a_reason, b_reason, "{context}: reason");
+        }
+        (UnknownLane { lane_id: a_lane_id }, UnknownLane { lane_id: b_lane_id }) => {
+            assert_eq!(a_lane_id, b_lane_id, "{context}: lane_id");
+        }
+        (
+            UnknownDataspace {
+                dataspace_id: a_dataspace_id,
+            },
+            UnknownDataspace {
+                dataspace_id: b_dataspace_id,
+            },
+        ) => {
+            assert_eq!(a_dataspace_id, b_dataspace_id, "{context}: dataspace_id");
+        }
+        (
+            LaneDataspaceMismatch {
+                lane_id: a_lane_id,
+                lane_dataspace_id: a_lane_dataspace_id,
+                dataspace_id: a_dataspace_id,
+            },
+            LaneDataspaceMismatch {
+                lane_id: b_lane_id,
+                lane_dataspace_id: b_lane_dataspace_id,
+                dataspace_id: b_dataspace_id,
+            },
+        ) => {
+            assert_eq!(a_lane_id, b_lane_id, "{context}: lane_id");
+            assert_eq!(
+                a_lane_dataspace_id, b_lane_dataspace_id,
+                "{context}: lane_dataspace_id"
+            );
+            assert_eq!(a_dataspace_id, b_dataspace_id, "{context}: dataspace_id");
+        }
+        (
+            InactiveLane {
+                lane_id: a_lane_id,
+                dataspace_id: a_dataspace_id,
+            },
+            InactiveLane {
+                lane_id: b_lane_id,
+                dataspace_id: b_dataspace_id,
+            },
+        ) => {
+            assert_eq!(a_lane_id, b_lane_id, "{context}: lane_id");
+            assert_eq!(a_dataspace_id, b_dataspace_id, "{context}: dataspace_id");
+        }
+        (
+            NoLaneForDataspace {
+                dataspace_id: a_dataspace_id,
+            },
+            NoLaneForDataspace {
+                dataspace_id: b_dataspace_id,
+            },
+        ) => {
+            assert_eq!(a_dataspace_id, b_dataspace_id, "{context}: dataspace_id");
+        }
+        (
+            AutoscaleOwnedRuleLane { lane_id: a_lane_id },
+            AutoscaleOwnedRuleLane { lane_id: b_lane_id },
+        ) => {
+            assert_eq!(a_lane_id, b_lane_id, "{context}: lane_id");
+        }
+        (
+            AutoscaleOwnedDefaultLane { lane_id: a_lane_id },
+            AutoscaleOwnedDefaultLane { lane_id: b_lane_id },
+        ) => {
+            assert_eq!(a_lane_id, b_lane_id, "{context}: lane_id");
+        }
+        (
+            ConflictingDataspaceScopedPermissions {
+                first_dataspace_id: a_first_dataspace_id,
+                second_dataspace_id: a_second_dataspace_id,
+            },
+            ConflictingDataspaceScopedPermissions {
+                first_dataspace_id: b_first_dataspace_id,
+                second_dataspace_id: b_second_dataspace_id,
+            },
+        ) => {
+            assert_eq!(
+                a_first_dataspace_id, b_first_dataspace_id,
+                "{context}: first_dataspace_id"
+            );
+            assert_eq!(
+                a_second_dataspace_id, b_second_dataspace_id,
+                "{context}: second_dataspace_id"
+            );
+        }
+        (
+            ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: a_first_dataspace_id,
+                second_dataspace_id: a_second_dataspace_id,
+            },
+            ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: b_first_dataspace_id,
+                second_dataspace_id: b_second_dataspace_id,
+            },
+        ) => {
+            assert_eq!(
+                a_first_dataspace_id, b_first_dataspace_id,
+                "{context}: first_dataspace_id"
+            );
+            assert_eq!(
+                a_second_dataspace_id, b_second_dataspace_id,
+                "{context}: second_dataspace_id"
+            );
+        }
+        (
+            DataspaceAliasResolution {
+                alias: a_alias,
+                reason: a_reason,
+            },
+            DataspaceAliasResolution {
+                alias: b_alias,
+                reason: b_reason,
+            },
+        ) => {
+            assert_eq!(a_alias, b_alias, "{context}: alias");
+            assert_eq!(a_reason, b_reason, "{context}: reason");
+        }
+        (
+            FxCorridorPolicyStateUnavailable {
+                policy_id: a_policy_id,
+            },
+            FxCorridorPolicyStateUnavailable {
+                policy_id: b_policy_id,
+            },
+        ) => {
+            assert_eq!(a_policy_id, b_policy_id, "{context}: policy_id");
+        }
+        (FxCorridorPolicyRegistryMissing, FxCorridorPolicyRegistryMissing) => {}
+        (FxCorridorPolicyRegistryMalformed, FxCorridorPolicyRegistryMalformed) => {}
+        (
+            FxCorridorPolicyNotFound {
+                policy_id: a_policy_id,
+            },
+            FxCorridorPolicyNotFound {
+                policy_id: b_policy_id,
+            },
+        ) => {
+            assert_eq!(a_policy_id, b_policy_id, "{context}: policy_id");
+        }
+        (
+            InvalidMultisigProposal {
+                account: a_account,
+                instructions_hash: a_instructions_hash,
+                reason: a_reason,
+            },
+            InvalidMultisigProposal {
+                account: b_account,
+                instructions_hash: b_instructions_hash,
+                reason: b_reason,
+            },
+        ) => {
+            assert_eq!(a_account, b_account, "{context}: account");
+            assert_eq!(
+                a_instructions_hash, b_instructions_hash,
+                "{context}: instructions_hash"
+            );
+            assert_eq!(a_reason, b_reason, "{context}: reason");
+        }
+        (
+            MultisigProposalCycle {
+                account: a_account,
+                instructions_hash: a_instructions_hash,
+            },
+            MultisigProposalCycle {
+                account: b_account,
+                instructions_hash: b_instructions_hash,
+            },
+        ) => {
+            assert_eq!(a_account, b_account, "{context}: account");
+            assert_eq!(
+                a_instructions_hash, b_instructions_hash,
+                "{context}: instructions_hash"
+            );
+        }
+        (StaleRoutingPlan, StaleRoutingPlan) => {}
+        (
+            OrdinaryRouteUnavailable { reason: a_reason },
+            OrdinaryRouteUnavailable { reason: b_reason },
+        ) => {
+            assert_eq!(a_reason, b_reason, "{context}: reason");
+        }
+        _ => panic!("{context}: expected completed {expected:?}, observed {actual:?}"),
+    }
+}
+
 impl RoutingResolveError {
     /// Stable telemetry label for deterministic routing failures.
     #[must_use]
@@ -4593,13 +4796,15 @@ fn multisig_instruction(
     let Some(custom) = any.downcast_ref::<CustomInstruction>() else {
         return Ok(None);
     };
-    match MultisigInstructionBox::try_from(custom.payload()) {
+    // Signed custom instructions are decoded before any persisted proposal lookup.
+    // Observe this actual JSON operation so an unfinished read cannot lose its owner
+    // or become a completed non-multisig match.
+    match norito::core::classify_decode_attempt(|| {
+        MultisigInstructionBox::try_from(custom.payload())
+    }) {
         Ok(multisig) => Ok(Some(multisig)),
         Err(error) => {
-            match crate::smartcontracts::isi::multisig::multisig_instruction_decode_attempt(
-                error,
-                |_| (),
-            ) {
+            match crate::execution_attempt::canonical_decode_attempt_error(error, |_| ()) {
                 crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                     Err(RoutingResolveError::Deferred(reason))
                 }
@@ -9593,17 +9798,21 @@ mod sccp_routing_tests {
             assert!(instruction_routes_to_universal_dataspace(instruction));
             assert!(!instruction_uses_universal_alias_registry(instruction));
             assert_eq!(
-                instruction_transaction_dataspace_target(instruction, None, None),
-                Ok(Some(DataSpaceId::UNIVERSAL)),
+                (instruction_transaction_dataspace_target(instruction, None, None))
+                    .as_ref()
+                    .expect("the operation must complete successfully"),
+                &(Some(DataSpaceId::UNIVERSAL)),
                 "SCCP sample {index}"
             );
             assert_eq!(
-                instruction_transaction_target_requires_universal_coordinator(
+                (instruction_transaction_target_requires_universal_coordinator(
                     instruction,
                     None,
                     None
-                ),
-                Ok(true),
+                ))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+                &(true),
                 "SCCP sample {index}"
             );
             assert!(!instruction_transaction_dataspace_target_needs_state(
@@ -9925,16 +10134,20 @@ mod tests {
         ));
 
         assert_eq!(
-            instruction_settlement_dataspace_target(&*instruction, None, None),
-            Ok(Some(DataSpaceId::UNIVERSAL))
+            (instruction_settlement_dataspace_target(&*instruction, None, None))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(Some(DataSpaceId::UNIVERSAL))
         );
         assert_eq!(
-            instruction_transaction_target_requires_universal_coordinator(
+            (instruction_transaction_target_requires_universal_coordinator(
                 &*instruction,
                 None,
                 None,
-            ),
-            Ok(true)
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(true)
         );
         assert!(!instruction_transaction_dataspace_target_needs_state(
             &*instruction
@@ -9977,16 +10190,20 @@ mod tests {
         ));
 
         assert_eq!(
-            instruction_settlement_dataspace_target(&*instruction, None, None),
-            Ok(Some(DataSpaceId::UNIVERSAL))
+            (instruction_settlement_dataspace_target(&*instruction, None, None))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(Some(DataSpaceId::UNIVERSAL))
         );
         assert_eq!(
-            instruction_transaction_target_requires_universal_coordinator(
+            (instruction_transaction_target_requires_universal_coordinator(
                 &*instruction,
                 None,
                 None,
-            ),
-            Ok(true)
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(true)
         );
         assert!(!instruction_transaction_dataspace_target_needs_state(
             &*instruction
@@ -10019,16 +10236,20 @@ mod tests {
         ));
 
         assert_eq!(
-            instruction_settlement_dataspace_target(&*instruction, None, None),
-            Ok(Some(DataSpaceId::UNIVERSAL))
+            (instruction_settlement_dataspace_target(&*instruction, None, None))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(Some(DataSpaceId::UNIVERSAL))
         );
         assert_eq!(
-            instruction_transaction_target_requires_universal_coordinator(
+            (instruction_transaction_target_requires_universal_coordinator(
                 &*instruction,
                 None,
                 None,
-            ),
-            Ok(true)
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(true)
         );
         assert!(!instruction_transaction_dataspace_target_needs_state(
             &*instruction
@@ -10061,16 +10282,20 @@ mod tests {
         });
 
         assert_eq!(
-            instruction_settlement_dataspace_target(&*instruction, None, None),
-            Ok(Some(dataspace_id))
+            (instruction_settlement_dataspace_target(&*instruction, None, None))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(Some(dataspace_id))
         );
         assert_eq!(
-            instruction_transaction_target_requires_universal_coordinator(
+            (instruction_transaction_target_requires_universal_coordinator(
                 &*instruction,
                 None,
                 None,
-            ),
-            Ok(false)
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(false)
         );
         assert!(!instruction_transaction_dataspace_target_needs_state(
             &*instruction
@@ -10798,11 +11023,14 @@ mod tests {
                 ..LaneConfig::default()
             }]),
         ] {
-            assert_eq!(
-                canonical_dataspace_route(unknown, &lanes, &DataSpaceCatalog::default()),
-                Err(RoutingResolveError::UnknownDataspace {
-                    dataspace_id: unknown
-                })
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(canonical_dataspace_route(unknown, &lanes, &DataSpaceCatalog::default()))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::UnknownDataspace {
+                    dataspace_id: unknown,
+                }),
+                format_args!("completed routing rejection"),
             );
         }
     }
@@ -10870,15 +11098,18 @@ mod tests {
             autoscale_elastic_lane_config(LaneId::new(1), DataSpaceId::UNIVERSAL, 7),
             malformed_autoscale_claim,
         ]);
-        assert_eq!(
-            canonical_dataspace_route(
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(canonical_dataspace_route(
                 DataSpaceId::UNIVERSAL,
                 &lane_catalog,
-                &DataSpaceCatalog::default()
-            ),
-            Err(RoutingResolveError::NoLaneForDataspace {
+                &DataSpaceCatalog::default(),
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::NoLaneForDataspace {
                 dataspace_id: DataSpaceId::UNIVERSAL,
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -10893,15 +11124,18 @@ mod tests {
             .metadata
             .insert(AUTOSCALE_META_CREATED_HEIGHT.to_string(), "42".to_string());
         let lane_catalog = lane_catalog_from_configs(vec![marker_only]);
-        assert_eq!(
-            canonical_dataspace_route(
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(canonical_dataspace_route(
                 DataSpaceId::UNIVERSAL,
                 &lane_catalog,
-                &DataSpaceCatalog::default()
-            ),
-            Err(RoutingResolveError::NoLaneForDataspace {
+                &DataSpaceCatalog::default(),
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::NoLaneForDataspace {
                 dataspace_id: DataSpaceId::UNIVERSAL,
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -10917,16 +11151,20 @@ mod tests {
                 .metadata
                 .insert(marker.to_owned(), "malformed-but-reserved".to_owned());
             let lane_catalog = lane_catalog_from_configs(vec![marker_only]);
-            assert_eq!(
-                canonical_dataspace_route(
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(canonical_dataspace_route(
                     DataSpaceId::UNIVERSAL,
                     &lane_catalog,
-                    &DataSpaceCatalog::default()
-                ),
-                Err(RoutingResolveError::NoLaneForDataspace {
+                    &DataSpaceCatalog::default(),
+                ))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::NoLaneForDataspace {
                     dataspace_id: DataSpaceId::UNIVERSAL,
                 }),
-                "presence of reserved marker {marker} must never make a lane look operator-owned"
+                format_args!(
+                    "presence of reserved marker {marker} must never make a lane look operator-owned"
+                ),
             );
         }
     }
@@ -11695,31 +11933,48 @@ mod tests {
             alice_keypair.private_key(),
             vec![role_registration_instruction(&alice_id, "autoscaledefault")],
         );
-        assert_eq!(
-            router.try_route(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
+        );
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_with_view(&tx, &state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
+                lane_id: LaneId::new(1),
+            }),
+            format_args!("completed routing rejection"),
+        );
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
+                lane_id: LaneId::new(1),
+            }),
+            format_args!("completed routing rejection"),
+        );
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_with_state(&tx, &state))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
+                lane_id: LaneId::new(1),
+            }),
+            format_args!("completed routing rejection"),
         );
         assert_eq!(
-            router.try_route_with_view(&tx, &state.view()),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
-                lane_id: LaneId::new(1),
-            })
+            (router.try_route_without_state(&tx))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(None)
         );
-        assert_eq!(
-            router.try_route_plan(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
-                lane_id: LaneId::new(1),
-            })
-        );
-        assert_eq!(
-            router.try_route_with_state(&tx, &state),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
-                lane_id: LaneId::new(1),
-            })
-        );
-        assert_eq!(router.try_route_without_state(&tx), Ok(None));
     }
     #[test]
     fn default_route_rejects_created_height_only_default_lane() {
@@ -11748,17 +12003,23 @@ mod tests {
                 "createdheightdefault",
             )],
         );
-        assert_eq!(
-            router.try_route(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_plan(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedDefaultLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedDefaultLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -11843,35 +12104,50 @@ mod tests {
             alice_keypair.private_key(),
             vec![role_registration_instruction(&alice_id, "autoscalerule")],
         );
-        assert_eq!(
-            router.try_route(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_with_view(&tx, &state.view()),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_with_view(&tx, &state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_plan(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_with_state(&tx, &state),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_with_state(&tx, &state))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_without_state(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_without_state(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -11909,17 +12185,23 @@ mod tests {
                 "createdheightrule",
             )],
         );
-        assert_eq!(
-            router.try_route(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
-        assert_eq!(
-            router.try_route_without_state(&tx),
-            Err(RoutingResolveError::AutoscaleOwnedRuleLane {
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_without_state(&tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::AutoscaleOwnedRuleLane {
                 lane_id: LaneId::new(1),
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -11952,8 +12234,8 @@ mod tests {
             (LaneId::SINGLE, DataSpaceId::UNIVERSAL),
             (LaneId::new(5), DataSpaceId::new(7)),
         ]);
-        assert_eq!(
-            resolve_policy_routing_decision(
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(resolve_policy_routing_decision(
                 &policy,
                 Some(&policy.rules[0]),
                 Some(DataSpaceId::UNIVERSAL),
@@ -11962,12 +12244,15 @@ mod tests {
                 &dataspace_catalog,
                 None,
                 None,
-            ),
-            Err(RoutingResolveError::LaneDataspaceMismatch {
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::LaneDataspaceMismatch {
                 lane_id: LaneId::new(5),
                 lane_dataspace_id: DataSpaceId::new(7),
                 dataspace_id: DataSpaceId::UNIVERSAL,
-            })
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -12428,16 +12713,15 @@ mod tests {
             );
             let view = state.view();
             assert_eq!(
-                deferred_instruction_concrete_dataspace_targets(
+                (deferred_instruction_concrete_dataspace_targets(
                     &*instruction,
                     Some(&dataspace_catalog),
                     Some(&view),
-                ),
-                Ok(Some(BTreeSet::from([
-                    delivery_dataspace,
-                    payment_dataspace,
-                ]))),
-                "{label} must expose both concrete settlement targets",
+                ))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+                &(Some(BTreeSet::from([delivery_dataspace, payment_dataspace,]))),
+                "{label} must expose both concrete settlement targets"
             );
             assert_eq!(
                 evaluate_policy_plan_with_catalog_and_world(
@@ -12462,15 +12746,15 @@ mod tests {
                 vec![instruction],
                 strict_metadata,
             );
-            assert_eq!(
-                router.try_route_plan_with_state(&strict_tx, &state),
-                Err(
-                    RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                        first_dataspace_id: delivery_dataspace,
-                        second_dataspace_id: payment_dataspace,
-                    }
-                ),
-                "strict metadata must reject cross-dataspace {label}",
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(router.try_route_plan_with_state(&strict_tx, &state))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                    first_dataspace_id: delivery_dataspace,
+                    second_dataspace_id: payment_dataspace,
+                }),
+                format_args!("strict metadata must reject cross-dataspace {label}"),
             );
         }
 
@@ -12513,15 +12797,17 @@ mod tests {
             vec![global_private_instruction],
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan_with_state(&strict_global_private_tx, &state),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: DataSpaceId::UNIVERSAL,
-                    second_dataspace_id: delivery_dataspace,
-                }
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_state(&strict_global_private_tx, &state))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: DataSpaceId::UNIVERSAL,
+                second_dataspace_id: delivery_dataspace,
+            }),
+            format_args!(
+                "strict policy must reject a universal coordinator plus private participant"
             ),
-            "strict policy must reject a universal coordinator plus private participant",
         );
 
         let same_dataspace_tx = sample_transaction(
@@ -13457,15 +13743,15 @@ mod tests {
             instructions,
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan(&strict_tx),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: zk_dataspace,
-                    second_dataspace_id: contract_dataspace,
-                }
-            ),
-            "strict policy must include the deploy-rule participant",
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan(&strict_tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: zk_dataspace,
+                second_dataspace_id: contract_dataspace,
+            }),
+            format_args!("strict policy must include the deploy-rule participant"),
         );
     }
     #[test]
@@ -13545,15 +13831,17 @@ mod tests {
             instructions,
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan(&strict_tx),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: DataSpaceId::UNIVERSAL,
-                    second_dataspace_id: is_dataspace,
-                }
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan(&strict_tx))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: DataSpaceId::UNIVERSAL,
+                second_dataspace_id: is_dataspace,
+            }),
+            format_args!(
+                "strict policy must reject a universal coordinator with a private participant"
             ),
-            "strict policy must reject a universal coordinator with a private participant",
         );
     }
     #[test]
@@ -14679,15 +14967,21 @@ mod tests {
             sender_keypair.private_key(),
             vec![InstructionBox::from(Register::asset_definition(definition))],
         );
-        assert_eq!(router.try_route_without_state(&tx), Ok(None));
+        assert_eq!(
+            (router.try_route_without_state(&tx))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(None)
+        );
         let mut state = blank_state();
         install_router_nexus(&mut state, &router);
         let err = router
             .try_route_with_state(&tx, &state)
             .expect_err("state-backed alias home without lane should fail");
-        assert_eq!(
-            err,
-            RoutingResolveError::NoLaneForDataspace { dataspace_id }
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(err),
+            &(RoutingResolveError::NoLaneForDataspace { dataspace_id }),
+            format_args!("same completed routing verdict"),
         );
     }
     #[test]
@@ -15671,14 +15965,15 @@ mod tests {
             vec![transfer],
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan_with_view(&strict_tx, &state.view()),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: source_dataspace,
-                    second_dataspace_id: destination_dataspace,
-                }
-            ),
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_view(&strict_tx, &state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: source_dataspace,
+                second_dataspace_id: destination_dataspace,
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     fn fx_corridor_fixture(
@@ -15896,15 +16191,21 @@ mod tests {
                 vec![update, private_write.clone()],
                 strict_metadata,
             );
-            assert_eq!(router.try_route_plan_without_state(&strict_tx), Ok(None),);
             assert_eq!(
-                router.try_route_plan_with_state(&strict_tx, &state),
-                Err(
-                    RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                        first_dataspace_id: DataSpaceId::UNIVERSAL,
-                        second_dataspace_id: private_dataspace,
-                    }
-                ),
+                (router.try_route_plan_without_state(&strict_tx))
+                    .as_ref()
+                    .expect("the operation must complete successfully"),
+                &(None)
+            );
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(router.try_route_plan_with_state(&strict_tx, &state))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                    first_dataspace_id: DataSpaceId::UNIVERSAL,
+                    second_dataspace_id: private_dataspace,
+                }),
+                format_args!("completed routing rejection"),
             );
         }
     }
@@ -16028,14 +16329,18 @@ mod tests {
                         executable,
                     );
                     assert_eq!(
-                        router.try_route_plan_with_view(&tx, &state.view()),
-                        Ok(expected.clone()),
-                        "{update_label} before {operation_label} in {executable_label}",
+                        (router.try_route_plan_with_view(&tx, &state.view()))
+                            .as_ref()
+                            .expect("the operation must complete successfully"),
+                        &(expected.clone()),
+                        "{update_label} before {operation_label} in {executable_label}"
                     );
                     assert_eq!(
-                        router.try_route_plan_with_state(&tx, &state),
-                        Ok(expected.clone()),
-                        "state-backed {update_label} before {operation_label} in {executable_label}",
+                        (router.try_route_plan_with_state(&tx, &state))
+                            .as_ref()
+                            .expect("the operation must complete successfully"),
+                        &(expected.clone()),
+                        "state-backed {update_label} before {operation_label} in {executable_label}"
                     );
                 }
                 for (executable_label, executable) in
@@ -16046,15 +16351,23 @@ mod tests {
                         authority_keypair.private_key(),
                         executable,
                     );
-                    assert_eq!(
-                        router.try_route_plan_with_view(&tx, &state.view()),
-                        Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-                        "{operation_label} before {update_label} in {executable_label}",
+                    crate::queue::router::assert_completed_routing_error_eq(
+                        &(router.try_route_plan_with_view(&tx, &state.view()))
+                            .as_ref()
+                            .expect_err("expected completed routing rejection"),
+                        &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+                        format_args!(
+                            "{operation_label} before {update_label} in {executable_label}"
+                        ),
                     );
-                    assert_eq!(
-                        router.try_route_plan_with_state(&tx, &state),
-                        Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-                        "state-backed {operation_label} before {update_label} in {executable_label}",
+                    crate::queue::router::assert_completed_routing_error_eq(
+                        &(router.try_route_plan_with_state(&tx, &state))
+                            .as_ref()
+                            .expect_err("expected completed routing rejection"),
+                        &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+                        format_args!(
+                            "state-backed {operation_label} before {update_label} in {executable_label}"
+                        ),
                     );
                 }
             }
@@ -16148,26 +16461,32 @@ mod tests {
             let ordered_tx =
                 sample_transaction(&authority, authority_keypair.private_key(), vec![ordered]);
             assert_eq!(
-                router.try_route_plan_with_state(&ordered_tx, &state),
-                Ok(expected.clone()),
-                "ordered {label} overlay",
+                (router.try_route_plan_with_state(&ordered_tx, &state))
+                    .as_ref()
+                    .expect("the operation must complete successfully"),
+                &(expected.clone()),
+                "ordered {label} overlay"
             );
             let reversed_tx =
                 sample_transaction(&authority, authority_keypair.private_key(), vec![reversed]);
-            assert_eq!(
-                router.try_route_plan_with_state(&reversed_tx, &state),
-                Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-                "reversed {label} overlay",
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(router.try_route_plan_with_state(&reversed_tx, &state))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+                format_args!("reversed {label} overlay"),
             );
             let leak_tx = sample_transaction(
                 &authority,
                 authority_keypair.private_key(),
                 vec![isolated_update, fund.clone()],
             );
-            assert_eq!(
-                router.try_route_plan_with_state(&leak_tx, &state),
-                Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-                "{label} overlay must not escape to a later outer instruction",
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(router.try_route_plan_with_state(&leak_tx, &state))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+                format_args!("{label} overlay must not escape to a later outer instruction"),
             );
         }
     }
@@ -16239,20 +16558,24 @@ mod tests {
             vec![proposal.clone(), approval.clone(), fund.clone()],
         );
         assert_eq!(
-            router.try_route_plan_with_view(&tx, &state.view()),
-            Ok(expected.clone()),
-            "an authenticated preceding proposal may execute its FX policy update",
+            (router.try_route_plan_with_view(&tx, &state.view()))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "an authenticated preceding proposal may execute its FX policy update"
         );
         assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world(
+            (evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
                 &tx,
                 state.view().world(),
-            ),
-            Ok(expected.clone()),
-            "queue and validation routing must agree on approval effects",
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "queue and validation routing must agree on approval effects"
         );
 
         let reversed_tx = sample_transaction(
@@ -16260,10 +16583,12 @@ mod tests {
             authority_keypair.private_key(),
             vec![approval.clone(), proposal.clone(), fund.clone()],
         );
-        assert_eq!(
-            router.try_route_plan_with_view(&reversed_tx, &state.view()),
-            Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-            "an approval must not authenticate a later sibling proposal",
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_view(&reversed_tx, &state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            format_args!("an approval must not authenticate a later sibling proposal"),
         );
 
         let nested_cases = [
@@ -16284,10 +16609,12 @@ mod tests {
                 authority_keypair.private_key(),
                 vec![proposal.clone(), nested_approval, fund.clone()],
             );
-            assert_eq!(
-                router.try_route_plan_with_view(&leak_tx, &state.view()),
-                Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-                "nested approval case {index} must not leak payload effects",
+            crate::queue::router::assert_completed_routing_error_eq(
+                &(router.try_route_plan_with_view(&leak_tx, &state.view()))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+                format_args!("nested approval case {index} must not leak payload effects"),
             );
         }
 
@@ -16315,9 +16642,11 @@ mod tests {
             vec![approval.clone(), fund.clone()],
         );
         assert_eq!(
-            router.try_route_plan_with_view(&persisted_tx, &persisted_state.view()),
-            Ok(expected.clone()),
-            "persisted proposal fallback must propagate the same ordered effect",
+            (router.try_route_plan_with_view(&persisted_tx, &persisted_state.view()))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "persisted proposal fallback must propagate the same ordered effect"
         );
 
         let (outer_multisig_id, _) = gen_account_in("wonderland");
@@ -16348,20 +16677,24 @@ mod tests {
             ],
         );
         assert_eq!(
-            router.try_route_plan_with_view(&nested_approval_tx, &persisted_state.view()),
-            Ok(expected.clone()),
-            "a persisted approval chain must propagate authenticated FX policy effects",
+            (router.try_route_plan_with_view(&nested_approval_tx, &persisted_state.view()))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "a persisted approval chain must propagate authenticated FX policy effects"
         );
         assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world(
+            (evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
                 &nested_approval_tx,
                 persisted_state.view().world(),
-            ),
-            Ok(expected.clone()),
-            "queue and validation routing must agree on nested approval effects",
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "queue and validation routing must agree on nested approval effects"
         );
 
         let (payload_multisig_id, _) = gen_account_in("wonderland");
@@ -16392,9 +16725,11 @@ mod tests {
             ))],
         );
         assert_eq!(
-            router.try_route_plan_with_view(&nested_payload_tx, &persisted_state.view()),
-            Ok(expected.clone()),
-            "an approval chain must expose FX policy effects to later authenticated payload instructions",
+            (router.try_route_plan_with_view(&nested_payload_tx, &persisted_state.view()))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "an approval chain must expose FX policy effects to later authenticated payload instructions"
         );
 
         let (local_multisig_id, _) = gen_account_in("wonderland");
@@ -16435,20 +16770,24 @@ mod tests {
             ))],
         );
         assert_eq!(
-            router.try_route_plan_with_view(&ordered_local_tx, &persisted_state.view()),
-            Ok(expected.clone()),
-            "a persisted payload must observe a locally executed proposal before its approval",
+            (router.try_route_plan_with_view(&ordered_local_tx, &persisted_state.view()))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "a persisted payload must observe a locally executed proposal before its approval"
         );
         assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world(
+            (evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
                 &ordered_local_tx,
                 persisted_state.view().world(),
-            ),
-            Ok(expected.clone()),
-            "queue and validation routing must agree on local proposal effects",
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(expected.clone()),
+            "queue and validation routing must agree on local proposal effects"
         );
 
         let (reversed_outer_id, _) = gen_account_in("wonderland");
@@ -16478,20 +16817,27 @@ mod tests {
                 reversed_outer_hash,
             ))],
         );
-        assert_eq!(
-            router.try_route_plan_with_view(&reversed_local_tx, &persisted_state.view()),
-            Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-            "an approval must not see a local proposal that executes later in its payload",
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_view(&reversed_local_tx, &persisted_state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            format_args!(
+                "an approval must not see a local proposal that executes later in its payload"
+            ),
         );
-        assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world(
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
                 &reversed_local_tx,
                 persisted_state.view().world(),
-            ),
-            Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            format_args!("completed routing rejection"),
         );
 
         let (inert_outer_id, _) = gen_account_in("wonderland");
@@ -16505,20 +16851,25 @@ mod tests {
             authority_keypair.private_key(),
             vec![inert_proposal, fund],
         );
-        assert_eq!(
-            router.try_route_plan_with_view(&inert_leak_tx, &persisted_state.view()),
-            Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
-            "an unapproved proposal payload must not leak its local approval effects",
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_view(&inert_leak_tx, &persisted_state.view()))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            format_args!("an unapproved proposal payload must not leak its local approval effects"),
         );
-        assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world(
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
                 &inert_leak_tx,
                 persisted_state.view().world(),
-            ),
-            Err(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            ))
+            .as_ref()
+            .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -16558,25 +16909,72 @@ mod tests {
             .smart_contract_state_mut_for_testing()
             .insert(key.clone(), bytes.clone());
         let expected_route = route(&state).expect("the exact signed approval routes successfully");
-        let expected_deferral = crate::execution_attempt::ExecutionDeferred::from(
-            ivm::error::ExecutionDeferral::ActiveMemoryCapacity,
-        );
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || {
+                let direct = multisig_proposal_state_raw(state.view().world(), &account, &hash)
+                    .expect_err("actual direct proposal decode refusal");
+                // The signed approval is a CustomInstruction. Routing first decodes its
+                // JSON while checking for FX settlement, before reading persisted bytes.
+                let custom = multisig_instruction(&*approval)
+                    .expect_err("actual direct custom instruction decode refusal");
+                let routed = route(&state)
+                    .expect_err("actual first routed custom instruction decode refusal");
+                let (
+                    RoutingResolveError::Deferred(direct),
+                    RoutingResolveError::Deferred(custom),
+                    RoutingResolveError::Deferred(routed),
+                ) = (direct, custom, routed)
+                else {
+                    panic!("all actual operations must retain their original decoder refusal");
+                };
                 assert_eq!(
-                    multisig_proposal_state_raw(state.view().world(), &account, &hash),
-                    Err(RoutingResolveError::Deferred(expected_deferral.clone()))
+                    direct.reason(),
+                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
                 );
-                assert_eq!(
-                    route(&state),
-                    Err(RoutingResolveError::Deferred(expected_deferral))
+                assert_eq!(routed.reason(), direct.reason());
+                let direct_cause = direct
+                    .decode_refusal()
+                    .expect("actual direct decoder cause");
+                let custom_cause = custom
+                    .decode_refusal()
+                    .expect("actual custom JSON decoder cause");
+                let routed_cause = routed
+                    .decode_refusal()
+                    .expect("actual first routed custom JSON decoder cause");
+                assert_eq!(routed.reason(), custom.reason());
+                assert_eq!(routed_cause.kind(), custom_cause.kind());
+                assert_eq!(routed_cause.resource_error(), custom_cause.resource_error());
+                assert_ne!(
+                    routed_cause, custom_cause,
+                    "separate executions of the same JSON read have distinct observer identities"
                 );
+                assert_ne!(routed_cause, direct_cause);
+                assert_ne!(custom_cause, direct_cause);
+                // The binary persisted read is a different operation and may request a
+                // different allocation; numeric demand equality would be a false control.
+                let original_observation = routed_cause.clone();
+                assert!(direct.allocation_refusal().is_none());
+                assert!(custom.allocation_refusal().is_none());
+                assert!(routed.allocation_refusal().is_none());
+                assert!(direct.verification_refusal().is_none());
+                assert!(custom.verification_refusal().is_none());
+                assert!(routed.verification_refusal().is_none());
+                assert!(direct.phase().is_none());
+                assert!(custom.phase().is_none());
+                assert!(routed.phase().is_none());
+                let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                    routed.into_vm_error(),
+                )
+                .expect("same routed owner returns through the consuming VM adapter");
+                assert_eq!(moved.decode_refusal(), Some(&original_observation));
             },
         );
         assert_eq!(
-            route(&state),
-            Ok(expected_route.clone()),
+            (route(&state))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected_route.clone()),
             "same signed operation retries after the original local limit ends"
         );
         for malformed in [false, true] {
@@ -16622,11 +17020,30 @@ mod tests {
             .world
             .smart_contract_state_mut_for_testing()
             .insert(key.clone(), bytes.clone());
-        assert_eq!(route(&state), Ok(expected_route));
+        assert_eq!(
+            (route(&state))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected_route)
+        );
         assert_eq!(
             state.view().world().smart_contract_state().get(&key),
             Some(&bytes)
         );
+    }
+    #[test]
+    fn custom_multisig_routing_preserves_completed_nonmatches() {
+        for value in [
+            norito::json!({"unrelated": true}),
+            norito::json!({"Approve": {}}),
+        ] {
+            let instruction = CustomInstruction::new(value);
+            assert!(
+                multisig_instruction(&instruction)
+                    .expect("completed malformed or unrelated custom instruction")
+                    .is_none()
+            );
+        }
     }
     #[test]
     fn authenticated_multisig_approval_fx_effect_projection_breaks_cycles() {
@@ -16704,29 +17121,41 @@ mod tests {
         assert!(cycle_stack.active.is_empty());
         {
             let view = state.view();
-            assert_eq!(
-                instruction_settlement_dataspace_target(&*cyclic_approval, None, Some(&view),),
-                Err(expected.clone()),
+            crate::queue::router::assert_completed_routing_error_eq(
+                (instruction_settlement_dataspace_target(&*cyclic_approval, None, Some(&view)))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
-            assert_eq!(
-                deferred_instruction_concrete_dataspace_targets(
+            crate::queue::router::assert_completed_routing_error_eq(
+                (deferred_instruction_concrete_dataspace_targets(
                     &*cyclic_approval,
                     None,
                     Some(&view),
-                ),
-                Err(expected.clone()),
+                ))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
-            assert_eq!(
-                instruction_transaction_dataspace_target(&*cyclic_approval, None, Some(&view)),
-                Err(expected.clone()),
+            crate::queue::router::assert_completed_routing_error_eq(
+                (instruction_transaction_dataspace_target(&*cyclic_approval, None, Some(&view)))
+                    .as_ref()
+                    .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
-            assert_eq!(
-                instruction_transaction_target_requires_universal_coordinator(
+            crate::queue::router::assert_completed_routing_error_eq(
+                (instruction_transaction_target_requires_universal_coordinator(
                     &*cyclic_approval,
                     None,
                     Some(&view),
-                ),
-                Err(expected.clone()),
+                ))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
             let (authority, authority_keypair) = gen_account_in("wonderland");
             let transaction = sample_transaction(
@@ -16734,20 +17163,23 @@ mod tests {
                 authority_keypair.private_key(),
                 vec![cyclic_approval.clone()],
             );
-            assert_eq!(
-                evaluate_policy_plan_with_catalog_and_world(
+            crate::queue::router::assert_completed_routing_error_eq(
+                (evaluate_policy_plan_with_catalog_and_world(
                     &default_routing_policy(),
                     &catalog_with_lanes(&[LaneId::SINGLE]),
                     &DataSpaceCatalog::default(),
                     &transaction,
                     view.world(),
-                ),
-                Err(expected.clone()),
+                ))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
             let mut participants = BTreeSet::new();
             let mut participant_stack = MultisigProposalRoutingStack::default();
-            assert_eq!(
-                collect_instruction_native_amx_participants(
+            crate::queue::router::assert_completed_routing_error_eq(
+                (collect_instruction_native_amx_participants(
                     &*cyclic_approval,
                     &DataSpaceCatalog::default(),
                     view.world(),
@@ -16755,8 +17187,11 @@ mod tests {
                     &mut participants,
                     &FxCorridorRoutingOverlay::default(),
                     &mut participant_stack,
-                ),
-                Err(expected.clone()),
+                ))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+                &(expected),
+                format_args!("completed routing rejection"),
             );
         }
 
@@ -16795,14 +17230,16 @@ mod tests {
         let view = state.view();
         let mut stack = MultisigProposalRoutingStack::default();
         assert_eq!(
-            instruction_settlement_dataspace_target_with_stack(
+            (instruction_settlement_dataspace_target_with_stack(
                 &*parent_approval,
                 None,
                 Some(&view),
                 &mut stack,
-            ),
-            Ok(None),
-            "repeated sibling approvals must not be mistaken for a cycle",
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(None),
+            "repeated sibling approvals must not be mistaken for a cycle"
         );
         assert_eq!(
             stack.expansions, 3,
@@ -16843,13 +17280,15 @@ mod tests {
         let view = state.view();
         let mut stack = MultisigProposalRoutingStack::default();
         assert_eq!(
-            instruction_settlement_dataspace_target_with_stack(
+            (instruction_settlement_dataspace_target_with_stack(
                 &*root_approval,
                 None,
                 Some(&view),
                 &mut stack,
-            ),
-            Ok(None),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(None)
         );
         assert_eq!(stack.expansions, NODE_COUNT);
         drop(view);
@@ -17002,14 +17441,15 @@ mod tests {
             vec![private_write, InstructionBox::from(fund)],
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan_with_state(&strict_tx, &state),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: private_dataspace,
-                    second_dataspace_id: destination_dataspace,
-                }
-            ),
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_state(&strict_tx, &state))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: private_dataspace,
+                second_dataspace_id: destination_dataspace,
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]
@@ -17121,8 +17561,18 @@ mod tests {
             destination_dataspace,
         );
         let (queued_plan, block_plan) = fx_route_plan_results(&router, &tx, corridor, world);
-        assert_eq!(queued_plan, Ok(expected.clone()));
-        assert_eq!(block_plan, Ok(expected));
+        assert_eq!(
+            (queued_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone())
+        );
+        assert_eq!(
+            (block_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected)
+        );
     }
     #[test]
     fn fx_corridor_universal_deploy_rule_does_not_add_policy_participant() {
@@ -17186,8 +17636,18 @@ mod tests {
         );
         let (queued_plan, block_plan) =
             fx_route_plan_results(&router, &tx, corridor, crate::state::World::default());
-        assert_eq!(queued_plan, Ok(expected.clone()));
-        assert_eq!(block_plan, Ok(expected));
+        assert_eq!(
+            (queued_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone())
+        );
+        assert_eq!(
+            (block_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected)
+        );
     }
     #[test]
     fn fx_corridor_deploy_policy_participant_is_deduplicated_from_intrinsic_participants() {
@@ -17251,8 +17711,18 @@ mod tests {
         );
         let (queued_plan, block_plan) =
             fx_route_plan_results(&router, &tx, corridor, crate::state::World::default());
-        assert_eq!(queued_plan, Ok(expected.clone()));
-        assert_eq!(block_plan, Ok(expected));
+        assert_eq!(
+            (queued_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone())
+        );
+        assert_eq!(
+            (block_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected)
+        );
     }
     #[test]
     fn fx_corridor_expired_sns_only_alias_is_excluded_with_queue_block_parity() {
@@ -17305,8 +17775,18 @@ mod tests {
             corridor,
             world_with_dynamic_dataspace_until("alpha", &authority, 0),
         );
-        assert_eq!(queued_plan, Ok(expected.clone()));
-        assert_eq!(block_plan, Ok(expected));
+        assert_eq!(
+            (queued_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone())
+        );
+        assert_eq!(
+            (block_plan)
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected)
+        );
         assert!(
             !queued_plan
                 .expect("queued plan should resolve")
@@ -17406,8 +17886,20 @@ mod tests {
         let expected_error = RoutingResolveError::NoLaneForDataspace {
             dataspace_id: deploy_dataspace,
         };
-        assert_eq!(queued_plan, Err(expected_error.clone()));
-        assert_eq!(block_plan, Err(expected_error));
+        crate::queue::router::assert_completed_routing_error_eq(
+            (queued_plan)
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(expected_error),
+            format_args!("completed routing rejection"),
+        );
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(block_plan)
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(expected_error),
+            format_args!("completed routing rejection"),
+        );
     }
     #[test]
     fn fx_corridor_plan_includes_smart_contract_deploy_policy_participant() {
@@ -17583,8 +18075,20 @@ mod tests {
         let expected = RoutingResolveError::UnknownDataspace {
             dataspace_id: dynamic_dataspace,
         };
-        assert_eq!(queued_plan, Err(expected.clone()));
-        assert_eq!(block_plan, Err(expected));
+        crate::queue::router::assert_completed_routing_error_eq(
+            (queued_plan)
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(expected),
+            format_args!("completed routing rejection"),
+        );
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(block_plan)
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(expected),
+            format_args!("completed routing rejection"),
+        );
     }
     #[test]
     fn fx_corridor_full_plan_routes_native_amx_from_governed_policy() {
@@ -17823,14 +18327,15 @@ mod tests {
             vec![settlement_instruction],
             strict_metadata,
         );
-        assert_eq!(
-            router.try_route_plan_with_state(&strict_tx, &state),
-            Err(
-                RoutingResolveError::ConflictingTransactionDataspaceTargets {
-                    first_dataspace_id: source_dataspace,
-                    second_dataspace_id: destination_dataspace,
-                }
-            )
+        crate::queue::router::assert_completed_routing_error_eq(
+            &(router.try_route_plan_with_state(&strict_tx, &state))
+                .as_ref()
+                .expect_err("expected completed routing rejection"),
+            &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
+                first_dataspace_id: source_dataspace,
+                second_dataspace_id: destination_dataspace,
+            }),
+            format_args!("completed routing rejection"),
         );
     }
     #[test]

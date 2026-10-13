@@ -164,9 +164,17 @@ fn gas_record() -> String {
     for policy in [None, Some(committed_policy())] {
         let state = state_with(None, policy.as_ref());
         let block = state.block(next_header(&state));
-        charges.push(crate::gas::meter_instructions(&instructions, &block.zk.gas).to_string());
+        charges.push(
+            crate::gas::meter_instructions(&instructions, &block.zk.gas)
+                .expect("gas quote must complete for this fixture")
+                .to_string(),
+        );
         for instruction in &instructions {
-            charges.push(crate::gas::confidential_gas_cost(instruction, &block.zk.gas).to_string());
+            charges.push(
+                crate::gas::confidential_gas_cost(instruction, &block.zk.gas)
+                    .expect("gas quote must complete for this fixture")
+                    .to_string(),
+            );
         }
     }
     digest_of_text(&charges)

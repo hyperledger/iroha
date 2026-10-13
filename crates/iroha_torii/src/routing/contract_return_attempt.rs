@@ -18,12 +18,17 @@ pub(super) fn decode(
 fn classify(
     error: EntrypointReturnDecodeError,
 ) -> ExecutionAttemptError<EntrypointReturnDecodeError> {
-    if let EntrypointReturnDecodeError::ExecutionDeferred { reason, .. } = &error
-        && let Some(owner) = ExecutionDeferred::from_vm_error(reason)
-    {
-        return ExecutionAttemptError::Deferred(owner);
+    match error {
+        EntrypointReturnDecodeError::ExecutionDeferred { word_index, reason } => {
+            match ExecutionDeferred::try_from_vm_error(reason) {
+                Ok(owner) => ExecutionAttemptError::Deferred(owner),
+                Err(reason) => ExecutionAttemptError::Rejected(
+                    EntrypointReturnDecodeError::ExecutionDeferred { word_index, reason },
+                ),
+            }
+        }
+        error => ExecutionAttemptError::Rejected(error),
     }
-    ExecutionAttemptError::Rejected(error)
 }
 
 #[cfg(test)]

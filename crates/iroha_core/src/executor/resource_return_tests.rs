@@ -29,12 +29,16 @@ fn executor_output_reads_preserve_refusal_through_sticky_transaction_bridge() {
     // already propagate ExecutionAttemptError before verdict or model decode.
     for output_kind in ["validation verdict", "migration result"] {
         for spare_reads in 0..2 {
-            let expected = leave_read_slots(&vm, &budget, spare_reads);
+            let expected = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                leave_read_slots(&vm, &budget, spare_reads),
+            )
+            .unwrap();
             let error = executor_output_payload(&vm, pointer, output_kind).unwrap_err();
             let ExecutionAttemptError::Deferred(owner) = &error else {
                 panic!("local output read became a completed rejection: {error}");
             };
-            assert_eq!(owner.clone().into_vm_error(), expected);
+            assert_eq!(owner.allocation_refusal(), expected.allocation_refusal());
+            assert_eq!(owner.reason(), expected.reason());
             let state = State::new_for_testing(
                 World::default(),
                 Kura::blank_kura_for_testing(),
@@ -50,10 +54,10 @@ fn executor_output_reads_preserve_refusal_through_sticky_transaction_bridge() {
             let mut transaction = block.transaction();
             let fuel = transaction.executor_fuel_remaining;
             transaction.attempt_error_to_validation_fail(error);
-            assert_eq!(
-                transaction.execution_deferral().unwrap().into_vm_error(),
-                expected
-            );
+            let moved = transaction.take_execution_deferral().unwrap();
+            assert_eq!(moved.allocation_refusal(), expected.allocation_refusal());
+            assert_eq!(moved.reason(), expected.reason());
+            assert!(transaction.is_execution_deferred());
             assert_eq!(transaction.last_tx_gas_used, 0);
             assert_eq!(transaction.executor_fuel_remaining, fuel);
             assert_eq!(vm.remaining_gas(), gas);

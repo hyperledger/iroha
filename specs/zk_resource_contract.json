@@ -10935,7 +10935,7 @@
     {
       "id": "proof.native_pipa_r_key_carrier_bytes",
       "group": "proof",
-      "what": "Largest complete canonical compiled native PIPA-R verifier key carrier, before key construction or comparison.",
+      "what": "Largest complete canonical compiled native PIPA-R verifier key carrier, enforced on received carriers and by the bounded canonical writer.",
       "unit": "bytes",
       "value": 65536,
       "source": "constant",
@@ -10949,8 +10949,8 @@
       "enforcement": [
         {
           "stage": "follower",
-          "path": "crates/iroha_core_zk/src/native_pipa_r.rs",
-          "contains": "if bytes.len() > MAX_KEY_BYTES {"
+          "path": "crates/iroha_core_zk/src/native_key_carrier.rs",
+          "contains": "Ok(norito::core::to_bytes_bounded( &BorrowedKeyCarrier { descriptor, key }, MAX_KEY_BYTES, ))"
         },
         {
           "stage": "follower",
@@ -10962,9 +10962,17 @@
         {
           "path": "crates/iroha_core_zk/src/native_pipa_r_tests.rs",
           "name": "native_key_records_bind_curve_schema_relation_length_and_compiled_key"
+        },
+        {
+          "path": "crates/iroha_core_zk/tests/native_key_writer_allocation.rs",
+          "name": "complete_public_cap_is_checked_before_output_allocation"
+        },
+        {
+          "path": "crates/iroha_core_zk/tests/native_key_writer_allocation.rs",
+          "name": "borrowed_key_frames_match_owned_canonical_bytes_and_restore_flags"
         }
       ],
-      "test_note": "Real compiled keys and one-over declared-key rejection are covered; this is not a claim that an arbitrary maximum-sized key is a valid compiled relation."
+      "test_note": "Real compiled keys and one-over declared-key rejection are covered. The bounded-writer tests find the exact complete 65,536-byte frame boundary by canonical counting, reject the next larger frame before output allocation, and compare borrowed/owned canonical bytes and restored flags. An arbitrary maximum-sized carrier is not thereby a valid compiled relation; earlier descriptor/key graph allocations and later copies remain separate obligations."
     },
     {
       "id": "proof.native_pipa_r_proof_carrier_bytes",

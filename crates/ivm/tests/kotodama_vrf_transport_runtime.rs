@@ -166,7 +166,7 @@ seiyaku VrfBatchEntrypointBytes {
         "batch": request_hex,
     }));
     let (vm, outcome, status) = compile_and_run(source, Some(&arguments));
-    assert_eq!(outcome, Err(VMError::NoritoInvalid));
+    assert!(matches!(outcome, Err(VMError::NoritoInvalid)));
     assert!(vm.call_result_word_count().is_err());
     assert_eq!(status, [0, 9, u64::MAX], "empty batch bound status");
 }
@@ -180,7 +180,7 @@ seiyaku MalformedVrfLiteral {
 }
 "#;
     let (vm, outcome, status) = compile_and_run(source, None);
-    assert_eq!(outcome, Err(VMError::NoritoInvalid));
+    assert!(matches!(outcome, Err(VMError::NoritoInvalid)));
     assert!(vm.call_result_word_count().is_err());
     assert_eq!(status[0], 0);
     assert_eq!(status[1], 2, "malformed Norito request status");

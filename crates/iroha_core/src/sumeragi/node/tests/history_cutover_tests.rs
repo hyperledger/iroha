@@ -624,7 +624,7 @@ fn pinned_history_of_an_earlier_build_replays_to_its_pinned_state() {
         Ok(_) => panic!("Strict startup must refuse a store whose persisted frame was altered"),
     };
     assert!(
-        refusal.contains("BlockDecode") || refusal.contains("CanonicalBlockWireMismatch"),
+        refusal.contains("CodecAttempt") || refusal.contains("CanonicalBlockWireMismatch"),
         "the altered frame itself is what stops startup: {refusal}"
     );
 }

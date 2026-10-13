@@ -66,7 +66,16 @@ mod tests {
                     assert_eq!(scan.is_empty(), decoded.is_empty());
                     assert!(scan.iter().eq(decoded.iter().copied()));
                 }
-                (Err(scan), Err(decoded)) => assert_eq!(scan, decoded),
+                (
+                    Err(crate::VMError::MemoryAccessViolation { addr: a, perm: p }),
+                    Err(crate::VMError::MemoryAccessViolation { addr: b, perm: q }),
+                ) => {
+                    assert_eq!((a, p), (b, q));
+                    assert_eq!(
+                        (a, p),
+                        (((len / 4) * 4) as u32, crate::error::Perm::EXECUTE)
+                    );
+                }
                 _ => panic!("borrowed and owned decoding disagree at {len}"),
             }
         }

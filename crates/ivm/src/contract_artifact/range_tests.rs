@@ -140,17 +140,17 @@ fn malformed_cntr_and_production_dbg1_never_take_the_generic_path() {
     let mut malformed = bytes.clone();
     let start = crate::metadata::HEADER_SIZE;
     malformed[start + 4..start + 8].copy_from_slice(&u32::MAX.to_le_bytes());
-    assert_eq!(
+    assert!(matches!(
         prepare_contract_with_memory_budget(&malformed, &budget)
             .err()
             .unwrap()
             .into_vm_error(),
         VMError::InvalidMetadata
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         IVM::validate_program(&malformed),
         Err(VMError::InvalidMetadata)
-    );
+    ));
     let parsed = ProgramMetadata::parse(&bytes).unwrap();
     let debug_offset = parsed
         .literal_section
@@ -194,8 +194,11 @@ fn malformed_cntr_and_production_dbg1_never_take_the_generic_path() {
         .err()
         .unwrap();
     assert!(error.to_string().contains("DBG1"));
-    assert_eq!(error.into_vm_error(), VMError::InvalidMetadata);
-    assert_eq!(IVM::validate_program(&debug), Err(VMError::InvalidMetadata));
+    assert!(matches!(error.into_vm_error(), VMError::InvalidMetadata));
+    assert!(matches!(
+        IVM::validate_program(&debug),
+        Err(VMError::InvalidMetadata)
+    ));
     assert_eq!(budget.reserved_bytes(), 0);
 }
 

@@ -1961,7 +1961,10 @@ mod tests {
             .store_u64(Memory::STACK_START + 8, 0x9abc_def0)
             .expect("tracked stack write");
         assert!(!source.modified_chunks.is_empty());
-        assert_eq!(source.load_u64(Memory::STACK_START + 8), Ok(0x9abc_def0));
+        assert_eq!(
+            (source.load_u64(Memory::STACK_START + 8)).expect("expected successful fixture result"),
+            0x9abc_def0
+        );
         let mut copied = source
             .try_clone_for_runtime_template(None)
             .expect("bounded template copy");
@@ -1970,7 +1973,10 @@ mod tests {
         assert_eq!(copied.modified_chunks, source.modified_chunks);
         assert_eq!(&**copied.read_log.lock(), &**source.read_log.lock());
         assert_eq!(*copied.write_log.lock(), *source.write_log.lock());
-        assert_eq!(copied.load_u64(Memory::STACK_START), Ok(0x1234_5678));
+        assert_eq!(
+            (copied.load_u64(Memory::STACK_START)).expect("expected successful fixture result"),
+            0x1234_5678
+        );
         assert_eq!(copied.root(), source.root());
     }
 
@@ -2086,13 +2092,25 @@ mod tests {
             .load_code(&valid)
             .expect("the code region's full extent is valid");
         assert_eq!(memory.code_len(), Memory::HEAP_START);
-        assert_eq!(memory.load_u8(Memory::HEAP_START - 1), Ok(0xA5));
+        assert_eq!(
+            (memory.load_u8(Memory::HEAP_START - 1)).expect("expected successful fixture result"),
+            0xA5
+        );
 
         let invalid = vec![0x5A; boundary + 1];
-        assert_eq!(memory.load_code(&invalid), Err(VMError::MemoryOutOfBounds));
+        assert!(matches!(
+            memory.load_code(&invalid),
+            Err(VMError::MemoryOutOfBounds)
+        ));
         assert_eq!(memory.code_len(), Memory::HEAP_START);
-        assert_eq!(memory.load_u8(0), Ok(0xA5));
-        assert_eq!(memory.load_u8(Memory::HEAP_START - 1), Ok(0xA5));
+        assert_eq!(
+            (memory.load_u8(0)).expect("expected successful fixture result"),
+            0xA5
+        );
+        assert_eq!(
+            (memory.load_u8(Memory::HEAP_START - 1)).expect("expected successful fixture result"),
+            0xA5
+        );
     }
     #[test]
     fn program_heap_clear_scrubs_inactive_capacity_and_resets_allocator() {
@@ -2104,7 +2122,10 @@ mod tests {
         memory
             .store_u64(later_address, 0x2222)
             .expect("write future inactive heap");
-        assert_eq!(memory.alloc(16), Ok(Memory::HEAP_START));
+        assert_eq!(
+            (memory.alloc(16)).expect("expected successful fixture result"),
+            Memory::HEAP_START
+        );
         memory
             .set_heap_max_limit(0x1_000)
             .expect("tighten heap authority above allocation");
@@ -2121,7 +2142,10 @@ mod tests {
         assert_eq!(memory.data[Memory::HEAP_START as usize], 0);
         assert_eq!(memory.data[later_address as usize], 0);
         assert_eq!(memory.current_root(), pristine.current_root());
-        assert_eq!(memory.alloc(8), Ok(Memory::HEAP_START));
+        assert_eq!(
+            (memory.alloc(8)).expect("expected successful fixture result"),
+            Memory::HEAP_START
+        );
     }
     #[test]
     fn runtime_template_geometry_mismatch_fails_without_replacing_memory() {
@@ -2195,7 +2219,10 @@ mod tests {
         let budget = AllocationBudget::new(total_bytes + row_bytes + 1 + read_bytes);
         let mut worker = Memory::new_with_stack_limit_funded(stack_limit, &budget).unwrap();
         worker.store_u8(Memory::HEAP_START, 0xB6).unwrap();
-        assert_eq!(worker.load_u8(Memory::HEAP_START), Ok(0xB6));
+        assert_eq!(
+            (worker.load_u8(Memory::HEAP_START)).expect("expected successful fixture result"),
+            0xB6
+        );
         worker.commit();
         assert!(worker.dirty_chunks.is_empty());
         assert!(!template.dirty_chunks.is_empty());
@@ -2205,7 +2232,10 @@ mod tests {
         for _ in 0..2 {
             worker.reset_from_template(&template).unwrap();
             assert_eq!(worker.dirty_chunks, template.dirty_chunks);
-            assert_eq!(worker.load_u8(Memory::HEAP_START), Ok(0xA5));
+            assert_eq!(
+                (worker.load_u8(Memory::HEAP_START)).expect("expected successful fixture result"),
+                0xA5
+            );
             assert_eq!(worker.dirty_chunks.words().as_ptr(), dirty_words);
             assert_eq!(worker.modified_chunks.words().as_ptr(), modified_words);
             assert!(worker.modified_chunks.is_empty());
@@ -2395,7 +2425,10 @@ mod tests {
         ));
         // The heap holds exactly HEAP_MAX_SIZE bytes.
         let mut mem = Memory::new();
-        assert_eq!(mem.alloc(Memory::HEAP_MAX_SIZE), Ok(Memory::HEAP_START));
+        assert_eq!(
+            (mem.alloc(Memory::HEAP_MAX_SIZE)).expect("expected successful fixture result"),
+            Memory::HEAP_START
+        );
         assert!(matches!(mem.alloc(1), Err(VMError::OutOfMemory)));
         assert!(matches!(mem.grow_heap(1), Err(VMError::OutOfMemory)));
         let mut mem = Memory::new();
@@ -2413,7 +2446,10 @@ mod tests {
         mem.set_heap_max_limit(Memory::HEAP_MAX_SIZE)
             .expect("the ABI maximum itself");
         mem.set_heap_max_limit(4_096).expect("a governed limit");
-        assert_eq!(mem.alloc(4_096), Ok(Memory::HEAP_START));
+        assert_eq!(
+            (mem.alloc(4_096)).expect("expected successful fixture result"),
+            Memory::HEAP_START
+        );
         assert!(matches!(mem.alloc(8), Err(VMError::OutOfMemory)));
         assert!(matches!(mem.grow_heap(8), Err(VMError::OutOfMemory)));
         // No guest region, nor all of them together, holds a 9,437,184-byte proof: large
@@ -2435,18 +2471,18 @@ mod tests {
 
         for align in [0, 3] {
             let mut cursor = 1;
-            assert_eq!(
+            assert!(matches!(
                 mem.input_write_aligned(&mut cursor, &[0xA5], align),
                 Err(VMError::MemoryOutOfBounds)
-            );
+            ));
             assert_eq!(cursor, 1, "failed allocation must preserve the cursor");
         }
 
         let mut cursor = u64::MAX;
-        assert_eq!(
+        assert!(matches!(
             mem.input_write_aligned(&mut cursor, &[0xA5], 8),
             Err(VMError::MemoryOutOfBounds)
-        );
+        ));
         assert_eq!(cursor, u64::MAX);
         assert_eq!(mem.current_root(), baseline, "failed writes must be atomic");
     }
@@ -2466,9 +2502,12 @@ mod tests {
             .expect("install governed heap ceiling");
         assert_eq!(mem.heap_limit(), 64);
         assert_eq!(mem.heap_max_limit(), 64);
-        assert_eq!(mem.alloc(64), Ok(Memory::HEAP_START));
-        assert_eq!(mem.grow_heap(8), Err(VMError::OutOfMemory));
-        assert_eq!(mem.alloc(1), Err(VMError::OutOfMemory));
+        assert_eq!(
+            (mem.alloc(64)).expect("expected successful fixture result"),
+            Memory::HEAP_START
+        );
+        assert!(matches!(mem.grow_heap(8), Err(VMError::OutOfMemory)));
+        assert!(matches!(mem.alloc(1), Err(VMError::OutOfMemory)));
     }
     #[test]
     fn grow_heap_rejects_overflow() {
@@ -2611,15 +2650,18 @@ mod tests {
         assert!(memory.merkle_compact(final_byte, None).is_ok());
 
         for invalid in [memory.stack_top(), u64::MAX] {
-            assert_eq!(memory.merkle_path(invalid), Err(VMError::MemoryOutOfBounds));
-            assert_eq!(
+            assert!(matches!(
+                memory.merkle_path(invalid),
+                Err(VMError::MemoryOutOfBounds)
+            ));
+            assert!(matches!(
                 memory.merkle_root_and_path(invalid),
                 Err(VMError::MemoryOutOfBounds)
-            );
-            assert_eq!(
+            ));
+            assert!(matches!(
                 memory.merkle_compact(invalid, None),
                 Err(VMError::MemoryOutOfBounds)
-            );
+            ));
         }
     }
     #[test]

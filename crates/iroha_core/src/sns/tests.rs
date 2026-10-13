@@ -158,8 +158,9 @@ fn active_account_alias_selector_resolves_canonical_domainful_literal() {
         selector,
     );
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(Some(owner)),
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        Some(owner)
     );
 }
 #[test]
@@ -248,8 +249,9 @@ fn account_alias_resolution_requires_active_lease_and_consistent_indexes() {
         iroha_data_model::account::rekey::AccountRekeyRecord::new(alias.clone(), owner.clone()),
     );
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(Some(owner.clone()))
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        Some(owner.clone())
     );
     record.status = NameStatus::Frozen(NameFrozenStateV1 {
         reason: "hold".to_owned(),
@@ -259,8 +261,9 @@ fn account_alias_resolution_requires_active_lease_and_consistent_indexes() {
         .smart_contract_state_mut_for_testing()
         .insert(key.clone(), record.encode());
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(None)
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        None
     );
     record.status = NameStatus::Active;
     record.expires_at_ms = 40;
@@ -270,8 +273,9 @@ fn account_alias_resolution_requires_active_lease_and_consistent_indexes() {
         .smart_contract_state_mut_for_testing()
         .insert(key.clone(), record.encode());
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(None)
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        None
     );
     record.status = NameStatus::Tombstoned(NameTombstoneStateV1 {
         reason: "revoked".to_owned(),
@@ -283,8 +287,9 @@ fn account_alias_resolution_requires_active_lease_and_consistent_indexes() {
         .smart_contract_state_mut_for_testing()
         .insert(key.clone(), record.encode());
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(None)
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        None
     );
     record.status = NameStatus::Active;
     world
@@ -294,8 +299,9 @@ fn account_alias_resolution_requires_active_lease_and_consistent_indexes() {
         iroha_data_model::account::rekey::AccountRekeyRecord::new(alias.clone(), other),
     );
     assert_eq!(
-        resolve_active_account_alias(&world.view(), &catalog, &alias, 50),
-        Ok(None),
+        (resolve_active_account_alias(&world.view(), &catalog, &alias, 50))
+            .expect("completed fixture operation"),
+        None,
         "split binding indexes must fail closed"
     );
 }
@@ -417,28 +423,31 @@ fn account_id_rekey_lineage_requires_typed_live_unambiguous_retired_history() {
         .expect("canonical account-id rekey fixture");
     world.replace_account_rekey_record_for_testing(canonical.clone());
     assert_eq!(
-        resolve_active_account_id_rekey_lineage_for_alias(
+        (resolve_active_account_id_rekey_lineage_for_alias(
             &world.view(),
             &catalog,
             &alias,
             &retired,
             50,
-        ),
-        Ok(Some(active.clone()))
+        ))
+        .expect("completed fixture operation"),
+        Some(active.clone())
     );
     assert_eq!(
-        resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50),
-        Ok(Some(active.clone()))
+        (resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50))
+            .expect("completed fixture operation"),
+        Some(active.clone())
     );
     assert_eq!(
-        resolve_active_account_id_rekey_lineage_for_alias(
+        (resolve_active_account_id_rekey_lineage_for_alias(
             &world.view(),
             &catalog,
             &alias,
             &unrelated,
             50,
-        ),
-        Ok(None),
+        ))
+        .expect("completed fixture operation"),
+        None,
         "an unrelated account must not join the lineage"
     );
     lease.expires_at_ms = 40;
@@ -448,8 +457,9 @@ fn account_id_rekey_lineage_requires_typed_live_unambiguous_retired_history() {
         .smart_contract_state_mut_for_testing()
         .insert(storage_key.clone(), lease.encode());
     assert_eq!(
-        resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50),
-        Ok(None),
+        (resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50))
+            .expect("completed fixture operation"),
+        None,
         "expired lineage lease must fail closed"
     );
     lease.status = NameStatus::Tombstoned(NameTombstoneStateV1 {
@@ -462,8 +472,9 @@ fn account_id_rekey_lineage_requires_typed_live_unambiguous_retired_history() {
         .smart_contract_state_mut_for_testing()
         .insert(storage_key.clone(), lease.encode());
     assert_eq!(
-        resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50),
-        Ok(None),
+        (resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50))
+            .expect("completed fixture operation"),
+        None,
         "revoked lineage lease must fail closed"
     );
     lease.status = NameStatus::Active;
@@ -476,8 +487,9 @@ fn account_id_rekey_lineage_requires_typed_live_unambiguous_retired_history() {
             .expect("alias reassignment fixture"),
     );
     assert_eq!(
-        resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50),
-        Ok(None),
+        (resolve_active_account_id_rekey_lineage(&world.view(), &catalog, &retired, 50))
+            .expect("completed fixture operation"),
+        None,
         "ordinary alias reassignment must break controller lineage"
     );
     let mut malformed = canonical.clone();
@@ -587,8 +599,9 @@ fn active_dataspace_owner_reads_from_world_storage() {
         .insert(record_storage_key(&selector), record.encode());
     let view = world.view();
     assert_eq!(
-        active_dataspace_owner_by_id(&view, &catalog, DataSpaceId::new(7), 50),
-        Ok(Some(owner))
+        (active_dataspace_owner_by_id(&view, &catalog, DataSpaceId::new(7), 50))
+            .expect("completed fixture operation"),
+        Some(owner)
     );
 }
 #[test]
@@ -620,10 +633,12 @@ fn active_dataspace_id_rejects_conflicting_static_and_dynamic_mappings() {
             .contains(ALIAS_CATALOG_MAPPING_CONFLICT_CODE),
         "unexpected error: {error}"
     );
-    assert_eq!(
-        active_dataspace_id_by_alias(&world.view(), &catalog, "banking", 50),
-        Err(error)
-    );
+    let actual =
+        (active_dataspace_id_by_alias(&world.view(), &catalog, "banking", 50)).unwrap_err();
+    match (actual, error) {
+        (SnsError::Conflict(actual), SnsError::Conflict(expected)) => assert_eq!(actual, expected),
+        (actual, expected) => panic!("catalog conflict differs: {actual:?} != {expected:?}"),
+    };
 }
 #[test]
 fn active_dataspace_id_accepts_matching_static_and_dynamic_mappings() {
@@ -852,8 +867,9 @@ fn active_dataspace_id_returns_none_for_unregistered_dynamic_alias() {
         None
     );
     assert_eq!(
-        active_dataspace_metadata_by_alias(&world.view(), &catalog, "alpha", 50),
-        Ok(None)
+        (active_dataspace_metadata_by_alias(&world.view(), &catalog, "alpha", 50))
+            .expect("completed fixture operation"),
+        None
     );
     let error = resolve_active_dataspace_id_by_alias(&world.view(), &catalog, "alpha", 50)
         .expect_err("unknown mapping must fail");
@@ -871,8 +887,9 @@ fn active_dataspace_id_ignores_expired_dynamic_alias() {
         None
     );
     assert_eq!(
-        active_dataspace_owner_by_alias(&world.view(), "alpha", 25),
-        Ok(None)
+        (active_dataspace_owner_by_alias(&world.view(), "alpha", 25))
+            .expect("completed fixture operation"),
+        None
     );
 }
 #[test]
@@ -1962,13 +1979,13 @@ fn account_alias_registration_lookup_supports_private_dataspace_without_catalog(
         Metadata::default(),
     );
     let mut world = World::default();
-    assert_eq!(
-        get_name_record(&world.view(), SnsNamespace::AccountAlias, "admin@dpn", 50),
-        Err(SnsError::RegistrationNotFound {
-            suffix_id: ACCOUNT_ALIAS_SUFFIX_ID,
-            label: "admin@dpn".to_owned(),
-        }),
-    );
+    let SnsError::RegistrationNotFound { suffix_id, label } =
+        (get_name_record(&world.view(), SnsNamespace::AccountAlias, "admin@dpn", 50)).unwrap_err()
+    else {
+        panic!("expected exact absent registration");
+    };
+    assert_eq!(suffix_id, ACCOUNT_ALIAS_SUFFIX_ID);
+    assert_eq!(label, "admin@dpn");
     world
         .smart_contract_state_mut_for_testing()
         .insert(record_storage_key(&selector), record.encode());
@@ -2185,13 +2202,13 @@ fn get_name_record_refreshes_expired_lifecycle() {
 fn registration_absence_is_distinct_from_policy_and_malformed_state() {
     let mut world = World::default();
     let selector = selector_for_dataspace_alias("dpn").expect("selector");
-    assert_eq!(
-        get_name_record_by_selector(&world.view(), &selector, 0),
-        Err(SnsError::RegistrationNotFound {
-            suffix_id: selector.suffix_id,
-            label: selector.label.clone(),
-        }),
-    );
+    let SnsError::RegistrationNotFound { suffix_id, label } =
+        (get_name_record_by_selector(&world.view(), &selector, 0)).unwrap_err()
+    else {
+        panic!("expected exact absent registration");
+    };
+    assert_eq!(suffix_id, selector.suffix_id);
+    assert_eq!(label, selector.label);
     assert!(matches!(
         policy_or_not_found(&world.view(), u16::MAX),
         Err(SnsError::NotFound(_))

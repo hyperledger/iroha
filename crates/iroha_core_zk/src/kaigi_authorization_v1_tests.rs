@@ -109,15 +109,22 @@ fn final_kaigi_real_proof_verifies_and_binds_all_31_rows() {
     for backend in [ZK_BACKEND_NATIVE_PIPA_R, KAIGI_AUTHORIZATION_BACKEND_V1] {
         let (proof, vk) = valid_envelope(backend);
         assert!(
-            native_pipa_r::validate_key(backend, KAIGI_AUTHORIZATION_CIRCUIT_ID_V1, &vk).is_ok()
+            native_pipa_r::validate_key(backend, KAIGI_AUTHORIZATION_CIRCUIT_ID_V1, &vk)
+                .map_err(crate::verification::expect_rejected)
+                .is_ok()
         );
-        assert!(verify_backend(backend, &proof, Some(&vk)), "{backend}");
+        assert!(
+            verify_backend(backend, &proof, Some(&vk))
+                .expect("verification attempt must complete for this semantic fixture"),
+            "{backend}"
+        );
         for row in 0..KAIGI_AUTHORIZATION_INSTANCE_ROWS_V1 {
             let mut instance = fixture.instance;
             instance[row] += kaigi_zk::Scalar::ONE;
             let (changed, _) = envelope(backend, fixture.vk_bytes.clone(), &[&instance]);
             assert!(
-                !verify_backend(backend, &changed, Some(&vk)),
+                !verify_backend(backend, &changed, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "{backend} row {row}"
             );
         }
@@ -143,7 +150,8 @@ fn final_kaigi_rejects_nonexact_instance_dimensions() {
         for columns in &shapes {
             let (proof, vk) = envelope(backend, fixture.vk_bytes.clone(), columns);
             assert!(
-                !verify_backend(backend, &proof, Some(&vk)),
+                !verify_backend(backend, &proof, Some(&vk))
+                    .expect("verification attempt must complete for this semantic fixture"),
                 "{backend} shape {:?}",
                 columns.iter().map(|c| c.len()).collect::<Vec<_>>()
             );
@@ -165,25 +173,34 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
         "halo2/pasta/ipa/kaigi-roster-v1",
     ] {
         assert!(native_pipa_r::relation(ZK_BACKEND_NATIVE_PIPA_R, retired).is_none());
-        assert!(!verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &mutate_outer(&proof, |outer| outer.circuit_id = retired.to_owned()),
-            Some(&vk)
-        ));
+        assert!(
+            !verify_backend(
+                ZK_BACKEND_NATIVE_PIPA_R,
+                &mutate_outer(&proof, |outer| outer.circuit_id = retired.to_owned()),
+                Some(&vk)
+            )
+            .expect("verification attempt must complete for this semantic fixture")
+        );
         let (retired_proof, retired_vk) =
             envelope(retired, fixture.vk_bytes.clone(), &[&fixture.instance]);
-        assert!(!verify_backend(retired, &retired_proof, Some(&retired_vk)));
+        assert!(
+            !verify_backend(retired, &retired_proof, Some(&retired_vk))
+                .expect("verification attempt must complete for this semantic fixture")
+        );
     }
     for schema in [
         b"kaigi-roster-v1".as_slice(),
         b"kaigi-usage-v1",
         b"kaigi-authorization-v1\0",
     ] {
-        assert!(!verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &mutate_outer(&proof, |outer| outer.public_inputs = schema.to_vec()),
-            Some(&vk)
-        ));
+        assert!(
+            !verify_backend(
+                ZK_BACKEND_NATIVE_PIPA_R,
+                &mutate_outer(&proof, |outer| outer.public_inputs = schema.to_vec()),
+                Some(&vk)
+            )
+            .expect("verification attempt must complete for this semantic fixture")
+        );
     }
     for alias in [
         "kaigi-authorization-v1",
@@ -191,12 +208,19 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
         "halo2/ipa:kaigi-authorization-v1",
         "halo2/pasta/ipa/kaigi-authorization-v1",
     ] {
-        assert!(!verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &mutate_outer(&proof, |outer| outer.circuit_id = alias.to_owned()),
-            Some(&vk)
-        ));
-        assert!(native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, alias, &vk).is_err());
+        assert!(
+            !verify_backend(
+                ZK_BACKEND_NATIVE_PIPA_R,
+                &mutate_outer(&proof, |outer| outer.circuit_id = alias.to_owned()),
+                Some(&vk)
+            )
+            .expect("verification attempt must complete for this semantic fixture")
+        );
+        assert!(
+            native_pipa_r::validate_key(ZK_BACKEND_NATIVE_PIPA_R, alias, &vk)
+                .map_err(crate::verification::expect_rejected)
+                .is_err()
+        );
     }
     let mut wrong_k: native_pipa_r::CompiledVerifyingKeyV1 =
         norito::decode_canonical(&fixture.vk_bytes).unwrap();
@@ -214,13 +238,13 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
                 KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
                 &changed_vk
             )
+            .map_err(crate::verification::expect_rejected)
             .is_err()
         );
-        assert!(!verify_backend(
-            ZK_BACKEND_NATIVE_PIPA_R,
-            &changed,
-            Some(&changed_vk)
-        ));
+        assert!(
+            !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &changed, Some(&changed_vk))
+                .expect("verification attempt must complete for this semantic fixture")
+        );
     }
     // Keep CID, k, outer public schema and VK hash mutually consistent;
     // exact compiled key equality must still reject a foreign descriptor.
@@ -255,11 +279,11 @@ fn final_kaigi_rejects_retired_labels_schema_metadata_and_relabelled_keys() {
             KAIGI_AUTHORIZATION_CIRCUIT_ID_V1,
             &changed_vk
         )
+        .map_err(crate::verification::expect_rejected)
         .is_err()
     );
-    assert!(!verify_backend(
-        ZK_BACKEND_NATIVE_PIPA_R,
-        &changed,
-        Some(&changed_vk)
-    ));
+    assert!(
+        !verify_backend(ZK_BACKEND_NATIVE_PIPA_R, &changed, Some(&changed_vk))
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }

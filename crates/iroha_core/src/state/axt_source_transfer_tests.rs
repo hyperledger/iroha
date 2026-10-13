@@ -178,9 +178,10 @@ fn finalized_source_resolver_confirms_success_and_one_exact_transfer() {
         ..claim
     };
     assert_eq!(
-        state.resolve_finalized_axt_source_transfer_v1(2, &unverified, MAX_WORK, MAX_BYTES),
-        Ok(fact),
-        "receipt and handle claims require separate authority checks",
+        (state.resolve_finalized_axt_source_transfer_v1(2, &unverified, MAX_WORK, MAX_BYTES))
+            .expect("completed successful fixture"),
+        fact,
+        "receipt and handle claims require separate authority checks"
     );
 
     for (changed, expected) in [
@@ -227,23 +228,28 @@ fn finalized_source_resolver_confirms_success_and_one_exact_transfer() {
             Error::TransferFacts,
         ),
     ] {
-        assert_eq!(
-            state.resolve_finalized_axt_source_transfer_v1(2, &changed, MAX_WORK, MAX_BYTES),
-            Err(expected),
-        );
+        assert!(matches!(
+            (
+                state.resolve_finalized_axt_source_transfer_v1(2, &changed, MAX_WORK, MAX_BYTES),
+                expected
+            ),
+            (Err(Error::SourceExecution), Error::SourceExecution)
+                | (Err(Error::TransferCoordinate), Error::TransferCoordinate)
+                | (Err(Error::TransferFacts), Error::TransferFacts)
+        ));
     }
-    assert_eq!(
+    assert!(matches!(
         state.resolve_finalized_axt_source_transfer_v1(2, &claim, 0, MAX_BYTES),
-        Err(Error::FinalizedCarrier),
-    );
-    assert_eq!(
+        Err(Error::FinalizedCarrier)
+    ));
+    assert!(matches!(
         state.resolve_finalized_axt_source_transfer_v1(0, &claim, MAX_WORK, MAX_BYTES),
-        Err(Error::InvalidClaim),
-    );
-    assert_eq!(
+        Err(Error::InvalidClaim)
+    ));
+    assert!(matches!(
         state.resolve_finalized_axt_source_transfer_v1(3, &claim, MAX_WORK, MAX_BYTES),
-        Err(Error::FinalizedCarrier),
-    );
+        Err(Error::FinalizedCarrier)
+    ));
 }
 
 #[test]
@@ -251,18 +257,18 @@ fn finalized_source_resolver_rejects_rejected_or_missing_source_evidence() {
     let rejected = finalized_fixture(true, false);
     let rejected_state = source_state(&rejected);
     let claim = source_claim(rejected.target());
-    assert_eq!(
+    assert!(matches!(
         rejected_state.resolve_finalized_axt_source_transfer_v1(2, &claim, MAX_WORK, MAX_BYTES),
-        Err(Error::RejectedExecution),
-    );
+        Err(Error::RejectedExecution)
+    ));
 
     let missing = finalized_fixture(false, false);
     let missing_state = source_state(&missing);
     let claim = source_claim(missing.target());
-    assert_eq!(
+    assert!(matches!(
         missing_state.resolve_finalized_axt_source_transfer_v1(2, &claim, MAX_WORK, MAX_BYTES),
-        Err(Error::MissingTranscripts),
-    );
+        Err(Error::MissingTranscripts)
+    ));
 }
 
 #[test]
@@ -275,10 +281,10 @@ fn finalized_source_resolver_requires_canonical_qc_bound_body() {
     let last = wire.len() - 1;
     wire[last] ^= 1;
     fixture.overwrite_target_wire(&wire);
-    assert_eq!(
+    assert!(matches!(
         state.resolve_finalized_axt_source_transfer_v1(2, &claim, MAX_WORK, MAX_BYTES),
-        Err(Error::FinalizedCarrier),
-    );
+        Err(Error::FinalizedCarrier)
+    ));
 }
 
 #[test]

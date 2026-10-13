@@ -545,6 +545,12 @@ mod tests {
             &key,
             test_guardrails(),
         )
+        .map_err(|error| match error {
+            iroha_core_zk::VerificationAttemptError::Rejected(error) => error,
+            iroha_core_zk::VerificationAttemptError::Deferred(original) => {
+                panic!("unexpected local verification refusal: {original}")
+            }
+        })
         .expect("control is a valid native public-input binding proof");
         let verifier = RamLfeProofVerifierMetadata {
             proof_backend: proof.backend.to_string(),

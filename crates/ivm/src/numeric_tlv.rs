@@ -361,10 +361,10 @@ mod tests {
         let integer = BigInt::from_twos_bytes(&[0x7f; 64]).expect("signed 512-bit value");
         let int_envelope = encode_int(&integer).expect("canonical Int envelope");
         let int_frame = &int_envelope[OUTER_HEADER_BYTES..int_envelope.len() - OUTER_HASH_BYTES];
-        assert_eq!(
+        assert!(matches!(
             validate_numeric_frame_if_needed(PointerType::Int, int_frame),
             Ok(())
-        );
+        ));
         assert!(matches!(
             validate_numeric_frame_if_needed(
                 PointerType::Int,
@@ -382,10 +382,10 @@ mod tests {
             validate_numeric_frame_if_needed(PointerType::Int, &oversized_frame),
             Err(VMError::PointerAbiFault(PointerAbiFaultV1::OversizedLength))
         ));
-        assert_eq!(
+        assert!(matches!(
             validate_numeric_frame_if_needed(PointerType::Blob, b"untyped"),
             Ok(())
-        );
+        ));
     }
     #[test]
     fn all_three_envelopes_roundtrip_and_cross_types_fail() {
@@ -395,9 +395,19 @@ mod tests {
         let int_envelope = encode_int(&integer).expect("int envelope");
         let decimal_envelope = encode_decimal(&decimal).expect("decimal envelope");
         let quantity_envelope = encode_quantity(&quantity).expect("quantity envelope");
-        assert_eq!(decode_int_bytes(&int_envelope), Ok(integer));
-        assert_eq!(decode_decimal_bytes(&decimal_envelope), Ok(decimal));
-        assert_eq!(decode_quantity_bytes(&quantity_envelope), Ok(quantity));
+        assert_eq!(
+            (decode_int_bytes(&int_envelope)).expect("expected successful fixture result"),
+            integer
+        );
+        assert_eq!(
+            (decode_decimal_bytes(&decimal_envelope)).expect("expected successful fixture result"),
+            decimal
+        );
+        assert_eq!(
+            (decode_quantity_bytes(&quantity_envelope))
+                .expect("expected successful fixture result"),
+            quantity
+        );
         assert!(matches!(
             decode_decimal_bytes(&int_envelope),
             Err(VMError::PointerAbiFault(PointerAbiFaultV1::WrongType))

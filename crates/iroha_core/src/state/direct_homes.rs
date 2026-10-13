@@ -365,7 +365,7 @@ impl World {
                 transaction.asset_or_insert_exact(&asset_id, value.as_ref().clone())?;
                 transaction.increase_asset_total_amount(&id, value.as_ref())?;
             }
-            if transaction.execution_deferral.borrow().is_some() {
+            if transaction.execution_deferral.borrow().is_refused() {
                 return Err(Error::InvariantViolation(
                     "direct-home fixture execution was locally deferred".into(),
                 ));

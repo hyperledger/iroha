@@ -67,7 +67,7 @@ impl MusubiPublicationFinalizedArchiveRegistrationQueryV1 {
     }
 }
 /// Closed, redacted failure from the daemon-owned finalized reader.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MusubiPublicationFinalizedArchiveRegistrationReadErrorV1 {
     /// Original local allocation admission has not completed; retry the same read.
     Deferred(iroha_core::execution_attempt::ExecutionDeferred),
@@ -519,7 +519,8 @@ pub(crate) mod tests {
         pub(crate) state: Arc<State>,
         pub(crate) query: MusubiPublicationFinalizedArchiveRegistrationQueryV1,
         pub(crate) archive: MusubiArchiveRecordV1,
-        chain: CertifiedTestChain,
+        // Exact original receipt coordinates captured before deliberately corrupting storage.
+        registration_floor: iroha_data_model::musubi::MusubiPinOutboxCheckFloorV1,
     }
     fn keypair(seed: u8) -> KeyPair {
         KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
@@ -848,12 +849,21 @@ pub(crate) mod tests {
         let transaction = successful_registration_transaction(&material);
         let transaction_hash = *transaction.hash().as_ref();
         let state = Arc::clone(chain.state());
-        let canonical_block = if store_finality {
+        let original_floor = |chain: &CertifiedTestChain| {
+            let receipt = chain.committed(2);
+            iroha_data_model::musubi::MusubiPinOutboxCheckFloorV1 {
+                height: receipt.height(),
+                block_hash: *receipt.block_hash().as_ref(),
+                context_id: receipt.id(),
+            }
+        };
+        let (canonical_block, registration_floor) = if store_finality {
             assert_eq!(
                 chain.commit(vec![transaction]),
                 [true],
                 "native registration executes"
             );
+            let registration_floor = original_floor(&chain);
             let canonical = chain
                 .kura()
                 .get_block(
@@ -877,13 +887,14 @@ pub(crate) mod tests {
             // Independent mutable-record fixture prestate; this does not change the
             // original transaction, execution outputs, or native historical proof.
             replace_current_archive(&state, *canonical.hash().as_ref(), &material.archive);
-            canonical
+            (canonical, registration_floor)
         } else {
             // Execute the same exact source on a separate genuine native chain, then
             // strip its certificate only for a deliberately invalid local-storage claim.
             let mut source = start_reader_chain();
             assert_eq!(source.network_id(), chain.network_id());
             assert_eq!(source.commit(vec![transaction]), [true]);
+            let registration_floor = original_floor(&source);
             let original = source
                 .kura()
                 .get_block(
@@ -917,7 +928,7 @@ pub(crate) mod tests {
                 .expect("completed finality read"),
                 "native source rejects the absent certificate"
             );
-            uncertified
+            (uncertified, registration_floor)
         };
         let query = MusubiPublicationFinalizedArchiveRegistrationQueryV1 {
             version: 1,
@@ -941,7 +952,7 @@ pub(crate) mod tests {
             state,
             query,
             archive: material.archive,
-            chain,
+            registration_floor,
         }
     }
     fn replace_current_archive(
@@ -1193,21 +1204,21 @@ pub(crate) mod tests {
             Some(&record),
             None,
         );
-        assert_eq!(
+        assert!(matches!(
             fixture
                 .reader
                 .validate_current_readback_target(&fixture.query, &location, provider),
-            Err(invalid()),
-        );
+            Err(MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid)
+        ));
         let reopened = MusubiPublicationFinalizedArchiveRegistrationReaderV1::new(
             fixture.query.network_id,
             Arc::clone(&fixture.state),
         )
         .expect("reader restart uses the same authoritative State handle");
-        assert_eq!(
+        assert!(matches!(
             reopened.validate_current_readback_target(&fixture.query, &location, provider),
-            Err(invalid()),
-        );
+            Err(MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid)
+        ));
         let replacement_owner = AccountId::new(keypair(0x36).public_key().clone());
         replace_current_archive_with_location(
             &fixture.state,
@@ -1217,10 +1228,10 @@ pub(crate) mod tests {
             Some(&record),
             Some((provider, replacement_owner)),
         );
-        assert_eq!(
+        assert!(matches!(
             reopened.validate_current_readback_target(&fixture.query, &location, provider),
-            Err(invalid()),
-        );
+            Err(MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid)
+        ));
         let mut substituted_attestation = record.clone();
         substituted_attestation
             .attestation
@@ -1244,10 +1255,10 @@ pub(crate) mod tests {
                     .clone(),
             )),
         );
-        assert_eq!(
+        assert!(matches!(
             reopened.validate_current_readback_target(&fixture.query, &location, provider),
-            Err(invalid()),
-        );
+            Err(MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid)
+        ));
     }
     #[test]
     fn exact_finalized_registration_returns_current_mutable_record() {
@@ -1273,13 +1284,17 @@ pub(crate) mod tests {
         };
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        struct MutationProbe(Arc<AtomicUsize>);
+        struct MutationProbe(Arc<AtomicUsize>, bool);
         impl MusubiStorageCoordinationBackendV1 for MutationProbe {
             fn verify_current_registration(
                 &self,
                 _request: &MusubiStorageCoordinationRequestV1,
             ) -> Result<(), MusubiPublicationServiceBackendErrorV1> {
-                Err(MusubiPublicationServiceBackendErrorV1::Retryable)
+                if self.1 {
+                    Ok(())
+                } else {
+                    Err(MusubiPublicationServiceBackendErrorV1::Retryable)
+                }
             }
 
             fn coordinate_storage(
@@ -1319,13 +1334,13 @@ pub(crate) mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let checked = FinalizedRegistrationCheckedStorageBackendV1::new(
             fixture.reader.clone(),
-            Box::new(MutationProbe(Arc::clone(&calls))),
+            Box::new(MutationProbe(Arc::clone(&calls), true)),
         );
         let dispatch = |source: &ReaderFixture, request: &MusubiStorageCoordinationRequestV1| {
             storage_authorization_tests::dispatch(
                 Box::new(FinalizedRegistrationCheckedStorageBackendV1::new(
                     source.reader.clone(),
-                    Box::new(MutationProbe(Arc::clone(&calls))),
+                    Box::new(MutationProbe(Arc::clone(&calls), true)),
                 )),
                 request,
             )
@@ -1336,6 +1351,23 @@ pub(crate) mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             dispatch(&fixture, &exact),
+            Err(MusubiPublicationServiceBackendErrorV1::Retryable),
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Passing native finality alone never bypasses the delegate's own preflight.
+        let refusing_delegate = || {
+            FinalizedRegistrationCheckedStorageBackendV1::new(
+                fixture.reader.clone(),
+                Box::new(MutationProbe(Arc::clone(&calls), false)),
+            )
+        };
+        assert_eq!(
+            refusing_delegate().verify_current_registration(&exact),
+            Err(MusubiPublicationServiceBackendErrorV1::Retryable),
+        );
+        assert_eq!(
+            storage_authorization_tests::dispatch(Box::new(refusing_delegate()), &exact),
             Err(MusubiPublicationServiceBackendErrorV1::Retryable),
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -1388,7 +1420,7 @@ pub(crate) mod tests {
         let uncertified = reader_fixture_with_finality(false);
         let checked_uncertified = FinalizedRegistrationCheckedStorageBackendV1::new(
             uncertified.reader.clone(),
-            Box::new(MutationProbe(Arc::clone(&calls))),
+            Box::new(MutationProbe(Arc::clone(&calls), true)),
         );
         assert_eq!(
             checked_uncertified.verify_current_registration(&request(&uncertified)),
@@ -1403,22 +1435,27 @@ pub(crate) mod tests {
     #[test]
     fn registration_without_verified_native_finality_is_invalid() {
         let fixture = reader_fixture_with_finality(false);
-        assert_eq!(
+        assert!(matches!(
             fixture
                 .reader
                 .read_current_archive(&fixture.query)
                 .expect_err("an uncertified Kura body must fail closed"),
-            invalid()
-        );
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
         use iroha_core::query::musubi_pin_outbox::{
             MusubiPinOutboxCheckExpectedV1, begin_musubi_pin_outbox_check_v1,
         };
-        use iroha_data_model::musubi::{
-            MusubiPinOutboxCheckExpectationV1, MusubiPinOutboxCheckFloorV1,
-        };
-        let block = fixture
-            .chain
-            .committed(fixture.query.snapshot.finalized_height);
+        use iroha_data_model::musubi::MusubiPinOutboxCheckExpectationV1;
+        // The deliberately uncertified State must not manufacture a committed receipt.
+        // Keep the exact height/hash/context from the genuine source before certificate removal.
+        assert_eq!(
+            fixture.registration_floor.height,
+            fixture.query.snapshot.finalized_height
+        );
+        assert_eq!(
+            fixture.registration_floor.block_hash,
+            fixture.query.snapshot.finalized_block_hash
+        );
         let result = begin_musubi_pin_outbox_check_v1(
             Arc::clone(&fixture.state),
             MusubiPinOutboxCheckExpectedV1 {
@@ -1427,11 +1464,7 @@ pub(crate) mod tests {
                 pin_authority: fixture.archive.registered_by.clone(),
                 session_id: [0x81; 32],
                 inventory_digest: [0x82; 32],
-                floor: MusubiPinOutboxCheckFloorV1 {
-                    height: block.height(),
-                    block_hash: *block.block_hash().as_ref(),
-                    context_id: block.id(),
-                },
+                floor: fixture.registration_floor,
                 expected: MusubiPinOutboxCheckExpectationV1::Absent,
             },
             std::time::Instant::now() + std::time::Duration::from_secs(60),
@@ -1450,7 +1483,10 @@ pub(crate) mod tests {
             .reader
             .read_current_archive(&missing)
             .expect_err("missing transaction must fail closed");
-        assert_eq!(error, invalid());
+        assert!(matches!(
+            error,
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
         let material = registration_material_at(
             fixture.query.network_id,
             fixture.archive.registered_at_height,
@@ -1597,13 +1633,13 @@ pub(crate) mod tests {
         let fixture = reader_fixture();
         let mut substituted_snapshot = fixture.query.clone();
         substituted_snapshot.snapshot.finalized_block_hash = [0x61; 32];
-        assert_eq!(
+        assert!(matches!(
             fixture
                 .reader
                 .read_current_archive(&substituted_snapshot)
                 .expect_err("snapshot substitution must fail closed"),
-            invalid()
-        );
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
         let view = fixture.state.query_view();
         let height = fixture.archive.registered_at_height;
         let block = view
@@ -1681,13 +1717,13 @@ pub(crate) mod tests {
             fixture.query.snapshot.finalized_block_hash,
             &substituted,
         );
-        assert_eq!(
+        assert!(matches!(
             fixture
                 .reader
                 .read_current_archive(&fixture.query)
                 .expect_err("current immutable projection substitution must fail closed"),
-            invalid()
-        );
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
     }
     #[test]
     fn finalized_seed_capability_reads_exact_car_once_per_bounded_lease() {
@@ -1741,14 +1777,14 @@ pub(crate) mod tests {
         assert_eq!(capability.provider_id(), binding.seed_provider);
         let mut wrong_transaction = fixture.query.clone();
         wrong_transaction.transaction_hash = [0xaa; 32];
-        assert_eq!(
+        assert!(matches!(
             capability
                 .read_finalized_seed(&wrong_transaction)
                 .unwrap_err(),
             MusubiPublicationFinalizedSeedReadErrorV1::Finality(
                 MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
-            ),
-        );
+            )
+        ));
         let budget = fixture.state.ivm_execution_budget();
         let held = budget
             .try_reserve_bytes(budget.limit_bytes().saturating_sub(budget.reserved_bytes()))
@@ -1767,10 +1803,10 @@ pub(crate) mod tests {
             .expect("exact finalized registration opens exact staged bytes");
         assert_eq!(lease.plan(), &plan);
         assert_eq!(lease.car(), car.as_slice());
-        assert_eq!(
+        assert!(matches!(
             capability.read_finalized_seed(&fixture.query).unwrap_err(),
-            MusubiPublicationFinalizedSeedReadErrorV1::Custody(MusubiSeedStagingErrorV1::Capacity),
-        );
+            MusubiPublicationFinalizedSeedReadErrorV1::Custody(MusubiSeedStagingErrorV1::Capacity)
+        ));
         drop(lease);
         let replay = capability
             .read_finalized_seed(&fixture.query)
@@ -1787,12 +1823,14 @@ pub(crate) mod tests {
             fixture.query.snapshot.finalized_block_hash,
             &substituted,
         );
-        assert_eq!(
-            capability.read_finalized_seed(&fixture.query).unwrap_err(),
-            MusubiPublicationFinalizedSeedReadErrorV1::Finality(
-                MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        assert!(
+            matches!(
+                capability.read_finalized_seed(&fixture.query).unwrap_err(),
+                MusubiPublicationFinalizedSeedReadErrorV1::Finality(
+                    MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+                )
             ),
-            "a completed seed lease must not authorize a substituted current registration",
+            "a completed seed lease must not authorize a substituted current registration"
         );
         drop(ingress);
         drop(capability);
@@ -1807,7 +1845,10 @@ pub(crate) mod tests {
             Arc::clone(&fixture.state),
         )
         .expect_err("reader must reject a state handle from another exact network");
-        assert_eq!(wrong_reader_error, invalid());
+        assert!(matches!(
+            wrong_reader_error,
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
         assert!(!wrong_reader_error.is_retryable());
         let mut height_ahead = fixture.query.clone();
         height_ahead.snapshot.finalized_height = fixture.query.snapshot.finalized_height + 1;
@@ -1816,10 +1857,10 @@ pub(crate) mod tests {
             .reader
             .read_current_archive(&height_ahead)
             .expect_err("future finalized height is locally ahead");
-        assert_eq!(
+        assert!(matches!(
             height_error,
             MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::LocallyAhead
-        );
+        ));
         assert!(height_error.is_retryable());
         let mut revision_ahead = fixture.query.clone();
         revision_ahead.snapshot.index_revision = 2;
@@ -1827,10 +1868,10 @@ pub(crate) mod tests {
             .reader
             .read_current_archive(&revision_ahead)
             .expect_err("future resolver revision is locally ahead");
-        assert_eq!(
+        assert!(matches!(
             revision_error,
             MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::LocallyAhead
-        );
+        ));
         assert!(revision_error.is_retryable());
         let mut substituted = fixture.query;
         substituted.snapshot.finalized_block_hash = [0x64; 32];
@@ -1838,7 +1879,10 @@ pub(crate) mod tests {
             .reader
             .read_current_archive(&substituted)
             .expect_err("same-height fork evidence is invalid");
-        assert_eq!(invalid_error, invalid());
+        assert!(matches!(
+            invalid_error,
+            MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Invalid
+        ));
         assert!(!invalid_error.is_retryable());
     }
 
@@ -1855,7 +1899,7 @@ pub(crate) mod tests {
             .read_current_archive_in_view(&fixture.query, &view)
             .expect_err("unfinished native finality read cannot become invalid evidence");
         assert!(error.is_retryable());
-        let MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Deferred(ref local) = error
+        let MusubiPublicationFinalizedArchiveRegistrationReadErrorV1::Deferred(local) = error
         else {
             panic!("original resource refusal was lost: {error:?}");
         };
@@ -1863,10 +1907,14 @@ pub(crate) mod tests {
             local.allocation_refusal().is_some(),
             "retain original pool release source"
         );
-        let pin = super::super::pin_registration::MusubiPublicationFinalizedPinRegistrationReadErrorV1::from(local.clone());
-        assert!(
-            matches!(pin, super::super::pin_registration::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(ref retained) if retained == local)
-        );
+        let expected_reason = local.reason();
+        let expected_allocation = local.allocation_refusal().cloned();
+        let pin = super::super::pin_registration::MusubiPublicationFinalizedPinRegistrationReadErrorV1::from(local);
+        let super::super::pin_registration::MusubiPublicationFinalizedPinRegistrationReadErrorV1::Deferred(retained) = pin else {
+            panic!("pin conversion must retain the sole original refusal");
+        };
+        assert_eq!(retained.reason(), expected_reason);
+        assert_eq!(retained.allocation_refusal(), expected_allocation.as_ref());
         drop(held);
         assert_eq!(
             fixture

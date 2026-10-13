@@ -249,11 +249,13 @@ fn assert_streamed_prefix_checks_exact_native_quorum_at_retained_empty_epoch_bou
         let invalid = chain.commit_qc(10, qc.block_hash, qc.result, signers);
         let tampered = with_parts(&original, |_, qc, _| *qc = invalid);
         assert_eq!(
-            prefix.push(tampered).unwrap_err(),
-            ExecutionAttemptError::Rejected(ChainReadError::Certificate {
+            crate::execution_attempt::expect_completed_rejection(
+                prefix.push(tampered).unwrap_err()
+            ),
+            ChainReadError::Certificate {
                 height: 10,
                 error: expected,
-            }),
+            }
         );
         assert_eq!(prefix.prefix.tip.height(), 9);
     }
@@ -373,7 +375,12 @@ fn standalone_and_scoped_frame_reads_agree_without_skipping_shape_checks() {
     let fresh_error = read_frame(changed.clone(), 3, chain.root_scope()).unwrap_err();
     let reused_error =
         read_frame_with_validation(changed, 3, chain.root_scope(), &mut validation).unwrap_err();
-    assert_eq!(fresh_error, reused_error);
+    match (&fresh_error, &reused_error) {
+        (ExecutionAttemptError::Rejected(actual), ExecutionAttemptError::Rejected(expected)) => {
+            assert_eq!(actual, expected)
+        }
+        (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
+    };
     assert!(matches!(
         fresh_error,
         ExecutionAttemptError::Rejected(ChainReadError::Malformed { height: 3, .. })
@@ -495,6 +502,21 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
     let mut projected = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let retained = projected.prefix.tip.id();
     let successor = frame(&chain, 2);
+    // The first successor read is the actual consensus-header decoder. Prove the
+    // same field-byte refusal separately instead of reconstructing numeric errors.
+    let header_refusal = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
+        || {
+            norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical::<BlockHeader>(
+                    successor.commit_certificate().unwrap().consensus_header(),
+                )
+            })
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .expect("actual original consensus-header decoder cause");
     let mut calls = 0;
     let refusal = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
@@ -511,7 +533,30 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
         || original.push(successor.clone()),
     )
     .unwrap_err();
-    assert_eq!(refusal, original_refusal);
+    let (ExecutionAttemptError::Deferred(actual), ExecutionAttemptError::Deferred(expected)) =
+        (&refusal, &original_refusal)
+    else {
+        panic!("both original reads must retain decoder refusals");
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(actual.allocation_refusal().is_none() && expected.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none() && expected.verification_refusal().is_none());
+    let actual = actual.decode_refusal().expect("original decoder owner");
+    let expected = expected
+        .decode_refusal()
+        .expect("independent decoder owner");
+    assert_eq!(actual.kind(), expected.kind());
+    assert_eq!(actual.resource_error(), expected.resource_error());
+    assert_eq!(actual.kind(), header_refusal.kind());
+    assert_eq!(actual.resource_error(), header_refusal.resource_error());
+    assert_ne!(actual, &header_refusal);
+    assert_ne!(expected, &header_refusal);
+    assert_eq!(actual.allocation_bytes(), expected.allocation_bytes());
+    assert_ne!(
+        actual, expected,
+        "independently entered budget scopes have distinct original owners"
+    );
     assert!(matches!(refusal, ExecutionAttemptError::Deferred(_)));
     assert_eq!(calls, 0);
     assert_eq!(projected.prefix.tip.id(), retained);
@@ -527,7 +572,15 @@ fn checked_prefix_finish_preserves_refusal_rejection_and_same_source_retry() {
                 false
             })
             .unwrap_err();
-        assert_eq!(actual, expected);
+        match (&actual, &expected) {
+            (
+                ExecutionAttemptError::Rejected(actual),
+                ExecutionAttemptError::Rejected(expected),
+            ) => assert_eq!(actual, expected),
+            (actual, expected) => {
+                panic!("expected completed rejections: {actual:?} != {expected:?}")
+            }
+        };
         assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
         assert_eq!(calls, 0);
         assert_eq!(projected.prefix.tip.id(), retained);
@@ -646,6 +699,21 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
         .try_reserve_layouts([frame_layout, result_layout])
         .unwrap();
     let successor = frame(&chain, 2);
+    // The first successor read is the actual consensus-header decoder. Prove the
+    // same field-byte refusal separately instead of reconstructing numeric errors.
+    let header_refusal = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
+        || {
+            norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical::<BlockHeader>(
+                    successor.commit_certificate().unwrap().consensus_header(),
+                )
+            })
+        },
+    )
+    .unwrap_err()
+    .into_local_refusal()
+    .expect("actual original consensus-header decoder cause");
     let retained = admitted.prefix.tip.id();
     let mut calls = 0;
     let refusal = admitted
@@ -687,7 +755,30 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
         || original.push(successor.clone()),
     )
     .unwrap_err();
-    assert_eq!(refusal, expected);
+    let (ExecutionAttemptError::Deferred(actual), ExecutionAttemptError::Deferred(expected)) =
+        (&refusal, &expected)
+    else {
+        panic!("both original reads must retain decoder refusals");
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(actual.allocation_refusal().is_none() && expected.allocation_refusal().is_none());
+    assert!(actual.verification_refusal().is_none() && expected.verification_refusal().is_none());
+    let actual = actual.decode_refusal().expect("original decoder owner");
+    let expected = expected
+        .decode_refusal()
+        .expect("independent decoder owner");
+    assert_eq!(actual.kind(), expected.kind());
+    assert_eq!(actual.resource_error(), expected.resource_error());
+    assert_eq!(actual.kind(), header_refusal.kind());
+    assert_eq!(actual.resource_error(), header_refusal.resource_error());
+    assert_ne!(actual, &header_refusal);
+    assert_ne!(expected, &header_refusal);
+    assert_eq!(actual.allocation_bytes(), expected.allocation_bytes());
+    assert_ne!(
+        actual, expected,
+        "independently entered budget scopes have distinct original owners"
+    );
     assert!(matches!(refusal, ExecutionAttemptError::Deferred(_)));
     assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(admitted.prefix.tip.id(), retained);
@@ -700,7 +791,12 @@ fn admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_
             false
         })
         .unwrap_err();
-    assert_eq!(actual, expected);
+    match (&actual, &expected) {
+        (ExecutionAttemptError::Rejected(actual), ExecutionAttemptError::Rejected(expected)) => {
+            assert_eq!(actual, expected)
+        }
+        (actual, expected) => panic!("expected completed rejections: {actual:?} != {expected:?}"),
+    };
     assert!(matches!(actual, ExecutionAttemptError::Rejected(_)));
     assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(admitted.prefix.tip.id(), retained);

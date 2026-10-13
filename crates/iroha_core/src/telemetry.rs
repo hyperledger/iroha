@@ -4449,6 +4449,11 @@ enum Message {
         reply: Option<oneshot::Sender<Result<(), StatusSnapshotError>>>,
     },
     #[cfg(test)]
+    TestInspectStatusRefusal {
+        inspect: Box<dyn FnOnce(Option<&crate::execution_attempt::ExecutionDeferred>) + Send>,
+        reply: oneshot::Sender<()>,
+    },
+    #[cfg(test)]
     TestBarrier {
         entered: oneshot::Sender<()>,
         resume: oneshot::Receiver<()>,
@@ -5498,7 +5503,7 @@ struct Actor {
     last_sync_block: usize,
     last_sync_hash: Option<HashOf<BlockHeader>>,
     /// Original local history refusal retained independently of an HTTP waiter's lifetime.
-    status_read_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
+    status_read_refusal: Option<(NonZeroUsize, crate::execution_attempt::ExecutionDeferred)>,
     #[cfg(test)]
     status_chunk_barrier: Option<(oneshot::Sender<usize>, oneshot::Receiver<()>)>,
     last_online_peers: BTreeSet<PeerId>,
@@ -5516,6 +5521,15 @@ impl Actor {
     async fn run(mut self) {
         while let Some(message) = self.handle.recv().await {
             match message {
+                #[cfg(test)]
+                Message::TestInspectStatusRefusal { inspect, reply } => {
+                    inspect(
+                        self.status_read_refusal
+                            .as_ref()
+                            .map(|(_, original)| original),
+                    );
+                    let _ = reply.send(());
+                }
                 #[cfg(test)]
                 Message::TestBarrier { entered, resume } => {
                     let _ = entered.send(());

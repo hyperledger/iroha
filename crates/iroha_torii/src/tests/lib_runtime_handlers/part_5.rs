@@ -5442,20 +5442,27 @@ async fn pipeline_status_pending_completion_reuses_original_carrier_and_leaves_o
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
     let frames = owner.cold_frames();
     let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
-    let refusal = frames.try_reserve_bytes(1).unwrap_err();
-    let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
+    let refusals = [
+        frames.try_reserve_bytes(1).unwrap_err(),
+        frames.try_reserve_bytes(1).unwrap_err(),
+    ];
+    let expected = refusals[1].clone(); // borrowed diagnostic leaf for the unrelated retained event
     drop(blocker);
-    for (pending_height, block_hash) in [
+    for ((pending_height, block_hash), refusal) in [
         (height, anchor.block_hash),
         (unrelated_height, unrelated_hash),
-    ] {
+    ]
+    .into_iter()
+    .zip(refusals)
+    {
+        let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
         app.pipeline_status_cache.record_pending_block(
             pending_height,
             PendingBlockStatus {
                 kind: PipelineStatusKind::Committed,
                 block_hash,
                 observed_at,
-                deferred: Some(deferred.clone().into()),
+                deferred: Some(deferred.into()),
             },
         );
     }
@@ -5499,7 +5506,20 @@ async fn pipeline_status_pending_completion_reuses_original_carrier_and_leaves_o
     assert_eq!(pending.kind, PipelineStatusKind::Committed);
     assert_eq!(pending.block_hash, unrelated_hash);
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, Some(deferred.into()));
+    let Some(PendingBlockDeferral::Execution(actual)) = pending.deferred.as_ref() else {
+        panic!("pending original execution owner must remain retained");
+    };
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert_eq!(actual.allocation_refusal(), Some(&expected));
+    assert!(
+        actual.decode_refusal().is_none()
+            && actual.allocator_refusal().is_none()
+            && actual.verification_refusal().is_none()
+    );
     assert_eq!(
         app.pipeline_status_cache.lookup(&hash).unwrap().kind,
         PipelineStatusKind::Committed
@@ -5530,15 +5550,16 @@ async fn pipeline_status_pending_foreign_or_absent_query_keeps_exact_deferred_so
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app).unwrap();
     let frames = owner.cold_frames();
     let blocker = frames.try_reserve_bytes(frames.limit_bytes()).unwrap();
-    let deferred: iroha_core::execution_attempt::ExecutionDeferred =
-        frames.try_reserve_bytes(1).unwrap_err().into();
+    let refusal = frames.try_reserve_bytes(1).unwrap_err();
+    let expected = refusal.clone();
+    let deferred: iroha_core::execution_attempt::ExecutionDeferred = refusal.into();
     app.pipeline_status_cache.record_pending_block(
         height,
         PendingBlockStatus {
             kind: PipelineStatusKind::Applied,
             block_hash: original.block().hash(),
             observed_at,
-            deferred: Some(deferred.clone().into()),
+            deferred: Some(deferred.into()),
         },
     );
     let foreign = crate::history_producer::HistoryProducerOwner::for_test();
@@ -5579,7 +5600,20 @@ async fn pipeline_status_pending_foreign_or_absent_query_keeps_exact_deferred_so
     assert_eq!(pending.kind, PipelineStatusKind::Applied);
     assert_eq!(pending.block_hash, original.block().hash());
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, Some(deferred.into()));
+    let Some(PendingBlockDeferral::Execution(actual)) = pending.deferred.as_ref() else {
+        panic!("pending original execution owner must remain retained");
+    };
+    assert_eq!(
+        actual.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert_eq!(actual.phase(), None);
+    assert_eq!(actual.allocation_refusal(), Some(&expected));
+    assert!(
+        actual.decode_refusal().is_none()
+            && actual.allocator_refusal().is_none()
+            && actual.verification_refusal().is_none()
+    );
     assert_eq!(owner.allocation_context().consumed_allocated_bytes(), 0);
     assert_eq!(foreign.allocation_context().consumed_allocated_bytes(), 0);
     assert_eq!(frames.reserved_bytes(), frames.limit_bytes());
@@ -5631,7 +5665,7 @@ async fn pipeline_status_pending_recheck_refuses_changed_membership_without_cach
     assert_eq!(pending.kind, PipelineStatusKind::Applied);
     assert_eq!(pending.block_hash, original.block().hash());
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, None);
+    assert!(pending.deferred.is_none());
     assert_eq!(
         app.pipeline_status_cache
             .pending_count
@@ -5705,7 +5739,7 @@ async fn pipeline_status_pending_replacement_and_foreign_carrier_cannot_retire_o
     assert_eq!(pending.kind, PipelineStatusKind::Committed);
     assert_eq!(pending.block_hash, changed);
     assert_eq!(pending.observed_at, observed_at);
-    assert_eq!(pending.deferred, None);
+    assert!(pending.deferred.is_none());
     assert_eq!(
         app.pipeline_status_cache
             .pending_count

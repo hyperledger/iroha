@@ -453,7 +453,7 @@ fn native_origin_refusal_preclears_origin_and_preserves_original_allocation_owne
             .is_err()
         );
         assert!(tx.current_direct_musubi_pin_outbox_origin.is_none());
-        let original = tx.execution_deferral().unwrap();
+        let original = tx.borrow_execution_deferral().unwrap();
         assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(original.allocation_refusal(), sticky.then_some(&refusal));
         assert!(

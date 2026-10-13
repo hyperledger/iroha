@@ -526,8 +526,9 @@ fn musubi_live_funded_revision_merge_preserves_unsorted_and_duplicate_payload_se
     duplicate.index_revision -= 1;
     world.musubi_public_directory.insert(key, duplicate);
     let error = validate_musubi_live_projection_cut(&world.view(), &budget).unwrap_err();
+    let error = error.map_rejection(ProjectionRejection::into_json);
     assert!(
-        matches!(&error.clone().map_rejection(ProjectionRejection::into_json), crate::execution_attempt::ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
+        matches!(&error, crate::execution_attempt::ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
         if field == "world.musubi_public_directory" && message == "directory entry predates its package resolver rows"),
         "{error:?}"
     );
@@ -552,8 +553,9 @@ fn musubi_live_revision_admission_preserves_prior_errors_and_empty_zero_budget()
     row.index_revision = row.selection.storage.index_revision - 1;
     world.musubi_resolver_index.insert(release, row);
     let error = validate_musubi_live_projection_cut(&world.view(), &budget).unwrap_err();
+    let error = error.map_rejection(ProjectionRejection::into_json);
     assert!(
-        matches!(&error.clone().map_rejection(ProjectionRejection::into_json), crate::execution_attempt::ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
+        matches!(&error, crate::execution_attempt::ExecutionAttemptError::Rejected(json::Error::InvalidField { field, message })
         if field == "world.musubi_resolver_index" && message == "resolver row predates its embedded availability projection"),
         "{error:?}"
     );

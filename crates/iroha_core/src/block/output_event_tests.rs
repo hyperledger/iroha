@@ -523,19 +523,64 @@ fn original_npos_lifecycle_read_refusal_cannot_emit_block_rejection() {
     let crate::execution_attempt::ExecutionAttemptError::Deferred(expected) = &error else {
         panic!("original decoder must refuse: {error:?}");
     };
-    let expected = expected.clone();
+    let expected_reason = expected.reason();
+    let expected_phase = expected.phase();
+    let original_observation = expected
+        .decode_refusal()
+        .expect("actual NPoS JSON owner")
+        .clone();
+    assert!(expected.allocation_refusal().is_none());
+    assert!(expected.verification_refusal().is_none());
     let boundary = BlockValidationError::from_autoscale_lifecycle_error(
         crate::state::LaneLifecycleError::NposPolicy(error),
     );
     assert!(
-        matches!(&boundary, BlockValidationError::ExecutionDeferred(actual) if actual == &expected),
-        "original policy owner was erased: {boundary:?}"
+        matches!(&boundary, BlockValidationError::ExecutionDeferred(actual) if actual.reason() == expected_reason
+            && actual.decode_refusal() == Some(&original_observation)
+            && actual.allocation_refusal().is_none()
+            && actual.verification_refusal().is_none()
+            && actual.phase() == expected_phase),
+        "local policy refusal was changed: {boundary:?}"
     );
-    assert_eq!(map_block_err_to_reason(&boundary), None);
+    assert!(map_block_err_to_reason(&boundary).is_none());
     let mut events = Vec::new();
     emit_block_rejection(chain.genesis().header(), &boundary, |event| {
         events.push(event)
     });
     assert!(events.is_empty());
     assert_eq!(view.world().sumeragi_npos_parameters().unwrap(), policy);
+}
+
+#[test]
+fn canonical_json_allocation_report_conversion_preserves_reported_size_without_pool() {
+    // This is a precise conversion control, not physical allocator-denial evidence.
+    // JSON's size-less allocator report uses the canonical zero unavailable-size marker.
+    for (json_error, bytes) in [
+        (norito::json::Error::AllocationFailed, 0),
+        (
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::AllocationFailed { bytes: 37 },
+            ),
+            37,
+        ),
+    ] {
+        let captured =
+            norito::core::classify_decode_attempt(|| Err::<(), _>(json_error.into_core_error()))
+                .unwrap_err();
+        let attempt = crate::execution_attempt::canonical_decode_attempt_error(captured, |_| ());
+        let crate::execution_attempt::ExecutionAttemptError::Deferred(original) = attempt else {
+            panic!("a canonical allocator report must not become malformed JSON");
+        };
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert_eq!(
+            original.decode_refusal().unwrap().allocation_bytes(),
+            Some(bytes)
+        );
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.verification_refusal().is_none());
+        assert!(original.phase().is_none());
+    }
 }

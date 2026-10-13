@@ -1606,14 +1606,14 @@ fn native_leg_destination_and_scope_invariants_defer_without_protocol_rejection(
             .try_block(BlockHeader::new(NonZeroU64::MIN, None, None, 1, 0))
             .unwrap();
         let mut attempt = block.try_transaction().unwrap();
-        assert!(attempt.execution_deferral().is_none());
+        assert!(!attempt.is_execution_deferred());
         let diagnostic = leg_decode_error(cause, &mut attempt);
         assert!(
             matches!(diagnostic, Error::InvariantViolation(_)),
             "model API carrier remains unchanged"
         );
         assert_eq!(
-            attempt.execution_deferral().unwrap().reason(),
+            attempt.borrow_execution_deferral().unwrap().reason(),
             ivm::error::ExecutionDeferral::LocalInvariantViolation
         );
         drop(attempt);

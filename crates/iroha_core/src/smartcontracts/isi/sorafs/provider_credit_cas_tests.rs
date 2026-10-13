@@ -78,7 +78,7 @@ fn provider_credit_cas_initial_creation_requires_absence_and_preserves_custody()
         reserve_before
     );
     assert!(stx.world.take_external_events().is_empty());
-    assert!(stx.execution_deferral().is_none());
+    assert!(!stx.is_execution_deferred());
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn provider_credit_cas_exact_update_rejects_stale_and_cross_provider_hashes_with
             stx.world.provider_credit_ledger.get(&provider),
             Some(&updated)
         );
-        assert!(stx.execution_deferral().is_none());
+        assert!(!stx.is_execution_deferred());
     }
     assert_eq!(
         stx.world
@@ -179,7 +179,7 @@ fn provider_credit_cas_expected_presence_rejects_absent_before_reserve_work() {
     );
     assert!(stx.world.provider_credit_ledger.get(&provider).is_none());
     assert!(stx.world.take_external_events().is_empty());
-    assert!(stx.execution_deferral().is_none());
+    assert!(!stx.is_execution_deferred());
 }
 
 #[test]

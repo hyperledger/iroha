@@ -526,9 +526,7 @@ fn validate_bound_contract_manifest(
 }
 fn map_program_analysis_error(err: ProgramAnalysisError) -> OverlayBuildError {
     match err {
-        ProgramAnalysisError::Metadata(error)
-            if crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).is_some() =>
-        {
+        ProgramAnalysisError::Metadata(error) if error.execution_deferral().is_some() => {
             OverlayBuildError::IvmLoad(error)
         }
         ProgramAnalysisError::Metadata(_) => OverlayBuildError::IvmHeaderParse,
@@ -547,14 +545,16 @@ fn reject_state_free_axt_syscalls(bytecode: &[u8]) -> Result<(), OverlayBuildErr
     Ok(())
 }
 fn map_artifact_admission_error(error: ivm::ContractArtifactError) -> OverlayBuildError {
-    if let Some(local) = error.local_vm_error() {
-        return OverlayBuildError::IvmLoad(local);
+    match error.try_into_local_vm_error() {
+        Ok(local) => OverlayBuildError::IvmLoad(local),
+        Err(error) => OverlayBuildError::HeaderPolicy(IvmAdmissionError::BytecodeDecodingFailed(
+            error.to_string(),
+        )),
     }
-    OverlayBuildError::HeaderPolicy(IvmAdmissionError::BytecodeDecodingFailed(error.to_string()))
 }
 #[cfg(any(test, feature = "iroha-core-tests"))]
 fn map_program_summary_error(error: ivm::VMError) -> OverlayBuildError {
-    if crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).is_some() {
+    if error.execution_deferral().is_some() {
         return OverlayBuildError::IvmLoad(error);
     }
     OverlayBuildError::HeaderPolicy(crate::smartcontracts::ivm::admission_reason_from_vm_error(
@@ -4042,9 +4042,8 @@ mod tests_overlay_manifest {
             .filter(|number| ivm::syscalls::is_axt_syscall(*number))
             .min()
             .unwrap();
-        assert_eq!(
-            reject_state_free_axt_syscalls(&bytes),
-            Err(OverlayBuildError::StateRequiredSyscall(expected))
+        assert!(
+            matches!(reject_state_free_axt_syscalls(&bytes), Err(OverlayBuildError::StateRequiredSyscall(actual)) if actual == expected)
         );
         bytes.pop();
         assert!(matches!(
@@ -4679,10 +4678,20 @@ mod tests_overlay_manifest {
             );
             let error = build_overlay_for_transaction_with_accounts(&transaction, &[])
                 .expect_err("state-free execution must apply the generic syscall profile");
-            assert_eq!(
-                error,
-                OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed { syscall })
-            );
+            assert!(match (
+                &(error),
+                &(OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed { syscall }))
+            ) {
+                (
+                    OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed {
+                        syscall: actual_field_0,
+                    }),
+                    OverlayBuildError::IvmLoad(ivm::VMError::GenericSyscallNotAllowed {
+                        syscall: expected_field_0,
+                    }),
+                ) => actual_field_0 == expected_field_0,
+                _ => false,
+            });
         }
     }
     #[test]
@@ -4710,7 +4719,9 @@ mod tests_overlay_manifest {
             );
             let error = build_overlay_for_transaction_with_accounts(&transaction, &[])
                 .expect_err("state-free execution must reject the complete AXT surface");
-            assert_eq!(error, OverlayBuildError::StateRequiredSyscall(syscall));
+            assert!(
+                matches!(error, OverlayBuildError::StateRequiredSyscall(actual) if actual == syscall)
+            );
         }
     }
     #[test]
@@ -8493,7 +8504,7 @@ pub(crate) fn amx_timeout_message(violation: &AmxBudgetViolation) -> String {
     }
 }
 /// Structured error type for overlay construction failures.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum OverlayBuildError {
     /// Failed to parse IVM header metadata.
     IvmHeaderParse,
@@ -8526,13 +8537,21 @@ pub enum OverlayBuildError {
     ExecutionOwner(String),
 }
 impl OverlayBuildError {
-    /// Return the typed local refusal before any consensus rejection mapping.
-    pub(crate) fn execution_deferral(&self) -> Option<crate::execution_attempt::ExecutionDeferred> {
+    /// Move the typed local refusal before any consensus rejection mapping.
+    /// Completed overlay errors are returned unchanged to their deterministic mapper.
+    pub(crate) fn into_execution_deferral(
+        self,
+    ) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
         match self {
-            Self::IvmLoad(error) | Self::IvmRun(error) => {
-                crate::execution_attempt::ExecutionDeferred::from_vm_error(error)
+            Self::IvmLoad(error) => {
+                crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error)
+                    .map_err(Self::IvmLoad)
             }
-            _ => None,
+            Self::IvmRun(error) => {
+                crate::execution_attempt::ExecutionDeferred::try_from_vm_error(error)
+                    .map_err(Self::IvmRun)
+            }
+            other => Err(other),
         }
     }
     #[cfg(test)]

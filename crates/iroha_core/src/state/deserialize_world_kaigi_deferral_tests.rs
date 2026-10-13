@@ -1,7 +1,6 @@
 //! Actual borrowed World projection restore/refusal and unchanged-source retry.
 
 use super::*;
-use crate::execution_attempt::ExecutionDeferred;
 use iroha_data_model::{
     kaigi::{KaigiId, KaigiRecord, NewKaigi, kaigi_metadata_key},
     prelude::{Account, AssetDefinition, Domain, Json},
@@ -100,20 +99,23 @@ fn restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot() {
             "Kaigi snapshot record refusal must preserve ExecutionDeferred before World publication: {error:?}"
         );
     };
-    assert_eq!(
-        actual,
-        ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity)
-    );
+    assert_eq!(actual.reason(), ExecutionDeferral::ActiveMemoryCapacity);
     assert!(
         actual.allocation_refusal().is_none(),
         "codec quota must not invent a pool release owner"
     );
+    let original_reason = actual.reason();
+    let original_decode = actual.decode_refusal().cloned();
+    let original_phase = actual.phase();
     let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
-        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual.clone()))
+        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
     else {
         panic!("the existing snapshot boundary must retain the exact Kaigi deferral");
     };
-    assert_eq!(exported, actual);
+    assert_eq!(exported.reason(), original_reason);
+    assert_eq!(exported.decode_refusal(), original_decode.as_ref());
+    assert_eq!(exported.phase(), original_phase);
+    assert!(exported.allocation_refusal().is_none());
     assert_eq!(encoded.as_ptr(), encoded_pointer);
     assert_eq!(json::to_json(&world).unwrap(), encoded);
     let consumed_before_retry = original_context.consumed_allocated_bytes();

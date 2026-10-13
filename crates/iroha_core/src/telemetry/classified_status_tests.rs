@@ -16,6 +16,24 @@ async fn pause_actor(sut: &SystemUnderTest) -> oneshot::Sender<()> {
     resume
 }
 
+async fn inspect_retained_status_refusal(
+    sut: &SystemUnderTest,
+    inspect: impl FnOnce(Option<&crate::execution_attempt::ExecutionDeferred>) + Send + 'static,
+) {
+    let (reply, inspected) = oneshot::channel();
+    sut.telemetry
+        .actor
+        .send(Message::TestInspectStatusRefusal {
+            inspect: Box::new(inspect),
+            reply,
+        })
+        .await
+        .unwrap_or_else(|_| panic!("live status owner"));
+    inspected
+        .await
+        .expect("actor inspected its original borrowed owner");
+}
+
 fn request(sut: &SystemUnderTest) -> oneshot::Receiver<Result<OwnedStatus, StatusSnapshotError>> {
     let (reply, response) = oneshot::channel();
     sut.telemetry
@@ -359,10 +377,41 @@ async fn cold_status_history_refusal_retains_original_pool_and_unpublished_count
         .unwrap();
     let expected = budget.try_reserve(layout).unwrap_err();
     let response = sut.telemetry.status_snapshot(&BuildStatus::default()).await;
-    let Err(StatusSnapshotError::Deferred(reason)) = response else {
-        panic!("cold status must return its original local refusal");
-    };
-    assert_eq!(reason.allocation_refusal(), Some(&expected));
+    assert!(matches!(
+        response,
+        Err(StatusSnapshotError::HistoryReadDeferred(
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        ))
+    ));
+    let observation = expected.clone();
+    inspect_retained_status_refusal(&sut, move |owner| {
+        assert_eq!(
+            owner.expect("actor owns original").allocation_refusal(),
+            Some(&observation)
+        );
+    })
+    .await;
+    // A second refused notice and an abandoned waiter do not export the cause.
+    assert!(matches!(
+        sut.telemetry.status_snapshot(&BuildStatus::default()).await,
+        Err(StatusSnapshotError::HistoryReadDeferred(
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        ))
+    ));
+    let resume = pause_actor(&sut).await;
+    let abandoned = request(&sut);
+    drop(abandoned);
+    resume.send(()).unwrap();
+    let observation = expected.clone();
+    inspect_retained_status_refusal(&sut, move |owner| {
+        assert_eq!(
+            owner
+                .expect("cancelled waiter cannot discard actor owner")
+                .allocation_refusal(),
+            Some(&observation)
+        );
+    })
+    .await;
     let AllocationRefusal::Capacity { release, .. } = expected else {
         panic!("occupied original history pool");
     };
@@ -397,6 +446,7 @@ async fn cold_status_history_refusal_retains_original_pool_and_unpublished_count
         .await
         .expect("same actor and canonical source retry after original refund")
         .into_parts();
+    inspect_retained_status_refusal(&sut, |owner| assert!(owner.is_none())).await;
     assert_eq!(height, 2);
     assert_eq!(status.blocks, 2);
     let total = sut
@@ -450,9 +500,21 @@ async fn cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix() 
         .try_reserve(SharedSignedBlock::allocation_layout())
         .unwrap_err();
     let response = sut.telemetry.status_snapshot(&BuildStatus::default()).await;
-    assert!(
-        matches!(response, Err(StatusSnapshotError::Deferred(reason)) if reason.allocation_refusal() == Some(&expected))
-    );
+    assert!(matches!(
+        response,
+        Err(StatusSnapshotError::HistoryReadDeferred(
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        ))
+    ));
+    inspect_retained_status_refusal(&sut, move |owner| {
+        assert_eq!(
+            owner
+                .expect("actor owns original uptime read refusal")
+                .allocation_refusal(),
+            Some(&expected)
+        );
+    })
+    .await;
     assert_eq!(sut.telemetry.metrics.block_height.get(), 1);
     assert_eq!(
         sut.telemetry

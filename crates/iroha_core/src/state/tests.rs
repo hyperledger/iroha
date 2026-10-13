@@ -965,7 +965,7 @@ state_test! { sync failed_pristine_stage_skips_start_effects_and_releases_overla
         Ok(_) => panic!("a rejected pristine stage must not construct a block"),
         Err(error) => error,
     };
-    assert_eq!(error, StateBlockStartError::Stage("rejected pristine stage"));
+    assert!(matches!(error, StateBlockStartError::Stage("rejected pristine stage")));
     assert_eq!(state.world.privacy_consensus_policy.view().get(), &original_policy);
     assert_eq!(
         state.world.privacy_activations.view().get(&activation_key),
@@ -5871,14 +5871,14 @@ state_test! { sync trigger_args_preserve_sns_refusal_before_host_publication_and
         let error = norito::with_decode_limits_scope(norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX), || tx.trigger_args_from_data_event(&event).unwrap_err());
         assert!(matches!(error, crate::execution_attempt::ExecutionAttemptError::Deferred(_)), "{error}");
         let _ = tx.attempt_error_to_validation_fail(error);
-        assert!(tx.execution_deferral().is_some());
+        assert!(tx.is_execution_deferred());
         assert_eq!(tx.world.smart_contract_state.get(&key), Some(&original));
     }
     let mut retry = block.transaction();
     let args = retry.trigger_args_from_data_event(&event).unwrap();
     let payload: norito::json::Value = args.try_into_any().unwrap();
     assert_eq!(payload.as_object().unwrap().get("account_domain"), Some(&norito::json!("centralbank.universal")));
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
     retry.world.smart_contract_state.insert(key, vec![0xff]);
     assert!(matches!(retry.trigger_args_from_data_event(&event), Err(crate::execution_attempt::ExecutionAttemptError::Rejected(_))));
 }

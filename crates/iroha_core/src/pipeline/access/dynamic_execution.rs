@@ -10,9 +10,9 @@ use crate::{
 };
 
 pub(super) fn vm_error(stage: &str, error: ivm::VMError) -> ExecutionAttemptError<String> {
-    match ExecutionDeferred::from_vm_error(&error) {
-        Some(reason) => ExecutionAttemptError::Deferred(reason),
-        None => ExecutionAttemptError::Rejected(format!("{stage}: {error}")),
+    match ExecutionDeferred::try_from_vm_error(error) {
+        Ok(reason) => ExecutionAttemptError::Deferred(reason),
+        Err(error) => ExecutionAttemptError::Rejected(format!("{stage}: {error}")),
     }
 }
 

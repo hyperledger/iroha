@@ -408,7 +408,8 @@ fn fixture_with_effects_in_root(
         ))],
         vec![Unregister::trigger("owned_inventory_absent".parse().unwrap()).into()],
     ] {
-        let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+        let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
         let mut tx = TransactionBuilder::new(
             state.network_id,
             ALICE_ID.clone(),
@@ -676,10 +677,10 @@ fn known_rejected_call_capture_and_typed_protocol_extra_remain_owned() {
         let Executable::Instructions(body) = transaction.instructions() else {
             panic!("instruction fee fixture")
         };
-        Quantity::from(crate::gas::meter_instructions(
-            body.as_ref(),
-            &crate::gas::DEFAULT_ZK_GAS,
-        ))
+        Quantity::from(
+            crate::gas::meter_instructions(body.as_ref(), &crate::gas::DEFAULT_ZK_GAS)
+                .expect("gas quote must complete for this fixture"),
+        )
     };
     let success_fee = gas_fee(0);
     let rejected_fee = gas_fee(1);

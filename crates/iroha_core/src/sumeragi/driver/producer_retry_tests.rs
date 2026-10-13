@@ -104,7 +104,11 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
         let original = sched.next(0).expect("original producer");
         let expected = original.clone();
         let (occupied, error) = capacity(&budget);
-        refuse(&mut sched, original, error.clone());
+        let PublicationError::Deferred(ref expected_error) = error else {
+            panic!("capacity error")
+        };
+        let expected_refusal = expected_error.allocation_refusal().unwrap().clone();
+        refuse(&mut sched, original, error);
         assert!(sched.take_events().is_empty());
         assert!(sched.next(0).is_none());
         assert_eq!(sched.wakeup(), Millis::MAX);
@@ -124,7 +128,10 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
                 .find(|gate| gate.error.is_some())
                 .unwrap(),
         };
-        assert_eq!(gate.error.as_ref(), Some(&error));
+        let Some(PublicationError::Deferred(retained)) = &gate.error else {
+            panic!("retained original")
+        };
+        assert_eq!(retained.allocation_refusal(), Some(&expected_refusal));
         drop(occupied);
         let retry = sched
             .next(0)
@@ -142,7 +149,6 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
         drop(retry);
         drop(expected);
         drop(message);
-        drop(error);
         drop(sched);
         assert_eq!(budget.reserved_bytes(), 0);
     }
@@ -387,7 +393,16 @@ fn complete_context_change_cancels_waits_and_stale_inflight_results() {
                 let (held, error) = capacity(&budget);
                 let mut original = Some(original);
                 if !in_flight {
-                    refuse(&mut sched, original.take().unwrap(), error.clone());
+                    refuse(
+                        &mut sched,
+                        original.take().unwrap(),
+                        PublicationError::Deferred(
+                            crate::execution_attempt::ExecutionDeferred::from(
+                                budget.try_reserve_bytes(1).unwrap_err(),
+                            )
+                            .into(),
+                        ),
+                    );
                     assert!(sched.next(0).is_none());
                 }
                 let mut changed = source();
@@ -740,12 +755,21 @@ fn cancelling_and_dropping_scheduler_unlinks_all_waiters_before_original_refunds
             .unwrap()
             .bind_release_waker(Waker::from(Arc::clone(&count)));
         let message = partial(source(), 17);
-        let (held, error) = capacity(&budget);
+        let (held, _initial_refusal) = capacity(&budget);
         for kind in 0..4 {
             let sched = sched.as_mut().unwrap();
             enqueue(sched, kind, &message);
             let operation = sched.next(0).expect("independent original producer");
-            refuse(sched, operation, error.clone());
+            refuse(
+                sched,
+                operation,
+                PublicationError::Deferred(
+                    crate::execution_attempt::ExecutionDeferred::from(
+                        budget.try_reserve_bytes(1).unwrap_err(),
+                    )
+                    .into(),
+                ),
+            );
         }
         assert!(sched.as_mut().unwrap().next(0).is_none());
         assert_eq!(count.0.load(Ordering::SeqCst), 0);
@@ -767,7 +791,6 @@ fn cancelling_and_dropping_scheduler_unlinks_all_waiters_before_original_refunds
             "original source released after cancellation"
         );
         drop(sched);
-        drop(error);
         assert_eq!(count.0.load(Ordering::SeqCst), 0);
         assert_eq!(budget.reserved_bytes(), 0);
     }

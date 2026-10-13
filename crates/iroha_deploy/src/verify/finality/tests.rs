@@ -2366,7 +2366,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
         assert_eq!(checkpoint.encode_canonical().unwrap(), original);
     });
     let validation_cost = usize::try_from(validation.consumed_allocated_bytes()).unwrap();
-    assert!(validation_cost > 0);
+    // Epoch shape validation now retains only bounded inline snapshots; it does
+    // not decode a detached committee graph or consume the original decoder owner.
+    assert_eq!(validation_cost, 0);
     let before_policy_cost = validation_cost.checked_add(original_binary_cost).unwrap();
     assert!(before_policy_cost < ceiling);
     norito::with_decode_limits_scope(limits(before_policy_cost), || {

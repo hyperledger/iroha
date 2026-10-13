@@ -3674,12 +3674,29 @@ mod tests {
         let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
         let cursor = bridge.applied_block_cursor.lock().clone();
         let shutdown = ShutdownSignal::new();
-        let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+        let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
         let observation = Arc::clone(&observed);
         let mut probe = move |reason: &ExecutionDeferred| {
             let mut first = observation.lock().unwrap();
             if first.is_none() {
-                *first = Some(reason.clone());
+                // The running replay retains the move-only owner; this observer borrows
+                // its actual pool leaf solely to test that same release registration.
+                assert_eq!(
+                    reason.reason(),
+                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                );
+                assert_eq!(reason.phase(), None);
+                assert!(
+                    reason.decode_refusal().is_none()
+                        && reason.allocator_refusal().is_none()
+                        && reason.verification_refusal().is_none()
+                );
+                *first = Some(
+                    reason
+                        .allocation_refusal()
+                        .expect("actual observed original pool refusal")
+                        .clone(),
+                );
             }
         };
         let mut replay = Box::pin(replay_with_queue_drain_observed(
@@ -3712,11 +3729,11 @@ mod tests {
             .unwrap()
             .clone()
             .expect("actual late native refusal");
-        let Some(iroha_allocation::AllocationRefusal::Capacity {
+        let iroha_allocation::AllocationRefusal::Capacity {
             requested_bytes,
             release,
             ..
-        }) = original.allocation_refusal()
+        } = &original
         else {
             panic!("genuine original pool capacity refusal");
         };
@@ -3845,12 +3862,29 @@ mod tests {
                 PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
             let cursor = bridge.applied_block_cursor.lock().clone();
             let shutdown = ShutdownSignal::new();
-            let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+            let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
             let observation = Arc::clone(&observed);
             let mut probe = move |reason: &ExecutionDeferred| {
                 let mut first = observation.lock().unwrap();
                 if first.is_none() {
-                    *first = Some(reason.clone());
+                    // The running replay retains the move-only owner; this observer borrows
+                    // its actual pool leaf solely to test that same release registration.
+                    assert_eq!(
+                        reason.reason(),
+                        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                    );
+                    assert_eq!(reason.phase(), None);
+                    assert!(
+                        reason.decode_refusal().is_none()
+                            && reason.allocator_refusal().is_none()
+                            && reason.verification_refusal().is_none()
+                    );
+                    *first = Some(
+                        reason
+                            .allocation_refusal()
+                            .expect("actual observed original pool refusal")
+                            .clone(),
+                    );
                 }
             };
             let mut replay = Box::pin(replay_with_queue_drain_observed(
@@ -3880,11 +3914,11 @@ mod tests {
                 .unwrap()
                 .clone()
                 .expect("actual late verification refusal");
-            let Some(iroha_allocation::AllocationRefusal::Capacity {
+            let iroha_allocation::AllocationRefusal::Capacity {
                 requested_bytes,
                 release,
                 ..
-            }) = original.allocation_refusal()
+            } = &original
             else {
                 panic!("genuine original pool capacity refusal at {stage}");
             };

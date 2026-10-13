@@ -181,7 +181,7 @@ pub enum Op {
 }
 
 /// A worker's completion.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Completion {
     /// Write `seq` became durable, or failed and comes back to be retried.
     Persisted {
@@ -637,8 +637,7 @@ impl Kernel {
                 }
             }
             Completion::Served(served) => {
-                self.serve.done(now, &served);
-                self.local.extend(served.events);
+                self.local.extend(self.serve.done(now, served));
             }
         }
         self.collect();
@@ -1866,9 +1865,7 @@ fn run_exec<E: Executor, K: BlockStore + ?Sized>(
             certified: _,
         } => ExecDone::Executed(
             catch_unwind(AssertUnwindSafe(|| executor.execute(&block, &block_hash)))
-                .unwrap_or_else(|_| {
-                    Some(iroha_sumeragi::api::ExecOutcome::Failed(failed("execute")))
-                }),
+                .unwrap_or_else(|_| Err(PublicationError::RecoveryRequired(failed("execute")))),
         ),
         ExecOp::Discard { height, keep } => {
             let _ = catch_unwind(AssertUnwindSafe(|| executor.discard(height, &keep)));

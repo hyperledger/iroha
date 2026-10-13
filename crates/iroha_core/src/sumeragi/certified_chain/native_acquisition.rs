@@ -266,20 +266,17 @@ fn native_read_error(
 ) -> ExecutionAttemptError<ChainReadError> {
     let unavailable = || ChainReadError::NotInView { height };
     match error {
+        // Keep the existing completed raw-frame diagnostic and mutation boundary.
         crate::kura::Error::NoritoFrame(error) => read_decode_error(height, error),
-        crate::kura::Error::BlockDecode(error) => {
-            crate::execution_attempt::canonical_decode_attempt_error(error, |_| unavailable())
+        original => {
+            crate::execution_attempt::kura_read_attempt_error(original, |error| match error {
+                crate::kura::Error::CodecAttempt(error) => ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                },
+                _ => unavailable(),
+            })
         }
-        crate::kura::Error::NativeFrameAllocation(error) => {
-            let deferred = match error {
-                iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
-                iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                }
-            };
-            ExecutionAttemptError::Deferred(deferred)
-        }
-        _ => unavailable().into(),
     }
 }
 

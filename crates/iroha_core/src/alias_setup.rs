@@ -64,7 +64,7 @@ fn dataspace_bootstrap_grant(
         })
 }
 /// Deterministic conflict or validation failure produced while classifying an alias intent.
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Error)]
 #[error("{code}: {message}")]
 pub struct AliasSetupError {
     code: &'static str,
@@ -84,6 +84,23 @@ impl AliasSetupError {
     /// Borrow the original local refusal; code/message never recreate this owner.
     pub fn deferral(&self) -> Option<&crate::execution_attempt::ExecutionDeferred> {
         self.deferred.as_ref()
+    }
+
+    /// Consume the original local refusal, returning this completed error unchanged otherwise.
+    pub(crate) fn into_deferral(self) -> Result<crate::execution_attempt::ExecutionDeferred, Self> {
+        let Self {
+            code,
+            message,
+            deferred,
+        } = self;
+        match deferred {
+            Some(original) => Ok(original),
+            None => Err(Self {
+                code,
+                message,
+                deferred: None,
+            }),
+        }
     }
 
     fn from_sns_with_code(code: &'static str, error: crate::sns::SnsError) -> Self {

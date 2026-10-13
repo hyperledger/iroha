@@ -272,8 +272,9 @@ fn shared_nested_runtime_slot_keeps_original_pool_through_cold_idle_and_warm_use
     assert_eq!(budget.reserved_bytes(), charged);
     budget.set_limit_bytes(LIMIT);
     assert_eq!(
-        warm.run_with_host(&mut ivm::host::DefaultHost::new()),
-        Ok(())
+        (warm.run_with_host(&mut ivm::host::DefaultHost::new()))
+            .expect("expected successful VM operation"),
+        ()
     );
     drop(warm);
     assert_eq!(cache.stats().runtime_hits, 1);
@@ -320,8 +321,9 @@ fn local_contract_runtime_slot_keeps_original_pool_and_existing_summary_semantic
     assert_eq!(warm.remaining_gas(), GAS);
     assert_eq!(warm.memory.heap_max_limit(), HEAP);
     assert_eq!(
-        warm.run_with_host(&mut ivm::host::DefaultHost::new()),
-        Ok(())
+        (warm.run_with_host(&mut ivm::host::DefaultHost::new()))
+            .expect("expected successful VM operation"),
+        ()
     );
     drop(warm);
     assert_eq!(cache.stats().runtime_hits, 1);
@@ -373,8 +375,9 @@ fn local_generic_runtime_slot_keeps_original_program_and_warm_reset() {
     assert_eq!(budget.reserved_bytes(), charged);
     budget.set_limit_bytes(LIMIT);
     assert_eq!(
-        warm.run_with_host(&mut ivm::host::DefaultHost::new()),
-        Ok(())
+        (warm.run_with_host(&mut ivm::host::DefaultHost::new()))
+            .expect("expected successful VM operation"),
+        ()
     );
     drop(warm);
     assert_eq!(cache.stats().runtime_hits, 1);
@@ -567,10 +570,18 @@ fn runtime_slot_shortage_declines_optional_retention_without_changing_completed_
         let declined_register_root = declined.register_root();
         let declined_memory_root = declined.memory.root();
         if fault {
-            assert_eq!(declined_result, Err(ivm::VMError::OutOfGas));
+            assert!(matches!(
+                (&(declined_result), &(ivm::VMError::OutOfGas)),
+                (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+            ));
             assert_eq!(declined_register, 0);
         } else {
-            assert_eq!(declined_result, Ok(()));
+            assert_eq!(
+                (*declined_result
+                    .as_ref()
+                    .expect("expected successful VM operation")),
+                ()
+            );
             assert_eq!(declined_register, 23);
         }
         drop(declined);
@@ -589,9 +600,13 @@ fn runtime_slot_shortage_declines_optional_retention_without_changing_completed_
         if fault {
             admitted.set_gas_limit(0);
         }
-        assert_eq!(
-            admitted.run_with_host(&mut ivm::host::DefaultHost::new()),
-            declined_result
+        let admitted_result = admitted.run_with_host(&mut ivm::host::DefaultHost::new());
+        assert!(
+            matches!(
+                (&admitted_result, &declined_result),
+                (Ok(()), Ok(())) | (Err(ivm::VMError::OutOfGas), Err(ivm::VMError::OutOfGas))
+            ),
+            "optional cache admission changed execution: {admitted_result:?} != {declined_result:?}"
         );
         assert_eq!(admitted.remaining_gas(), declined_gas);
         assert_eq!(admitted.pc(), declined_pc);
@@ -633,8 +648,9 @@ fn zero_retention_and_zero_capacity_do_not_allocate_runtime_row_slots() {
                 assert!(runtime.backing.is_none());
                 assert!(budget.reserved_bytes() > program.len());
                 assert_eq!(
-                    runtime.run_with_host(&mut ivm::host::DefaultHost::new()),
-                    Ok(())
+                    (runtime.run_with_host(&mut ivm::host::DefaultHost::new()))
+                        .expect("expected successful VM operation"),
+                    ()
                 );
                 drop(runtime);
                 assert_eq!(cache.stats().runtime_dirty_resets, 0);
@@ -660,8 +676,9 @@ fn zero_retention_and_zero_capacity_do_not_allocate_runtime_row_slots() {
                     assert!(!row_requested);
                     assert!(runtime.backing.is_none());
                     assert_eq!(
-                        runtime.run_with_host(&mut ivm::host::DefaultHost::new()),
-                        Ok(())
+                        (runtime.run_with_host(&mut ivm::host::DefaultHost::new()))
+                            .expect("expected successful VM operation"),
+                        ()
                     );
                     drop(runtime);
                     cache
@@ -677,8 +694,9 @@ fn zero_retention_and_zero_capacity_do_not_allocate_runtime_row_slots() {
                     assert!(!row_requested);
                     assert!(runtime.backing.is_none());
                     assert_eq!(
-                        runtime.run_with_host(&mut ivm::host::DefaultHost::new()),
-                        Ok(())
+                        (runtime.run_with_host(&mut ivm::host::DefaultHost::new()))
+                            .expect("expected successful VM operation"),
+                        ()
                     );
                     drop(runtime);
                     drop(summary);
@@ -856,8 +874,9 @@ fn runtime_slot_rejects_foreign_equal_limit_pool_without_refresh_or_guest_effect
     assert_eq!(foreign.reserved_bytes(), row_layout().size());
     runtime.backing = Some(foreign_backing);
     assert_eq!(
-        runtime.run_with_host(&mut ivm::host::DefaultHost::new()),
-        Ok(())
+        (runtime.run_with_host(&mut ivm::host::DefaultHost::new()))
+            .expect("expected successful VM operation"),
+        ()
     );
     assert_eq!(runtime.register(7), 0);
     let completed_gas = runtime.remaining_gas();
@@ -880,8 +899,9 @@ fn runtime_slot_rejects_foreign_equal_limit_pool_without_refresh_or_guest_effect
     let mut retry = cache.checkout_runtime(&prepared, GAS, HEAP).unwrap();
     assert!(retry.backing.as_ref().unwrap().belongs_to(&budget));
     assert_eq!(
-        retry.run_with_host(&mut ivm::host::DefaultHost::new()),
-        Ok(())
+        (retry.run_with_host(&mut ivm::host::DefaultHost::new()))
+            .expect("expected successful VM operation"),
+        ()
     );
     assert_eq!(retry.remaining_gas(), completed_gas);
     assert_eq!(retry.memory.root(), completed_root);

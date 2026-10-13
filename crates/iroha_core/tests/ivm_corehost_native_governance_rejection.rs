@@ -232,12 +232,22 @@ fn generic_native_verification_cannot_authorize_vendor_ballot() {
     let tlv2 = make_tlv(PointerType::NoritoBytes as u16, &sb_bytes);
     let ptr2 = store_tlv(&mut vm, &mut cursor, &tlv2);
     vm.set_register(10, ptr2);
-    assert_eq!(
-        vm.load_program(&prog2),
-        Err(ivm::VMError::GenericSyscallNotAllowed {
+    assert!(match (
+        &(vm.load_program(&prog2)),
+        &(ivm::VMError::GenericSyscallNotAllowed {
             syscall: ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION,
         })
-    );
+    ) {
+        (
+            Err(ivm::VMError::GenericSyscallNotAllowed {
+                syscall: actual_field_0,
+            }),
+            ivm::VMError::GenericSyscallNotAllowed {
+                syscall: expected_field_0,
+            },
+        ) => actual_field_0 == expected_field_0,
+        _ => false,
+    });
     // Generic verification creates no queued instruction or governance authority.
     assert!(
         CoreHost::with_host(&mut vm, |host| host.apply_queued(&mut stx, &authority))

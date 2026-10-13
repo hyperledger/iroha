@@ -266,7 +266,7 @@ impl<'a> CanonicalHistorySource<'a> {
                 // Preserve the existing deterministic diagnostics after classification.
                 let reason = match error {
                     crate::kura::Error::NoritoFrame(error) => error.to_string(),
-                    crate::kura::Error::BlockDecode(error) => error.to_string(),
+                    crate::kura::Error::CodecAttempt(error) => error.to_string(),
                     error => error.to_string(),
                 };
                 QueryExecutionFail::Conversion(reason)

@@ -7,6 +7,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[test]
 fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     let _guard = crate::managed::native_test_guard();
+    // Pin the same default epoch collector before constructing State, solely to keep
+    // its retired generations from refunding during exact operation accounting.
+    // This local view grants no storage authority and never enters NativeFixture.
+    let reclamation_cell = mv::cell::Cell::new(());
+    let reclamation_guard = reclamation_cell.view();
     let temporary = tempfile::tempdir().unwrap();
     let ports = crate::managed::LocalnetPorts::reserve().unwrap();
     let prepared = crate::localnet::prepare_localnet_at(
@@ -33,8 +38,13 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     let checkpoint = native.observe(&owner.authority);
     let verified = checkpoint.verified_tip().unwrap();
     let tip = native.chain.committed(native.chain.height());
+    // Both retained history receipts belong in the original-storage baseline.
+    let stale_tip = native.chain.committed(1);
     let state = native.chain.state();
-    let read_budget = AllocationBudget::new(32 * 1024 * 1024);
+    let read_budget = state.ivm_execution_budget();
+    assert!(read_budget.same_pool(&state.ivm_execution_budget()));
+    let retained_bytes = read_budget.reserved_bytes();
+    assert!(retained_bytes > 0);
     let consumed = AtomicUsize::new(0);
     let capture = || {
         state.with_native_stream_token_custody_snapshot_v1(
@@ -51,6 +61,7 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
                     .verify_table_value("world.provider_owners", &provider, actual_owner)
                     .map_err(|error| error.to_string())?;
                 assert!(current.is_none());
+                assert!(read_budget.reserved_bytes() > retained_bytes);
                 consumed.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             },
@@ -58,6 +69,7 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     };
     capture().unwrap();
     assert_eq!(consumed.load(Ordering::SeqCst), 1);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
     let deadline = Instant::now() + Duration::from_secs(10);
     let attempts = AtomicUsize::new(0);
     let (observed, original_busy) = std::sync::mpsc::sync_channel(1);
@@ -72,7 +84,7 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
                 result => panic!("the original header writer must refuse State reading: {result:?}"),
             }
             assert_eq!(consumed.load(Ordering::SeqCst), 1);
-            assert_eq!(read_budget.reserved_bytes(), 0);
+            assert_eq!(read_budget.reserved_bytes(), retained_bytes);
             let attempts = &attempts;
             let capture = &capture;
             let budget = &read_budget;
@@ -104,7 +116,7 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     });
     assert!(attempts.load(Ordering::SeqCst) >= 2);
     assert_eq!(consumed.load(Ordering::SeqCst), 2);
-    assert_eq!(read_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
 
     // Holding the same physical source through expiry never invokes the consumer or
     // reopens a deadline. Dropping it afterwards permits the complete original proof.
@@ -131,7 +143,7 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     assert!(matches!(result, Err(crate::managed::Error::NativeDeadline)));
     assert_eq!(attempts, 1);
     assert_eq!(consumed.load(Ordering::SeqCst), 2);
-    assert_eq!(read_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
     bounded_native_snapshot(
         &read_budget,
         Instant::now() + Duration::from_secs(10),
@@ -139,7 +151,54 @@ fn native_snapshot_reader_busy_retries_the_complete_original_certified_cut() {
     )
     .unwrap();
     assert_eq!(consumed.load(Ordering::SeqCst), 3);
-    assert_eq!(read_budget.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+
+    let mut refused_callbacks = 0;
+    let refused: std::result::Result<(), WorldStateSnapshotError> = state
+        .with_native_stream_token_custody_snapshot_v1(
+            &tip,
+            provider,
+            &read_budget,
+            |_, _, current| {
+                refused_callbacks += 1;
+                assert!(current.is_none());
+                assert!(read_budget.reserved_bytes() > retained_bytes);
+                Err("deliberate custody consumer refusal".into())
+            },
+        );
+    assert!(matches!(
+        refused,
+        Err(WorldStateSnapshotError::Invalid(message))
+            if message == "deliberate custody consumer refusal"
+    ));
+    assert_eq!(refused_callbacks, 1);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+
+    // Equal capacity cannot replace the State's original pool or reach its consumer.
+    let foreign = AllocationBudget::new(read_budget.limit_bytes());
+    let refused: std::result::Result<(), WorldStateSnapshotError> = state
+        .with_native_stream_token_custody_snapshot_v1(&tip, provider, &foreign, |_, _, _| {
+            panic!("foreign allocation identity must not reach the custody consumer")
+        });
+    assert!(matches!(
+        refused,
+        Err(WorldStateSnapshotError::Acquisition(
+            mv::storage::AdmittedStorageError::ScopeIdentity
+        ))
+    ));
+    assert_eq!(foreign.reserved_bytes(), 0);
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+
+    let refused: std::result::Result<(), WorldStateSnapshotError> = state
+        .with_native_stream_token_custody_snapshot_v1(
+            &stale_tip,
+            provider,
+            &read_budget,
+            |_, _, _| panic!("changed certified cut must not reach the custody consumer"),
+        );
+    assert!(matches!(refused, Err(WorldStateSnapshotError::Invalid(_))));
+    assert_eq!(read_budget.reserved_bytes(), retained_bytes);
+    drop(reclamation_guard);
 }
 
 #[test]
