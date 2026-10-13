@@ -4,6 +4,7 @@
 //! adapters only convert buffers and errors; they do not duplicate ledger codecs.
 
 mod activation_instructions;
+mod alias_setup_instruction;
 mod error;
 mod escrow_instructions;
 mod game_instructions;
@@ -15,9 +16,15 @@ mod manifest;
 mod plain_governance;
 mod repo_instructions;
 mod retail_daily_limit_instructions;
+mod settlement_intents;
 mod staking_instructions;
 mod verifying_key_instructions;
+pub use alias_setup_instruction::instruction_json_from_wire_pair;
 pub use error::{CodecError, CodecErrorKind, CodecResult};
+pub use settlement_intents::{
+    RepoIntentHashes, atomic_settlement_intent_hash, canonical_atomic_settlement_json,
+    repo_intent_hashes,
+};
 mod archive;
 pub use archive::{decode_instruction_archive, encode_instruction_archive};
 
@@ -1375,6 +1382,9 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
     if let Some(instruction) = lifecycle_instructions::from_json(&value) {
         return instruction;
     }
+    if let Some(instruction) = alias_setup_instruction::from_json(&value) {
+        return instruction;
+    }
     if let Some(instruction) = game_instructions::from_json(&value) {
         return instruction;
     }
@@ -1411,6 +1421,7 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
             || game_instructions::is_game_instruction(&instruction)
             || verifying_key_instructions::is_verifying_key_instruction(&instruction)
             || lifecycle_instructions::is_lifecycle_instruction(&instruction)
+            || alias_setup_instruction::is_alias_setup_instruction(&instruction)
             || staking_instructions::is_staking_instruction(&instruction)
             || instruction.as_any().is::<CancelSmartContractCodeUpload>()
             || instruction.as_any().is::<RegisterSmartContractCode>()
@@ -2752,9 +2763,47 @@ fn set_key_value_from_json(mut variants: json::Map) -> CodecResult<InstructionBo
         }
         return Ok(InstructionBox::from(SetKeyValue::nft(nft_id, key, value)));
     }
+    if let Some(json::Value::Object(mut fields)) = variants.remove("AssetDefinition") {
+        let context = "SetKeyValue.AssetDefinition";
+        let asset_definition_id: AssetDefinitionId = parse_string_value(
+            required_value(&mut fields, "object", context)?,
+            "SetKeyValue.AssetDefinition.object",
+        )?
+        .parse()
+        .map_err(|err| {
+            CodecError::new(
+                CodecErrorKind::InvalidArgument,
+                format!("invalid SetKeyValue.AssetDefinition.object literal: {err}"),
+            )
+        })?;
+        let key: Name =
+            json::from_value(required_value(&mut fields, "key", context)?).map_err(codec_error)?;
+        let value: Json = json::from_value(required_value(&mut fields, "value", context)?)
+            .map_err(codec_error)?;
+        if !fields.is_empty() {
+            return Err(CodecError::new(
+                CodecErrorKind::InvalidArgument,
+                format!(
+                    "SetKeyValue.AssetDefinition contains unsupported fields: {}",
+                    fields.keys().cloned().collect::<Vec<_>>().join(", ")
+                ),
+            ));
+        }
+        if !variants.is_empty() {
+            return Err(CodecError::new(
+                CodecErrorKind::InvalidArgument,
+                "SetKeyValue must contain exactly one variant",
+            ));
+        }
+        return Ok(InstructionBox::from(SetKeyValue::asset_definition(
+            asset_definition_id,
+            key,
+            value,
+        )));
+    }
     Err(CodecError::new(
         CodecErrorKind::InvalidArgument,
-        "SetKeyValue currently supports the Account and Nft variants",
+        "SetKeyValue currently supports the Account, Nft and AssetDefinition variants",
     ))
 }
 
@@ -3631,6 +3680,9 @@ pub fn instruction_to_json_value(instruction: &InstructionBox) -> CodecResult<js
     if let Some(value) = lifecycle_instructions::to_json(instruction) {
         return value;
     }
+    if let Some(value) = alias_setup_instruction::to_json(instruction) {
+        return value;
+    }
     if let Some(value) = game_instructions::to_json(instruction) {
         return value;
     }
@@ -4320,6 +4372,26 @@ fn set_key_value_box_to_json(set_key_value: &SetKeyValueBox) -> CodecResult<Opti
         );
         let mut variants = json::Map::new();
         variants.insert("Nft".to_owned(), json::Value::Object(fields));
+        let mut outer = json::Map::new();
+        outer.insert("SetKeyValue".to_owned(), json::Value::Object(variants));
+        return Ok(Some(json::Value::Object(outer)));
+    }
+    if let SetKeyValueBox::AssetDefinition(set) = set_key_value {
+        let mut fields = json::Map::new();
+        fields.insert(
+            "object".to_owned(),
+            json::Value::String(set.object().to_string()),
+        );
+        fields.insert(
+            "key".to_owned(),
+            json::to_value(set.key()).map_err(codec_error)?,
+        );
+        fields.insert(
+            "value".to_owned(),
+            json::to_value(set.value()).map_err(codec_error)?,
+        );
+        let mut variants = json::Map::new();
+        variants.insert("AssetDefinition".to_owned(), json::Value::Object(fields));
         let mut outer = json::Map::new();
         outer.insert("SetKeyValue".to_owned(), json::Value::Object(variants));
         return Ok(Some(json::Value::Object(outer)));

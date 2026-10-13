@@ -137,7 +137,7 @@ const ROUTING_CASES: [(&str, &str); 52] = [
     ),
     (
         r#"{"SetKeyValue":{}}"#,
-        "SetKeyValue currently supports the Account and Nft variants",
+        "SetKeyValue currently supports the Account, Nft and AssetDefinition variants",
     ),
     (
         r#"{"RemoveRwaKeyValue":{}}"#,

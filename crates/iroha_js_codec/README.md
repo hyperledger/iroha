@@ -51,6 +51,14 @@ must equal the canonical model JSON (including `evidence_hashes`). Atomic
 settlement JSON requires the `escrows` array (possibly empty); every escrow leg
 field is mandatory because the leg is part of the consented intent hash.
 
+Declarative alias setup (`EnsureAlias`) and `SetKeyValue.AssetDefinition` also
+admit exactly their native model JSON. `canonical_atomic_settlement_json` sorts
+`Settlement.Atomic` movements by native `(AssetId, AccountId)` order,
+`atomic_settlement_intent_hash` and `repo_intent_hashes` return the exact
+`CanExecuteSettlement` consent hashes computed by the model methods Core checks,
+and `instruction_json_from_wire_pair` admits a planner-issued
+`(wire_id, frame)` pair only after an exact decode and re-frame check.
+
 Native bindings convert buffers and error categories only. They also reuse the
 typed helper operations for their existing transaction builders and inspection
 APIs. There is no Node, daemon, network, filesystem, or key-custody dependency in
