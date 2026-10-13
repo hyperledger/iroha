@@ -1168,6 +1168,67 @@ pub(crate) fn is_native_escrow_custody_asset(
                     && record.custody_account_id == *resolved_id.account()
             }))
 }
+/// Reject retiring asset definitions while native escrow custody still depends on them.
+///
+/// Unregistering an asset definition (directly or through its domain) deletes
+/// every balance of that definition, including the deterministic custody
+/// buckets of marketplace escrows, asset locks, conditional escrows and VPN
+/// leases. Such a definition is retained while any of those records is still
+/// active or its custody bucket still holds a balance; the record must first
+/// reach its release, refund or expiry terminal path. Closed records with empty
+/// custody remain as audit history and do not block retirement.
+pub(crate) fn ensure_asset_definitions_not_retained_by_native_escrows(
+    state_transaction: &StateTransaction<'_, '_>,
+    definitions: &BTreeSet<AssetDefinitionId>,
+    context: &str,
+) -> Result<(), Error> {
+    let holds_balance = |definition: &AssetDefinitionId, custody: &AccountId| {
+        state_transaction
+            .world
+            .assets
+            .get(&AssetId::new(definition.clone(), custody.clone()))
+            .is_some_and(|balance| !balance.as_ref().is_zero())
+    };
+    if let Some((escrow_id, record)) =
+        state_transaction
+            .world
+            .asset_escrows
+            .iter()
+            .find(|(_, record)| {
+                definitions.contains(&record.asset_definition)
+                    && (matches!(
+                        record.status,
+                        AssetEscrowStatus::Open
+                            | AssetEscrowStatus::Accepted
+                            | AssetEscrowStatus::PaymentSent
+                            | AssetEscrowStatus::Disputed
+                            | AssetEscrowStatus::Locked
+                    ) || holds_balance(&record.asset_definition, &record.custody))
+            })
+    {
+        return Err(validation_err(format!(
+            "cannot {context}: asset definition {} is retained by native escrow {} custody; release, refund or expire the escrow first",
+            record.asset_definition,
+            escrow_id.as_hash()
+        )));
+    }
+    if let Some((_, lease)) = state_transaction
+        .world
+        .vpn_leases
+        .iter()
+        .find(|(_, lease)| {
+            definitions.contains(&lease.asset_definition)
+                && (lease.status == iroha_data_model::soranet::vpn::VpnLeaseStatusV1::Active
+                    || holds_balance(&lease.asset_definition, &lease.custody_account_id))
+        })
+    {
+        return Err(validation_err(format!(
+            "cannot {context}: asset definition {} is retained by native VPN lease custody; settle or refund the lease first",
+            lease.asset_definition
+        )));
+    }
+    Ok(())
+}
 /// Return whether an account is retained as native-escrow or VPN-lease custody.
 ///
 /// Closed records remain authoritative: removing their accounts would destroy audit history and
@@ -2741,6 +2802,124 @@ mod tests {
             balance(&tx, &seller, &asset_definition),
             Quantity::from(60_u32)
         );
+    }
+    #[test]
+    fn asset_definition_retirement_waits_for_native_escrow_custody() {
+        let seller = fixture_account("retire-seller");
+        let buyer = fixture_account("retire-buyer");
+        let attestor = fixture_account("retire-attestor");
+        let asset_definition = fixture_asset_definition_id();
+        let escrow_id = fixture_escrow_id("retire-conditional");
+        // A domain-owned definition is retired both directly and by domain teardown.
+        let state = state_with_parties_and_definition(
+            &seller,
+            &buyer,
+            &attestor,
+            &asset_definition,
+            AssetDefinition::numeric(
+                asset_definition.clone(),
+                "XOR".to_owned(),
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                Some(fixture_asset_definition_domain()),
+            )
+            .build(&seller),
+            Quantity::from(100_u32),
+        );
+        let mut block = state.block(block_header(1_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD4; Hash::LENGTH]));
+        OpenConditionalEscrow::new(
+            escrow_id,
+            asset_definition.clone(),
+            buyer.clone(),
+            Quantity::from(40_u32),
+            conditional_terms(escrow_id, &buyer, &attestor, 1_000_000).conditions,
+            1_000_000,
+        )
+        .execute(&seller, &mut tx)
+        .expect("open conditional escrow");
+        let custody = escrow_record(&tx, &escrow_id).custody;
+        let assert_retained = |error: Error, tx: &StateTransaction<'_, '_>| {
+            assert!(
+                error.to_string().contains("retained by native escrow"),
+                "unexpected error: {error}"
+            );
+            assert!(tx.world.asset_definition(&asset_definition).is_ok());
+            assert_eq!(
+                balance(tx, &custody, &asset_definition),
+                Quantity::from(40_u32)
+            );
+        };
+        // The definition owner cannot destroy funds held in escrow custody,
+        // neither directly nor by tearing down the definition's domain.
+        let error = Unregister::asset_definition(asset_definition.clone())
+            .execute(&seller, &mut tx)
+            .expect_err("active escrow custody retains the definition");
+        assert_retained(error, &tx);
+        let error = Unregister::domain(fixture_asset_definition_domain())
+            .execute(&seller, &mut tx)
+            .expect_err("active escrow custody retains the domain's definition");
+        assert_retained(error, &tx);
+        AttestEscrowCondition::new(
+            escrow_id,
+            "delivered".parse().expect("condition id"),
+            ConditionalEscrowValue::Bool(true),
+            None,
+        )
+        .execute(&attestor, &mut tx)
+        .expect("release to the beneficiary");
+        assert_eq!(
+            balance(&tx, &buyer, &asset_definition),
+            Quantity::from(40_u32)
+        );
+        assert_eq!(balance(&tx, &custody, &asset_definition), Quantity::zero());
+        ensure_asset_definitions_not_retained_by_native_escrows(
+            &tx,
+            &BTreeSet::from([asset_definition.clone()]),
+            "unregister asset definition",
+        )
+        .expect("a released escrow no longer retains the definition");
+        Unregister::asset_definition(asset_definition.clone())
+            .execute(&seller, &mut tx)
+            .expect("retire the definition after the escrow released");
+        assert!(tx.world.asset_definition(&asset_definition).is_err());
+    }
+    #[test]
+    fn expired_asset_lock_releases_definition_retention() {
+        let source = fixture_account("retire-lock-source");
+        let destination = fixture_account("retire-lock-destination");
+        let observer = fixture_account("retire-lock-observer");
+        let asset_definition = fixture_asset_definition_id();
+        let lock_id = fixture_escrow_id("retire-lock");
+        let state = state_with_parties(
+            &source,
+            &destination,
+            &observer,
+            &asset_definition,
+            Quantity::from(100_u32),
+        );
+        let definitions = BTreeSet::from([asset_definition.clone()]);
+        let mut block = state.block(block_header(3_000));
+        let mut tx = block.transaction_for_fastpq_testing(Hash::prehashed([0xD5; Hash::LENGTH]));
+        OpenAssetLock::with_options(
+            lock_id,
+            asset_definition.clone(),
+            destination,
+            Quantity::from(30_u32),
+            None,
+            Some(2_000),
+            Vec::new(),
+        )
+        .execute(&source, &mut tx)
+        .expect("open lock");
+        assert!(
+            ensure_asset_definitions_not_retained_by_native_escrows(&tx, &definitions, "retire")
+                .is_err()
+        );
+        ExpireAssetLock::new(lock_id)
+            .execute(&observer, &mut tx)
+            .expect("refund the expired lock");
+        ensure_asset_definitions_not_retained_by_native_escrows(&tx, &definitions, "retire")
+            .expect("an expired, empty lock no longer retains the definition");
     }
     #[test]
     fn escrow_funding_requires_its_original_retained_invocation() {

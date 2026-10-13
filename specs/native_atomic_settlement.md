@@ -132,6 +132,19 @@ does not prevent recovering an already committed original. Composite and
 delegated carriers retain ordinary execution and rejection fee policy. A
 duplicate rejection is not a newly successful settlement.
 
+## Escrow custody retention
+
+Unregistering an asset definition, directly or by unregistering its domain,
+deletes every balance of that definition, including deterministic escrow
+custody. Core therefore rejects both operations while any native escrow record
+of the definition (marketplace escrow, asset lock or conditional escrow, whether
+opened directly or by an atomic settlement leg) is still active or its custody
+bucket holds a balance, and likewise for active or funded VPN lease custody.
+The escrow must first reach its release, refund, drawdown or expiry terminal
+path; closed records with empty custody remain audit history and no longer
+retain the definition. Repo agreements already retain their cash and
+collateral definitions (see `specs/finance/repo_ops.md`).
+
 ## Receipt and query boundary
 
 `SettlementDetails::Atomic` stores the complete validated

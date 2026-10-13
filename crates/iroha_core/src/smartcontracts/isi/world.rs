@@ -17273,6 +17273,13 @@ pub mod isi {
                 &remove_asset_definitions,
                 &format!("unregister domain {domain_id}"),
             )?;
+            // Domain teardown retires every contained definition and its balances,
+            // so it must not destroy funds held in native escrow custody.
+            crate::smartcontracts::isi::escrow::ensure_asset_definitions_not_retained_by_native_escrows(
+                state_transaction,
+                &remove_asset_definitions,
+                &format!("unregister domain {domain_id}"),
+            )?;
             // Pinned custody survives staking selector and alias changes. Protect it before
             // domain teardown stages permission, endorsement or balance removals.
             if let Some(asset) = state_transaction

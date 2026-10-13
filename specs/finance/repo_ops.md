@@ -111,6 +111,11 @@ carry the exact repayment amount and that timestamp. This settled tombstone
 makes the agreement identifier permanently one-shot. Reopening or settling it
 again is rejected.
 
+Any recorded agreement, active or settled, retains its cash and collateral
+asset definitions: `Unregister<AssetDefinition>` and domain unregistration are
+rejected while an agreement references them, so an issuer cannot destroy
+pledged collateral or repayment balances by retiring the definition.
+
 Revoking a proposal permission after a successful open does not strand the
 agreement: consent has already been materialized as immutable agreement state.
 Maturity settlement still respects current asset transfer controls.
