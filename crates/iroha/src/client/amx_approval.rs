@@ -8,6 +8,10 @@ impl Client {
     /// authenticates consent. This proves a historical grant only. Native Prepare rechecks
     /// the current permission before escrow, including revocation after this read.
     ///
+    /// The current proof contains the complete World hash inventory. The relay therefore
+    /// needs an explicit `CanReadAllLedgerData` grant, checked again before disclosure;
+    /// the exact debit grant does not imply this read authority. A scoped proof is separate.
+    ///
     /// # Errors
     /// Wrong network, account, scope or proof; unavailable current cut; noncanonical response;
     /// exceeded original transport deadline, body bound or local decoding resources.

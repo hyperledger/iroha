@@ -676,9 +676,25 @@ no Rust tests execute. The subsequent repair adds only Rustdoc to those five
 methods and three analogous verifier APIs; all non-documentation bytes match
 (`m3-merged-api-doc-repair-1/receipt.json`, SHA256
 `1d65664c3c460799fb50a7411d6caf6fade94881a233eb60818fbef0c656db98`).
-Rebuilt lint, all 317 ordinary PLONK tests and fresh M3 qualification remain
-required; static review and preparation controls establish no proof-byte or
-performance result.
+The next strict-lint attempt stops on four style diagnostics in the merged
+verification API: two identical match-arm pairs and two implicit raw-pointer
+borrows in the existing ownership test. The exact repair combines only those
+arms and makes the borrows explicit; branch bodies and assertions remain
+unchanged (`m3-verification-attempt-style-repair-1/receipt.json`, SHA256
+`2f33a3ea3354d987e7b96138a1c433cfda40680341d5574feb6d4688f51fd62a`).
+Both failed attempts ran zero Rust tests and remain retained. The fresh
+`m3-lookup-fft-engine-validation-4` run passes strict all-target Pasta/PLONK/
+Gadgets/Recursion lint and **317 ordinary tests**, with six declared ignores.
+Both new FFT tests and all three proof-byte golden selectors pass, including
+both native curves and owned/borrowed PIPA-R parity. Independent review checks
+14 child results, four exact compiled inventories, 130 retained depfile
+bindings, four test executable identities and all 16 source boundaries, with
+no current selected-source drift. The result SHA256 is
+`971f894bf94a09e7961a259c62ff21de887eedb2c46c6d50a2997a97b1c4a716`;
+review `m3-engine4-terminal-independent-review-1/review.json`, SHA256
+`cb548933d4092429cb535213e7985a436f8e01ffd8408a413d8d4c5e8e882398`.
+This qualifies the selected component correctness checks. Fresh M3 timing and
+memory qualification remains required.
 
 A separate four-process forced-contention diagnostic verifies eight sums with
 identical inputs and canonical outputs within each curve's pair. With
@@ -893,9 +909,13 @@ boundary contains 30 changed or added paths, including 22 emitted Rust inputs,
 so this is historical partial evidence, not current-candidate qualification
 (`sumeragi-current-mutations-5/result.json`, SHA
 `5496fdd87aede1f76cf43741774b2e10fa9ce8d5b0bc7111416ecb6f1896e952`).
-The merged source requires fresh lint, component and complete mutation checks;
-the four earlier kills cannot be reused as current passes. The 10,000-seed suite
-and F22 idle stress remain unqualified. These component results do not establish
+The resolved source then passes fresh strict all-target lint in
+`sumeragi-current-strict-lint-4`. A subsequent component launch refuses during
+preflight because the concurrent merge work adds Core mutation HC343 and its
+specification row. No component child starts, and the selected 162 Sumeragi
+mutations are unchanged. Fresh checks must bind this source update; the four
+earlier kills cannot be reused as current passes. The 10,000-seed suite and
+F22 idle stress remain unqualified. These component results do not establish
 current Core recovery, native Load, real-network or phone acceptance.
 
 The stock-profile native network harness compiles in

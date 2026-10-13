@@ -57,7 +57,7 @@ fn amx_debit_approval_openapi_matches_the_route_and_native_bounds() {
         success["content"]["application/x-norito"]["schema"]["maxLength"].as_u64(),
         Some(MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1 as u64)
     );
-    for status in ["200", "401", "503"] {
+    for status in ["200", "401", "403", "503"] {
         assert_eq!(
             operation["responses"][status]["headers"]["Cache-Control"]["schema"]["const"].as_str(),
             Some("private, no-store")
@@ -71,6 +71,15 @@ fn amx_debit_approval_openapi_matches_the_route_and_native_bounds() {
     let description = operation["description"].as_str().unwrap();
     assert!(description.contains("current applied certified private-root height"));
     assert!(description.contains("Prepare rechecks"));
+    assert!(description.contains("CanReadAllLedgerData"));
+    assert!(description.contains("complete World hash inventory"));
+    assert!(description.contains("revocation withholds"));
+    assert!(
+        operation["responses"]["403"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("Exact AMX debit permission alone")
+    );
 }
 
 #[test]

@@ -32,6 +32,17 @@ aliases and must match all three authority/network/chain pins. The account must
 already hold the assets authorized by its exact signature-bound fee intent.
 There is no validator-key fallback, automatic minting or inferred sponsor.
 
+The current debit-approval proof carries the complete World hash inventory. Its Torii
+transport requires an independently granted `CanReadAllLedgerData` permission, checked
+before projection and again after projection/egress awaits. An exact `CanPrepareAmx`
+debit permission, account read or dataspace read does not authorize this full snapshot.
+The service does not grant broader access automatically. Prepare still independently
+checks the exact current debit permission; broad read access grants no monetary authority.
+Revocation withholds a buffered response, and local capacity refusal remains unavailable
+rather than evidence of missing consent. TODO: replace this complete-snapshot transport
+with a genuinely scoped authenticated State proof under G3; this containment does not
+establish selective disclosure.
+
 Signed genesis bytes must match the independently configured digest and signer.
 The existing genesis authenticator checks the exact lineage, signed authority,
 committee and proofs of possession. The resulting verifier must match the

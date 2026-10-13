@@ -16,6 +16,8 @@
 mod lane_authority;
 /// Independent committed-State authority used by certified lane fixtures.
 pub use lane_authority::TestLaneStoreAuthorities;
+#[path = "test_chain/amx_approval.rs"]
+mod amx_approval;
 #[path = "test_chain/availability.rs"]
 mod availability;
 #[path = "test_chain/committee_custody.rs"]
@@ -25,6 +27,8 @@ mod genesis_policy;
 #[cfg(test)]
 pub(crate) mod kagemusha_setup;
 mod local_certificate;
+/// Genuine paid private-root approval source for downstream HTTP permission tests.
+pub use amx_approval::native_amx_approval_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]

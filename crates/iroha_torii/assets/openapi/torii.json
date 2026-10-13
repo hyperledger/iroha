@@ -63025,7 +63025,7 @@
     },
     "/v1/amx/debit-approval/{height}": {
       "post": {
-        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation.",
+        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The caller must independently hold CanReadAllLedgerData because this proof contains the complete World hash inventory. Exact debit, account or dataspace grants do not authorize this disclosure. The read grant is checked before projection and again after projection/egress awaits; revocation withholds the buffered response. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation.",
         "operationId": "amxDebitApprovalProofV1",
         "parameters": [
           {
@@ -63141,7 +63141,7 @@
                 }
               }
             },
-            "description": "Deployment-required API token or native account access was rejected.",
+            "description": "Explicit CanReadAllLedgerData is absent or revoked, or the deployment-required API token was rejected. Exact AMX debit permission alone never authorizes a complete World snapshot.",
             "headers": {
               "Cache-Control": {
                 "description": "Account-authenticated data is never shared or retained by caches.",

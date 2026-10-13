@@ -416,7 +416,9 @@ fn is_reviewed_root_local_instruction(instruction: &InstructionBox) -> bool {
     any.is::<Log>()
         // Roles and their assignments belong to this immutable root's own World.
         // Removal cannot issue or delegate a capability. This classifies scope only:
-        // ordinary current CanManageRoles and contract-runtime gates still apply.
+        // ordinary executor authorization and contract-runtime gates still apply.
+        // Initial requires current CanManageRoles; a committed UserProvided executor
+        // retains its own authorization policy.
         || (!cfg!(all(
             test,
             feature = "mutation-testing",

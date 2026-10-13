@@ -229,7 +229,10 @@ pub(crate) fn parameter_ids() -> [CustomParameterId; 3] {
 }
 
 #[derive(crate::json_macros::JsonDeserialize)]
-#[cfg_attr(test, derive(crate::json_macros::JsonSerialize))]
+#[cfg_attr(
+    any(test, feature = "iroha-core-tests"),
+    derive(crate::json_macros::JsonSerialize)
+)]
 #[norito(deny_unknown_fields)]
 struct CommittedGasRate {
     asset: String,
@@ -375,7 +378,7 @@ pub(crate) fn from_parameters(parameters: &Parameters) -> Result<Gas, norito::Er
 /// Explicit committed fields for a test's genesis or prepared fixture World.
 ///
 /// This helper authors parameters; it is never a runtime configuration fallback.
-#[cfg(test)]
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) fn parameters_for_testing(gas: Gas) -> [iroha_data_model::parameter::Parameter; 3] {
     use iroha_data_model::parameter::Parameter;
     let rates = gas
@@ -411,7 +414,8 @@ pub(crate) fn parameters_for_testing(gas: Gas) -> [iroha_data_model::parameter::
     let mut payloads = payloads.into_iter();
     parameter_ids().map(|id| {
         let parameter = CustomParameter::new(id, payloads.next().expect("three fee fields"));
-        validate_parameter(&parameter).expect("valid explicitly authored fixture fee policy");
+        apply_parameter(&mut Gas::default(), &parameter)
+            .expect("valid explicitly authored fixture fee policy");
         Parameter::Custom(parameter)
     })
 }
