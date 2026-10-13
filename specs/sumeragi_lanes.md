@@ -6,10 +6,19 @@ description: Lanes as independent Sumeragi instances merged by the global chain,
 
 # Sumeragi multilane and autoscale lanes
 
-Status: design, 2026-09-28; normative once implemented (goal S5 for lanes). Dataspaces with their
-own state and cross-dataspace atomicity are specified in `sumeragi.md` §11 (goal S6).
+Status: design, 2026-09-28; normative once implemented (goal S5 for lanes). Data spaces with their
+own state and atomicity across data spaces are specified in `sumeragi.md` §11 (goal S6).
 
 ## 0. Summary
+
+**Data spaces and lanes are distinct.** The data space catalog defines the
+environments for data, authority, and policy. The lane catalog defines lanes,
+each referencing one data space; several lanes may reference the same data space.
+`DataSpaceId` identifies the data space and `LaneId` identifies its processing
+lane. This specification describes lane certification and global execution.
+Independent data space execution and local finality belong to `sumeragi.md` §11.
+An institutional environment should be called a data space in articles and
+diagrams; introducing its lanes does not replace that environment or identity.
 
 A **lane** adds dissemination and certification capacity to the one global world state. Every lane
 incarnation is a separate Sumeragi core instance with its own committee, pinned at creation. A
@@ -56,7 +65,7 @@ Why this shape:
 - `A` — freshness bound: the policy's `anchor_freshness` (default 16), **pinned into each
   incarnation** at creation, so a policy change never alters an existing lane's rules.
 
-An additive native dataspace catalog transition also registers its fixed Sumeragi lane in
+An additive native data space catalog transition also registers its fixed Sumeragi lane in
 the same transaction. The admitted manifest's exact live committee and proofs of possession
 are pinned at the lane's activation height; existing policy bounds, routes and autoscale
 settings are preserved. For a chain's first lane, the model-owned `for_chain` constructor
@@ -64,13 +73,13 @@ sets freshness to 16 blocks, maximum merged blocks per lane to 16 and the stall 
 64 blocks, and copies the chain's governed consensus parameters. This is on-chain policy,
 not node-local configuration. Aborting the transition discards both catalog and lane policy.
 
-Concrete native instruction or contract-address dataspace targets take precedence over
+Concrete native instruction or contract-address data space targets take precedence over
 account and instruction-type routing rules. A non-universal target selects its first
-admitted fixed lane, in lane-ID order, with matching pinned dataspace and committee. A
+admitted fixed lane, in lane-ID order, with matching pinned data space and committee. A
 missing, unresolved, closing or not-yet-active private route is rejected; it is never
-executed as universal work. Transactions without a concrete dataspace target keep the
+executed as universal work. Transactions without a concrete data space target keep the
 explicit/default routing rules below. Concrete universal application targets may use only
-lanes pinned to universal. Sharing an owner does not merge dataspace routes. Complete
+lanes pinned to universal. Sharing an owner does not merge data space routes. Complete
 control-plane batches (`SetParameter`, universal alias-registry and SCCP instructions)
 route to lane `0` before logical lane rules. In particular, catalog registration at `h`,
 bootstrap at `h + 1` and `EnsureAlias` at `h + 2` can complete without an unrelated
@@ -114,7 +123,7 @@ binding commits the original canonical staking owner, universal account, activat
 peer and exact retained escrow asset. It never resolves a later registration by public key.
 Missing positive custody makes that original signer forensic-only. Elastic lanes pin global
 validator custody; fixed lanes pin the canonical staking owner selected for their physical
-dataspace at creation. A fixed committee alone grants no authority over a reused global key.
+data space at creation. A fixed committee alone grants no authority over a reused global key.
 Sparse signer bindings use immutable shared storage: production pinning admits the exact
 backing and control from the original State execution pool before allocation. Cell/World
 overlay copies retain that owner without copying the signer table. Decoded bindings remain
@@ -207,7 +216,7 @@ component path and its focused checks do not establish the complete H3 or whole-
   height (§4.1); the lag of two gives every node the record before the first lane block can be
   merged.
 - **Closing** from the `G` block that sets `c` (autoscale scale-in, stall close §6.4, a policy
-  that no longer lists a fixed lane or lists it with another committee or dataspace, or a chain
+  that no longer lists a fixed lane or lists it with another committee or data space, or a chain
   without a policy). A fixed lane the policy still lists is recreated, as a new incarnation, once
   its closing incarnation retires.
 - **Retired** at `G` height `c + A + 1` (§6.3): the record is removed and the frontier is final.
@@ -277,8 +286,8 @@ the lane set is.
 
 Every `G` node runs every active public lane's instance: as a member when its validator key is in
 the pinned committee, otherwise as an observer (the core commits from CommitQCs and syncs bodies
-as an observer, `sumeragi.md` §6.9). Lanes of restricted dataspaces are followed by the nodes the
-dataspace policy admits; `G` merges only lanes its validators follow (public lanes in the first
+as an observer, `sumeragi.md` §6.9). Lanes of restricted data spaces are followed by the nodes the
+data space policy admits; `G` merges only lanes its validators follow (public lanes in the first
 release). A node starts a lane instance when it applies `G` height `active_from` and stops it after
 applying the retirement height.
 
@@ -407,12 +416,12 @@ or closed is dropped as misrouted without effect, stays pending in the queue and
 transaction's physical application profile is independently selected by the deterministic Nexus
 routing policy over the current execution state. Queue admission applies that physical profile,
 and merge execution resolves it again. The physical plan must contain exactly one route; the
-current executor rejects multi-route plans. Its dataspace must equal the authenticated native
-execution route's dataspace. Manifest readiness, governance hooks, privacy, compliance and fraud
+current executor rejects multi-route plans. Its data space must equal the authenticated native
+execution route's data space. Manifest readiness, governance hooks, privacy, compliance and fraud
 checks use the exact physical profile, including when its numeric lane identifier collides with
 a native lane identifier. Execution source identity and output custody retain the native lane
-and incarnation. No catalog-order choice or same-dataspace sibling substitutes for the selected
-application profile.
+and incarnation. Neither a catalog-order choice nor a sibling lane in the same data space
+substitutes for the selected application profile.
 
 The configured genesis signature authenticates bootstrap inputs before execution. Each input
 carries a private admission capability bound to its exact header, transaction hash and position,
@@ -447,7 +456,7 @@ payload builder skips transactions already in committed-but-unmerged lane blocks
 
 All rules run in `G`'s execution with committed data only; every node computes the same decision.
 Parameters are the policy's `autoscale` settings (elastic range `[min_lane, max_lane_exclusive)`,
-dataspace, committee size, per-lane target throughput, window, scale-out and scale-in
+data space, committee size, per-lane target throughput, window, scale-out and scale-in
 utilization in per mille, cooldown); at most one autoscale transition per `G` block.
 
 ### 6.1 Samples
@@ -467,7 +476,7 @@ already counts the idle time as unused capacity.
 ### 6.2 Scale out
 
 When utilization is at least `scale_out_permille`, the cooldown has expired and a free elastic id
-exists, execution creates a lane record: the lowest free id, the autoscale dataspace, the
+exists, execution creates a lane record: the lowest free id, the autoscale data space, the
 policy's lane parameters and `A`, a fresh incarnation, and a committee of `committee_size`
 global validators live at `h` with their registered proofs of possession, ranked by
 `H("iroha/sumeragi/lane/committee-rank/v1" ‖ ι ‖ key)` (so successive lanes spread over the
@@ -496,7 +505,7 @@ changing the policy.
 ## 7. Fees and settlement
 
 Lane transactions pay fees at merge execution like any transaction (the fee model of
-`nexus_fee_model.md`). Fee admission uses the transaction's dataspace, which must agree between
+`nexus_fee_model.md`). Fee admission uses the transaction's data space, which must agree between
 the physical application policy and authenticated native execution route (§5.1). There are no
 lane relay envelopes, settlement receipts or FASTPQ relay proofs: `G` executes the transactions
 itself.
@@ -504,15 +513,15 @@ itself.
 ## 8. Status and telemetry
 
 `/v1/sumeragi/status` stays the status of `G`'s instance. `/v1/sumeragi/lanes` serves one
-`SumeragiLaneStatus` per lane of the committed state: its record (lane, dataspace, incarnation,
+`SumeragiLaneStatus` per lane of the committed state: its record (lane, data space, incarnation,
 pinned committee and parameters, activation, closing, merged frontier, stall bookkeeping) and the
 status of the node's instance of it (the same `SumeragiStatus` as `G`'s, or none before the
 instance runs). Lane instances report through the node's log observer like `G`.
 
 `/v1/sumeragi/diagnostics` reports pressure from its live Queue owner, committed NPoS
-parameters and physical lane governance. It does not retain synthetic lane/dataspace
+parameters and physical lane governance. It does not retain synthetic lane/data space
 commitment or pipeline snapshots from the retired driver. A missing Queue owner is
-unavailable rather than an empty queue. Account dataspace summaries expose bindings,
+unavailable rather than an empty queue. Account data space summaries expose bindings,
 portfolio counters and manifest state; native lane incarnation/frontier information
 comes from `/v1/sumeragi/lanes`. These diagnostics do not qualify RS16 availability.
 
@@ -523,8 +532,8 @@ no side-channel custody of lane bodies, no drain vote or certificate, no relay e
 settlement proof, and no per-transaction queue reservation protocol: `G`'s CommitQC orders the
 merge, the lane instances' own commits make lane bodies available to every node, and the closing
 height plus the freshness bound fix a closing lane's frontier. Cross-lane atomicity is that of the
-`G` block; atomicity across dataspaces with separate state is §11's two-phase commit. The lane and
-dataspace catalogs, `LaneConfig` geometry (key prefixes, visibility, storage profile), routing
+`G` block; atomicity across data spaces with separate state is §11's two-phase commit. The lane and
+data space catalogs, `LaneConfig` geometry (key prefixes, visibility, storage profile), routing
 rules, the `nexus.autoscale` parameters, lane validator pools and committee selection, and the
 Kura per-instance storage identity are the inputs this design builds on.
 

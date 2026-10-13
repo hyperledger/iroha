@@ -12,8 +12,8 @@ use core::fmt;
 use ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
-    DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, ProvingKey,
-    VerifyError, VerifyingKey, Witness, create_proof_owned,
+    DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
+    VerifyingKey, Witness, create_proof_owned,
     frontend::{Circuit, Error as LayoutError},
     keys::{
         CosetCachePolicy, KeygenConfigV2, RebuildError, SourceBoundVerifyingKeyV2,
@@ -658,6 +658,60 @@ impl QSigmaProver {
         config: iroha_plonk::keys::pk::artifact::ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, QSigmaError> {
+        Self::from_original_with_admission_cancellable(
+            source,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_builtin_original_artifact_cancellable(
+        source: &QSigmaSource,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSigmaError> {
+        Self::from_original_with_admission_cancellable(
+            source,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_original_with_admission_cancellable(
+        source: &QSigmaSource,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSigmaError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| QSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
         Self::from_original_profile_cancellable(
@@ -668,6 +722,7 @@ impl QSigmaProver {
             original,
             config,
             None,
+            admission,
             cancellation,
         )
     }
@@ -715,6 +770,64 @@ impl QSigmaProver {
         range_buses: usize,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, QSigmaError> {
+        Self::from_original_serialized_foreign_with_admission_cancellable(
+            source,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            range_buses,
+            crate::original_admission::OriginalAdmission::Strict,
+            cancellation,
+        )
+    }
+
+    /// Admit an exact original through an explicitly selected closed built-in source.
+    /// All typed plan, source-profile and installed-key checks remain mandatory.
+    /// The member attests only its pinned relation. The installation owner must
+    /// bind this supplied plan to the complete selected built-in profile; a
+    /// same-schema foreign plan is not certified by membership. Proof-time source
+    /// reconstruction remains mandatory and rejects a different actual source.
+    /// # Errors
+    /// The ordinary importer errors, closed-member mismatch, or cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_builtin_original_artifact_serialized_foreign_cancellable(
+        source: &QSigmaSource,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        range_buses: usize,
+        member: iroha_plonk::keys::BuiltinSourceMemberV1,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSigmaError> {
+        Self::from_original_serialized_foreign_with_admission_cancellable(
+            source,
+            params,
+            descriptor,
+            installed_vk,
+            original,
+            config,
+            range_buses,
+            crate::original_admission::OriginalAdmission::Builtin(member),
+            cancellation,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_original_serialized_foreign_with_admission_cancellable(
+        source: &QSigmaSource,
+        params: PinnedParams<Ep>,
+        descriptor: &[u8],
+        installed_vk: &[u8],
+        original: &[u8],
+        config: iroha_plonk::keys::pk::artifact::ReadConfig,
+        range_buses: usize,
+        admission: crate::original_admission::OriginalAdmission,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, QSigmaError> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| QSigmaError::Prover(iroha_plonk::ProverError::Cancelled))?;
         if !(1..=8).contains(&range_buses) {
@@ -728,6 +841,7 @@ impl QSigmaProver {
             original,
             config,
             Some(range_buses),
+            admission,
             cancellation,
         )
     }
@@ -745,6 +859,7 @@ impl QSigmaProver {
         original: &[u8],
         config: iroha_plonk::keys::pk::artifact::ReadConfig,
         serialized_buses: Option<usize>,
+        admission: crate::original_admission::OriginalAdmission,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, QSigmaError> {
         use iroha_plonk::cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2};
@@ -776,14 +891,15 @@ impl QSigmaProver {
         if original.len() > config.maximum_bytes || binding.n() > config.maximum_rows {
             return Err(QSigmaError::Artifact(ArtifactError::Length));
         }
-        VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|error| {
+        let validated_vk = VerifyingKey::<Ep>::read(installed_vk, &binding).map_err(|error| {
             QSigmaError::Artifact(ArtifactError::Key(KeyError::VerifyingKey(error)))
         })?;
         let key = if let Some(buses) = serialized_buses {
             let circuit = source.serialized_circuit(buses)?;
-            ProvingKey::from_artifact_v2_cancellable(
+            admission.admit(
                 original,
                 &binding,
+                &validated_vk,
                 &params,
                 &circuit,
                 config,
@@ -791,9 +907,10 @@ impl QSigmaProver {
             )
         } else {
             let circuit = source.circuit()?;
-            ProvingKey::from_artifact_v2_cancellable(
+            admission.admit(
                 original,
                 &binding,
+                &validated_vk,
                 &params,
                 &circuit,
                 config,
@@ -801,15 +918,13 @@ impl QSigmaProver {
             )
         }
         .map_err(QSigmaError::Artifact)?;
-        if key.vk().to_bytes() != installed_vk {
+        if key.verifying_key().to_bytes() != installed_vk {
             return Err(QSigmaError::UnauthorizedKey);
         }
-        let metadata = SourceBoundVerifyingKeyV2::from_proving_key(&key, cancellation)
-            .map_err(QSigmaError::Rebuild)?;
-        drop(key);
+
         Ok(Self {
             params,
-            key: metadata,
+            key,
             serialized_buses,
         })
     }

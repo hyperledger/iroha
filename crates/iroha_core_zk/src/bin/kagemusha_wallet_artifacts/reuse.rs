@@ -1,59 +1,89 @@
 //! Explicit read-only candidate intake. A candidate is never source authority: the
 //! compiler still synthesizes each current circuit and imports every matching key.
 use super::*;
-use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
-    CATALOG_MAX_BYTES_V1, OriginalSinkV1, OriginalV1, ProducerInventoryV1,
+use iroha_core_zk::kagemusha_wallet_artifacts_v1::{
+    DESCRIPTOR_MAX_BYTES_V1, VERIFYING_KEY_MAX_BYTES_V1,
+    producer_inventory::{ARTIFACT_MAX_COUNT_V1, OriginalSinkV1, OriginalV1},
 };
 use iroha_core_zk::kagemusha_wallet_proofs_v1::Error;
+
+const CANDIDATE_REQUEST_MAX: usize = 4 << 20;
+
+#[derive(Clone, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct CandidateBlob {
+    bytes: u64,
+    sha256: String,
+}
+impl CandidateBlob {
+    fn identity(&self, maximum: usize) -> io::Result<BlobV1> {
+        if self.bytes == 0 || self.bytes > maximum as u64 {
+            return Err(invalid("candidate role extent outside limit"));
+        }
+        Ok(BlobV1 {
+            bytes: self.bytes,
+            sha256: digest(&self.sha256)?,
+        })
+    }
+}
+
+#[derive(Clone, JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct CandidateOriginal {
+    descriptor: CandidateBlob,
+    verifying_key: CandidateBlob,
+    proving_key: CandidateBlob,
+}
 
 #[derive(JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct ReuseRequest {
     schema: String,
-    carrier_directory: String,
-    scheme_id_hex: String,
-    manifest_digest_hex: String,
-    verifier_pack_sha256: String,
-    producer_inventory_sha256: String,
-    original_groups: Vec<String>,
+    originals_directory: String,
+    originals: Vec<CandidateOriginal>,
 }
 
-/// Catalog roles only select lookup candidates. They never grant source authority;
-/// every selected key still needs exact current fingerprint matching and full import.
-fn selected_originals(
-    inventory: &ProducerInventoryV1,
-    groups: &[String],
-) -> io::Result<Vec<OriginalV1>> {
-    if groups.is_empty() || groups.len() > 5 {
-        return Err(invalid("nonempty candidate original_groups required"));
+/// A bounded exact lookup list, never a verifier installation or source grant.
+/// The current compiler independently matches source fingerprints and imports every
+/// selected original, including all source and commitment checks, before signing.
+fn selected_originals(request: &ReuseRequest) -> io::Result<Vec<OriginalV1>> {
+    if request.schema != "iroha.kagemusha.wallet-artifact-candidates.v1"
+        || request.originals.is_empty()
+        || request.originals.len() > ARTIFACT_MAX_COUNT_V1
+    {
+        return Err(invalid("unsupported candidate schema or original count"));
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut indices = std::collections::BTreeSet::new();
-    for group in groups {
-        if !seen.insert(group.as_str()) {
-            return Err(invalid("duplicate candidate original group"));
+    let mut identities = BTreeMap::new();
+    let mut originals = Vec::with_capacity(request.originals.len());
+    for row in &request.originals {
+        let original = OriginalV1 {
+            descriptor: row.descriptor.identity(DESCRIPTOR_MAX_BYTES_V1)?,
+            verifying_key: row.verifying_key.identity(VERIFYING_KEY_MAX_BYTES_V1)?,
+            proving_key: row.proving_key.identity(PROVING_KEY_MAX_BYTES_V1)?,
+        };
+        if !seen.insert((
+            original.descriptor.sha256,
+            original.verifying_key.sha256,
+            original.proving_key.sha256,
+        )) {
+            return Err(invalid("duplicate candidate original"));
         }
-        match group.as_str() {
-            "sigma" => indices.extend(inventory.sigma),
-            "q" => indices.extend(inventory.operations.iter().flat_map(|value| &value.q)),
-            "a" => indices.extend(inventory.operations.iter().flat_map(|value| &value.a)),
-            "w" => indices.extend(inventory.operations.iter().flat_map(|value| &value.w)),
-            "omega" => {
-                indices.insert(inventory.omega);
+        for blob in [
+            original.descriptor,
+            original.verifying_key,
+            original.proving_key,
+        ] {
+            if identities
+                .insert(blob.sha256, blob)
+                .is_some_and(|old| old != blob)
+            {
+                return Err(invalid("ambiguous candidate identity"));
             }
-            _ => return Err(invalid("unknown candidate original group")),
         }
+        originals.push(original);
     }
-    indices
-        .into_iter()
-        .map(|index| {
-            usize::try_from(index)
-                .ok()
-                .and_then(|index| inventory.originals.get(index))
-                .copied()
-                .ok_or_else(|| invalid("candidate original index outside catalog"))
-        })
-        .collect()
+    Ok(originals)
 }
 
 pub(super) trait CarrierSource {
@@ -68,75 +98,34 @@ impl CarrierSource for DirectoryOriginalsV1 {
 pub(super) struct Candidates {
     input: Original,
     root: PrivateDirectory,
-    pack: Original,
-    catalog: Original,
     directory: DirectoryOriginalsV1,
     identities: BTreeMap<[u8; 32], BlobV1>,
     originals: Vec<OriginalV1>,
 }
 impl Candidates {
     pub(super) fn load(path: &str) -> io::Result<Self> {
-        let input = Original::open(path, REQUEST_MAX, None)?;
+        let input = Original::open(path, CANDIDATE_REQUEST_MAX, None)?;
         let request: ReuseRequest = checked(
             json::from_slice(&input.bytes),
             "closed reuse request required",
         )?;
-        if request.schema != "iroha.kagemusha.wallet-artifact-candidates.v1" {
-            return Err(invalid("unsupported candidate input schema"));
-        }
-        let root = PrivateDirectory::open_exact(&request.carrier_directory)?;
-        let pack = Original::open(
-            root.path()
-                .join("verifier-pack.norito")
-                .to_str()
-                .ok_or_else(|| invalid("candidate path"))?,
-            iroha_core_zk::kagemusha_wallet_artifacts_v1::VERIFIER_PACK_MAX_BYTES_V1,
-            Some(digest(&request.verifier_pack_sha256)?),
-        )?;
-        let catalog = Original::open(
-            root.path()
-                .join("producer-inventory.norito")
-                .to_str()
-                .ok_or_else(|| invalid("candidate path"))?,
-            CATALOG_MAX_BYTES_V1,
-            Some(digest(&request.producer_inventory_sha256)?),
-        )?;
-        let installed = InstalledVerifierPackV1::load(
-            &pack.bytes,
-            InstallationV1 {
-                scheme_id: digest(&request.scheme_id_hex)?,
-                manifest_digest: digest(&request.manifest_digest_hex)?,
-            },
-        )
-        .map_err(io::Error::other)?;
-        let inventory = installed
-            .authenticate_producer_inventory(&catalog.bytes)
-            .map_err(io::Error::other)?;
-        let originals = selected_originals(inventory.inventory(), &request.original_groups)?;
-        let mut identities = BTreeMap::new();
-        for original in &originals {
-            for blob in [
-                original.descriptor,
-                original.verifying_key,
-                original.proving_key,
-            ] {
-                if identities
-                    .insert(blob.sha256, blob)
-                    .is_some_and(|old| old != blob)
-                {
-                    return Err(invalid("ambiguous candidate identity"));
-                }
-            }
-        }
-        let directory = DirectoryOriginalsV1::open_existing(
-            root.path().join("wallet-originals"),
-            PROVING_KEY_MAX_BYTES_V1,
-        )?;
+        let originals = selected_originals(&request)?;
+        let root = PrivateDirectory::open_exact(&request.originals_directory)?;
+        let identities = originals
+            .iter()
+            .flat_map(|original| {
+                [
+                    original.descriptor,
+                    original.verifying_key,
+                    original.proving_key,
+                ]
+            })
+            .map(|blob| (blob.sha256, blob))
+            .collect();
+        let directory = DirectoryOriginalsV1::open_existing(root.path(), PROVING_KEY_MAX_BYTES_V1)?;
         let candidates = Self {
             input,
             root,
-            pack,
-            catalog,
             directory,
             identities,
             originals,
@@ -146,8 +135,6 @@ impl Candidates {
     }
     pub(super) fn recheck(&self) -> io::Result<()> {
         self.input.recheck()?;
-        self.pack.recheck()?;
-        self.catalog.recheck()?;
         self.root.revalidate()
     }
 }
@@ -177,16 +164,6 @@ impl CompilerSources {
         if let Some(candidates) = &self.candidates {
             candidates.recheck()?;
             publish(output, "reuse-candidates.json", &candidates.input.bytes)?;
-            publish(
-                output,
-                "candidate-verifier-pack.norito",
-                &candidates.pack.bytes,
-            )?;
-            publish(
-                output,
-                "candidate-producer-inventory.norito",
-                &candidates.catalog.bytes,
-            )?;
             candidates.recheck()?;
         }
         Ok(())
@@ -220,97 +197,169 @@ impl OriginalSinkV1 for CompilerSources {
 mod tests {
     use super::*;
 
+    fn candidate_row() -> CandidateOriginal {
+        let blob = |byte| CandidateBlob {
+            bytes: 1,
+            sha256: hex::encode(BlobV1::of(&[byte]).sha256),
+        };
+        CandidateOriginal {
+            descriptor: blob(1),
+            verifying_key: blob(2),
+            proving_key: blob(3),
+        }
+    }
+
+    fn request(originals: Vec<CandidateOriginal>) -> ReuseRequest {
+        ReuseRequest {
+            schema: "iroha.kagemusha.wallet-artifact-candidates.v1".into(),
+            originals_directory: "/unopened-candidate-data".into(),
+            originals,
+        }
+    }
+
     #[test]
-    fn explicit_candidate_input_refuses_missing_and_unknown_metadata() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = PrivateDirectory::open_or_create(
-            temp.path().canonicalize().unwrap().join("candidate-input"),
-        )
-        .unwrap();
+    fn explicit_candidate_input_is_closed_and_does_not_accept_retired_authority_fields() {
         let input = format!(
-            r#"{{"schema":"iroha.kagemusha.wallet-artifact-candidates.v1","carrier_directory":"{}","scheme_id_hex":"{}","manifest_digest_hex":"{}","verifier_pack_sha256":"{}","producer_inventory_sha256":"{}","original_groups":["sigma","q"]}}"#,
-            root.path().display(),
+            r#"{{"schema":"iroha.kagemusha.wallet-artifact-candidates.v1","originals_directory":"/unopened-candidate-data","originals":[{{"descriptor":{{"bytes":1,"sha256":"{}"}},"verifying_key":{{"bytes":2,"sha256":"{}"}},"proving_key":{{"bytes":3,"sha256":"{}"}}}}]}}"#,
             "11".repeat(32),
             "22".repeat(32),
             "33".repeat(32),
-            "44".repeat(32)
         );
         let parsed: ReuseRequest = json::from_slice(input.as_bytes()).unwrap();
-        assert_eq!(parsed.carrier_directory, root.path().to_str().unwrap());
-        assert_eq!(parsed.original_groups, ["sigma", "q"]);
+        assert_eq!(selected_originals(&parsed).unwrap().len(), 1);
+        for extra in [
+            r#""admitted":true,"#,
+            r#""scheme_id_hex":"old","#,
+            r#""carrier_directory":"/old","#,
+            r#""original_groups":["sigma"],"#,
+        ] {
+            assert!(
+                json::from_slice::<ReuseRequest>(
+                    input.replacen('{', &format!("{{{extra}"), 1).as_bytes()
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            json::from_slice::<ReuseRequest>(
+                input.replace("\"bytes\":1", "\"bytes\":true").as_bytes()
+            )
+            .is_err()
+        );
         assert!(
             json::from_slice::<ReuseRequest>(
                 input
-                    .replace(",\"original_groups\":[\"sigma\",\"q\"]", "")
+                    .replace("\"bytes\":1", "\"bytes\":1,\"ready\":true")
                     .as_bytes()
             )
             .is_err()
         );
         assert!(
             json::from_slice::<ReuseRequest>(
-                input.replacen('{', "{\"admitted\":true,", 1).as_bytes()
+                input.replace("\"descriptor\":", "\"unknown\":").as_bytes()
             )
             .is_err()
         );
-        publish(&root, "input.json", input.as_bytes()).unwrap();
-        assert!(Candidates::load(root.path().join("input.json").to_str().unwrap()).is_err());
-        publish(&root, "verifier-pack.norito", b"tampered metadata").unwrap();
-        assert!(Candidates::load(root.path().join("input.json").to_str().unwrap()).is_err());
     }
 
     #[test]
-    fn candidate_group_selection_is_exact_bounded_and_deduplicated() {
-        use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::OperationV1;
-        let originals: Vec<_> = (0..7)
-            .map(|index| {
-                let blob = BlobV1::of(&[index]);
-                OriginalV1 {
-                    descriptor: blob,
-                    verifying_key: blob,
-                    proving_key: blob,
-                }
-            })
-            .collect();
-        // Selection-only metadata fixture: this is never passed to the compiler or
-        // used as an authenticated inventory. Production calls only after authentication.
-        let inventory = ProducerInventoryV1 {
-            version: 1,
-            native_profile: [0; 32],
-            originals: originals.clone(),
-            sigma: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-            operations: vec![OperationV1 {
-                variant: 1,
-                own_class: vec![],
-                incoming_class: vec![],
-                context: vec![],
-                q: vec![2, 3, 2],
-                a: vec![4],
-                w: vec![5],
-            }],
-            routes: vec![],
-            terminals: vec![4],
-            omega: 6,
-        };
-        let groups = |values: &[&str]| {
-            values
-                .iter()
-                .map(|value| (*value).to_owned())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            selected_originals(&inventory, &groups(&["sigma", "q"])).unwrap(),
-            originals[..4]
+    fn candidate_selection_bounds_roles_and_refuses_duplicate_or_ambiguous_identities() {
+        assert!(selected_originals(&request(Vec::new())).is_err());
+        assert!(
+            selected_originals(&request(vec![candidate_row(); ARTIFACT_MAX_COUNT_V1 + 1])).is_err()
         );
+        assert!(selected_originals(&request(vec![candidate_row(), candidate_row()])).is_err());
+        for role in 0..3 {
+            for bytes in [
+                0,
+                1 + [
+                    DESCRIPTOR_MAX_BYTES_V1,
+                    VERIFYING_KEY_MAX_BYTES_V1,
+                    PROVING_KEY_MAX_BYTES_V1,
+                ][role] as u64,
+            ] {
+                let mut row = candidate_row();
+                [
+                    &mut row.descriptor,
+                    &mut row.verifying_key,
+                    &mut row.proving_key,
+                ][role]
+                    .bytes = bytes;
+                assert!(selected_originals(&request(vec![row])).is_err());
+            }
+        }
+        let mut shared = candidate_row();
+        shared.proving_key.sha256 = "44".repeat(32);
         assert_eq!(
-            selected_originals(&inventory, &groups(&["omega", "w", "a", "q", "sigma"])).unwrap(),
-            originals
+            selected_originals(&request(vec![candidate_row(), shared.clone()]))
+                .unwrap()
+                .len(),
+            2
         );
-        assert!(selected_originals(&inventory, &[]).is_err());
-        assert!(selected_originals(&inventory, &groups(&["q", "q"])).is_err());
-        assert!(selected_originals(&inventory, &groups(&["unverified"])).is_err());
-        let mut malformed = inventory;
-        malformed.operations[0].q.push(7);
-        assert!(selected_originals(&malformed, &groups(&["q"])).is_err());
+        shared.descriptor.bytes += 1;
+        assert!(selected_originals(&request(vec![candidate_row(), shared])).is_err());
+        for hash in ["00".repeat(32), "AA".repeat(32), "../not-a-digest".into()] {
+            let mut row = candidate_row();
+            row.proving_key.sha256 = hash;
+            assert!(selected_originals(&request(vec![row])).is_err());
+        }
+        let mut wrong_schema = request(vec![candidate_row()]);
+        wrong_schema.schema.push_str("-other");
+        assert!(selected_originals(&wrong_schema).is_err());
+    }
+
+    #[test]
+    fn candidate_manifest_is_retained_and_files_remain_untrusted_until_compiler_import() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = PrivateDirectory::open_or_create(
+            temp.path().canonicalize().unwrap().join("candidate-input"),
+        )
+        .unwrap();
+        let originals = root.create_child("originals").unwrap();
+        let row = candidate_row();
+        for (data, blob) in [
+            (1, &row.descriptor),
+            (2, &row.verifying_key),
+            (3, &row.proving_key),
+        ] {
+            publish(&originals, &blob.sha256, &[data]).unwrap();
+        }
+        let input = format!(
+            r#"{{"schema":"iroha.kagemusha.wallet-artifact-candidates.v1","originals_directory":"{}","originals":[{{"descriptor":{{"bytes":1,"sha256":"{}"}},"verifying_key":{{"bytes":1,"sha256":"{}"}},"proving_key":{{"bytes":1,"sha256":"{}"}}}}]}}"#,
+            originals.path().display(),
+            row.descriptor.sha256,
+            row.verifying_key.sha256,
+            row.proving_key.sha256,
+        );
+        publish(&root, "input.json", input.as_bytes()).unwrap();
+        let loaded = Candidates::load(root.path().join("input.json").to_str().unwrap()).unwrap();
+        assert_eq!(loaded.originals.len(), 1);
+        let cache = root.create_child("cache").unwrap();
+        let mut source = CompilerSources::new(
+            DirectoryOriginalsV1::open_existing(cache.path(), PROVING_KEY_MAX_BYTES_V1).unwrap(),
+            Some(loaded),
+        );
+        let output = root.create_child("retained").unwrap();
+        source.retain_inputs(&output).unwrap();
+        assert_eq!(
+            std::fs::read(output.path().join("reuse-candidates.json")).unwrap(),
+            input.as_bytes()
+        );
+        // Valid content hashes and a manifest do not turn these arbitrary bytes into a key.
+        let scope = SourceScopeV1::new([1, 2], Affine::GENERATOR).unwrap();
+        let config = ReadConfig {
+            maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
+            maximum_rows: 1 << 16,
+            coset_cache: CosetCachePolicy::OnDemand,
+            msm_budget: MemoryBudget::DEFAULT,
+        };
+        let selected = source.candidate_originals();
+        let mut compiler = OfflineCompilerV1::new(scope, &mut source, config, OUTPUT_MAX).unwrap();
+        assert!(compiler.index_original(selected[0]).is_err());
+        drop(compiler);
+        std::fs::remove_file(root.path().join("input.json")).unwrap();
+        publish(&root, "input.json", input.as_bytes()).unwrap();
+        assert!(source.recheck().is_err());
     }
 
     #[test]
@@ -321,9 +370,7 @@ mod tests {
                 .unwrap();
         let previous = root.create_child("previous").unwrap();
         let current = root.create_child("current").unwrap();
-        for name in ["input", "pack", "catalog"] {
-            publish(&previous, name, b"routing fixture only").unwrap();
-        }
+        publish(&previous, "input", b"routing fixture only").unwrap();
         let original =
             |name| Original::open(previous.path().join(name).to_str().unwrap(), 100, None).unwrap();
         let mut directory = DirectoryOriginalsV1::open_existing(previous.path(), 1024).unwrap();
@@ -335,11 +382,9 @@ mod tests {
         fresh
             .store_original(selected, b"candidate original")
             .unwrap();
-        // Only the private routing fixture bypasses signed-metadata loading; it grants nothing.
+        // Only this private routing fixture constructs the lookup owner directly; it grants nothing.
         let candidates = Candidates {
             input: original("input"),
-            pack: original("pack"),
-            catalog: original("catalog"),
             root: previous,
             directory,
             identities: BTreeMap::from([(selected.sha256, selected)]),

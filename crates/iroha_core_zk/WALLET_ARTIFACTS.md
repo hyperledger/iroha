@@ -47,21 +47,24 @@ contains the verifier pack, producer inventory, transport and financial-original
 metadata, and the closed `wallet-originals` directory. Provisional compiler
 originals are excluded from the carrier.
 
-To reuse a previous carrier's originals, pass
+To reuse current-format compact originals, pass
 `--reuse-candidates /absolute/private/inputs/candidates.json`. The closed JSON
 has `schema: "iroha.kagemusha.wallet-artifact-candidates.v1"`,
-`carrier_directory`, `scheme_id_hex`, `manifest_digest_hex`,
-`verifier_pack_sha256` and `producer_inventory_sha256`. The four digest values
-are nonzero lowercase 64-digit hex strings. Its paths and file protections follow
-the same rules as the production request.
+`originals_directory` and `originals`. Each entry in `originals` contains exactly
+`descriptor`, `verifying_key` and `proving_key`; each is an object with `bytes`
+and a nonzero lowercase 64-digit `sha256`. The private directory holds these
+immutable content-addressed files. The manifest is at most 4 MiB and selects
+1–4,096 unique triples; shared blobs must have consistent lengths. Its paths and
+file protections follow the same rules as the production request.
 
-The command authenticates the pinned pack and canonical catalog, and indexes
+The command checks every named original's length and digest, and indexes
 each exact protected original through the shared compiler. Candidates remain
 read-only in their existing directory. A matching source fingerprint still
 requires complete current-source import; a changed fingerprint generates a new
 key in this run's cache. A missing or changed named candidate is an error, never
 a reason to fall back to another copy. Only the final selected roster is copied
-to the new carrier. The output retains the candidate request, pack and catalog.
+to the new carrier. The output retains the candidate request. The request is
+untrusted lookup data, not a signed catalogue or a source-admission capability.
 Candidate input grants no installation or finality authority. A new network
 still requires its genuine signed genesis and newly signed scheme metadata.
 
@@ -70,6 +73,28 @@ For read-only compatibility diagnosis, run
 It authenticates the selected pack and catalog, imports every sigma, Q program
 and operation route, and checks the complete Omega closure. It does not admit
 genesis, a wallet runtime or financial execution.
+
+The explicit finite-profile build path uses
+`--export-builtin-profile /absolute/private/profile-request.json`. Its closed
+request has schema `iroha.kagemusha.builtin-source-profile.v1`,
+`carrier_directory`, `verifier_pack_name`, `originals_name`, `encoded`,
+`scheme_id`, `manifest_digest`, `chain_id`, `network_id_hex`,
+`genesis_public_key`, `signed_genesis` (the path/hash object above), and an
+existing private `output_directory`. Encoded carriers use `wallet-originals`.
+No role signing key is needed. The output `builtin-profile-entry.rs` is created
+only after independent signed-genesis authentication, unconditional complete
+strict source qualification and another bounded read of every selected original.
+It cannot be loaded as runtime authority: selected entries must be compiled into
+the engine's closed `keys/keygen/builtin/generated.rs` table.
+
+`--inspect-builtin-profile` takes the same public request and exercises the
+explicit compiled-profile path. It checks the independent native genesis,
+complete ordered graph and every original, and fails if the compiled profile is
+unknown or stale. The build computes its own current source-input identity;
+export never accepts an identity supplied by the request. Existing strict APIs
+remain unconditional and are the generator's independent reference. This changes
+neither signed circuit identities nor proof bytes. Native phone latency must be
+measured using the resulting build; export success is not a timing result.
 
 ## Native Load Finality
 

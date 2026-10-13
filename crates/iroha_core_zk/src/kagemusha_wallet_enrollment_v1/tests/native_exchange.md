@@ -45,15 +45,25 @@ asset incarnation or old genesis fixture.
 4. Run `actual_native_a_to_b_to_c_then_unload_with_restart_and_replay` with a fresh
    `KAGEMUSHA_NATIVE_EXCHANGE_OUTPUT`, the existing `KAGEMUSHA_NATIVE_LOAD_TARGET` manifest
    path and `_SHA256`, and exact `KAGEMUSHA_NATIVE_LOAD_RECEIPT` / `_SHA256` and
-   `KAGEMUSHA_NATIVE_LOAD_FINALITY` / `_SHA256`. It requalifies sources and reopens the SAME
-persisted A custody and original key. It never reenrolls A or reconstructs its Bootstrap.
+   `KAGEMUSHA_NATIVE_LOAD_FINALITY` / `_SHA256`. Also provide the existing
+   `KAGEMUSHA_EXECUTED_LOAD_CAPTURE` / `_SHA256` and
+   `KAGEMUSHA_EXECUTED_LOAD_RECEIPT_SHA256`. It requalifies sources and reopens the SAME
+   persisted A custody and original key. It never reenrolls A or reconstructs its Bootstrap.
+   Before Load, it confirms the already committed H4 Activate through the native activation
+   cursor using the exact signed transaction and H1–H4 finality originals. A complete host
+   owner restart must retain this confirmation without another payment signature. The fixture
+   first asserts the unconfirmed activation refusal, then retains the strict proof-rejection
+   checks for changed receipt, QC and event evidence after confirmation.
    B and C enroll against their own registered accounts and native account challenges;
    the final Unload claim must pay C's account, distinct from A and B.
 
 The consumer tests actual Load verification, duplicate refusal, pending irreversible Send
 recovery, lost delivery/exact-byte replay, invalid incoming proof refusal, local Receive
 fold checkpoints/restart, onward Send only after folding, unavailable storage, A→B→C
-conservation, Archive, and an actual verified Unload package. It exports the exact canonical
+conservation, Archive, and an actual verified Unload package. A second positive Unload must
+first report `FoldRequired`, then fail native preparation after the depleted head is fully
+folded; neither refusal nor folding may sign another payment or alter the original claim.
+It exports the exact canonical
 Unload claim for separate node execution. Its result explicitly does **not** claim ledger
 settlement, four-validator network qualification, physical attestation or phone gates.
 

@@ -60,46 +60,94 @@ use rayon::prelude::*;
 // process-wide test counter or any shipping configuration.
 #[cfg(test)]
 pub(crate) mod test_observation {
-    use std::{cell::Cell, marker::PhantomData, rc::Rc, thread::LocalKey};
+    use std::{
+        cell::{Cell, RefCell},
+        marker::PhantomData,
+        rc::Rc,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        thread::LocalKey,
+    };
 
     thread_local! {
         static CALLS: Cell<Option<usize>> = const { Cell::new(None) };
+        static PARTIAL_CALLS: Cell<Option<usize>> = const { Cell::new(None) };
+        static PARTIAL_OBSERVER: RefCell<Option<Arc<AtomicUsize>>> = const { RefCell::new(None) };
     }
 
     /// An unwind-safe observation confined to its originating test thread.
     pub struct CommitmentProbe {
         calls: &'static LocalKey<Cell<Option<usize>>>,
+        shared: Option<Arc<AtomicUsize>>,
         _not_send: PhantomData<Rc<()>>,
     }
 
     impl CommitmentProbe {
         /// Begin a non-nested observation of actual commitment entries.
         pub(crate) fn start() -> Self {
-            CALLS.with(|calls| {
+            Self::start_on(&CALLS)
+        }
+
+        /// Observe actual public partial-MSM entries, including failed kernels.
+        pub(crate) fn start_partial() -> Self {
+            let mut probe = Self::start_on(&PARTIAL_CALLS);
+            let shared = Arc::new(AtomicUsize::new(0));
+            PARTIAL_OBSERVER.with(|observer| *observer.borrow_mut() = Some(Arc::clone(&shared)));
+            probe.shared = Some(shared);
+            probe
+        }
+
+        fn start_on(counter: &'static LocalKey<Cell<Option<usize>>>) -> Self {
+            counter.with(|calls| {
                 assert!(calls.get().is_none(), "nested commitment probe");
                 calls.set(Some(0));
             });
             Self {
-                calls: &CALLS,
+                calls: counter,
+                shared: None,
                 _not_send: PhantomData,
             }
         }
 
-        /// Number of calls through the shared commitment entry on this thread.
+        /// Number of observed entries, including this scope's joined partial workers.
         pub(crate) fn calls(&self) -> usize {
-            self.calls
-                .with(|calls| calls.get().expect("active commitment probe"))
+            self.shared.as_ref().map_or_else(
+                || {
+                    self.calls
+                        .with(|calls| calls.get().expect("active commitment probe"))
+                },
+                |shared| shared.load(Ordering::Relaxed),
+            )
         }
     }
 
     impl Drop for CommitmentProbe {
         fn drop(&mut self) {
+            if self.shared.is_some() {
+                PARTIAL_OBSERVER.with(|observer| *observer.borrow_mut() = None);
+            }
             self.calls.with(|calls| calls.set(None));
         }
     }
 
-    pub(super) fn record() {
-        CALLS.with(|calls| {
+    pub(in crate::pcs::ipa) fn record() {
+        record_on(&CALLS);
+    }
+
+    pub(in crate::pcs::ipa) fn partial_observation() -> Option<Arc<AtomicUsize>> {
+        PARTIAL_OBSERVER.with(|observer| observer.borrow().clone())
+    }
+
+    pub(in crate::pcs::ipa) fn record_partial(observer: Option<&Arc<AtomicUsize>>) {
+        if let Some(observer) = observer {
+            observer.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn record_on(counter: &'static LocalKey<Cell<Option<usize>>>) {
+        counter.with(|calls| {
             if let Some(count) = calls.get() {
                 calls.set(Some(
                     count.checked_add(1).expect("commitment probe overflow"),

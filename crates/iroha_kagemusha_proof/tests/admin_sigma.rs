@@ -379,6 +379,18 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     )
     .unwrap();
     let original = key.artifact_bytes_v2().unwrap();
+    let metadata = BootstrapProver::admit_original_artifact_cancellable(
+        params.clone(),
+        key.binding().encoded(),
+        key.vk().to_bytes(),
+        &original,
+        admin_read_config(&original),
+        None,
+    )
+    .unwrap();
+    assert_eq!(metadata.binding(), key.binding());
+    assert_eq!(metadata.verifying_key().to_bytes(), key.vk().to_bytes());
+    drop(metadata);
     let installed = BootstrapProver::from_original_artifact(
         params,
         key.binding().encoded(),
@@ -421,6 +433,18 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     )
     .unwrap();
     let original = key.artifact_bytes_v2().unwrap();
+    let metadata = LoadProver::admit_original_artifact_cancellable(
+        params.clone(),
+        key.binding().encoded(),
+        key.vk().to_bytes(),
+        &original,
+        admin_read_config(&original),
+        None,
+    )
+    .unwrap();
+    assert_eq!(metadata.binding(), key.binding());
+    assert_eq!(metadata.verifying_key().to_bytes(), key.vk().to_bytes());
+    drop(metadata);
     let installed = LoadProver::from_original_artifact(
         params,
         key.binding().encoded(),
@@ -509,7 +533,26 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
             bytes,
             config,
         );
-        match operation {
+        macro_rules! admit {
+            ($owner:ty) => {
+                <$owner>::admit_original_artifact_cancellable(
+                    args.0.clone(),
+                    args.1,
+                    args.2,
+                    args.3,
+                    args.4,
+                    None,
+                )
+            };
+        }
+        let metadata = match operation {
+            0 => admit!(BootstrapProver),
+            1 => admit!(LoadProver),
+            2 => admit!(UnloadProver),
+            3 => admit!(RetiringProver),
+            _ => unreachable!("fixed test operation"),
+        };
+        let full = match operation {
             0 => BootstrapProver::from_original_artifact(args.0, args.1, args.2, args.3, args.4)
                 .map(|_| ()),
             1 => LoadProver::from_original_artifact(args.0, args.1, args.2, args.3, args.4)
@@ -519,7 +562,12 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
             3 => RetiringProver::from_original_artifact(args.0, args.1, args.2, args.3, args.4)
                 .map(|_| ()),
             _ => unreachable!("fixed test operation"),
-        }
+        };
+        assert_eq!(
+            metadata.as_ref().err().map(|error| format!("{error:?}")),
+            full.as_ref().err().map(|error| format!("{error:?}")),
+        );
+        full
     };
     for (source, key) in keys.iter().enumerate() {
         assert_eq!(
@@ -592,10 +640,29 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
     corrupted[copy_start + 32..copy_start + 64].fill(0xff);
     assert!(matches!(
         mount(0, key, &corrupted, config),
-        Err(AdminSigmaError::Artifact(ArtifactError::Encoding))
+        Err(AdminSigmaError::Artifact(ArtifactError::Source))
     ));
     let import = |descriptor: &[u8], vk: &[u8]| {
-        BootstrapProver::from_original_artifact(params.clone(), descriptor, vk, &original, config)
+        let metadata = BootstrapProver::admit_original_artifact_cancellable(
+            params.clone(),
+            descriptor,
+            vk,
+            &original,
+            config,
+            None,
+        );
+        let full = BootstrapProver::from_original_artifact(
+            params.clone(),
+            descriptor,
+            vk,
+            &original,
+            config,
+        );
+        assert_eq!(
+            metadata.as_ref().err().map(|error| format!("{error:?}")),
+            full.as_ref().err().map(|error| format!("{error:?}")),
+        );
+        full
     };
     assert!(import(&[], key.vk().to_bytes()).is_err());
     assert!(import(&vec![0; (1 << 20) + 1], key.vk().to_bytes()).is_err());
@@ -618,6 +685,17 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
             key.vk().to_bytes(),
             &original,
             config,
+        ),
+        Err(AdminSigmaError::Parameters)
+    ));
+    assert!(matches!(
+        BootstrapProver::admit_original_artifact_cancellable(
+            common::vesta_params(11),
+            key.binding().encoded(),
+            key.vk().to_bytes(),
+            &original,
+            config,
+            None,
         ),
         Err(AdminSigmaError::Parameters)
     ));

@@ -1095,18 +1095,19 @@ fn certified_originals_source_gate_is_exact_and_current() {
     use std::collections::BTreeSet;
     let account = AccountId::new(iroha_crypto::KeyPair::random().public_key().clone());
     let mut world = World::with([], [Account::new(account.clone()).build(&account)], []);
-    assert!(require_names_read_authority(&world, &account).is_err());
+    assert!(require_names_read_authority(&world.view(), &account).is_err());
     let permission: Permission =
         iroha_executor_data_model::permission::query::CanReadCertifiedOriginals.into();
     world
         .account_permissions
         .insert(account.clone(), BTreeSet::from([permission]));
-    require_names_read_authority(&world, &account).expect("exact narrow original-read permission");
+    require_names_read_authority(&world.view(), &account)
+        .expect("exact narrow original-read permission");
     world
         .account_permissions
         .insert(account.clone(), BTreeSet::new());
     assert!(
-        require_names_read_authority(&world, &account).is_err(),
+        require_names_read_authority(&world.view(), &account).is_err(),
         "revocation applies to the current source World"
     );
     world.account_permissions.insert(
@@ -1117,7 +1118,7 @@ fn certified_originals_source_gate_is_exact_and_current() {
         )]),
     );
     assert!(
-        require_names_read_authority(&world, &account).is_err(),
+        require_names_read_authority(&world.view(), &account).is_err(),
         "matching permission names never authorize malformed payloads"
     );
 }

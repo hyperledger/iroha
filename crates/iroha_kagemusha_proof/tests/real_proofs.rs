@@ -520,20 +520,46 @@ fn installed_sigma_originals_prove_and_preserve_key_continuity() {
             let producer = SigmaProver::keygen_with_params(shape, params.clone()).unwrap();
             let original = producer.proving_key().artifact_bytes_v2().unwrap();
             let verifier = producer.verifier();
+            let table_bytes = (producer.proving_key().fixed_values().len()
+                + producer.proving_key().permutation_values().len())
+                * producer.proving_key().binding().n()
+                * 32;
+            assert_eq!(original.len(), 108 + verifier.vk_bytes().len());
+            // Measure the runtime import with only its compact original and public
+            // metadata retained; fixture key generation is a separate phase.
+            drop(producer);
+            let read = ReadConfig {
+                maximum_bytes: original.len(),
+                maximum_rows: 1 << shape.k,
+                coset_cache: CosetCachePolicy::OnDemand,
+                msm_budget: MemoryBudget::DEFAULT,
+            };
+            let started = std::time::Instant::now();
+            let metadata = SigmaProver::<C>::admit_original_artifact_cancellable(
+                shape,
+                params.clone(),
+                verifier.descriptor_bytes(),
+                verifier.vk_bytes(),
+                &original,
+                read,
+                None,
+            )
+            .expect("compact sigma metadata admission");
+            let admission_ms = started.elapsed().as_millis();
+            assert_eq!(metadata.binding(), verifier.binding());
+            assert_eq!(metadata.verifying_key().to_bytes(), verifier.vk_bytes());
+            drop(metadata);
+            let started = std::time::Instant::now();
             let imported = SigmaProver::from_original_artifact(
                 shape,
                 params,
                 verifier.descriptor_bytes(),
                 verifier.vk_bytes(),
                 &original,
-                ReadConfig {
-                    maximum_bytes: original.len(),
-                    maximum_rows: 1 << shape.k,
-                    coset_cache: CosetCachePolicy::OnDemand,
-                    msm_budget: MemoryBudget::DEFAULT,
-                },
+                read,
             )
             .expect("installed sigma original");
+            let import_ms = started.elapsed().as_millis();
             assert!(!imported.proving_key().has_coset_cache());
             assert_eq!(
                 imported.proving_key().artifact_bytes_v2().unwrap(),
@@ -542,15 +568,28 @@ fn installed_sigma_originals_prove_and_preserve_key_continuity() {
             assert_eq!(imported.verifier().vk_bytes(), verifier.vk_bytes());
             assert_eq!(imported.verifier().binding(), verifier.binding());
             let witness = sample_witness::<C::ScalarExt>(CHECK_SEED, relation, Mutation::None);
+            let started = std::time::Instant::now();
             let proof = imported
                 .prove(&witness, recovery(81))
                 .expect("genuine imported sigma proof");
+            let prove_ms = started.elapsed().as_millis();
             verifier
                 .verify(&proof.public, &proof.bytes)
                 .expect("original installed key");
             let mut wrong = proof.public;
             wrong.statement += C::ScalarExt::ONE;
             assert!(verifier.verify(&wrong, &proof.bytes).is_err());
+            println!(
+                "COMPACT_SIGMA curve={:?} relation={} k={} original_bytes={} reconstructed_table_bytes={} admission_ms={} post_admission_import_ms={} prove_ms={}",
+                verifier.binding().descriptor().curve,
+                relation.label(),
+                shape.k,
+                original.len(),
+                table_bytes,
+                admission_ms,
+                import_ms,
+                prove_ms,
+            );
         }
     }
     run::<Eq>();
@@ -568,6 +607,31 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         },
         pcs::ipa::PinnedParams,
     };
+    fn mount_source<C: iroha_pasta::PastaCurve>(
+        shape: iroha_kagemusha_proof::SigmaShape,
+        params: PinnedParams<C>,
+        descriptor: &[u8],
+        vk: &[u8],
+        original: &[u8],
+        config: ReadConfig,
+    ) -> Result<SigmaProver<C>, SigmaError>
+    where
+        C::ScalarExt: iroha_pasta::poseidon::PoseidonField,
+    {
+        let metadata = SigmaProver::admit_original_artifact_cancellable(
+            shape,
+            params.clone(),
+            descriptor,
+            vk,
+            original,
+            config,
+            None,
+        );
+        let full =
+            SigmaProver::from_original_artifact(shape, params, descriptor, vk, original, config);
+        assert_eq!(metadata.as_ref().err(), full.as_ref().err());
+        full
+    }
     let shape = budget_shape(folded(SigmaRelation::SEND));
     let params = common::vesta_params(shape.k);
     let producer = SigmaProver::keygen_with_params(shape, params.clone()).unwrap();
@@ -580,7 +644,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         msm_budget: MemoryBudget::DEFAULT,
     };
     let mount = |bytes: &[u8], selected: ReadConfig| {
-        SigmaProver::from_original_artifact(
+        mount_source(
             shape,
             params.clone(),
             verifier.descriptor_bytes(),
@@ -618,16 +682,16 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         Err(SigmaError::Artifact(ArtifactError::Encoding))
     ));
     let vk_len = u32::from_le_bytes(original[40..44].try_into().unwrap()) as usize;
-    let tables_start = 44 + vk_len + 32;
+    let source_digest_start = 44 + vk_len + 32;
     corrupted = original.clone();
-    corrupted[tables_start..tables_start + 32].fill(0xff);
+    corrupted[source_digest_start..source_digest_start + 32].fill(0xff);
     assert!(matches!(
         mount(&corrupted, config),
-        Err(SigmaError::Artifact(ArtifactError::Encoding))
+        Err(SigmaError::Artifact(ArtifactError::Source))
     ));
     let other_source = budget_shape(folded(SigmaRelation::RECEIVE));
     assert!(matches!(
-        SigmaProver::from_original_artifact(
+        mount_source(
             other_source,
             params.clone(),
             verifier.descriptor_bytes(),
@@ -643,7 +707,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         .unwrap()
         .verifier();
     assert!(matches!(
-        SigmaProver::from_original_artifact(
+        mount_source(
             shape,
             params.clone(),
             verifier.descriptor_bytes(),
@@ -654,7 +718,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         Err(SigmaError::ArtifactKeyMismatch | SigmaError::VerifyingKey(_))
     ));
     assert!(matches!(
-        SigmaProver::from_original_artifact(
+        mount_source(
             shape,
             common::vesta_params(6),
             verifier.descriptor_bytes(),
@@ -665,7 +729,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         Err(SigmaError::ParamsK { .. })
     ));
     assert!(matches!(
-        SigmaProver::from_original_artifact(
+        mount_source(
             shape,
             params.clone(),
             &[0; 32],
@@ -679,7 +743,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         iroha_plonk::cs::CircuitDescriptorV2::decode(verifier.descriptor_bytes()).unwrap();
     wrong_profile.instance_types[0] = iroha_plonk::cs::InstanceType::Field;
     assert!(matches!(
-        SigmaProver::from_original_artifact(
+        mount_source(
             shape,
             params.clone(),
             &wrong_profile.encode().unwrap(),
@@ -690,7 +754,7 @@ fn installed_sigma_originals_reject_substitution_bounds_and_wrong_source() {
         Err(SigmaError::Profile)
     ));
     assert!(
-        SigmaProver::<Ep>::from_original_artifact(
+        mount_source::<Ep>(
             shape,
             PinnedParams::<Ep>::derive(shape.k).unwrap(),
             verifier.descriptor_bytes(),

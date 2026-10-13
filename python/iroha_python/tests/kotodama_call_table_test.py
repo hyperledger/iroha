@@ -1,8 +1,8 @@
 """Public schema table bounds agree with the final V1 compiler and node."""
 
 import pytest
-from iroha_python.client import ContractEntrypointDescriptor
 
+from iroha_python.client import ContractEntrypointDescriptor
 
 _BOOLEAN = ("bool", [{"kind": "Leaf", "value": {"kind": "Bool", "value": None}}])
 _UNIT = ("()", [{"kind": "Unit", "value": None}])

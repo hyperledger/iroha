@@ -1707,7 +1707,7 @@ fn authenticated_bootstrap_for_schemes(
             match mutation {
                 0 => bad[0].vk.clone_from(&originals[2].vk),
                 1 => bad[0].pk[44 + originals[0].vk.len()] ^= 1, // exact copy digest
-                2 => bad[0].pk[44 + originals[0].vk.len() + 32] ^= 1, // fixed table
+                2 => bad[0].pk[44 + originals[0].vk.len() + 32] ^= 1, // source fingerprint
                 3 => bad.swap(0, 2), // same descriptor, different installed stage source
                 4 => bad[1].descriptor.clone_from(&originals[0].descriptor),
                 5 => bad[0].pk.push(0),

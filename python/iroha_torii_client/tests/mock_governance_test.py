@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from iroha_torii_client.mock import _MockState, _canonical_hash
-
+from iroha_torii_client.mock import _canonical_hash, _MockState
 
 OWNER = "sorauﾛ1PｺfMﾇﾘｾﾄoﾂﾊﾔH7ZdﾘhﾚmAｸdnｳu1ｱﾄ1ｺﾋuSﾑﾀﾇﾐuHEB5DP"
 CONTRACT_ADDRESS = "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw"

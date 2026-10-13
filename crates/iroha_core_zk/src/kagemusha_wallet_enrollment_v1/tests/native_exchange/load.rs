@@ -155,6 +155,7 @@ struct Inputs {
     receipt: KagemushaWalletLoadReceiptV1,
     receipt_bytes: Vec<u8>,
     blocks: Vec<VerifiedSumeragiBlock>,
+    activation_proofs: Vec<Vec<u8>>,
     event: MerkleProof<EventBox>,
     capture_sha256: String,
     target_sha256: String,
@@ -350,9 +351,13 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     assert_eq!(rows.len(), 4);
     let mut native = genesis.clone();
     let mut blocks = Vec::new();
+    let mut activation_proofs = Vec::new();
     for height in 1..=5 {
         let original = &frames[&format!("native-proof-{height}.norito")];
         let proof: SumeragiFinalityProof = decode(original);
+        if height <= 4 {
+            activation_proofs.push(original.clone());
+        }
         assert_eq!(proof.height(), height);
         assert_eq!(proof.block_wire, frames[&format!("block-{height}.wire")]);
         if height <= 2 {
@@ -430,11 +435,65 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         receipt,
         receipt_bytes,
         blocks,
+        activation_proofs,
         event,
         capture_sha256: sha(&capture_bytes),
         target_sha256: sha(&target_bytes),
         setup_sha256: sha(&setup_bytes),
     }
+}
+
+// Confirm the exact already-executed Activate before the first native Load. No
+// transaction, activation proof, ledger result or finality certificate is synthesized.
+pub(super) fn confirm_existing_activation(
+    wallet: &mut Wallet,
+    sources: &Sources,
+) -> (Vec<u8>, state::LedgerProgressV1) {
+    use state::ActivationFinalityProgressV1 as Progress;
+
+    let (scheme_id, manifest_digest) = sources.qualified.installation();
+    let input = inputs(
+        &sources.genesis,
+        InstallationV1 {
+            scheme_id,
+            manifest_digest,
+        },
+    );
+    let activation = input
+        .blocks
+        .iter()
+        .find(|block| block.height() == 4)
+        .unwrap();
+    // The executed Core fixture asserts Install then Activate at H4. Native intake
+    // below independently checks the exact A authority, signature and inner original.
+    assert_eq!(activation.block().external_transactions().count(), 2);
+    let signed = activation
+        .block()
+        .external_transactions()
+        .nth(1)
+        .unwrap()
+        .encode_wire_v1()
+        .unwrap();
+    assert_eq!(
+        wallet.retain_activation_attempt(&signed).unwrap(),
+        Progress::NotStarted
+    );
+    assert_eq!(input.activation_proofs.len(), 4);
+    for (index, original) in input.activation_proofs.iter().enumerate() {
+        let height = u64::try_from(index + 1).unwrap();
+        let progress = wallet
+            .ingest_activation_finality(&signed, original)
+            .unwrap();
+        match progress {
+            Progress::Verifying(value) if height < 4 => assert_eq!(value.height, height),
+            Progress::Confirmed(value) if height == 4 => assert_eq!(value.height, 4),
+            other => panic!("unexpected native activation status at {height}: {other:?}"),
+        }
+    }
+    let confirmed = wallet.confirm_ledger_activation(&signed).unwrap();
+    assert_eq!(confirmed.height, 4);
+    assert_eq!(confirmed.block_hash, *activation.block().hash().as_ref());
+    (signed, confirmed)
 }
 
 fn verify_output(

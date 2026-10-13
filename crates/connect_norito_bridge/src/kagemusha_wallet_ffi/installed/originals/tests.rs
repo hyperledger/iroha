@@ -227,13 +227,30 @@ fn wallet_data_fixture() -> (
 #[test]
 fn wallet_catalog_reader_requires_only_wallet_artifacts() {
     let (_temp, root, inventory, originals) = wallet_data_fixture();
-    let mut source = CatalogReader::load(
+    let mut source = CatalogReader::open(
         PrivateDirectory::open_exact(&root).unwrap(),
         &root,
         &inventory,
         &fixture_transport(&root),
     )
     .unwrap();
+    source
+        .with_snapshot::<_, OriginalError>(|snapshot| {
+            for original in &originals {
+                let mut bytes = Vec::new();
+                snapshot
+                    .open(BlobV1::of(original).sha256)?
+                    .read_to_end(&mut bytes)
+                    .unwrap();
+                assert_eq!(&bytes, original);
+            }
+            assert!(matches!(
+                snapshot.open([0x55; 32]),
+                Err(OriginalError::Inventory)
+            ));
+            Ok(())
+        })
+        .unwrap();
     for original in &originals {
         let digest = BlobV1::of(original).sha256;
         let mut bytes = Vec::new();
@@ -251,10 +268,10 @@ fn wallet_catalog_reader_requires_only_wallet_artifacts() {
 }
 
 #[test]
-fn wallet_catalog_reader_refuses_changed_extent_hash_or_missing_original() {
+fn wallet_catalog_snapshot_refuses_changed_extent_hash_or_missing_original() {
     let (_temp, root, inventory, originals) = wallet_data_fixture();
     let load = |inventory: &ProducerInventoryV1| {
-        CatalogReader::load(
+        CatalogReader::open(
             PrivateDirectory::open_exact(&root).unwrap(),
             &root,
             inventory,
@@ -271,7 +288,53 @@ fn wallet_catalog_reader_refuses_changed_extent_hash_or_missing_original() {
     // Identical bytes outside the selected directory cannot satisfy the catalog.
     let name = hex::encode(BlobV1::of(&originals[1]).sha256);
     std::fs::rename(root.join("wallet-originals").join(&name), root.join(&name)).unwrap();
-    assert!(load(&inventory).is_err_and(|error| error.status == INVALID));
+    let source = load(&inventory).unwrap();
+    let mut entered = false;
+    assert!(
+        source
+            .with_snapshot::<_, OriginalError>(|_| {
+                entered = true;
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(!entered);
+}
+
+#[test]
+fn wallet_snapshot_keeps_observed_original_identity_for_live_runtime_reads() {
+    let (_temp, root, inventory, originals) = wallet_data_fixture();
+    let mut source = CatalogReader::open(
+        PrivateDirectory::open_exact(&root).unwrap(),
+        &root,
+        &inventory,
+        &fixture_transport(&root),
+    )
+    .unwrap();
+    source
+        .with_snapshot::<_, OriginalError>(|_| Ok(()))
+        .unwrap();
+    let digest = BlobV1::of(&originals[0]).sha256;
+    let path = root.join("wallet-originals").join(hex::encode(digest));
+    std::fs::rename(path, root.join("retained-original")).unwrap();
+    assert!(matches!(source.open(digest), Err(OriginalError::Inventory)));
+}
+
+#[test]
+fn wallet_snapshot_closes_metadata_ancestry_on_body_failure() {
+    let (_temp, root, inventory, _) = wallet_data_fixture();
+    let source = CatalogReader::open(
+        PrivateDirectory::open_exact(&root).unwrap(),
+        &root,
+        &inventory,
+        &fixture_transport(&root),
+    )
+    .unwrap();
+    let result = source.with_snapshot::<(), OriginalError>(|_| {
+        std::fs::rename(&root, root.with_file_name("retained-bundle")).unwrap();
+        Err(OriginalError::Unavailable)
+    });
+    assert!(matches!(result, Err(OriginalError::Inventory)));
 }
 
 #[test]

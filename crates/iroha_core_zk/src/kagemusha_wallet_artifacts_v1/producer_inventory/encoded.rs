@@ -1,7 +1,7 @@
 //! Lossless mobile carrier DATA. Signed identities always name decoded originals.
 //!
 //! The storage envelope grants no source authority. Every read retains no-follow
-//! custody and checks both identities; native source reconstruction remains required.
+//! custody and checks both identities; native source qualification remains required.
 //! Raw compiler inputs have a separate owner and are never a mobile fallback.
 
 use std::{
@@ -30,6 +30,9 @@ pub const TRANSPORT_MAX_BYTES_V1: usize = 32 << 20;
 const ROWS: usize = ARTIFACT_MAX_COUNT_V1 * 3;
 const WINDOW_LOG: u32 = 23;
 const SCHEMA: &str = "iroha.kagemusha.wallet-artifact-original-transport.v1";
+
+#[path = "encoded/snapshot.rs"]
+mod snapshot;
 
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -195,21 +198,29 @@ impl EncodedTransportV1 {
     }
 }
 
-struct StoredReader {
-    file: SealedPrivateFile,
-    snapshot: FileSnapshot,
+trait StoredSource: Read {
+    fn recheck(&self) -> io::Result<()>;
+}
+
+impl StoredSource for SealedPrivateFile {
+    fn recheck(&self) -> io::Result<()> {
+        self.revalidate()
+    }
+}
+
+struct StoredReader<R = SealedPrivateFile> {
+    file: R,
     expected: BlobV1,
     hash: Sha256,
     bytes: u64,
 }
 
-impl StoredReader {
+impl<R: StoredSource> StoredReader<R> {
     fn recheck(&self) -> io::Result<()> {
-        // snapshot already revalidates retained custody before and after capture.
-        if self.file.snapshot()? != self.snapshot {
-            return Err(invalid("encoded original changed during streaming"));
-        }
-        Ok(())
+        // The immutable retained baseline already contains every snapshot field.
+        // Keep this fence even for buffered decoded output, without rebuilding
+        // a second snapshot and repeating the native custody checks twice.
+        self.file.recheck()
     }
     fn finish(&self) -> io::Result<()> {
         self.recheck()?;
@@ -220,7 +231,7 @@ impl StoredReader {
         Ok(())
     }
 }
-impl Read for StoredReader {
+impl<R: StoredSource> Read for StoredReader<R> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         self.recheck()?;
         let result = self.file.read(output);
@@ -238,15 +249,15 @@ impl Read for StoredReader {
     }
 }
 
-type Decoder = zstd::stream::read::Decoder<'static, BufReader<StoredReader>>;
-struct DecodedOriginal {
-    decoder: Option<Decoder>,
+type Decoder<R> = zstd::stream::read::Decoder<'static, BufReader<StoredReader<R>>>;
+struct DecodedOriginal<R = SealedPrivateFile> {
+    decoder: Option<Decoder<R>>,
     expected: BlobV1,
     hash: Sha256,
     bytes: u64,
     failed: bool,
 }
-impl DecodedOriginal {
+impl<R: StoredSource> DecodedOriginal<R> {
     fn read_checked(&mut self, output: &mut [u8]) -> io::Result<usize> {
         if self.failed {
             return Err(invalid("encoded reader already refused"));
@@ -293,13 +304,39 @@ impl DecodedOriginal {
         Ok(count)
     }
 }
-impl Read for DecodedOriginal {
+impl<R: StoredSource> Read for DecodedOriginal<R> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         self.read_checked(output).map_err(|error| {
             self.failed = true;
             custody(error)
         })
     }
+}
+
+fn decode_stored<R: StoredSource>(
+    file: R,
+    identity: EncodedOriginalV1,
+) -> io::Result<DecodedOriginal<R>> {
+    let stored = StoredReader {
+        file,
+        expected: identity.stored,
+        hash: Sha256::new(),
+        bytes: 0,
+    };
+    stored.recheck()?;
+    let mut buffered = BufReader::with_capacity(64 << 10, stored);
+    if buffered.fill_buf()?.get(..4) != Some(&[0x28, 0xb5, 0x2f, 0xfd]) {
+        return Err(invalid("one standard zstd frame required"));
+    }
+    let mut decoder = zstd::stream::read::Decoder::with_buffer(buffered)?.single_frame();
+    decoder.window_log_max(WINDOW_LOG)?;
+    Ok(DecodedOriginal {
+        decoder: Some(decoder),
+        expected: identity.original,
+        hash: Sha256::new(),
+        bytes: 0,
+        failed: false,
+    })
 }
 
 /// Existing immutable mobile source, retaining native ancestry and encoded metadata.
@@ -327,7 +364,10 @@ impl EncodedDirectoryOriginalsV1 {
             observed: Mutex::new(BTreeMap::new()),
         })
     }
-    fn reader(&self, digest: [u8; 32]) -> io::Result<Option<DecodedOriginal>> {
+    fn retained_file(
+        &self,
+        digest: [u8; 32],
+    ) -> io::Result<Option<(SealedPrivateFile, FileSnapshot)>> {
         self.directory.revalidate()?;
         let identity = self
             .originals
@@ -358,28 +398,20 @@ impl EncodedDirectoryOriginalsV1 {
         }
         observed.insert(digest, snapshot);
         drop(observed);
-        let stored = StoredReader {
-            file,
-            snapshot,
-            expected: identity.stored,
-            hash: Sha256::new(),
-            bytes: 0,
+        Ok(Some((file, snapshot)))
+    }
+
+    fn reader(&self, digest: [u8; 32]) -> io::Result<Option<DecodedOriginal>> {
+        let Some((file, _)) = self.retained_file(digest)? else {
+            return Ok(None);
         };
-        stored.recheck()?;
-        let mut buffered = BufReader::with_capacity(64 << 10, stored);
-        if buffered.fill_buf()?.get(..4) != Some(&[0x28, 0xb5, 0x2f, 0xfd]) {
-            return Err(invalid("one standard zstd frame required"));
-        }
-        let mut decoder = zstd::stream::read::Decoder::with_buffer(buffered)?.single_frame();
-        decoder.window_log_max(WINDOW_LOG)?;
+        let identity = *self
+            .originals
+            .get(&digest)
+            .ok_or_else(|| invalid("original outside transport"))?;
+        let decoded = decode_stored(file, identity)?;
         self.directory.revalidate()?;
-        Ok(Some(DecodedOriginal {
-            decoder: Some(decoder),
-            expected: identity.original,
-            hash: Sha256::new(),
-            bytes: 0,
-            failed: false,
-        }))
+        Ok(Some(decoded))
     }
 
     /// Open a bounded owned decoder that retains sealed source custody on every read.

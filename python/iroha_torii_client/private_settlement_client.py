@@ -628,18 +628,22 @@ def _validate_auditor_capsule_attestation(
     lifecycle = parsed.get("lifecycle")
     lifecycle_status = lifecycle.get("status") if isinstance(lifecycle, dict) else None
     authoritative_height = parsed.get("authoritative_height")
+    attested_height = body.get("authoritative_height")
+    responder = body.get("responder")
+    if not isinstance(lifecycle_status, str) or lifecycle_status not in lifecycle_codes:
+        raise ValueError("settlement auditor capsule lifecycle is invalid")
     if (
         type(body.get("version")) is not int
         or body.get("version") != 1
-        or type(body.get("authoritative_height")) is not int
-        or body.get("authoritative_height") != authoritative_height
-        or body.get("authoritative_height") <= 0
-        or body.get("authoritative_height") > _U64_MAX
+        or type(attested_height) is not int
+        or attested_height != authoritative_height
+        or attested_height <= 0
+        or attested_height > _U64_MAX
         or type(body.get("lifecycle_code")) is not int
         or body.get("lifecycle_code") != lifecycle_codes.get(lifecycle_status)
-        or not isinstance(body.get("responder"), str)
-        or not body.get("responder")
-        or body.get("responder") != body.get("responder").strip()
+        or not isinstance(responder, str)
+        or not responder
+        or responder != responder.strip()
     ):
         raise ValueError("settlement auditor capsule responder attestation is invalid")
     for field in ("network_id", "payload_digest", "view_digest", "authority_digest"):
@@ -701,7 +705,10 @@ def _validate_audit_approval_acknowledgement_attestation(
         )
     lifecycle = parsed.get("lifecycle")
     lifecycle_status = lifecycle.get("status") if isinstance(lifecycle, dict) else None
-    expected_code = {"collecting": 0, "audited": 1}.get(lifecycle_status)
+    if not isinstance(lifecycle_status, str) or lifecycle_status not in {"collecting", "audited"}:
+        raise ValueError("settlement approval acknowledgement lifecycle is invalid")
+    expected_code = {"collecting": 0, "audited": 1}[lifecycle_status]
+    responder = body.get("responder")
     height = parsed.get("authoritative_height")
     leg_ordinal = _u8(
         parsed.get("leg_ordinal"), "settlement approval acknowledgement leg_ordinal"
@@ -734,9 +741,9 @@ def _validate_audit_approval_acknowledgement_attestation(
         or body.get("payload_digest") != parsed.get("payload_digest")
         or type(body.get("lifecycle_code")) is not int
         or body.get("lifecycle_code") != expected_code
-        or not isinstance(body.get("responder"), str)
-        or not body.get("responder")
-        or body.get("responder") != body.get("responder").strip()
+        or not isinstance(responder, str)
+        or not responder
+        or responder != responder.strip()
         or type(parsed.get("newly_recorded")) is not bool
         or collected > required
         or lifecycle_status != ("collecting" if collected < required else "audited")

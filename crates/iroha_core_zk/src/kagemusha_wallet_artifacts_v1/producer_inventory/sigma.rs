@@ -1,4 +1,4 @@
-//! Exact sixteen-source sigma qualification with one active original PK at a time.
+//! Exact sixteen-source sigma qualification without constructing proving buffers.
 
 use super::*;
 use iroha_kagemusha_proof::{
@@ -144,6 +144,7 @@ pub(super) fn import_prover(
     })
 }
 
+#[cfg(test)]
 pub(super) fn import(
     selector: usize,
     original: &OriginalBytesV1,
@@ -151,13 +152,83 @@ pub(super) fn import(
     k14: &PinnedParams<Eq>,
     config: ReadConfig,
 ) -> Result<KeyArtifact<Eq>, SigmaQualificationErrorV1> {
-    import_prover(selector, original, k12, k14, config, None)?.metadata()
+    import_with_admission(selector, original, k12, k14, config, None)
+}
+
+fn import_with_admission(
+    selector: usize,
+    original: &OriginalBytesV1,
+    k12: &PinnedParams<Eq>,
+    k14: &PinnedParams<Eq>,
+    config: ReadConfig,
+    member: Option<iroha_plonk::keys::BuiltinSourceMemberV1>,
+) -> Result<KeyArtifact<Eq>, SigmaQualificationErrorV1> {
+    macro_rules! administrative {
+        ($owner:ty) => {
+            match member {
+                Some(member) => <$owner>::admit_builtin_original_artifact_cancellable(
+                    k12.clone(),
+                    &original.descriptor,
+                    &original.verifying_key,
+                    &original.proving_key,
+                    config,
+                    member,
+                    None,
+                )?,
+                None => <$owner>::admit_original_artifact_cancellable(
+                    k12.clone(),
+                    &original.descriptor,
+                    &original.verifying_key,
+                    &original.proving_key,
+                    config,
+                    None,
+                )?,
+            }
+        };
+    }
+    let admitted = match selector {
+        0 => administrative!(BootstrapProver),
+        1 => administrative!(LoadProver),
+        2..=11 => {
+            let shape = monetary_shape(selector)?;
+            let params = if shape.k == 12 { k12 } else { k14 };
+            match member {
+                Some(member) => SigmaProver::<Eq>::admit_builtin_original_artifact_cancellable(
+                    shape,
+                    params.clone(),
+                    &original.descriptor,
+                    &original.verifying_key,
+                    &original.proving_key,
+                    config,
+                    member,
+                    None,
+                )?,
+                None => SigmaProver::<Eq>::admit_original_artifact_cancellable(
+                    shape,
+                    params.clone(),
+                    &original.descriptor,
+                    &original.verifying_key,
+                    &original.proving_key,
+                    config,
+                    None,
+                )?,
+            }
+        }
+        12 => administrative!(ArchiveProver),
+        13 => administrative!(UnloadProver),
+        14 => administrative!(RefreshProver),
+        15 => administrative!(RetiringProver),
+        _ => return Err(Error::Profile.into()),
+    };
+    let (binding, key, _) = admitted.into_parts();
+    Ok(KeyArtifact::new(binding, key)?)
 }
 
 impl AuthenticatedProducerInventoryV1 {
     /// Strictly import every signed sigma original against the fixed compiled
-    /// source and retain only its exact descriptor/VK metadata. Each original PK
-    /// and imported prover is released before the next selector is read.
+    /// source and retain only its exact descriptor/VK metadata. Temporary source
+    /// tables are released before the next selector is read; proving-only FFTs,
+    /// masks and caches are not constructed during qualification.
     /// This performs no key generation and grants no complete wallet capability.
     /// # Errors
     /// Missing/capped/changed originals, wrong operation/control source, different
@@ -169,10 +240,74 @@ impl AuthenticatedProducerInventoryV1 {
     ) -> Result<QualifiedSigmasV1, SigmaQualificationErrorV1> {
         let k12 = PinnedParams::derive(12).map_err(|_| SigmaQualificationErrorV1::Parameters)?;
         let k14 = PinnedParams::derive(14).map_err(|_| SigmaQualificationErrorV1::Parameters)?;
+        self.qualify_sigmas_with_params(originals, config, &k12, &k14)
+    }
+
+    /// Qualify the same sixteen exact sources using this authenticated
+    /// installation's immutable parameter owners. Reuses public computations
+    /// across the source graph without changing any source or commitment check.
+    /// # Errors
+    /// Another installation, invalid domain, or any ordinary sigma intake failure.
+    pub fn qualify_sigmas_for_installation(
+        &self,
+        installed: &InstalledVerifierPackV1,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+    ) -> Result<QualifiedSigmasV1, SigmaQualificationErrorV1> {
+        if self.installation()
+            != (
+                installed.verifier().scheme().scheme_id(),
+                installed.verifier().manifest_digest(),
+            )
+        {
+            return Err(Error::Authority.into());
+        }
+        self.qualify_sigmas_with_params(
+            originals,
+            config,
+            installed.verifier().vesta_parameters(12)?,
+            installed.verifier().vesta_parameters(14)?,
+        )
+    }
+
+    pub(super) fn qualify_sigmas_with_params(
+        &self,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        k12: &PinnedParams<Eq>,
+        k14: &PinnedParams<Eq>,
+    ) -> Result<QualifiedSigmasV1, SigmaQualificationErrorV1> {
+        self.qualify_sigmas_with_admission(
+            originals,
+            config,
+            k12,
+            k14,
+            super::builtin::Admission::Strict,
+        )
+    }
+
+    pub(super) fn qualify_sigmas_with_admission(
+        &self,
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        k12: &PinnedParams<Eq>,
+        k14: &PinnedParams<Eq>,
+        admission: super::builtin::Admission<'_>,
+    ) -> Result<QualifiedSigmasV1, SigmaQualificationErrorV1> {
+        if k12.k() != 12 || k14.k() != 14 {
+            return Err(SigmaQualificationErrorV1::Parameters);
+        }
         let mut keys = Vec::with_capacity(16);
         for (selector, index) in self.inventory.sigma.iter().copied().enumerate() {
             let original = self.read_original(index, originals, config.maximum_bytes)?;
-            let key = import(selector, &original, &k12, &k14, config)?;
+            let key = import_with_admission(
+                selector,
+                &original,
+                k12,
+                k14,
+                config,
+                admission.member(&[1, u32::try_from(selector).map_err(|_| Error::Inventory)?])?,
+            )?;
             drop(original);
             keys.push(key);
         }

@@ -34,6 +34,10 @@ network policy, process signalling or persistent PID authority.
 - File publication stages and syncs before atomic replacement. Directory
   publication consumes the retained source, requires an absent destination, and
   rejects live descendants. A failure after publication requires reconciliation.
+  `create_custody_writer` leaves journal durability ordering with its caller:
+  write the complete payload, sync that original file, publish it, then sync the
+  directory. Creation does not flush the empty staging file or its temporary
+  name. Generic retained-file creation keeps its existing immediate syncs.
 - Advisory `open_lock` returns an unlocked persistent file. The caller acquires
   `File::try_lock`. Managed children use `open_ownership_lock`: Windows also
   retains a writer-sharing fence through inherited duplicates, independent of a

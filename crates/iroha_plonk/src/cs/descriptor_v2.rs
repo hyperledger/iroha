@@ -464,6 +464,17 @@ impl ProtocolDescriptor {
             .check_selector_plan_cancellable(selectors, cancellation)
     }
 
+    /// Validate canonical packed activations using the native selector plan.
+    pub(crate) fn check_packed_selector_plan_cancellable(
+        &self,
+        selectors: &[u8],
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), DescriptorError> {
+        iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(super::CsError::from)?;
+        self.arithmetic_layout()
+            .check_packed_selector_plan_cancellable(selectors, cancellation)
+    }
+
     /// The common arithmetic in the retained validator's input type. The
     /// temporary hash profile is never used for binding or transcript dispatch.
     pub(crate) fn arithmetic_layout(&self) -> CircuitDescriptorV1 {

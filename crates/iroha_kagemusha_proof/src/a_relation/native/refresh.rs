@@ -23,7 +23,7 @@ use iroha_pasta::{
     Ep, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{
-    DescriptorBinding, ProverConfig, ProverRandomness, ProvingKey, VerifyingKey,
+    DescriptorBinding, ProverConfig, ProverRandomness, VerifyingKey,
     cs::{Column, ConstraintSystem, Instance, InstanceType},
     frontend::{Circuit, Error as LayoutError, Layouter, Region, SimpleFloorPlanner, Value},
     pcs::ipa::PinnedParams,

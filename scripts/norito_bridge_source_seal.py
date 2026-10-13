@@ -259,7 +259,7 @@ _REVIEWED_PUBLIC_RUST_DIAGNOSTIC_INPUTS = frozenset({
     "crates/norito_derive/tests/ui/fail/schema_identity_missing.stderr",
     "crates/norito_derive/tests/ui/fail/schema_identity_nested.stderr",
 })
-# Exact checked-in IVM goldens owned by scripts/ivm_artifacts.tsv: 43 paired
+# Exact checked-in IVM goldens owned by scripts/ivm_artifacts.tsv: 44 paired
 # Kotodama outputs and two canonical predecoder fixtures. Source intake seals
 # the full bytes; it grants no compilation, deployment or runtime qualification.
 # No other .to file (including a SoraFS deployment manifest) is admitted.
@@ -283,6 +283,7 @@ _REVIEWED_PUBLIC_IVM_ARTIFACT_INPUTS = frozenset({
     "crates/ivm/docs/examples/16_register_domain.to",
     "crates/ivm/docs/examples/18_ternary.to",
     "crates/ivm/docs/examples/19_contract_flow_test.to",
+    "crates/ivm/docs/examples/20_commit_reveal.to",
     "crates/ivm/tests/data/add.to",
     "crates/ivm/tests/data/amm.to",
     "crates/ivm/tests/data/complex.to",
@@ -365,7 +366,7 @@ _REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS = {
     "crates/iroha_config/tests/fixtures/full.env": ("3f0cd58caab9edb0f4f3c02c9788962854d996d6de949af36508cce01b9a24dd", 2249),
     "crates/iroha_config/tests/fixtures/minimal_file_and_env.env": ("196c68787e11f84107aaa983a5cb02a97b5d2ef6f860269c85920a1baf5817f5", 26),
     "crates/iroha_zkp_halo2/src/generalized_bulletproof_secret_cleanup_contracts_v1.txt": ("06f3e6f960e02cb8a452e85d634d6b5b7518ac511d9ab98c69d2ba3e42d8eb4f", 53080),
-    "crates/kotodama_lang/src/assets/diagnostics_v1/secret_reject_cases_v1.tsv": ("0d62f715c83be396e55b2abb499e7e59a497f1ebeff60e1768ac50bff617714a", 3261),
+    "crates/kotodama_lang/src/assets/diagnostics_v1/secret_reject_cases_v1.tsv": ("cbb124b4bda971357c61de40bf82566436efecf593e4bb5f9df8e4ac77b678db", 3525),
 }
 
 _MATERIAL_SUFFIXES = frozenset({

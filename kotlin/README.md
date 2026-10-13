@@ -1414,8 +1414,10 @@ stay with the issuer, which remains authoritative. `prepareRequest(certificates)
 that chain and nothing else: there is no Play Integrity token, vendor verdict or second
 attested key. Native creates/selects the hardware slot, binds existing-account
 authorization to exact E5 originals, and retains E5/E6 before returning bytes.
-`loadRuntime()` performs complete native artifact qualification and transfers to
-`KagemushaWalletRuntimeV1.beginEnrolled()` for a fresh account challenge. This does not
+`loadInstalledRuntime()` transfers that same Native owner, including the sources qualified
+at installation and its platform custody, into `openEnrolledResult()` for a fresh account
+challenge. The lower-level `loadRuntime()` likewise transfers once; neither repeats source
+qualification. Closing the transferred enrollment cannot close the new owner. This does not
 establish issuer-service, ledger activation or phone qualification. `activation()`
 returns exact retained Activate bytes for ledger submission after Bootstrap.
 

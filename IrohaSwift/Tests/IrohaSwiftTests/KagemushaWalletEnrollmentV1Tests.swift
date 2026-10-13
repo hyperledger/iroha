@@ -81,7 +81,7 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     }
     _ = try KagemushaWalletEnrollmentInputV1(14,Data([1]))
     _ = try KagemushaWalletEnrollmentInputV1(15,Data([1]),Data([2]))
-    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(20))
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(21))
   }
   func testRenewedSessionUsesOnlyBoundedOriginalFramesAndNonmonetaryAcknowledgement() throws {
     let session = try KagemushaWalletEnrollmentSessionOriginalsV1(accessToken: Data([1]), dpopProof: Data([2]), attestationRootDER: Data([3]))

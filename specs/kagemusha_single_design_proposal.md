@@ -994,13 +994,10 @@ Bootstrap is selected, so it is never abandoned.
   turns a missing lookup result into absence: it stays unknown, a spent
   one-shot generation grant stays spent, no generation grant is ever issued
   for the abandoned slot, and the abandoned alias is never regenerated or
-  reused. Today Native writes the abandoned-slot record only for an expired
-  challenge or a key found without a marker, `abandon()` requires an intent
-  and always returns a frame, reconciliation runs generation recovery before
-  it looks for the abandoned-slot record, and a selected slot without an intent
-  reaches `Empty` only through a key probe, which reports `Unavailable` on API
-  26–30. The holder form is new Native work that the Native owner reviews
-  before it is implemented (§9.1).
+  reused. Native authenticates the retained pre-key originals before committing
+  this local form and checks the abandoned-slot record before generation
+  recovery. `abandon()` returns `LocalAbandoned` without ledger bytes; it does
+  not require a key-probe-derived `Empty` on API 26–30.
 - **Marker (Native `Enrollment`: the generation-zero marker is still
   current).** This includes an issuer refusal and an issued credential whose
   Bootstrap was never selected. Abandonment commits the terminal marker with
@@ -1782,6 +1779,25 @@ slices from the resulting current source.
 The mobile artifact carrier stores each `wallet-originals/<raw-sha256>` file as
 exactly one lossless zstd frame. The signed catalog continues to bind the actual
 decoded original; compression does not change a proof, key, relation or scheme.
+The sole proving-key original is compact: `PIPACPK1 || descriptor_digest32 ||
+LE32(vk_bytes) || canonical_vk || copy_digest32 || source_fingerprint32`. Fixed
+and permutation evaluation tables are reconstructed from the installed native
+witnessless circuit. Import checks descriptor, selectors, copy mapping and the
+complete source fingerprint, then checks every original VK commitment before
+returning admitted metadata or constructing a proving key. Metadata admission
+does not construct proving FFTs, masks or coset caches. The fingerprint is untrusted lookup data; it cannot
+grant source admission or replace commitment checks. Existing opaque admission
+seals remain nonserializable and are minted only after complete native source
+and commitment admission. A bounded private memo on each immutable pinned
+parameter owner may reuse previously computed commitments for identical public
+columns; original VK points and declared fingerprints cannot populate it.
+Every source and VK commitment is still checked, and the complete operation
+graph is admitted before granting the wallet capability.
+This representation changes original hashes and therefore requires a newly
+authenticated catalogue and scheme; it does not change the monetary circuits
+or proof verification. Dense proving-key originals have no production fallback.
+The [compact artifact goals](kagemusha_compact_artifact_goals.md) track measured
+size, adversarial checks, offline operation validation and delivery.
 The closed `iroha.kagemusha.wallet-artifact-original-transport.v1` JSON has, in
 order, `schema`, mandatory `encoding: "zstd"`, and `walletOriginals`. Each row has
 `bytes`, `sha256`, `storedBytes`, `storedSha256` in that order. Rows are nonempty,
@@ -1843,15 +1859,13 @@ change, and the release driver builds and releases it:
      `google` and `huawei` profiles), the rollback-protected operator denylist,
      the revised chain checks of the enrollment policy, the exact chain-only
      evidence digest, persisted typed refusals and the §2.4 recovery states.
-     Today the worker commits its claim before verification and then treats a
-     missing result as Unknown, so an outage cannot resume verification as
-     §2.4 requires.
+     Retryable pre-decision outages resume the exact retained claim; uncertain
+     effects remain Unknown and never authorize another issuance.
    - The Kotlin SDK replaces the token-taking `prepareRequest` and the
      byte-only `abandon` with the chain-only request and the explicit
      abandonment result. Its StrongBox fallback carries only the
      hardware-choice hint into a freshly authorized slot under a new challenge
-     and never reuses the old generation grant (§2.2); today that hint
-     requires the same challenge.
+     and never reuses the old generation grant (§2.2).
 
    The issuer owner selects the reviewed policy originals (the Google RSA and
    CA1 SPKI pins, signer set, minimum version and patch floor; the Apple root and
@@ -1923,8 +1937,7 @@ approval ceremony (§10):
 - Frame cap: the maximal app and enrollment policies, encoded with the actual
   Norito encoder, fit the 1,024-byte frame cap of the enrollment policy.
 
-Before Native implements this revision, the Native owner reviews it. The
-review covers the §3.2 no-marker abandonment, which is abandonment from Native
+Native implements the §3.2 no-marker abandonment from
 progress `EnrollmentProgressV1::Pending` or from a no-marker slot whose key
 lookup is unknown (local, no ledger bytes, a holder-abandoned reason), with its
 four safeguards, including authenticated pre-E2 evidence in place of a
@@ -1932,8 +1945,10 @@ key-probe-derived `Empty`, and a reconciliation order
 that checks the abandoned-slot record before any generation recovery; the rule
 that a fresh slot does not wait for ledger acceptance of an Abandonment; and the
 reservation of every issued or potentially issued quota share until finalized
-successful Abandonment. Until the review signs off, these rules are the proposed
-design and no Native code implements them.
+successful Abandonment. The enrollment-owner and issuer-worker tests exercise
+these rules, including restart, uncertain storage, delayed generation and
+exact retained outcomes. Device qualification remains separate from these
+component tests.
 
 ## 10. Goals and execution order
 

@@ -40,6 +40,12 @@ const OUTPUT_MAX: u64 = 128 << 30;
 mod reuse;
 use reuse::{Candidates, CarrierSource, CompilerSources};
 
+#[path = "kagemusha_wallet_artifacts/inspect.rs"]
+mod inspect;
+
+#[path = "kagemusha_wallet_artifacts/builtin.rs"]
+mod builtin;
+
 #[derive(JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct OriginalInput {
@@ -597,107 +603,6 @@ fn run(path: &str, reuse_input: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-/// Read-only source compatibility inspection, deliberately separate from runtime admission.
-/// The independently supplied scheme/manifest pins bind the signed carrier. No genesis or
-/// finality root is manufactured, and this never yields a wallet installation capability.
-fn inspect_sources(path: &str, scheme: &str, manifest: &str) -> io::Result<()> {
-    let root = PrivateDirectory::open_exact(path)?;
-    let pack = Original::open(
-        root.path()
-            .join("verifier-pack.norito")
-            .to_str()
-            .ok_or_else(|| invalid("carrier path"))?,
-        iroha_core_zk::kagemusha_wallet_artifacts_v1::VERIFIER_PACK_MAX_BYTES_V1,
-        None,
-    )?;
-    let catalog = Original::open(
-        root.path()
-            .join("producer-inventory.norito")
-            .to_str()
-            .ok_or_else(|| invalid("carrier path"))?,
-        iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::CATALOG_MAX_BYTES_V1,
-        None,
-    )?;
-    let installed = InstalledVerifierPackV1::load(
-        &pack.bytes,
-        InstallationV1 {
-            scheme_id: digest(scheme)?,
-            manifest_digest: digest(manifest)?,
-        },
-    )
-    .map_err(io::Error::other)?;
-    let inventory = installed
-        .authenticate_producer_inventory(&catalog.bytes)
-        .map_err(io::Error::other)?;
-    let mut originals = DirectoryOriginalsV1::open_existing(
-        root.path().join("wallet-originals"),
-        PROVING_KEY_MAX_BYTES_V1,
-    )?;
-    let config = ReadConfig {
-        maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
-        maximum_rows: 1 << 16,
-        coset_cache: CosetCachePolicy::OnDemand,
-        msm_budget: MemoryBudget::DEFAULT,
-    };
-    eprintln!(
-        "Signed verifier pack and producer inventory accepted; qualifying every sigma source."
-    );
-    let sigmas = inventory
-        .qualify_sigmas(&mut originals, config)
-        .map_err(io::Error::other)?;
-    let mut programs = Vec::with_capacity(inventory.inventory().operations.len());
-    for index in 0..inventory.inventory().operations.len() {
-        eprintln!(
-            "Qualifying Q program {}/{}",
-            index + 1,
-            inventory.inventory().operations.len()
-        );
-        programs.push(
-            inventory
-                .qualify_q_program(
-                    &installed,
-                    &sigmas,
-                    u32::try_from(index).map_err(io::Error::other)?,
-                    &mut originals,
-                    config,
-                )
-                .map_err(io::Error::other)?,
-        );
-    }
-    let mut routes = Vec::with_capacity(inventory.inventory().routes.len());
-    for (index, program) in inventory.inventory().routes.iter().enumerate() {
-        eprintln!(
-            "Qualifying operation route {}/{}",
-            index + 1,
-            inventory.inventory().routes.len()
-        );
-        routes.push(
-            inventory
-                .qualify_operation_route(
-                    &installed,
-                    programs
-                        .get(usize::try_from(*program).map_err(io::Error::other)?)
-                        .ok_or_else(|| invalid("program index"))?,
-                    u32::try_from(index).map_err(io::Error::other)?,
-                    &mut originals,
-                    config,
-                )
-                .map_err(io::Error::other)?,
-        );
-    }
-    eprintln!("Qualifying complete Omega closure.");
-    let _omega = inventory
-        .qualify_omega(&installed, &routes, &mut originals, config)
-        .map_err(io::Error::other)?;
-    pack.recheck()?;
-    catalog.recheck()?;
-    root.revalidate()?;
-    println!(
-        "Complete current-source artifact graph accepted. Genesis/finality, runtime installation and financial execution were not admitted."
-    );
-    Ok(())
-}
-
 fn encode_carrier(path: &str, scheme: &str, manifest: &str, destination: &str) -> io::Result<()> {
     let root = PrivateDirectory::open_exact(path)?;
     let pack = Original::open(
@@ -747,18 +652,25 @@ fn main() {
     let result = match args.as_slice() {
         [help] if help == "--help" => {
             println!(
-                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit pinned candidate requests select original_groups from sigma, q, a, w, omega. Selected originals are indexed, then imported only for matching current sources; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source; does not admit genesis/finality or a wallet.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
+                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit candidate JSON selects originals_directory and bounded descriptor/verifying_key/proving_key triples, each with bytes and sha256. These are untrusted cache hints, not signed installation inputs. Selected originals are indexed, then imported only for matching current sources with complete source and commitment checks; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX or --inspect-encoded-sources ABSOLUTE_ENCODED_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source using the selected representation and prints phase timings; does not admit genesis/finality or a wallet. Encoded inspection verifies the signed raw closure and both encoded/raw identities without a decoded disk cache.\nCompiled source profiles: --export-builtin-profile ABSOLUTE_IMMUTABLE_PUBLIC_JSON independently authenticates genesis and strictly qualifies every source before exporting one native registry entry; --inspect-builtin-profile uses the same closed request to check the exact compiled graph. Neither command signs artifacts or registers runtime authority.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
             );
             Ok(())
         }
         [flag, path] if flag == "--request" => run(path, None),
+        [flag, path] if flag == "--export-builtin-profile" => builtin::run(path, true),
+        [flag, path] if flag == "--inspect-builtin-profile" => builtin::run(path, false),
         [flag, path, reuse_flag, reuse_path]
             if flag == "--request" && reuse_flag == "--reuse-candidates" =>
         {
             run(path, Some(reuse_path))
         }
-        [flag, path, scheme, manifest] if flag == "--inspect-sources" => {
-            inspect_sources(path, scheme, manifest)
+        [flag, path, scheme, manifest] if inspect::Encoding::from_flag(flag).is_some() => {
+            inspect::sources(
+                path,
+                scheme,
+                manifest,
+                inspect::Encoding::from_flag(flag).expect("matched inspection command"),
+            )
         }
         [flag, path, scheme, manifest, destination] if flag == "--encode-carrier" => {
             encode_carrier(path, scheme, manifest, destination)

@@ -69,7 +69,7 @@ fn fixture_transfer_plan(
     }
 }
 
-fn fixture_registration_plan(
+pub(crate) fn fixture_registration_plan(
     stx: &StateTransaction<'_, '_>,
     lane: LaneId,
     staker: &AccountId,
@@ -95,7 +95,7 @@ fn fixture_registration_plan(
     )
 }
 
-fn fixture_bond_plan(
+pub(crate) fn fixture_bond_plan(
     stx: &StateTransaction<'_, '_>,
     lane: LaneId,
     validator: &AccountId,
@@ -127,7 +127,7 @@ fn fixture_bond_plan(
     )
 }
 
-fn fixture_unbond_plan(
+pub(crate) fn fixture_unbond_plan(
     stx: &StateTransaction<'_, '_>,
     lane: LaneId,
     validator: &AccountId,
@@ -169,7 +169,7 @@ fn fixture_unbond_plan(
     )
 }
 
-fn fixture_slash_plan(
+pub(crate) fn fixture_slash_plan(
     stx: &StateTransaction<'_, '_>,
     lane: LaneId,
     validator: &AccountId,

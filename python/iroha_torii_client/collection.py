@@ -523,7 +523,7 @@ class Collection(Generic[T]):
             context=f"{self._name} query",
         )
         try:
-            page = Page.from_json(payload)
+            page: Page[Any] = Page.from_json(payload)
             if query.limit is not None and len(page.items) > query.limit:
                 raise ValueError("items exceed the requested limit")
             if isinstance(self, HistoryCollection) and page.total is not None:

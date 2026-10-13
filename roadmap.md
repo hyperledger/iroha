@@ -86,7 +86,8 @@ formal, SDK and workspace gates.
 
 See the [JVM inventory](specs/jvm_consolidation_inventory.md),
 [native release contract](docs/norito_bridge_release.md),
-[KAGEMUSHA design and goals](specs/kagemusha_single_design_proposal.md#10-goals-and-execution-order)
+[KAGEMUSHA design and goals](specs/kagemusha_single_design_proposal.md#10-goals-and-execution-order),
+[compact artifact and phone performance goals](specs/kagemusha_compact_artifact_goals.md)
 and [verification checklist](specs/kagemusha_evidence_gate.md).
 
 | ID | Outcome | Owner | Completion criteria |

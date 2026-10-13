@@ -627,7 +627,7 @@ pair acceptable. The source-pinned model and structural audit are retained in
 `target/qualification/c12-outer-simulator-reference-1`. The actual Omega
 simulation, adaptive theorem and concrete-sponge bridge remain open.
 
-The public-setup implementation now decodes exact `PIPAPK01` fixed/sigma
+The historical target-only public-setup model decoded `PIPAPK01` fixed/sigma
 evaluation tables, checking their externally selected original digest, descriptor,
 VK, extent and scalar canonicality. Batch Lagrange evaluation supplies rotated
 public queries and the computed public-only multiopen branch. Eight small-case
@@ -638,7 +638,11 @@ to the exact historical Omega descriptor and pinned Pallas parameters; all
 semantic and generator checks remain. Repository reference limits are unchanged.
 These records are in `target/qualification/c12-actual-omega-model-draft`.
 No k16 proof has run under this adapter, and decoding tables is not native
-installed-circuit or signed-package admission.
+installed-circuit or signed-package admission. The shipping importer now rejects
+that retired dense format. Its sole `PIPACPK1` representation reconstructs these
+tables from the installed native circuit and checks the source fingerprint,
+descriptor, selectors, copy mapping and every VK commitment before admission.
+This transport change does not close any of the simulation obligations above.
 
 An independently reviewed local refinement bounds the hiding IPA's exceptional
 events in that same unconditioned ideal fresh-answer game. For prime group order

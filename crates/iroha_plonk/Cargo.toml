@@ -41,6 +41,16 @@ sha2 = "0.10.9"
 # Wipe canonical integer lookup scratch on success and every early return.
 zeroize = { workspace = true }
 
+# Source admission hashes every reconstructed public table. On ARM64, use the
+# existing SHA-256 backend's runtime-detected instructions, with its portable
+# fallback on CPUs without SHA support. sha2-asm does not support Windows.
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dependencies]
+sha2 = { version = "0.10.9", features = ["asm"] }
+
 [dev-dependencies]
 # Fallible OS probes for isolated evaluator diagnostics, never protocol code.
 iroha_measurement = { workspace = true }
+
+[build-dependencies]
+# Compile the actual local source identity; never accept a supplied digest.
+sha2 = "0.10.9"

@@ -1,7 +1,6 @@
 """Exact canonical public-key multihash literals shared by status and governance decoders."""
 
 import pytest
-
 from iroha_torii_client._public_key_multihash import decode_canonical_public_key_multihash
 
 ED25519 = "ed012066BE7E332C7A453332BD9D0A7F7DB055F5C5EF1A06ADA66D98B39FB6810C473A"

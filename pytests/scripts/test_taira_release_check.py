@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 1945 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 1978 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 1952 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 1985 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -49,6 +49,8 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
         'delayed_funding_preserves_pre_exit_service_and_late_stake_cannot_capture_it',
         'automatic_cursor_rounding_conserves_minor_units_across_cohorts_and_replay',
         'automatic_nominator_failed_transfer_rolls_back_credit_reserve_and_claim_receipt',
+        'automatic_accrual_late_owner_failure_rolls_back_and_retries_exactly_once',
+        'partial_validator_accrual_claim_and_recovery_preserve_repeated_funding',
     )),
     'validation_fee_rewards.rs': ('validation_fee_rewards::tests::', (
         'conversion_reserves_once_preserves_earning_month_and_obeys_caps',
@@ -71,6 +73,9 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     )),
     'validation_fee_rewards/exposure_archive_tests.rs': ('validation_fee_rewards::exposure::archive_tests::', (
         'archived_exposure_survives_hot_rollover_replay_and_signed_claims',
+    )),
+    'validation_fee_rewards/exposure_lifecycle_tests.rs': ('validation_fee_rewards::exposure_lifecycle_tests::', (
+        'old_offence_and_post_earning_reregistration_preserve_funded_nominator_claims',
     )),
     'validation_fee_rewards/reconciliation.rs': ('validation_fee_rewards::reconciliation::tests::', (
         'funded_reward_restore_accepts_cursor_credit_and_bounded_source_pruning',
@@ -109,6 +114,11 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     'validation_fee/runtime_rewards_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::', (
         'scheduled_production_conversion_automatically_funds_nominator_signed_claims',
         'scheduled_funded_pool_conversion_automatically_funds_nominator_signed_claims',
+        'signed_nominator_claim_batch_rolls_back_and_stale_parallel_quotes_cannot_pay',
+        'scheduled_conversion_final_custody_transfer_failure_rolls_back_and_retries',
+    )),
+    'validation_fee/runtime_reward_crash_tests.rs': ('validation_fee::tests::runtime_wrapper_tests::reward_tests::crash_tests::', (
+        'process_crashes_preserve_funding_entitlements_claims_and_checkpoints',
     )),
 }
 
@@ -423,12 +433,13 @@ class BeaconGateTests(unittest.TestCase):
                 "live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer",
                 "live_multisig_proposal_missing_malformed_and_rebound_state_are_not_deferrals",
                 "live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer",
-                "proposal_migration_validates_original_physical_key_and_body_before_writes",
+                "outstanding_occurrence_invalidation_preserves_original_decode_refusal",
                 "cancel_wrapper_decode_refusal_rolls_back_and_retries_original_signed_approval",
                 "expiry_child_decode_refusal_rolls_back_and_retries_original_signed_approval",
             )),
             ("smartcontracts/isi/multisig.rs", "smartcontracts::isi::multisig::tests", False, (
                 "multisig_expiry_traversal_rejects_cycles_and_excessive_depth",
+                "replace_account_controller_requires_invalidation_and_retains_original_terminal_history",
             )),
             ("queue/router.rs", "queue::router::tests", False, (
                 "persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission",
@@ -447,7 +458,7 @@ class BeaconGateTests(unittest.TestCase):
             for leaf in leaves:
                 self.assertEqual(names.count(leaf), 1, (relative, leaf))
                 expected.append(prefix + "::" + leaf)
-        self.assertEqual(len(expected), 15)
+        self.assertEqual(len(expected), 16)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("monetary_authority_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -472,8 +483,8 @@ class BeaconGateTests(unittest.TestCase):
     def test_reward_accounting_repairs_are_required_once_in_both_scopes(self):
         required = [prefix + name for prefix, names in REWARD_ACCOUNTING_SOURCE_TESTS.values()
                     for name in names]
-        self.assertEqual(len(required), 42)
-        self.assertEqual(len(set(required)), 42)
+        self.assertEqual(len(required), 48)
+        self.assertEqual(len(set(required)), 48)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("reward_accounting_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -507,10 +518,12 @@ class BeaconGateTests(unittest.TestCase):
         staking = (root / "smartcontracts/isi/staking.rs").read_text()
         for child in ("staking_reward_tests.rs", "staking_custody_tests.rs"):
             self.assertIn('include!("' + child + '");', staking)
+        self.assertRegex(staking, r'#\[cfg\(test\)\]\s*pub\(crate\) mod tests\s*\{')
         rewards = (root / "validation_fee_rewards.rs").read_text()
         self.assertIn('include!("validation_fee_rewards/automatic_tests.rs");', rewards)
         for child in ("beneficiary", "exposure", "history", "reconciliation"):
             self.assertIn('mod ' + child + ';', rewards)
+        self.assertIn('#[cfg(test)]\nmod exposure_lifecycle_tests;', rewards)
         self.assertIn('#[cfg(test)]\nmod tests;',
                       (root / "validation_fee_rewards/beneficiary.rs").read_text())
         exposure = (root / "validation_fee_rewards/exposure.rs").read_text()
@@ -529,7 +542,9 @@ class BeaconGateTests(unittest.TestCase):
                       (root / "validation_fee/tests.rs").read_text())
         self.assertIn('#[path = "runtime_rewards_tests.rs"]\npub(crate) mod reward_tests;',
                       (root / "validation_fee/runtime_wrapper_tests.rs").read_text())
-        for child in ("smartcontracts/isi/multisig.rs", "smartcontracts/isi/staking.rs",
+        self.assertIn('#[path = "runtime_reward_crash_tests.rs"]\nmod crash_tests;',
+                      (root / "validation_fee/runtime_rewards_tests.rs").read_text())
+        for child in ("smartcontracts/isi/multisig.rs",
                       "validation_fee_rewards.rs", "validation_fee_rewards/exposure.rs",
                       "validation_fee_rewards/reconciliation.rs", "validation_fee_rewards/history.rs",
                       "retail_fee/reward_history.rs"):
@@ -537,7 +552,7 @@ class BeaconGateTests(unittest.TestCase):
         registered = [name for _, names in gate.CORE_REWARD_ACCOUNTING_STAGES for name in names]
         expected = []
         # This verifies selected names in their explicit source/module owners; it
-        # does not claim these forty-two exhaust every reward or custody test.
+        # does not claim these forty-eight exhaust every reward or custody test.
         for child, (prefix, names) in REWARD_ACCOUNTING_SOURCE_TESTS.items():
             source = (root / child).read_text()
             for name in names:

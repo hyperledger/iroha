@@ -678,6 +678,18 @@ impl Directory {
         RetainedFile::open_build_input(self.clone(), name.to_owned())
     }
 
+    pub(super) fn create_custody_writer(&self, name: &OsStr) -> io::Result<RetainedFile> {
+        // The journal caller syncs completed data and its published directory.
+        // Keep every native custody check without first flushing an empty stage.
+        RetainedFile::open_with_links(
+            self.clone(),
+            name.to_owned(),
+            true,
+            true,
+            LinkPolicy::Single,
+        )
+    }
+
     pub(super) fn read(
         &self,
         name: &OsStr,
@@ -1210,7 +1222,13 @@ pub fn snapshot_file(file: &File, private: bool) -> io::Result<FileSnapshot> {
 
 impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
     fn open(directory: D, name: N, private: bool, create_new: bool) -> io::Result<Self> {
-        Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)
+        let retained =
+            Self::open_with_links(directory, name, private, create_new, LinkPolicy::Single)?;
+        if create_new {
+            retained.file.sync_all()?;
+            retained.directory.borrow().sync()?;
+        }
+        Ok(retained)
     }
 
     fn open_build_input(directory: D, name: N) -> io::Result<Self> {
@@ -1253,10 +1271,6 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             },
         };
         retained.revalidate()?;
-        if create_new {
-            retained.file.sync_all()?;
-            retained.directory.borrow().sync()?;
-        }
         Ok(retained)
     }
 

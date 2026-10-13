@@ -146,12 +146,10 @@ fn reject_forged(
         .into_iter()
         .zip(forged)
     {
+        let outcome = wallet.execute(action(id, forged));
         assert!(
-            matches!(
-                wallet.execute(action(id, forged)),
-                Err(state::Error::Proof(_))
-            ),
-            "canonical forged {label} must fail the real native proof gate"
+            matches!(&outcome, Err(state::Error::Proof(_))),
+            "canonical forged {label} must fail the real native proof gate; actual outcome: {outcome:?}"
         );
         assert_eq!(device.platform.with(|state| state.sign_calls), signs);
         assert_eq!(
@@ -174,8 +172,54 @@ pub(super) fn exercise(
     request: &OperationRequestV1,
 ) -> (Wallet, HostDevice, Vec<u8>) {
     let before = wallet.snapshot().unwrap();
-    let changed_requests = reject_forged(&mut wallet, &device, request);
     let signs = device.platform.with(|state| state.sign_calls);
+    // A's exact Activate already executed at H4, but no local confirmation has
+    // been admitted yet. Classify that gate before testing forged Load proofs.
+    let outcome = wallet.execute(action(204, forged_loads(request)[0].clone()));
+    eprintln!("NATIVE_LOAD_BEFORE_ACTIVATION_CONFIRMATION {outcome:?}");
+    assert!(
+        matches!(
+            &outcome,
+            Err(state::Error::Invalid("ledger activation unconfirmed"))
+        ),
+        "first Load requires durable native activation confirmation: {outcome:?}"
+    );
+    assert_eq!(wallet.snapshot().unwrap(), before);
+    assert_eq!(device.platform.with(|state| state.sign_calls), signs);
+
+    let (signed_activation, confirmed) = load::confirm_existing_activation(&mut wallet, sources);
+    assert_eq!(wallet.snapshot().unwrap(), before);
+    assert_eq!(device.platform.with(|state| state.sign_calls), signs);
+    require_persisted_simulator(&device);
+    let root = device.root.clone();
+    drop(wallet);
+    drop(device);
+    let device = HostDevice::restore(&root, credential);
+    let mut wallet = sources.open(&device, f, frames);
+    assert_eq!(
+        wallet
+            .activation_finality_progress(&signed_activation)
+            .unwrap(),
+        state::ActivationFinalityProgressV1::Confirmed(confirmed)
+    );
+    assert_eq!(
+        wallet
+            .confirm_ledger_activation(&signed_activation)
+            .unwrap(),
+        confirmed
+    );
+    assert_eq!(wallet.snapshot().unwrap(), before);
+    let signs = device.platform.with(|state| state.sign_calls);
+    assert_eq!(
+        signs, 0,
+        "activation confirmation after restart cannot sign"
+    );
+    eprintln!(
+        "NATIVE_ACTIVATION_CONFIRMED height={} signed_transaction_sha256={} exact_reopen=true new_payment_signatures=0",
+        confirmed.height,
+        sha(&signed_activation)
+    );
+    let changed_requests = reject_forged(&mut wallet, &device, request);
 
     device.platform.with(|state| state.sign_unavailable = true);
     assert_eq!(

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
 from operator import index as integer_index
+from typing import Optional, Sequence, Tuple
 
 from iroha_native import load_crypto_extension
 
@@ -95,7 +95,7 @@ def _expect_field_elem(elem: Sequence[int], context: str) -> Tuple[int, int, int
     modulus = 0x30644E72E131A029B85045B68181585D2833E84879B9709143E1F593F0000001
     if sum(value << (64 * index) for index, value in enumerate(words)) >= modulus:
         raise ValueError(f"{context} must be below the BN254 field modulus")
-    return words
+    return words[0], words[1], words[2], words[3]
 
 
 

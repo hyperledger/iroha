@@ -7,7 +7,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 import pytest
 import requests
@@ -16,13 +16,13 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
+from client_test_support import canonical_hash  # noqa: E402
 from iroha_torii_client import (  # noqa: E402
     ToriiCanonicalRequestAuth,
     ToriiClient,
     decode_pdp_commitment_header,
 )
 from iroha_torii_client.mock import ToriiMockServer  # noqa: E402
-from client_test_support import canonical_hash  # noqa: E402
 from sumeragi_exact_json_test_support import RecordingSession, StubResponse  # noqa: E402
 
 CANONICAL_OWNER = "sorauﾛ1PｺfMﾇﾘｾﾄoﾂﾊﾔH7ZdﾘhﾚmAｸdnｳu1ｱﾄ1ｺﾋuSﾑﾀﾇﾐuHEB5DP"

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from iroha_native import load_crypto_extension
-
 import pytest
+from iroha_native import load_crypto_extension
 
 from iroha_python.crypto import (
     PRIVACY_COMPILED_PROFILE_CATALOG_VALIDATION_STATUS_V1,

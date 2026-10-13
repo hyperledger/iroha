@@ -30,6 +30,10 @@ pub use encoded::{
 mod recipe;
 pub use recipe::SourceScopeV1;
 
+#[path = "producer_inventory/builtin.rs"]
+mod builtin;
+pub use builtin::StrictQualifiedSourceProfileV1;
+
 #[path = "producer_inventory/compiler.rs"]
 mod compiler;
 pub use compiler::{
@@ -53,7 +57,8 @@ pub(super) use sigma::compiled_sigma_policy;
 #[path = "producer_inventory/q.rs"]
 mod q;
 pub use q::{
-    ImportedQV1, QProgramRecipeV1, QQualificationErrorV1, QualifiedQProgramV1, q_source_recipe,
+    ImportedQV1, QProgramRecipeV1, QQualificationErrorV1, QQualificationProgressV1,
+    QualifiedQProgramV1, q_source_recipe,
 };
 
 #[path = "producer_inventory/bootstrap.rs"]
@@ -64,7 +69,8 @@ pub use sigma::{ImportedSigmaV1, QualifiedSigmasV1, SigmaQualificationErrorV1};
 #[path = "producer_inventory/operation.rs"]
 mod operation;
 pub use operation::{
-    OperationQualificationErrorV1, QualifiedOperationOwnerV1, QualifiedOperationRouteV1,
+    OperationQualificationErrorV1, OperationQualificationProgressV1, QualifiedOperationOwnerV1,
+    QualifiedOperationRouteV1,
 };
 
 #[path = "producer_inventory/omega.rs"]
@@ -133,7 +139,7 @@ pub struct OriginalV1 {
     pub descriptor: BlobV1,
     /// Canonical native verifying-key bytes.
     pub verifying_key: BlobV1,
-    /// Original `PIPAPK01` proving tables; never runtime-generated replacements.
+    /// Original `PIPACPK1` source-bound key; native import reconstructs and checks its tables.
     pub proving_key: BlobV1,
 }
 impl OriginalV1 {

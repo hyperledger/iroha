@@ -381,6 +381,23 @@ def test_error_envelopes_raise_typed_errors(
         assert error.retry_after == 3
 
 
+@pytest.mark.parametrize("field", [None, [], {}, 1, "unknown"])
+def test_query_error_with_malformed_field_retains_typed_error(field: Any) -> None:
+    details = {"field": field}
+    response = _response(
+        400,
+        {"code": "invalid_filter", "message": "invalid filter", "details": details},
+    )
+    client, _ = _client(response)
+
+    with pytest.raises(ToriiQueryError) as raised:
+        client.accounts.list()
+
+    assert raised.value.parameter == "filter"
+    assert raised.value.details == details
+    assert raised.value.code == "invalid_filter"
+
+
 def test_reject_code_header_is_exposed() -> None:
     response = _response(
         400,

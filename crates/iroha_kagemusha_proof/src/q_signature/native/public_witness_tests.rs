@@ -359,9 +359,11 @@ fn assert_recovery(log: &RecoveryLog) {
 #[test]
 #[ignore = "two Load signature profiles: two k16 keygens/imports and four proofs; explicit resource handoff"]
 fn genuine_load_signature_public_inverse_native_proof_parity() {
-    use iroha_plonk::keys::{KeygenConfigV2, keygen_pk_v2};
-    let params = PinnedParams::<Ep>::derive(16).unwrap();
+    use iroha_plonk::keys::{KeygenConfigV2, keygen_pk_from_vk_v2, keygen_pk_v2};
     for (plan, witnesses) in load_cases() {
+        // A new owner makes each measured admission's public-column cache cold.
+        // Parameter derivation and fixture keygen are outside the measured phases.
+        let params = PinnedParams::<Ep>::derive(16).unwrap();
         let public = frame(&plan.native_instances(&witnesses).unwrap());
         let restored = validate_signatures(&plan, &public).unwrap();
         assert_same_witnesses(&restored, &witnesses);
@@ -370,12 +372,56 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
         let mut config = KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec());
         config.coset_cache = CosetCachePolicy::OnDemand;
         let key = keygen_pk_v2(&params, &plan.source_circuit().unwrap(), &config).unwrap();
+        // Optional output belongs only to this explicitly ignored diagnostic.
+        // It contains freshly synthesized public columns and reference VK points,
+        // never advice, witnesses, signing material or an admission capability.
+        if let Some(directory) = std::env::var_os("IROHA_PUBLIC_COLUMN_FIXTURE_DIR") {
+            use group::GroupEncoding;
+            use sha2::Digest;
+            use std::io::Write;
+            let columns: Vec<Vec<[u8; 32]>> = key
+                .fixed_values()
+                .iter()
+                .chain(key.permutation_values())
+                .map(|column| column.iter().map(PrimeField::to_repr).collect())
+                .collect();
+            let points: Vec<[u8; 32]> = key
+                .vk()
+                .fixed_commitments()
+                .iter()
+                .chain(key.vk().permutation_commitments())
+                .map(GroupEncoding::to_bytes)
+                .collect();
+            let encoded = norito::to_bytes(&(16_u32, points, columns)).unwrap();
+            let path = std::path::PathBuf::from(directory)
+                .join(format!("load-signature-{}.norito", plan.slots().len()));
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap();
+            output.write_all(&encoded).unwrap();
+            output.sync_all().unwrap();
+            println!(
+                "PUBLIC_COLUMN_FIXTURE path={} sha256={:x}",
+                path.display(),
+                sha2::Sha256::digest(&encoded)
+            );
+        }
         let original = key.artifact_bytes_v2().unwrap();
+        let original_bytes = original.len();
+        let table_bytes =
+            (key.fixed_values().len() + key.permutation_values().len()) * key.binding().n() * 32;
+        let descriptor = key.binding().encoded().to_vec();
+        let vk = key.vk().to_bytes().to_vec();
+        assert_eq!(original_bytes, 108 + vk.len());
+        drop(key);
+        let started = std::time::Instant::now();
         let owner = QSignatureProver::from_original_artifact(
-            plan,
+            plan.clone(),
             params.clone(),
-            key.binding().encoded(),
-            key.vk().to_bytes(),
+            &descriptor,
+            &vk,
             &original,
             ReadConfig {
                 maximum_bytes: original.len(),
@@ -385,11 +431,29 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
             },
         )
         .unwrap();
-        drop(key);
+        let admission_ms = started.elapsed().as_millis();
+        let metadata = owner.into_metadata();
+        assert_eq!(metadata.binding().encoded(), descriptor);
+        assert_eq!(metadata.verifying_key().to_bytes(), vk);
+        let started = std::time::Instant::now();
+        let reconstructed = keygen_pk_from_vk_v2(
+            &params,
+            &plan.source_circuit().unwrap(),
+            &metadata.view(),
+            CosetCachePolicy::OnDemand,
+        )
+        .unwrap();
+        let reconstruction_ms = started.elapsed().as_millis();
+        assert_eq!(reconstructed.artifact_bytes_v2().unwrap(), original);
+        assert!(!reconstructed.has_coset_cache());
+        drop(reconstructed);
         drop(original);
+        let owner =
+            QSignatureProverView::from_source_bound(&plan, &params, metadata.view()).unwrap();
         // Both pre-cut reconstruction/validation paths have now finished.
         let first_log = RecoveryLog::default();
         let second_log = RecoveryLog::default();
+        let started = std::time::Instant::now();
         let first = owner
             .prove(
                 &witnesses,
@@ -397,6 +461,8 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
                 ProverConfig::default(),
             )
             .unwrap();
+        let first_prove_ms = started.elapsed().as_millis();
+        let started = std::time::Instant::now();
         let second = owner
             .prove(
                 &restored,
@@ -404,12 +470,14 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
                 ProverConfig::default(),
             )
             .unwrap();
+        let second_prove_ms = started.elapsed().as_millis();
         assert_eq!(*first_log.lock().unwrap(), *second_log.lock().unwrap());
         assert_recovery(&first_log);
         assert_recovery(&second_log);
         assert_eq!(first.bytes, second.bytes);
         assert_eq!(first.instances, second.instances);
         assert_eq!(frame(&first.instances), public);
+        let started = std::time::Instant::now();
         for proof in [&first, &second] {
             iroha_plonk::verify_full(
                 owner.params(),
@@ -421,6 +489,18 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
             )
             .unwrap();
         }
+        let verify_pair_ms = started.elapsed().as_millis();
+        println!(
+            "COMPACT_HOST_Q_SIGNATURE k=16 slots={} original_bytes={} reconstructed_table_bytes={} cold_metadata_admission_ms={} source_bound_reconstruction_ms={} native_prove_and_self_verify_ms={} repeat_native_prove_and_self_verify_ms={} explicit_verify_pair_ms={}",
+            plan.slots().len(),
+            original_bytes,
+            table_bytes,
+            admission_ms,
+            reconstruction_ms,
+            first_prove_ms,
+            second_prove_ms,
+            verify_pair_ms,
+        );
     }
     println!(
         "LOAD_SIGNATURE_PUBLIC_INVERSE keygens=2 strict_imports=2 proofs=4 complete_native_verification=true qualification=false"

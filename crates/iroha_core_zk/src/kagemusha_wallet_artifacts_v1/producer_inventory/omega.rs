@@ -5,7 +5,7 @@
 //! been compared in signed program order, and the exact final original imports.
 
 use iroha_kagemusha_proof::{a_relation::native::artifact::KeyArtifact, omega::native};
-use iroha_plonk::{keys::pk::artifact::ReadConfig, pcs::ipa::PinnedParams};
+use iroha_plonk::keys::pk::artifact::ReadConfig;
 
 use super::recipe::InstalledSourceSealV1;
 use super::*;
@@ -153,6 +153,23 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
     ) -> Result<QualifiedOmegaProgramV1, OmegaQualificationErrorV1> {
+        self.qualify_omega_with_admission(
+            installed,
+            routes,
+            originals,
+            config,
+            super::builtin::Admission::Strict,
+        )
+    }
+
+    pub(super) fn qualify_omega_with_admission(
+        &self,
+        installed: &InstalledVerifierPackV1,
+        routes: &[QualifiedOperationRouteV1],
+        originals: &mut dyn OriginalSourceV1,
+        config: ReadConfig,
+        admission: super::builtin::Admission<'_>,
+    ) -> Result<QualifiedOmegaProgramV1, OmegaQualificationErrorV1> {
         let installation = (
             installed.verifier().scheme().scheme_id(),
             installed.verifier().manifest_digest(),
@@ -213,8 +230,8 @@ impl AuthenticatedProducerInventoryV1 {
                 return Err(OmegaQualificationErrorV1::Catalog);
             }
         }
-        let pallas = PinnedParams::derive(16).map_err(|_| OmegaQualificationErrorV1::Catalog)?;
-        let vesta = PinnedParams::derive(16).map_err(|_| OmegaQualificationErrorV1::Catalog)?;
+        let pallas = installed.verifier().pallas_parameters().as_ref().clone();
+        let vesta = installed.verifier().vesta_parameters(16)?.as_ref().clone();
         let keys: Vec<_> = terminals
             .iter()
             .map(|key| key.key().to_bytes().to_vec())
@@ -222,13 +239,24 @@ impl AuthenticatedProducerInventoryV1 {
         let program =
             native::Program::for_compiled_catalog(binding.encoded(), &keys, vesta, pallas)?;
         let original = self.read_original(self.inventory.omega, originals, config.maximum_bytes)?;
-        let owner = native::Prover::from_original_artifact(
-            program.clone(),
-            &original.descriptor,
-            &original.verifying_key,
-            &original.proving_key,
-            config,
-        )?;
+        let owner = match admission.member(&[5])? {
+            Some(member) => native::Prover::from_builtin_original_artifact_cancellable(
+                program.clone(),
+                &original.descriptor,
+                &original.verifying_key,
+                &original.proving_key,
+                config,
+                member,
+                None,
+            )?,
+            None => native::Prover::from_original_artifact(
+                program.clone(),
+                &original.descriptor,
+                &original.verifying_key,
+                &original.proving_key,
+                config,
+            )?,
+        };
         if owner.binding() != candidate.binding()
             || owner.verifying_key().to_bytes() != candidate.key().to_bytes()
         {

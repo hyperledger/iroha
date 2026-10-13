@@ -184,6 +184,35 @@ fn encoded_rejects_symlink_and_path_replacement_even_with_buffered_output() {
     assert!(source.open_original(identity.sha256).is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn encoded_rejects_same_bytes_rewritten_even_with_buffered_output() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let raw = vec![17; 128 << 10];
+    let stored = encode(&raw);
+    let (_temp, root) = root();
+    let source = input(&root, &raw, &stored);
+    let identity = BlobV1::of(&raw);
+    let path = root.path().join(hex::encode(identity.sha256));
+    let mut reader = source.open_original(identity.sha256).unwrap();
+    reader.read_exact(&mut [0; 1]).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    writer.write_all(&stored).unwrap();
+    writer
+        .set_modified(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap();
+    drop(writer);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+    let error = reader.read(&mut [0; 1]).unwrap_err();
+    assert!(error.get_ref().unwrap().is::<OriginalCustodyFailure>());
+    assert!(matches!(
+        source.open_original(identity.sha256),
+        Err(Error::Inventory)
+    ));
+}
+
 #[test]
 fn encoded_initial_absence_never_excuses_later_missing_custody() {
     let (_temp, root) = root();

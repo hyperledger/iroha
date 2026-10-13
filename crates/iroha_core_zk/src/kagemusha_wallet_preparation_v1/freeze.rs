@@ -303,4 +303,5 @@ impl PreparationV1<'_> {
 }
 
 #[cfg(test)]
+#[path = "freeze/tests.rs"]
 mod tests;

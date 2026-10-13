@@ -40,8 +40,9 @@ largest Android app-policy frame (a 255-byte package and four signers) must fit 
 transcript sizes below do not establish that: the complete frame adds the Norito header,
 u32 discriminants and field and sequence length prefixes. The Model's tests encode both
 maximal policies with the actual Norito encoder and assert each complete frame is at most
-1024 bytes; until that test passes, the cap is unverified for them. The proposed Native
-roundtrip/byte-mutation controls must pass before adoption. Python consumes a private typed
+1024 bytes (`new_policy_maximal_norito_frames_fit_the_complete_frame_cap`). The
+canonical-frame and every-byte-substitution tests enforce Native roundtrip and
+mutation rejection. Python consumes a private typed
 projection and computes transcripts; it does not introduce another policy wire codec.
 
 Hash identity uses the existing wallet `H` construction:

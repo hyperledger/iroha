@@ -4,6 +4,8 @@
 //! exact Parliament-enacted conversion effect plan can write this state.
 mod beneficiary;
 mod exposure;
+#[cfg(test)]
+mod exposure_lifecycle_tests;
 mod head_tree;
 mod history;
 mod pending;

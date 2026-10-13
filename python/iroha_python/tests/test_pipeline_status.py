@@ -8,7 +8,6 @@ from iroha_python import ToriiClient
 
 from .helpers import RecordingSession, StubResponse
 
-
 TRANSACTION_HASH = "ab" * 32
 APPLIED_STATUS = {
     "hash": TRANSACTION_HASH,

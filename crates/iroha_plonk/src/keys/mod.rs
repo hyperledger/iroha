@@ -35,11 +35,12 @@ mod tests;
 pub mod vk;
 
 pub use keygen::{
-    KeygenConfig, KeygenConfigV2, RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2,
-    SourceBoundViewV2, keygen_from_tables, keygen_from_tables_v2, keygen_pk, keygen_pk_from_vk_v2,
-    keygen_pk_from_vk_v2_cancellable, keygen_pk_v2, keygen_pk_v2_cancellable, keygen_vk,
-    keygen_vk_v2, keygen_vk_with_binding_v2, keygen_vk_with_binding_v2_cancellable,
-    permutation_values, source_fingerprint_v2,
+    BuiltinSourceErrorV1, BuiltinSourceMemberV1, BuiltinSourceProfileV1, KeygenConfig,
+    KeygenConfigV2, RebuildError, SourceAdmissionSealV2, SourceBoundVerifyingKeyV2,
+    SourceBoundViewV2, builtin_source_identity_v1, keygen_from_tables, keygen_from_tables_v2,
+    keygen_pk, keygen_pk_from_vk_v2, keygen_pk_from_vk_v2_cancellable, keygen_pk_v2,
+    keygen_pk_v2_cancellable, keygen_vk, keygen_vk_v2, keygen_vk_with_binding_v2,
+    keygen_vk_with_binding_v2_cancellable, permutation_values, source_fingerprint_v2,
 };
 pub use pk::{
     CosetCachePolicy, CosetMasks, CosetPolynomial, KeyConstraintSystem, ProvingKey, QuotientDomain,

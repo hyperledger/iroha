@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+
 import pytest
+
 from iroha_python import SumeragiParamsSnapshot, SumeragiStatus, ToriiClient
 
 

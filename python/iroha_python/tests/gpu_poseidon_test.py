@@ -1,6 +1,7 @@
 """Automatic Poseidon parity; CPU fallback is valid and does not qualify CUDA."""
 
 import pytest
+
 from iroha_python import gpu
 
 MAX = (1 << 64) - 1
@@ -19,7 +20,7 @@ def test_automatic_batch_matches_ivm_goldens(width, rows, expected):
     operation = getattr(gpu, f"poseidon{width}_many")
     assert operation(rows) == expected
     assert operation([]) == ()
-    for row, result in zip(rows, expected):
+    for row, result in zip(rows, expected, strict=True):
         assert operation([row]) == (result,)
     assert not hasattr(gpu, f"poseidon{width}_cuda_many")
 

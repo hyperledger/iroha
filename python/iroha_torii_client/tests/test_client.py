@@ -7,7 +7,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 import pytest
@@ -15,9 +15,6 @@ import requests
 from client_test_support import (
     CANONICAL_OWNER,
     CANONICAL_OWNER_HEADER,
-)
-from client_test_support import (
-    app_api_transaction_draft as _app_api_transaction_draft,
 )
 from client_test_support import (
     authority_fee_payment as _authority_fee_payment,
@@ -31,7 +28,6 @@ from client_test_support import (
 from sumeragi_exact_json_test_support import (
     RecordingSession,
     StubResponse,
-    sumeragi_exact_json_response_cases,
 )
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]

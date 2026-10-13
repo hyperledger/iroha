@@ -89,7 +89,7 @@ fn setup_state() -> State {
     parameters.commit();
     State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test())
 }
-fn staking_test_lane_catalog() -> LaneCatalog {
+pub(crate) fn staking_test_lane_catalog() -> LaneCatalog {
     // Each fixture lane represents a distinct staking authority. Provision only
     // the identities exercised below; unused lane storage adds no coverage.
     let lane_count = nonzero!(213_u32);
@@ -125,7 +125,7 @@ fn set_transaction_lane_catalog(stx: &mut StateTransaction<'_, '_>, lane_catalog
     stx.nexus.lane_config =
         iroha_config::parameters::actual::LaneConfig::from_catalog(&stx.nexus.lane_catalog);
 }
-fn register_peer_for_account(
+pub(crate) fn register_peer_for_account(
     stx: &mut StateTransaction<'_, '_>,
     account: &AccountId,
 ) -> iroha_model_base::peer::PeerId {

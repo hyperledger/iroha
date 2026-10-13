@@ -10,6 +10,7 @@ use iroha_fs::PrivateDirectory;
 use std::{io::Read, path::Path};
 
 /// Clones share retained native ancestry and immutable metadata; never PK buffers.
+/// Complete admission may temporarily snapshot bounded compressed public DATA.
 #[derive(Clone)]
 pub(super) struct CatalogOriginals {
     _selected: Arc<selection::AuthenticatedBase>,
@@ -80,16 +81,28 @@ impl CatalogOriginals {
             return Err(Failure::code(INVALID));
         }
         let transport = require_transport(inventory, &transport)?;
-        let source = CatalogReader::load(metadata, root, inventory, &transport)?;
+        let source = CatalogReader::open(metadata, root, inventory, &transport)?;
         Ok(Self {
             _selected: selected,
             source,
         })
     }
+
+    /// Keep the public snapshot inside admission and close actual filesystem
+    /// custody before returning any complete source owner to the runtime.
+    pub(super) fn with_snapshot<T, E>(
+        &self,
+        body: impl FnOnce(&mut dyn OriginalSourceV1) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<OriginalError>,
+    {
+        self.source.with_snapshot(body)
+    }
 }
 
 impl CatalogReader {
-    fn load(
+    fn open(
         metadata: PrivateDirectory,
         root: &Path,
         inventory: &ProducerInventoryV1,
@@ -106,16 +119,42 @@ impl CatalogReader {
                 insert(&mut roles, blob)?;
             }
         }
-        // Check every unique decoded original once; aliases retain the same signed identity.
-        for blob in roles.values() {
-            wallet.verify_original(*blob).map_err(storage)?;
+        if transport
+            .originals()
+            .iter()
+            .map(|row| row.original)
+            .ne(roles.values().copied())
+        {
+            return Err(Failure::code(INVALID));
         }
+        // The immediately following admission snapshot verifies every unique
+        // stored/decoded original once. Opening this DATA reader grants nothing.
         metadata.revalidate().map_err(storage)?;
         Ok(Self {
             metadata: Arc::new(metadata),
             wallet: Arc::new(wallet),
             roles: Arc::new(roles),
         })
+    }
+
+    fn with_snapshot<T, E>(
+        &self,
+        body: impl FnOnce(&mut dyn OriginalSourceV1) -> std::result::Result<T, E>,
+    ) -> std::result::Result<T, E>
+    where
+        E: From<OriginalError>,
+    {
+        self.metadata
+            .revalidate()
+            .map_err(|_| E::from(OriginalError::Inventory))?;
+        let result = self.wallet.with_snapshot(body);
+        // Close metadata ancestry on both success and failure. The wallet's own
+        // closing pass checks each captured original against its observed map,
+        // which this same reader retains for all later live proof imports.
+        self.metadata
+            .revalidate()
+            .map_err(|_| E::from(OriginalError::Inventory))?;
+        result
     }
 }
 impl OriginalSourceV1 for CatalogOriginals {

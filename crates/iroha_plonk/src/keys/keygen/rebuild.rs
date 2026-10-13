@@ -1,9 +1,10 @@
 //! Rebuild exact source-bound V2 proving buffers without repeating commitment MSMs.
 //!
 //! A decoded VK or lookup fingerprint cannot authorize this path. The opaque
-//! capability is minted only from a completed native key or strictly imported
-//! original. It retains public identity, never proving polynomials or witnesses.
-//! Original artifact admission remains unchanged and mandatory for untrusted DATA.
+//! capability is minted from a completed native key, strictly imported original,
+//! or exact fresh member of the closed compiled source registry. It retains public
+//! identity, never proving polynomials or witnesses. Ordinary original import is
+//! always strict; the compiled-profile API is an explicit separate authority.
 
 use super::*;
 use sha2::{Digest as _, Sha256};
@@ -46,12 +47,13 @@ impl core::fmt::Display for RebuildError {
 }
 impl std::error::Error for RebuildError {}
 
-/// Compact exact-source authority minted only from a completed proving key.
+/// Compact exact-source authority minted only after native source qualification.
 ///
 /// This seal retains three digests and no descriptor, verifier, parameter arrays,
 /// polynomial or witness. It is not serializable and has no raw-parts constructor.
-/// Native key generation, strict original import and exact reconstruction are all
-/// completed-key authorities; deployment and installed-source custody are separate.
+/// Native key generation, strict original admission and a fresh closed compiled
+/// member are authorities; deployment and installed-source custody are separate. Admission
+/// need not construct proving-only FFT coefficients, masks or coset caches.
 #[derive(Clone, Debug)]
 pub struct SourceAdmissionSealV2<C: PastaCurve> {
     descriptor_digest: [u8; 32],
@@ -107,27 +109,57 @@ fn key_digest<C: PastaCurve>(
 fn source_digest<F: PastaField>(
     binding: &DescriptorBinding,
     copy_digest: &[u8; 32],
-    selectors: &[Vec<bool>],
+    selectors: super::super::source_fingerprint::SelectorSource<'_>,
     fixed: &[Vec<F>],
     sigma: &[Vec<F>],
     cancellation: Option<&CancellationToken>,
 ) -> Result<[u8; 32], KeyError> {
-    let mut hash = super::super::source_fingerprint::SourceHasher::new(
+    Ok(*super::super::source_fingerprint::from_tables(
         binding,
         copy_digest,
         selectors,
+        fixed,
+        sigma,
         cancellation,
-    )?;
-    for column in fixed.iter().chain(sigma) {
-        for (index, value) in column.iter().enumerate() {
-            if index % 1024 == 0 {
-                CancellationToken::checkpoint(cancellation)?;
-            }
-            hash.scalar(value.to_repr().as_ref());
-        }
-    }
+    )?
+    .digest())
+}
+
+/// Consume the private result of native synthesis and every commitment check.
+/// No raw digest/decoded metadata constructor can reach this authority boundary.
+pub(super) fn from_admitted_source<C: PastaCurve>(
+    admitted: AdmittedSource<C>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<SourceBoundVerifyingKeyV2<C>, KeyError> {
     CancellationToken::checkpoint(cancellation)?;
-    Ok(*hash.finish(binding.clone()).digest())
+    let seal = SourceAdmissionSealV2 {
+        descriptor_digest: *admitted.source.binding.digest(),
+        key_sha256: key_digest(&admitted.vk, cancellation)?,
+        source_digest: admitted.source_digest,
+        curve: core::marker::PhantomData,
+    };
+    Ok(SourceBoundVerifyingKeyV2 {
+        binding: admitted.source.binding,
+        key: admitted.vk,
+        seal,
+    })
+}
+
+/// Only an opaque member from the closed registry can reach this additional mint.
+/// The caller has checked every canonical original against that immutable member.
+pub(super) fn from_builtin_member<C: PastaCurve>(
+    admitted: super::builtin::VerifiedBuiltinOriginal<C>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<SourceBoundVerifyingKeyV2<C>, KeyError> {
+    CancellationToken::checkpoint(cancellation)?;
+    let (binding, key, source_digest) = admitted.into_parts();
+    let seal = SourceAdmissionSealV2 {
+        descriptor_digest: *binding.digest(),
+        key_sha256: key_digest(&key, cancellation)?,
+        source_digest,
+        curve: core::marker::PhantomData,
+    };
+    Ok(SourceBoundVerifyingKeyV2 { binding, key, seal })
 }
 
 impl<C: PastaCurve> SourceAdmissionSealV2<C> {
@@ -146,7 +178,7 @@ impl<C: PastaCurve> SourceAdmissionSealV2<C> {
         let source_digest = source_digest(
             key.binding(),
             key.copy_digest(),
-            key.vk().selectors(),
+            key.vk().selectors().into(),
             key.fixed_values(),
             key.permutation_values(),
             cancellation,
@@ -157,6 +189,18 @@ impl<C: PastaCurve> SourceAdmissionSealV2<C> {
             source_digest,
             curve: core::marker::PhantomData,
         })
+    }
+
+    /// Whether two opaque seals attest the same descriptor, verifier and source.
+    ///
+    /// This compares engine source identity only. It does not establish an
+    /// installation, inventory member, compiled role or original-file custody;
+    /// callers must retain those independent checks before reusing an owner.
+    #[must_use]
+    pub fn same_source(&self, other: &Self) -> bool {
+        self.descriptor_digest == other.descriptor_digest
+            && self.key_sha256 == other.key_sha256
+            && self.source_digest == other.source_digest
     }
 
     /// Borrow existing metadata only after exact V2 descriptor and VK checks.
@@ -200,12 +244,12 @@ impl<C: PastaCurve> SourceBoundVerifyingKeyV2<C> {
             seal,
         })
     }
-    /// Exact descriptor retained from the validated proving key.
+    /// Exact descriptor retained from native source qualification.
     #[must_use]
     pub const fn binding(&self) -> &DescriptorBinding {
         &self.binding
     }
-    /// Exact verifier retained from the validated proving key.
+    /// Exact verifier retained from native source qualification.
     #[must_use]
     pub const fn verifying_key(&self) -> &VerifyingKey<C> {
         &self.key
@@ -246,7 +290,9 @@ pub fn keygen_pk_from_vk_v2<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
 }
 
 /// Rebuild with cancellation at synthesis, source hashing and transform boundaries.
-/// Untrusted original bytes must still enter the ordinary strict artifact importer.
+/// Original bytes first require strict import or exact closed compiled-member
+/// admission. A seal never attests to an arbitrary caller-supplied circuit: this
+/// function checks that circuit's complete source before constructing proving buffers.
 ///
 /// # Errors
 /// As [`keygen_pk_from_vk_v2`], or cancellation without a partial key/capability.
@@ -308,11 +354,14 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
     if prepared.binding != *verifier.binding {
         return Err(RebuildError::Profile);
     }
-    if prepared.vk_selectors != verifier.key.selectors()
+    if !verifier
+        .key
+        .selectors()
+        .matches_rows_cancellable(&prepared.vk_selectors, cancellation)?
         || source_digest(
             &prepared.binding,
             &prepared.copy_digest,
-            &prepared.vk_selectors,
+            prepared.vk_selectors.as_slice().into(),
             &prepared.fixed,
             &prepared.sigma,
             cancellation,
@@ -337,3 +386,6 @@ pub fn keygen_pk_from_vk_v2_cancellable<C: PastaCurve, Ci: Circuit<C::ScalarExt>
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod admission_tests;

@@ -16,3 +16,13 @@ useful.
 
 The `iroha` workspace builds and tests independently; a sibling `iroha-docs`
 checkout is not required.
+
+For SORA Nexus articles and conceptual explanations, start with **data spaces**:
+the environments for data, authority, policy, and applications. The data space
+catalog defines data spaces. The lane catalog defines transaction-processing
+lanes, each bound to one data space; a data space can have multiple lanes. Call a
+bank's environment a data space, and introduce its lanes when explaining routing
+or capacity. Follow the writing rules in [`../AGENTS.md`](../AGENTS.md#documentation).
+The execution contracts are [`sumeragi_lanes.md`](../specs/sumeragi_lanes.md)
+for public lane batches and [`sumeragi.md` §11](../specs/sumeragi.md#11-dataspace-local-finality-and-amx-via-two-phase-commit-application-layer)
+for independently executing data spaces.

@@ -517,14 +517,17 @@ impl PreparationV1<'_> {
                         model(leaf.leaf_value())?,
                     )?;
                     let fee = if request.body.fee == 0 {
-                        None
+                        let (leaf, opening) = custody
+                            .maps()
+                            .member_or_low(Map::Fee, &request.credit_id())?;
+                        SendFeeMapV1::Preserve { leaf, opening }
                     } else {
                         let leaf = KagemushaWalletFeeClaimLeafV1 {
                             credit_id: request.credit_id(),
                             fee: request.body.fee,
                             fee_schedule_digest: request.body.fee_schedule,
                         };
-                        Some(custody.maps().insert(
+                        SendFeeMapV1::Insert(custody.maps().insert(
                             Map::Fee,
                             leaf.key(),
                             model(leaf.leaf_value())?,

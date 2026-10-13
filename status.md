@@ -415,9 +415,53 @@ passes.
   records remain explicit; these results do not qualify the whole checkout or phones.
   Scoped proof-crate strict lint and workspace formatting pass; dependency-inclusive
   strict lint retains unrelated configuration failures.
-  A canonical executed ledger setup is now
-  exported for the native monetary integration, with the full matching proof
-  catalog and funded A receipt still pending.
+  The signed compact catalogue measures 5,017,489 bytes including metadata;
+  complete native catalogue and signed production-runtime import pass. Pixel 6
+  strict source-graph inspection stores 7,224 KiB and passes all 32 Q programs
+  and 52 routes in 701.473 seconds, peaking at 562.9 MiB RSS. The first independently
+  generated built-in profile passes the same graph in 103.837 seconds, peaking
+  at 691.4 MiB RSS, with 7,232 KiB carrier allocation and no expanded disk files.
+  With bounded snapshots, batch reuse and pinned parameters, the c66 candidate
+  completes the same graph in 57.735 seconds. The subsequent 5a62 candidate's
+  generator-prefix memo and exact validated-metadata reuse reduce this to
+  18.303 seconds. Packed selector validation and closing snapshot reuse in
+  351234 reduce this to 14.201 seconds, peaking at 538.8 MiB RSS with 7,224 KiB
+  carrier allocation and no expanded disk files. These are isolated
+  loading diagnostics, not complete app startup or payment measurements. Public
+  parameter assets add 9,699,600 bytes per native slice; catalogue size is not
+  the total app download. Loading time and memory remain too high; further
+  admission optimizations need fresh validation
+  under the [compact artifact goals](specs/kagemusha_compact_artifact_goals.md).
+  The engineering native Bootstrap/Activate, executed A funding and Load
+  finality admission pass. The repaired fixture confirms the existing activation,
+  passes Load recovery and forgery/duplicate controls, and completes Load and
+  both recipient Bootstrap folds. Exact Send recovery now returns the completed
+  Payment. The corrected continuation replays that exact completion under a
+  signature outage with an unchanged sender snapshot. Recipient B Receive,
+  retry, duplicate-credit checks and its full Receive fold pass. B→C Send/exact
+  retry and C Receive/restart/exact retry/full fold pass, with 100 units conserved
+  and zero burned. A's ArchiveReceive package and immediate exact retry pass,
+  and the zero-fee proof-assembly repair now passes eight focused regressions
+  plus the original failed Send checkpoint with unchanged capsule, Payment and
+  money. The same retained Send sequence 2 completes all checkpoints and its
+  final Omega fold. A's retained ArchiveReceive also completes all 22 checkpoints
+  and final Omega, with exact replay after restart and unchanged monetary value.
+  B's retained Send also completes all checkpoints and final Omega.
+  B's ArchiveStatus, C Unload and settlement remain in progress
+  and unproved. An explicit compiled-source
+  registry is implemented with strict independent generation, exact graph and
+  original matching, and build-input freshness checks. Production and engineering
+  entries, complete host inspections and actual typed wrapper controls pass for
+  the measured 351234 candidate, including 94 signature and 175 Receive batch
+  controls, focused packed-selector/descriptor/key tests with real proof-byte
+  parity and 20 encoded/snapshot adversarial tests.
+  Both 908-member profiles were strictly regenerated, matching preceding members
+  exactly apart from source identity. Android 37's actual Play-signed universal
+  APK is 202,502,649 bytes, publicly served with exact hash verification and
+  installed in place on the Pixel. iOS 20261012231728 is in active public
+  TestFlight testing. Those packages use the earlier b6 correctness candidate;
+  the measured startup optimizations remain separate from those packages and full
+  journey or device acceptance.
   Real-proof A → B → C → unload, the two-second durable-completion target,
   the complete native release matrix and physical-device recovery remain unqualified.
   The [checklist](specs/kagemusha_evidence_gate.md) records verification without

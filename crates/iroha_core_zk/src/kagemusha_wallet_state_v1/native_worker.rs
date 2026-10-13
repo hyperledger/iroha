@@ -69,7 +69,26 @@ pub(crate) enum NativeStageProgressV1 {
     Terminal(omega::Input),
 }
 
-fn proof<T, E: crate::kagemusha_wallet_proofs_v1::NativeProofError>(
+#[cfg(not(test))]
+use proof_result as proof;
+
+// Engineering diagnostics reveal only typed error classes and static source locations.
+// The production mapping and every native verification remain unchanged.
+#[cfg(test)]
+#[track_caller]
+fn proof<T, E: crate::kagemusha_wallet_proofs_v1::NativeProofError + core::fmt::Debug>(
+    result: Result<T, E>,
+) -> Result<T, Error> {
+    if let Err(error) = &result {
+        eprintln!(
+            "NATIVE_FOLD_FAILURE location={} error={error:?}",
+            core::panic::Location::caller(),
+        );
+    }
+    proof_result(result)
+}
+
+fn proof_result<T, E: crate::kagemusha_wallet_proofs_v1::NativeProofError>(
     result: Result<T, E>,
 ) -> Result<T, Error> {
     result.map_err(|error| {

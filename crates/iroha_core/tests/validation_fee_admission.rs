@@ -47,7 +47,6 @@ use iroha_data_model::{
 use iroha_model_base::{domain::DomainId, metadata::Metadata, topology::DataSpaceId};
 use iroha_primitives::{json::Json, numeric::NumericSpec};
 use mv::storage::StorageReadOnly;
-use sha2::{Digest as _, Sha256};
 use std::{num::NonZeroU64, sync::Arc};
 const TEST_VALIDATION_FEE_ASSET_SCALE: u8 = VALIDATION_FEE_DS_SCALE;
 const TEST_POLICY_ENACTMENT_HEIGHT: u64 = 7_202;
@@ -294,7 +293,7 @@ fn payout_binding(
     ValidationFeeTreasuryPayoutBindingV1 {
         treasury_account_id: contract_address.subject_id(),
         contract_address,
-        code_hash: <[u8; 32]>::from(Sha256::digest(contract_artifact)),
+        code_hash: ivm::contract_code_hash(&contract_artifact).into(),
         entrypoint: "autonomous_validation_fee_tick"
             .parse()
             .expect("payout entrypoint"),
@@ -302,7 +301,7 @@ fn payout_binding(
         xor_asset_id: xor_asset_definition_id(),
         pool_vault_account_id: pool_contract_address(network).subject_id(),
         pool_contract_address: pool_contract_address(network),
-        pool_code_hash: <[u8; 32]>::from(Sha256::digest(pool_contract_artifact().0)),
+        pool_code_hash: ivm::contract_code_hash(&pool_contract_artifact().0).into(),
         reward_pool_account_id: account(7).0,
         reference_feed_id: "xor_per_sbd".parse().unwrap(),
         reference_feed_config_version: 1,
@@ -1066,16 +1065,30 @@ fn install_canonical_post_enactment_validation_fee_state(
     .expect("activate pool contract");
 
     let payout_binding = payout_binding(state.network_id_ref(), &policy.ds_asset_id);
+    // The enacted policy must identify the immutable manifests registered above;
+    // dedicated-role guards resolve those exact historical artifact identities.
+    assert_eq!(
+        Hash::prehashed(payout_binding.code_hash),
+        registered_code_hash,
+        "payout binding must name the registered wrapper artifact"
+    );
+    assert_eq!(
+        Hash::prehashed(payout_binding.pool_code_hash),
+        pool_code_hash,
+        "payout binding must name the registered pool artifact"
+    );
     let wrapper_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: payout_contract_address(state.network_id_ref()),
-            entrypoint: "autonomous_validation_fee_tick".to_owned(),
+            permission: "Payout".parse().expect("dedicated payout permission"),
         }
         .into();
     let pool_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: pool_contract_address(state.network_id_ref()),
-            entrypoint: "swap_exact_in_quote_public".to_owned(),
+            permission: "SwapQuotePublic"
+                .parse()
+                .expect("dedicated pool permission"),
         }
         .into();
     let wrapper_ds_transfer_permission: iroha_data_model::permission::Permission =
@@ -1305,15 +1318,17 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
     let policy = validation_fee_policy(&state, fee_asset, treasury.clone());
     install_canonical_post_enactment_validation_fee_state(&state, &user, &user_key_pair, policy);
     let wrapper_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: payout_contract_address(state.network_id_ref()),
-            entrypoint: "autonomous_validation_fee_tick".to_owned(),
+            permission: "Payout".parse().expect("dedicated payout permission"),
         }
         .into();
     let pool_permission: iroha_data_model::permission::Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: pool_contract_address(state.network_id_ref()),
-            entrypoint: "swap_exact_in_quote_public".to_owned(),
+            permission: "SwapQuotePublic"
+                .parse()
+                .expect("dedicated pool permission"),
         }
         .into();
     let wrapper_ds_transfer_permission: iroha_data_model::permission::Permission =
@@ -1335,6 +1350,15 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
             pool_contract_address(state.network_id_ref()).subject_id(),
         ),
     ] {
+        assert!(
+            stx.world
+                .account_contains_inherent_permission(&required_owner, &permission),
+            "the enacted fixture must install each exact manifest role or asset effect"
+        );
+        assert!(
+            !stx.world
+                .account_contains_inherent_permission(&recipient, &permission)
+        );
         let grant_error = Grant::account_permission(permission.clone(), recipient.clone())
             .execute(&user, &mut stx)
             .expect_err(
@@ -1346,7 +1370,12 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
                 .contains("forbids delegating its exact runtime permissions"),
             "unexpected payout runtime delegation error: {grant_error}"
         );
-        let revoke_error = Revoke::account_permission(permission, required_owner)
+        assert!(
+            !stx.world
+                .account_contains_inherent_permission(&recipient, &permission),
+            "a refused delegation must not add the protected permission"
+        );
+        let revoke_error = Revoke::account_permission(permission.clone(), required_owner.clone())
             .execute(&user, &mut stx)
             .expect_err("required payout runtime permission must remain pinned");
         assert!(
@@ -1354,6 +1383,11 @@ fn enacted_lifecycle_pins_exact_wrapper_pool_and_asset_effect_permissions() {
                 .to_string()
                 .contains("pins its exact runtime permissions"),
             "unexpected payout runtime revocation error: {revoke_error}"
+        );
+        assert!(
+            stx.world
+                .account_contains_inherent_permission(&required_owner, &permission),
+            "a refused revocation must retain the required payout authority"
         );
     }
 }
@@ -1476,7 +1510,7 @@ fn signed_assessment_cannot_be_repurposed_for_another_amount_or_charge() {
 
 #[test]
 fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion() {
-    let (mut state, user, key, recipient, treasury, asset) = test_state();
+    let (state, user, key, recipient, treasury, asset) = test_state();
     let policy = validation_fee_policy(&state, asset.clone(), treasury.clone());
     install_canonical_post_enactment_validation_fee_state(&state, &user, &key, policy);
     {
@@ -1487,15 +1521,18 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         )
         .unwrap();
         record.payments_used = 49;
-        let storage_key = format!(
-            "retail_fee_v1/{}",
-            hex::encode(iroha_crypto::Hash::new(user.to_string().as_bytes()).as_ref())
-        )
-        .parse()
-        .unwrap();
-        let mut store = state.world.smart_contract_state_mut_for_testing().block();
-        store.insert(storage_key, norito::to_bytes(&record).unwrap());
-        store.commit();
+        let mut setup = state.block(block_header(
+            &state,
+            TEST_POLICY_EFFECTIVE_HEIGHT,
+            1_793_451_600_000,
+        ));
+        let mut transaction = setup.transaction();
+        // Seed the allowance together with its required unsettled-month index;
+        // raw wallet bytes are not a complete canonical retail state.
+        iroha_core::retail_fee::write_account(&mut transaction.world, &record).unwrap();
+        iroha_core::retail_fee::validate_reward_history_frontier(&transaction.world).unwrap();
+        transaction.apply();
+        setup.commit_world_overlay_for_testing().unwrap();
     }
     let metadata = assessment_metadata(&state, &user, &recipient, &asset, 100);
     let transactions = (1..=2)
@@ -1550,6 +1587,8 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
     );
     block.commit_world_overlay_for_testing().unwrap();
     let view = state.view();
+    iroha_core::retail_fee::validate_reward_history_frontier(view.world())
+        .expect("payment and rejected replay preserve the exact unsettled-month frontier");
     assert_eq!(
         iroha_core::retail_fee::account_state(view.world(), &user)
             .unwrap()

@@ -10,7 +10,7 @@ fn metadata<C: PastaCurve>(root: &Path, name: &str) -> KeyArtifact<C> {
     let mut reader = File::open(root.join(name)).unwrap();
     let mut header = [0; 44];
     reader.read_exact(&mut header).unwrap();
-    assert_eq!(&header[..8], b"PIPAPK01");
+    assert_eq!(&header[..8], &iroha_plonk::keys::pk::artifact::MAGIC);
     let length = u32::from_le_bytes(header[40..44].try_into().unwrap()) as usize;
     assert!(length <= VERIFYING_KEY_MAX_BYTES_V1);
     let mut vk = vec![0; length];

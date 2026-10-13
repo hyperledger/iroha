@@ -28347,6 +28347,39 @@ impl State {
             (*DEFAULT_TEST_CHAIN_ID).clone(),
         )
     }
+    /// Rebind an independently executed component prefix to its original crash store.
+    ///
+    /// Only reward process-crash tests call this after joining the original executor.
+    /// Every durable prefix frame must match before any resource owner changes.
+    /// This is not snapshot admission: no decoded or caller-authored World is accepted.
+    #[cfg(test)]
+    pub(crate) fn rebind_reward_crash_kura_for_testing(
+        &mut self,
+        replacement: Arc<Kura>,
+    ) -> Result<(), String> {
+        for height in 1..=self.committed_height() {
+            let height = NonZeroUsize::new(height)
+                .ok_or_else(|| "reward crash prefix height is zero".to_owned())?;
+            let original = self
+                .kura
+                .canonical_block_wire_bytes_for_testing(height)
+                .map_err(|error| error.to_string())?;
+            let recovered = replacement
+                .canonical_block_wire_bytes_for_testing(height)
+                .map_err(|error| error.to_string())?;
+            if original != recovered {
+                return Err("reward crash recovery has a different original prefix".to_owned());
+            }
+        }
+        let LoadedStateJournals {
+            query_index,
+            query_projection_checkpoint,
+        } = load_state_journals(&replacement, None, true);
+        *self.query_index_journal.get_mut() = query_index;
+        *self.query_projection_checkpoint_journal.get_mut() = query_projection_checkpoint;
+        self.kura = replacement;
+        Ok(())
+    }
     /// Create an isolated State whose Kura is opened at the supplied authoritative
     /// pre-genesis Nexus geometry.
     ///

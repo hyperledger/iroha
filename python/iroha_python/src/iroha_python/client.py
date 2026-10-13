@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from iroha_torii_client.native_sumeragi import SumeragiStatus, SumeragiFootprint, SumeragiBeaconHorizon, SumeragiHaltReason
-from iroha_torii_client.native_sumeragi import SumeragiLaneStatus, SumeragiLaneRecord, SumeragiLaneMember, SumeragiLaneFrontier, SumeragiParameters
-
 import base64
 import binascii
 import copy
@@ -38,6 +35,7 @@ from typing import (
     Tuple,
     TypedDict,
     Union,
+    cast,
 )
 from urllib.parse import quote, urlencode, urlparse, urlunparse
 
@@ -60,7 +58,6 @@ from iroha_torii_client.canonical_transport import (
 from iroha_torii_client.client import (
     ConfidentialGasSchedule,
     ConfigurationSnapshot,
-    ElectionTally,
     GovernanceProposalDraft,
     GovernanceTally,
     NetworkTimeRttBucket,
@@ -92,7 +89,7 @@ from iroha_torii_client.client import (
     inspect_i105_network_prefix,
 )
 from iroha_torii_client.client import (
-    ToriiOperatorSigningContext as _BaseToriiOperatorSigningContext,
+    ElectionTally as ElectionTally,
 )
 from iroha_torii_client.client import (
     ToriiClient as _BaseToriiClient,
@@ -100,17 +97,20 @@ from iroha_torii_client.client import (
 from iroha_torii_client.client import (
     ToriiLocalSigningContext as _BaseLocalSigningContext,
 )
+from iroha_torii_client.client import (
+    ToriiOperatorSigningContext as _BaseToriiOperatorSigningContext,
+)
 from iroha_torii_client.client_status_models import (
     TransportConfig,
     TransportNoritoRpcConfig,
     parse_sumeragi_json_object,
 )
-from iroha_torii_client.collection import Account, AccountsCollection, Collection, Domain, HistoryCollection
-from iroha_torii_client.list_query import (
-    F,
-    Filter,
-    FilterLike,
-    filter_text,
+from iroha_torii_client.collection import (
+    Account,
+    AccountsCollection,
+    Collection,
+    Domain,
+    HistoryCollection,
 )
 from iroha_torii_client.governance_proposals import (
     GovernanceCanonicalObject,
@@ -144,8 +144,25 @@ from iroha_torii_client.governance_proposals import (
     GovernanceSorafsProviderActionKind,
     GovernanceValidationFeeChargingMode,
     GovernanceValidationFeePayoutBinding,
-    GovernanceValidationFeeRewardCustody,
     GovernanceValidationFeePolicy,
+    GovernanceValidationFeeRewardCustody,
+)
+from iroha_torii_client.list_query import (
+    F,
+    Filter,
+    FilterLike,
+    filter_text,
+)
+from iroha_torii_client.native_sumeragi import (
+    SumeragiBeaconHorizon,
+    SumeragiFootprint,
+    SumeragiHaltReason,
+    SumeragiLaneFrontier,
+    SumeragiLaneMember,
+    SumeragiLaneRecord,
+    SumeragiLaneStatus,
+    SumeragiParameters,
+    SumeragiStatus,
 )
 
 from ._privacy_backends import (
@@ -256,6 +273,7 @@ from .torii_client_runtime_auth import (
 )
 from .torii_client_space_directory import create_torii_client_space_directory_mixin
 from .torii_client_streaming_query import create_torii_client_streaming_query_mixin
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .connect import _ConnectControlBase as ConnectControlBase  # noqa: F401
     from .crypto import (  # noqa: F401
@@ -6234,7 +6252,7 @@ def _exact_durable_builtin_product(name: str, fields: list[str], types: list[str
     if fields != ["items", "next_offset"] or types[1] != "Option<int>":
         return False
     return any(types[0] == "List<" + view + "{" + ", ".join(
-        field + ": " + child for field, child in zip(shape[0], shape[1])
+        field + ": " + child for field, child in zip(shape[0], shape[1], strict=True)
     ) + "}, 64>" for view, shape in _CORE_QUERY_VIEW_LAYOUTS.items())
 
 
@@ -6322,6 +6340,7 @@ def _canonical_kotodama_state_type_name(
                     return None
             return "aggregate" if consume(")") else None
 
+        name: Optional[str]
         qualified_struct = re.match(r"[A-Za-z0-9_./@:-]+(?=\{)", value[cursor:])
         if qualified_struct is not None and "::" in qualified_struct.group():
             name = qualified_struct.group()
@@ -7269,7 +7288,9 @@ class ContractEntrypointDescriptor:
                 )
             ),
             return_schema=return_schema,
-            authorization=EntrypointAuthorizationV1.from_payload(value.get("authorization")),
+            authorization=EntrypointAuthorizationV1.from_payload(
+                _contract_object(value.get("authorization"), "entrypoint authorization")
+            ),
             read_keys=_contract_string_tuple(
                 value.get("read_keys", ()), "entrypoint descriptor.read_keys"
             ),
@@ -7385,7 +7406,7 @@ class ContractErrorVariantDescriptor:
     def from_payload(cls, payload: Mapping[str, Any]) -> "ContractErrorVariantDescriptor":
         value = _contract_object(payload, "error variant descriptor")
         _contract_exact_fields(value, ("name", "code"), "error variant descriptor")
-        result = cls(name=value.get("name"), code=value.get("code"))
+        result = cls(name=cast(str, value.get("name")), code=cast(int, value.get("code")))
         result.validate()
         return result
 
@@ -7406,14 +7427,14 @@ class ContractErrorTypeDescriptor:
             if not isinstance(variant, ContractErrorVariantDescriptor):
                 raise TypeError("error type variants must be typed descriptors")
             variant.validate()
-        if len({variant.name for variant in self.variants}) != len(self.variants) or any(left.code >= right.code for left, right in zip(self.variants, self.variants[1:])):
+        if len({variant.name for variant in self.variants}) != len(self.variants) or any(left.code >= right.code for left, right in zip(self.variants, self.variants[1:], strict=False)):
             raise TypeError("error variants must have unique names and increasing enum-local codes")
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ContractErrorTypeDescriptor":
         value = _contract_object(payload, "error type descriptor")
         _contract_exact_fields(value, ("identity", "variants"), "error type descriptor")
-        result = cls(identity=value.get("identity"), variants=tuple(
+        result = cls(identity=cast(str, value.get("identity")), variants=tuple(
             ContractErrorVariantDescriptor.from_payload(variant)
             for variant in _contract_array(value.get("variants"), "error type variants")
         ))
@@ -7438,7 +7459,7 @@ class ContractEnumVariantDescriptor:
     def from_payload(cls, payload: Mapping[str, Any]) -> "ContractEnumVariantDescriptor":
         value = _contract_object(payload, "enum variant descriptor")
         _contract_exact_fields(value, ("name", "code"), "enum variant descriptor")
-        result = cls(name=value.get("name"), code=value.get("code"))
+        result = cls(name=cast(str, value.get("name")), code=cast(int, value.get("code")))
         result.validate()
         return result
 
@@ -7459,14 +7480,14 @@ class ContractEnumTypeDescriptor:
             if not isinstance(variant, ContractEnumVariantDescriptor):
                 raise TypeError("enum type variants must be typed descriptors")
             variant.validate()
-        if len({variant.name for variant in self.variants}) != len(self.variants) or any(left.code >= right.code for left, right in zip(self.variants, self.variants[1:])):
+        if len({variant.name for variant in self.variants}) != len(self.variants) or any(left.code >= right.code for left, right in zip(self.variants, self.variants[1:], strict=False)):
             raise TypeError("enum variants must have unique names and increasing enum-local codes")
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ContractEnumTypeDescriptor":
         value = _contract_object(payload, "enum type descriptor")
         _contract_exact_fields(value, ("identity", "variants"), "enum type descriptor")
-        result = cls(identity=value.get("identity"), variants=tuple(
+        result = cls(identity=cast(str, value.get("identity")), variants=tuple(
             ContractEnumVariantDescriptor.from_payload(variant)
             for variant in _contract_array(value.get("variants"), "enum type variants")
         ))
@@ -7488,7 +7509,9 @@ class ContractEventDescriptor:
         name = obj.get("name")
         if not isinstance(name, str) or not _canonical_kotodama_identifier(name):
             raise TypeError("event name must be a canonical Kotodama identifier")
-        schema = EntrypointValueTypeV1.from_payload(obj.get("payload_type"))
+        schema = EntrypointValueTypeV1.from_payload(
+            _contract_object(obj.get("payload_type"), "entrypoint value type")
+        )
         root = schema.nodes[0]
         if root.kind is not EntrypointValueTypeNodeKindV1.STRUCT or root.value.name.rsplit("::", 1)[-1] != name:
             raise TypeError("event payload must be a named struct matching the event name")
@@ -8024,12 +8047,14 @@ class ContractManifestRecord:
         network_id = payload.get("network_id")
         if _contract_canonical_hash_hex(network_id, "manifest response.network_id") is None:
             raise TypeError("manifest response.network_id is required")
-        artifact_id = ContractArtifactId.from_payload(payload.get("artifact_id"))
+        artifact_id = ContractArtifactId.from_payload(
+            _contract_object(payload.get("artifact_id"), "artifact id")
+        )
         if artifact_id.code_hash != manifest.code_hash:
             raise TypeError("artifact_id.code_hash differs from the manifest hash")
         encoded = payload.get("code_bytes")
         code_bytes = None if encoded is None else _decode_contract_artifact_bytes(encoded, artifact_id)
-        return cls(network_id=network_id, artifact_id=artifact_id,
+        return cls(network_id=cast(str, network_id), artifact_id=artifact_id,
                    manifest=manifest, code_hash=code_hash, abi_hash=abi_hash, code_bytes=code_bytes)
 
 
@@ -9610,7 +9635,8 @@ class SumeragiEvidenceRecord:
         if not isinstance(safety_violation, bool):
             raise TypeError(f"{context}.safety_violation must be a boolean")
         return cls(
-            kind="NativeSumeragiEvidence", class_=evidence_class,
+            kind="NativeSumeragiEvidence",
+            class_=cast(Literal["proposal", "phase_vote", "timeout_vote", "invalid_proposal", "conflicting_certificates"], evidence_class),
             instance=hash32("instance"), height=_require_u64(payload["height"], f"{context}.height"),
             epoch=_require_u64(payload["epoch"], f"{context}.epoch"),
             context_id=hash32("context_id"), authority_generation=hash32("authority_generation"),
@@ -11933,6 +11959,12 @@ class _AccountCollections(AccountsCollection):
             lambda payload: AccountPermissionRecord.from_payload(payload).raw,
             "account permissions",
         )
+
+
+class _StakingPreparationHTTPError(requests.HTTPError):
+    """Failed preparation response retaining its bounded original body."""
+
+    staking_preparation_body: bytes
 
 
 class ToriiClient(
@@ -15802,12 +15834,14 @@ class ToriiClient(
         if original_timeout > (((1 << 64) - 1 - started_ns) // 1_000_000_000):
             raise ValueError("staking preparation timeout exceeds the absolute deadline range")
         deadline_ns = started_ns + int(original_timeout * 1_000_000_000)
+        from .address import asset_definition_id_to_bytes
         from .validator_staking import (
-            StakingPreparationRequestV1, StakingPreparationV1,
-            encode_staking_preparation_frame_v1, decode_staking_preparation_frame_v1,
+            StakingPreparationRequestV1,
+            StakingPreparationV1,
+            decode_staking_preparation_frame_v1,
+            encode_staking_preparation_frame_v1,
             validate_staking_preparation_v1,
         )
-        from .address import asset_definition_id_to_bytes
         asset_definition_id_to_bytes(xor_asset_definition_id)
         if type(request) is not StakingPreparationRequestV1:
             raise TypeError("staking preparation requires an exact typed request")
@@ -15825,7 +15859,7 @@ class ToriiClient(
             if length is not None and int(length) != len(raw):
                 raise ValueError("staking preparation response length mismatch")
             if response.status_code != 200:
-                error = requests.HTTPError(f"staking preparation HTTP {response.status_code}", response=response)
+                error = _StakingPreparationHTTPError(f"staking preparation HTTP {response.status_code}", response=response)
                 error.staking_preparation_body = raw
                 raise error
             prepared = decode_staking_preparation_frame_v1(StakingPreparationV1, raw)

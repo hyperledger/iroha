@@ -1,15 +1,14 @@
 """`GET /v1/sumeragi/lanes` parsing against the shared Rust-generated lane corpus."""
+import json
 from copy import deepcopy
 from dataclasses import FrozenInstanceError
-import json
 from pathlib import Path
 
 import pytest
-
 from iroha_torii_client.native_sumeragi import (
     LANES_MAX_BYTES,
-    SumeragiLaneStatus,
     SumeragiDataAvailabilityLayout,
+    SumeragiLaneStatus,
     parse_native_lanes,
     parse_native_lanes_json,
 )

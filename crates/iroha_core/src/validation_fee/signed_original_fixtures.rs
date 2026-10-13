@@ -1,6 +1,66 @@
 //! Original signed fixture custody for the two retained Parliament reader cases.
 //! These test-only keys and ledger fixtures grant no live service or monetary authority.
 use super::*;
+
+/// Sign fixture work with the exact fee intent derived from its original policy.
+pub(crate) fn sign_payout_fixture_work(
+    chain: &crate::sumeragi::test_chain::CertifiedTestChain,
+    signer: &KeyPair,
+    instructions: impl IntoIterator<Item = iroha_data_model::isi::InstructionBox>,
+    created_ms: u64,
+) -> iroha_data_model::transaction::SignedTransaction {
+    use crate::state::StateReadOnly as _;
+    use iroha_data_model::transaction::{FeePaymentIntent, TransactionBuilder};
+
+    let mut builder = TransactionBuilder::new(
+        chain.network_id(),
+        AccountId::new(signer.public_key().clone()),
+        FeePaymentIntent::authority(Vec::new(), None),
+    );
+    builder.set_creation_time(std::time::Duration::from_millis(created_ms));
+    let builder = builder.with_instructions(instructions);
+    let draft = builder.clone().sign(signer.private_key());
+    let view = chain.state().view();
+    let route_dataspace = match crate::sumeragi::lanes::routing::committed_root_scope(view.world())
+    {
+        Some(iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+            dataspace_id,
+            ..
+        }) => Some(dataspace_id),
+        _ => None,
+    };
+    let fees = &view.nexus().fees;
+    if route_dataspace.is_none()
+        && [
+            &fees.base_fee,
+            &fees.per_byte_fee,
+            &fees.per_instruction_fee,
+            &fees.per_gas_unit_fee,
+        ]
+        .into_iter()
+        .all(|amount| amount.is_zero())
+        && view.pipeline().gas.accepted_assets.is_empty()
+    {
+        // Ordinary component fixtures have no configured fee component. They do
+        // not need to resolve an otherwise unused fee currency. Private roots
+        // always quote their signed policy, even when local rates are zero.
+        return draft;
+    }
+    let quote = crate::executor::quote_nexus_fee_admission_draft(
+        view.world(),
+        view.nexus(),
+        view.pipeline(),
+        draft.payload(),
+        created_ms,
+        chain.height().checked_add(1).unwrap(),
+        route_dataspace,
+    )
+    .expect("original payout fixture work has funded exact fee consent");
+    builder
+        .with_fee_payment_intent(quote.recommended_intent)
+        .sign(signer.private_key())
+}
+
 pub(super) fn signed_fee_registry_root_fixture() -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     AccountId,
@@ -95,7 +155,8 @@ fn signed_fee_registry_fixture(
             .unwrap();
     let alias =
         ContractAlias::from_components("original-payout", Some("contracts"), "universal").unwrap();
-    let deploy = chain.sign(
+    let deploy = sign_payout_fixture_work(
+        &chain,
         &signer,
         [CommitContractDeployment {
             expected_deploy_nonce: 0,
@@ -152,7 +213,8 @@ pub(crate) fn signed_payout_lifecycle_registry_fixture_with_config(
         iroha_model_base::topology::DataSpaceId::UNIVERSAL,
     )
     .unwrap();
-    let deploy = chain.sign(
+    let deploy = sign_payout_fixture_work(
+        &chain,
         &signer,
         [CommitContractDeployment {
             expected_deploy_nonce: 1,

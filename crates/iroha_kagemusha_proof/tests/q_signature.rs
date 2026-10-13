@@ -445,11 +445,11 @@ fn installed_signature_originals_reject_bounds_keys_and_slot_source() {
         Err(QSignatureError::Artifact(ArtifactError::Encoding))
     ));
     corrupt = original.clone();
-    let scalar_start = 44 + key.vk().to_bytes().len() + 32;
-    corrupt[scalar_start..scalar_start + 32].fill(0xff);
+    let source_digest_start = 44 + key.vk().to_bytes().len() + 32;
+    corrupt[source_digest_start..source_digest_start + 32].fill(0xff);
     assert!(matches!(
         mount(&corrupt, config),
-        Err(QSignatureError::Artifact(ArtifactError::Encoding))
+        Err(QSignatureError::Artifact(ArtifactError::Source))
     ));
     corrupt = original.clone();
     corrupt[44 + key.vk().to_bytes().len()] ^= 1;
