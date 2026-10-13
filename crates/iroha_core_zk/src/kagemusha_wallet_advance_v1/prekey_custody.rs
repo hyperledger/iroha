@@ -27,6 +27,8 @@ pub(crate) enum PreKeyRecordV1 {
     Phase,
     /// Terminal pre-permit cancellation bound to the exact retained Client digest.
     Cancelled,
+    /// Terminal E1 expiry proof bound to exact Client/Resume dispatch/Accepted originals.
+    Expired,
 }
 impl PreKeyRecordV1 {
     fn name(
@@ -55,6 +57,7 @@ impl PreKeyRecordV1 {
             Self::Slot => "slot",
             Self::Phase => "phase",
             Self::Cancelled => "cancelled",
+            Self::Expired => "expired",
         }
     }
 }

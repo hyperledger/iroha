@@ -60,8 +60,10 @@ impl<'frozen> Original<'frozen> {
             nonzero.belongs_to(&fields.state_ref.world.asset_definition_nonzero_holders);
         let original_homes = &fields.state_ref.world.asset_definition_direct_homes;
         let original_incarnations = &fields.state_ref.world.axt_asset_incarnations;
-        if !homes.belongs_to(original_homes)
-            || !incarnations.belongs_to(original_incarnations)
+        let homes_owned = homes.belongs_to(original_homes);
+        let incarnations_owned = incarnations.belongs_to(original_incarnations);
+        if !homes_owned
+            || !incarnations_owned
             || rows.mode() != homes.mode()
             || rows.mode() != incarnations.mode()
             || !rows_owned

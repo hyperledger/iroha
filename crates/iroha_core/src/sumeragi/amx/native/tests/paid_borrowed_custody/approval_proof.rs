@@ -81,12 +81,12 @@ fn publish(
 
 #[test]
 fn native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut() {
+    const BUDGET: usize = 32 * 1024 * 1024;
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0xA7);
     let approval = roots.approval(0, &transaction);
     let relay = account(&receiver());
     assert_ne!(relay, *approval.debited_asset.account());
-    const BUDGET: usize = 32 * 1024 * 1024;
     assert!(publish(&roots.participants[0], &approval, &relay, BUDGET).is_err());
     roots.approve(0, &transaction, relay.clone(), 2_500);
     let chain = &roots.participants[0];
@@ -115,13 +115,13 @@ fn native_amx_approval_proof_requires_owner_grant_and_rechecks_exact_private_cut
 
 #[test]
 fn native_amx_approval_proof_is_historical_and_cannot_replace_revoked_current_consent() {
+    const BUDGET: usize = 32 * 1024 * 1024;
     let mut roots = paid_roots();
     let transaction = roots.transaction(100, 0xA8);
     let approval = roots.approval(0, &transaction);
     let relay = account(&receiver());
     roots.approve(0, &transaction, relay.clone(), 2_500);
     let chain = &mut roots.participants[0];
-    const BUDGET: usize = 32 * 1024 * 1024;
     let old = publish(chain, &approval, &relay, BUDGET).unwrap();
     let old_tip = chain.committed(chain.height());
     let old_block = verified_tip(chain);

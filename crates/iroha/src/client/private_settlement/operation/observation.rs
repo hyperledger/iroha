@@ -249,10 +249,10 @@ impl SettlementLedger {
             let [instruction] = instructions.as_ref() else {
                 continue;
             };
-            if !instruction
+            if instruction
                 .as_any()
                 .downcast_ref::<FinalizeAtomicPrivateSettlementV1>()
-                .is_some_and(|i| i.commit_bundle.manifest.bundle_id == bundle_id)
+                .is_none_or(|i| i.commit_bundle.manifest.bundle_id != bundle_id)
             {
                 continue;
             }

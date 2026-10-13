@@ -312,7 +312,7 @@ fn pipeline_sidecar_enqueue_flushes() {
         PipelineSidecarEnqueueResult::Enqueued { queue_depth: 1 }
     );
     assert!(kura.read_pipeline_metadata(1).is_none());
-    kura.flush_pipeline_sidecars();
+    kura.flush_pipeline_sidecars(&mut kura.sidecar_lock.defer_notifications());
     let got = kura.read_pipeline_metadata(1).expect("sidecar exists");
     assert_eq!(got.height, 1);
     assert_eq!(got.block_hash, block_hash);
@@ -346,8 +346,14 @@ fn sidecar_queues_reject_unauthorized_output_and_flush_without_draining() {
     );
     kura.canonical_storage_poisoned
         .store(true, Ordering::Release);
-    assert_eq!(kura.flush_pipeline_sidecars(), 0);
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 0);
+    assert_eq!(
+        kura.flush_pipeline_sidecars(&mut kura.sidecar_lock.defer_notifications()),
+        0
+    );
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        0
+    );
     assert_eq!(kura.pipeline_sidecar_queue.lock().len(), 1);
     assert_eq!(kura.fastpq_proof_queue.lock().len(), 1);
 }
@@ -568,7 +574,10 @@ fn fastpq_proof_snapshot_merges_into_pipeline_sidecar() {
         kura.enqueue_fastpq_proof_snapshot(snapshot.clone()),
         FastpqProofEnqueueResult::Enqueued { .. }
     ));
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 1);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        1
+    );
     let got = kura.read_pipeline_metadata(1).expect("sidecar exists");
     let compact = snapshot.clone();
     assert_eq!(got.fastpq_proofs, vec![compact.clone()]);
@@ -582,7 +591,10 @@ fn fastpq_proof_snapshot_merges_into_pipeline_sidecar() {
         kura.enqueue_fastpq_proof_snapshot(duplicate),
         FastpqProofEnqueueResult::Enqueued { .. }
     ));
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 1);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        1
+    );
     let got = kura.read_pipeline_metadata(1).expect("sidecar exists");
     assert_eq!(got.fastpq_proofs.len(), 1);
 }
@@ -605,7 +617,10 @@ fn fastpq_proof_snapshot_persists_compact_metadata_only() {
         kura.enqueue_fastpq_proof_snapshot(snapshot.clone()),
         FastpqProofEnqueueResult::Enqueued { .. }
     ));
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 1);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        1
+    );
     let got = kura.read_pipeline_metadata(1).expect("sidecar exists");
     let persisted = got.fastpq_proofs.first().expect("proof summary persisted");
     assert_eq!(persisted.artifact_identity, snapshot.artifact_identity);
@@ -639,7 +654,10 @@ fn fastpq_proof_snapshots_for_same_block_flush_as_single_sidecar_update() {
         kura.enqueue_fastpq_proof_snapshot(snapshot2),
         FastpqProofEnqueueResult::Enqueued { .. }
     ));
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 2);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        2
+    );
     let got = kura.read_pipeline_metadata(1).expect("sidecar exists");
     assert_eq!(got.fastpq_proofs.len(), 2);
     let updated_payload_len = got.encode_framed().expect("encode updated sidecar").len() as u64;
@@ -716,9 +734,15 @@ fn fastpq_proof_snapshot_retries_missing_sidecar_until_limit() {
         kura.enqueue_fastpq_proof_snapshot(sample_fastpq_snapshot(1, block_hash, 8)),
         FastpqProofEnqueueResult::Enqueued { .. }
     ));
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 0);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        0
+    );
     assert_eq!(kura.fastpq_proof_queue.lock().len(), 1);
-    assert_eq!(kura.flush_fastpq_proof_snapshots(), 0);
+    assert_eq!(
+        kura.flush_fastpq_proof_snapshots(&mut kura.sidecar_lock.defer_notifications()),
+        0
+    );
     assert!(kura.fastpq_proof_queue.lock().is_empty());
 }
 
@@ -740,7 +764,9 @@ fn fastpq_retry_requeue_respects_cap_during_concurrent_enqueue() {
     // queue in that window.
     let sidecar_guard = kura.sidecar_lock.lock();
     let flush_kura = Arc::clone(&kura);
-    let flusher = thread::spawn(move || flush_kura.flush_fastpq_proof_snapshots());
+    let flusher = thread::spawn(move || {
+        flush_kura.flush_fastpq_proof_snapshots(&mut flush_kura.sidecar_lock.defer_notifications())
+    });
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     let drained = loop {
         if kura.fastpq_proof_queue.lock().is_empty() {

@@ -9560,10 +9560,6 @@ mod tests {
         assert_eq!(metrics.connected_peers.get(), 0);
     }
     #[tokio::test]
-    #[expect(
-        clippy::await_holding_lock,
-        reason = "This current-thread fixture retains the original unpublished proposal borrowing the chain while async telemetry observes pre-publication State; dropping the owner would abandon the custody under test"
-    )]
     async fn metrics_sync_excludes_unpublished_kura_blocks_and_catches_up_once() {
         for already_applied in [false, true] {
             for report_before_publication in [false, true] {

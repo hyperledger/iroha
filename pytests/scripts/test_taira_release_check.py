@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2069 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2102 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 2096 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2129 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -1517,6 +1517,78 @@ class BasicReleaseQualificationTests(unittest.TestCase):
         names = ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix']
         controls = (Path(__file__).resolve().parents[2] /
                     'crates/iroha_core/src/kura/native_frame_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_capacity_recovery_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::capacity_release_tests::original_capacity_recovery_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_restore_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_recovery_capacity_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_prune_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_accounting_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/capacity_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_durable_publication_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::tests::original_durable_release_tests::original_durable_append_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_retry_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_refusal_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_debug_append_notifies_after_outer_writer_retires']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_fastpq_artifact_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_queued_sidecar_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_writer_notifies_after_attachment_publication', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_retry_and_exhaustion_finalize_before_notice', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_hash_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes', 'kura::original_queued_sidecar_release_tests::original_queued_sidecar_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs').read_text()
         for name in names:
             self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
         for scope in gate.QUALIFICATION_SCOPES:

@@ -128,11 +128,11 @@ pub fn begin_amx_relay<V: StateReadOnly>(
 ///
 /// # Errors
 /// The source is not certified non-genesis Global history.
-pub fn expire_amx_relay<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn expire_amx_relay<V: StateReadOnly>(
+    view: &V,
     height: u64,
     transaction: [u8; 32],
-) -> Result<NativeAmxBeginRelayReadV1<'v, V>, NativeAmxBeginRelayErrorV1> {
+) -> Result<NativeAmxBeginRelayReadV1<'_, V>, NativeAmxBeginRelayErrorV1> {
     let mut read = begin_amx_relay(view, height, transaction, DataSpaceId::UNIVERSAL)?;
     read.participant = None;
     Ok(read)

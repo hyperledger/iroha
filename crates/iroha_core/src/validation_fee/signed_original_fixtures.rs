@@ -50,8 +50,11 @@ pub(crate) fn sign_payout_fixture_work(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         created_ms,
+        crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+            .expect("original committed fixture clock"),
         chain.height().checked_add(1).unwrap(),
         route_dataspace,
     )

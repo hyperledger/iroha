@@ -195,7 +195,10 @@ fn fastpq_sidecar_physical_attachment_and_duplicate_preserve_exact_totals() {
     let first = sample_fastpq_snapshot(1, hash, 8);
     let second = sample_fastpq_snapshot(1, hash, 9);
     assert!(matches!(
-        kura.write_fastpq_proof_snapshots(&[&first, &second]),
+        kura.write_fastpq_proof_snapshots(
+            &[&first, &second],
+            &mut kura.sidecar_lock.defer_notifications()
+        ),
         FastpqProofWriteResult::Written
     ));
     let persisted = kura.read_pipeline_metadata(1).unwrap();
@@ -211,7 +214,10 @@ fn fastpq_sidecar_physical_attachment_and_duplicate_preserve_exact_totals() {
         u64::try_from(persisted.encode_framed().unwrap().len()).unwrap()
     );
     assert!(matches!(
-        kura.write_fastpq_proof_snapshots(&[&first, &second]),
+        kura.write_fastpq_proof_snapshots(
+            &[&first, &second],
+            &mut kura.sidecar_lock.defer_notifications()
+        ),
         FastpqProofWriteResult::Written
     ));
     assert_eq!(sidecar_physical_assert_actual(&kura), after);
@@ -268,12 +274,18 @@ fn fastpq_sidecar_physical_failed_update_retains_unavailable_until_complete_reau
     let snapshot = sample_fastpq_snapshot(1, hash, 8);
     fail_next_indexed_sidecar_data_sync_for_tests();
     assert!(matches!(
-        kura.write_fastpq_proof_snapshots(&[&snapshot]),
+        kura.write_fastpq_proof_snapshots(
+            &[&snapshot],
+            &mut kura.sidecar_lock.defer_notifications()
+        ),
         FastpqProofWriteResult::Retry
     ));
     sidecar_physical_assert_unavailable(&kura);
     assert!(matches!(
-        kura.write_fastpq_proof_snapshots(&[&snapshot]),
+        kura.write_fastpq_proof_snapshots(
+            &[&snapshot],
+            &mut kura.sidecar_lock.defer_notifications()
+        ),
         FastpqProofWriteResult::Written
     ));
     assert_eq!(

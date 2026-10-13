@@ -121,7 +121,10 @@ fn compact(stx: &mut StateTransaction<'_, '_>) -> Attempt<bool> {
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(next));
+        .set_parameter(Parameter::Custom(next))
+        .map_err(|error| {
+            crate::execution_attempt::norito_decode_attempt_error(error, |error| error.to_string())
+        })?;
     Ok(true)
 }
 

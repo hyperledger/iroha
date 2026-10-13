@@ -33,6 +33,8 @@ impl CertifiedTestChain {
     /// Original committed-body admission and certified replay remain mandatory.
     pub(crate) fn replay_reward_crash_store(self, recovered: Arc<Kura>) -> Result<Self, String> {
         self.validate_reward_crash_prefix(&recovered)?;
+        let root_scope = self.root_scope();
+        let consensus_mode = self.validated_genesis.consensus_metadata().mode;
         let Self {
             state,
             kura,
@@ -45,10 +47,13 @@ impl CertifiedTestChain {
             availability,
             signers,
             validators,
+            npos_beacon_signers,
             crypto,
             instance,
             tip,
             clock,
+            execution_clock,
+            execution_time_source,
             lane_blocks,
         } = self;
         // Joining the old Worker retires every borrowed overlay before State's
@@ -75,12 +80,14 @@ impl CertifiedTestChain {
             Arc::clone(&recovered),
             shared,
             GENESIS_HEIGHT,
+            root_scope,
             staging.clone(),
             state.ivm_execution_budget(),
             Arc::clone(&availability),
         );
         let (events, receiver) = tokio::sync::broadcast::channel(4096);
         let executor = StateExecutor::spawn(ExecutorContext {
+            time_source: execution_time_source.clone(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -94,7 +101,8 @@ impl CertifiedTestChain {
             staging,
             events,
             genesis_account: genesis_account.clone(),
-            consensus_mode: ConsensusMode::Permissioned,
+            consensus_mode: consensus_mode.into(),
+            root_scope,
             applied: (tip.0, tip.1),
             crypto: Some(Arc::clone(&crypto)),
             applied_watch: Arc::new(crate::sumeragi::lanes::global::AppliedWatch::new(
@@ -117,10 +125,13 @@ impl CertifiedTestChain {
             availability,
             signers,
             validators,
+            npos_beacon_signers,
             crypto,
             instance,
             tip,
             clock,
+            execution_clock,
+            execution_time_source,
             lane_blocks,
         };
         for height in restored.height() + 1..=last {

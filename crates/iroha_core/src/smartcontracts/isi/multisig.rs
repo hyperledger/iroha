@@ -7313,7 +7313,7 @@ seiyaku TriggerDispatch { permission Admin;
         );
         execute_approve(
             &mut tx,
-            &signer_c_id,
+            &final_signer_id,
             &MultisigApprove::new(
                 multisig_account.clone(),
                 test_id(&network_id, &multisig_account.clone(), &instructions_hash),

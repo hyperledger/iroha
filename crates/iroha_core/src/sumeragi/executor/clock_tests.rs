@@ -98,7 +98,7 @@ fn authenticated_proposer_time_above_floor_executes_and_replays_without_restampi
         builder.set_npos_consensus_effects(proposal.npos_consensus_effects().cloned());
         builder.set_global_beacon_pulse(proposal.global_beacon_pulse().cloned());
         builder.set_execution_context(proposal.execution_context().cloned());
-        let fresh = builder.build(Default::default());
+        let fresh = builder.build(iroha_data_model::block::BlockSignatures::default());
         assert_eq!(
             fresh.external_entrypoints_slice(),
             proposal.external_entrypoints_slice()

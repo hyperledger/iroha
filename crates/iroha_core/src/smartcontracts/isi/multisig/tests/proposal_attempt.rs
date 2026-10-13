@@ -468,7 +468,7 @@ fn terminal_decode_retry(expired: bool) {
                 test_id(&network_id, &account.clone(), &hash),
                 hash,
             );
-            let signed = TransactionBuilder::new(
+            let signed_payload = TransactionBuilder::new(
                 block.network_id,
                 authority.clone(),
                 FeePaymentIntent::authority(Vec::new(), nonzero!(100_000_000_u64).into()),

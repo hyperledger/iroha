@@ -40,7 +40,10 @@ impl Kura {
         }
         PipelineSidecarEnqueueResult::Enqueued { queue_depth }
     }
-    fn flush_pipeline_sidecars(&self) -> usize {
+    fn flush_pipeline_sidecars(
+        &self,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) -> usize {
         if let Err(error) = self.durable_mutation_authorized() {
             iroha_logger::warn!(
                 ?error,
@@ -57,7 +60,7 @@ impl Kura {
         };
         let count = sidecars.len();
         for sidecar in sidecars {
-            self.write_pipeline_metadata_unlocked(&sidecar);
+            self.write_pipeline_metadata_unlocked(&sidecar, sidecar_releases);
         }
         count
     }
@@ -159,7 +162,10 @@ impl Kura {
         }
         FastpqProofEnqueueResult::Enqueued { queue_depth }
     }
-    fn flush_fastpq_proof_snapshots(&self) -> usize {
+    fn flush_fastpq_proof_snapshots(
+        &self,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) -> usize {
         let telemetry = FastpqProofSidecarTelemetry;
         if let Err(error) = self.durable_mutation_authorized() {
             iroha_logger::warn!(
@@ -201,7 +207,7 @@ impl Kura {
                 .iter()
                 .map(|queued| &queued.snapshot)
                 .collect::<Vec<_>>();
-            match self.write_fastpq_proof_snapshots(&snapshots) {
+            match self.write_fastpq_proof_snapshots(&snapshots, sidecar_releases) {
                 FastpqProofWriteResult::Written => {
                     telemetry.record_event("written");
                     written = written.saturating_add(group.len());
@@ -264,6 +270,13 @@ impl Kura {
     /// Write per-block pipeline recovery metadata sidecar under the store dir. Best-effort: errors
     /// are logged and ignored.
     pub fn write_pipeline_metadata(&self, sidecar: &PipelineRecoverySidecar) {
+        // The public operation owns notification custody outside both physical guards.
+        let mut sidecar_releases = self.sidecar_lock.defer_notifications();
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+        let mut prune_releases = self.prune_lock.defer_notifications();
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC359"))]
         let _prune_guard = self.prune_lock.lock();
         #[cfg(test)]
         original_queued_sidecar_release_tests::fence_boundary(1);
@@ -282,10 +295,17 @@ impl Kura {
             );
             return;
         }
-        self.write_pipeline_metadata_unlocked(sidecar);
+        self.write_pipeline_metadata_unlocked(sidecar, &mut sidecar_releases);
     }
-    fn write_pipeline_metadata_unlocked(&self, sidecar: &PipelineRecoverySidecar) {
+    fn write_pipeline_metadata_unlocked(
+        &self,
+        sidecar: &PipelineRecoverySidecar,
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
+    ) {
         if let Some(mut dir) = self.store_dir() {
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+            let _guard = sidecar_releases.lock();
+            #[cfg(all(test, sumeragi_core_mutation = "HC359"))]
             let _guard = self.sidecar_lock.lock();
             #[cfg(test)]
             original_queued_sidecar_release_tests::fence_boundary(2);
@@ -358,6 +378,7 @@ impl Kura {
     fn write_fastpq_proof_snapshots(
         &self,
         snapshots: &[&FastpqProofSnapshot],
+        sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>,
     ) -> FastpqProofWriteResult {
         if let Err(error) = self.durable_mutation_authorized() {
             iroha_logger::warn!(
@@ -379,6 +400,9 @@ impl Kura {
             iroha_logger::warn!("FASTPQ proof snapshot has no Kura store directory");
             return FastpqProofWriteResult::Drop;
         };
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+        let _guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC359"))]
         let _guard = self.sidecar_lock.lock();
         #[cfg(test)]
         original_queued_sidecar_release_tests::fence_boundary(3);

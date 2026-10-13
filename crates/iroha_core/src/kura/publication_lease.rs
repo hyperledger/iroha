@@ -122,6 +122,7 @@ impl Kura {
     ///
     /// Every refusal releases all earlier guards before returning. Callers with
     /// enclosing physical owners use the retained publication slot instead.
+    #[cfg(test)]
     pub(crate) fn try_publication_lease(
         &self,
     ) -> Result<KuraPublicationLease<'_>, KuraPublicationPreparationError> {
@@ -202,13 +203,6 @@ impl<'kura> KuraPublicationLease<'kura> {
 impl KuraPublicationLease<'_> {
     /// Release every physical Kura fence without invoking retry callbacks.
     /// The caller retains these original notifications through its outer fences.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TODO: connect aggregate publication to retained pending-byte admission and deferred cleanup; release physical fences before notifying outer owners"
-        )
-    )]
     pub(crate) fn release_deferred(self) -> KuraPublicationCleanup {
         self.fences.release_deferred()
     }
@@ -262,7 +256,7 @@ impl KuraPublicationReleases {
                 kura.canonical_chain_lock.deferred_releases(),
                 kura.prune_lock.deferred_releases(),
             ],
-            claims: Default::default(),
+            claims: super::lane_geometry::RawGeometryReleases::default(),
         }
     }
     fn retain(&mut self, mut cleanup: KuraPublicationCleanup) {

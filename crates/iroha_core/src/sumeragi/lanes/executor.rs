@@ -92,6 +92,9 @@ pub trait LaneTransactions: Send + Sync {
 
     /// Recheck the original admission before encoding and every completed output lend.
     /// A false result withdraws this selected source; a local refusal retains it for retry.
+    ///
+    /// # Errors
+    /// Returns the original publication refusal when admission cannot complete locally.
     fn lease_is_current(
         &self,
         lease: &Self::Lease,

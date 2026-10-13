@@ -85,8 +85,10 @@ impl Fixture {
         // Queue residence and proposer pacing observe the same injected local clock.
         let queue_clock = lane_clock.clone();
         let queue_time = lane_time.clone();
-        let mut configuration = iroha_config::parameters::actual::Queue::default();
-        configuration.transaction_time_to_live = Duration::from_secs(3);
+        let configuration = iroha_config::parameters::actual::Queue {
+            transaction_time_to_live: Duration::from_secs(3),
+            ..iroha_config::parameters::actual::Queue::default()
+        };
         let queue = Arc::new(Queue::test(configuration, &queue_time));
         let signed = chain.sign(
             &key,

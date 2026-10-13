@@ -781,7 +781,7 @@ fn parliament_validation_fee_payout_json_capacity_rolls_back_permissions_and_eve
                     .contains("validation-fee registry parameter encoding failed: bounded JSON body exceeds its byte limit"),
                 "{error}"
             );
-            assert!(attempt.execution_deferral().is_none());
+            assert!(!attempt.is_execution_deferred());
             assert_eq!(
                 validation_fee_policy_registry(&attempt).unwrap(),
                 Some(live.clone())
@@ -829,7 +829,7 @@ fn parliament_validation_fee_payout_json_capacity_rolls_back_permissions_and_eve
                     .unwrap(),
                 DueParliamentCertificateExecutionV1::EffectFailed { .. }
             ));
-            assert!(attempt.execution_deferral().is_none());
+            assert!(!attempt.is_execution_deferred());
             assert_eq!(attempt.world.internal_event_buf.len(), 3);
         }
         assert_eq!(

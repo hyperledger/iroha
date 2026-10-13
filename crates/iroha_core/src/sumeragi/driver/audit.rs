@@ -235,6 +235,8 @@ mod tests {
 
     /// A record of height 7 that signed a proposal, a Prepare, a timeout and a Commit.
     fn signed_record() -> SafetyRecord {
+        use iroha_sumeragi::crypto::Signer as _;
+
         let mut record = SafetyRecord::fresh(INSTANCE, TEST_EPOCH.id, key(), 7, None);
         record.proposal = Some(RecordedProposal {
             view: 1,
@@ -246,7 +248,6 @@ mod tests {
             block_hash: Hash32([0xb1; 32]),
             result: Hash32([0xc1; 32]),
         });
-        use iroha_sumeragi::crypto::Signer as _;
         record.prepare_signature = Some(
             iroha_sumeragi::testing::FakeSigner::with_key(record.key.clone(), None)
                 .sign(&iroha_sumeragi::preimage::vote_preimage(
