@@ -213,3 +213,9 @@ sets `allow_early_repayment = false`; root, vector, option and map frames were
 produced and round-tripped by the current native codec through a temporary
 capture test that was removed afterwards. Nominal and directional identities and
 every other row are unchanged.
+
+Also on 2026-10-13, the single `SettleAtomic` case was recaptured after the
+instruction gained its bounded `escrows` list (conditional escrow legs bound
+into the consent intent). The captured value is the original atomic fixture
+with an empty escrow list; all four frames were produced and round-tripped by a
+temporary current-codec capture test that was removed afterwards.

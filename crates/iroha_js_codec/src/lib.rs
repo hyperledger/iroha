@@ -5,6 +5,7 @@
 
 mod activation_instructions;
 mod error;
+mod escrow_instructions;
 mod game_instructions;
 mod json_u64;
 mod kaigi;
@@ -1362,6 +1363,9 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
     if let Some(instruction) = repo_instructions::from_json(&value) {
         return instruction;
     }
+    if let Some(instruction) = escrow_instructions::from_json(&value) {
+        return instruction;
+    }
     if let Some(instruction) = staking_instructions::from_json(&value) {
         return instruction;
     }
@@ -1403,6 +1407,7 @@ pub fn value_to_instruction(value: json::Value) -> CodecResult<InstructionBox> {
             || activation_instructions::is_activation_instruction(&instruction)
             || retail_daily_limit_instructions::is_retail_instruction(&instruction)
             || repo_instructions::is_repo_instruction(&instruction)
+            || escrow_instructions::is_conditional_escrow_instruction(&instruction)
             || game_instructions::is_game_instruction(&instruction)
             || verifying_key_instructions::is_verifying_key_instruction(&instruction)
             || lifecycle_instructions::is_lifecycle_instruction(&instruction)
@@ -3514,6 +3519,7 @@ fn atomic_settlement_from_json(payload: json::Value) -> CodecResult<SettlementIn
             "network_id",
             "settlement_id",
             "movements",
+            "escrows",
             "expires_at_height",
             "metadata",
         ],
@@ -3611,6 +3617,9 @@ pub fn instruction_to_json_value(instruction: &InstructionBox) -> CodecResult<js
         return value;
     }
     if let Some(value) = repo_instructions::to_json(instruction) {
+        return value;
+    }
+    if let Some(value) = escrow_instructions::to_json(instruction) {
         return value;
     }
     if let Some(value) = staking_instructions::to_json(instruction) {

@@ -2022,6 +2022,10 @@
       {
         "name": "intent_hash",
         "type": "Hash"
+      },
+      {
+        "name": "escrow_ids",
+        "type": "Vec<EscrowId>"
       }
     ]
   },
@@ -33400,6 +33404,9 @@
   },
   "Vec<EntrypointValueTypeNodeV1>": {
     "Vec": "EntrypointValueTypeNodeV1"
+  },
+  "Vec<EscrowId>": {
+    "Vec": "EscrowId"
   },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"

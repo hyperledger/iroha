@@ -4930,6 +4930,7 @@ mod tests {
                 movements: ResolvedSettlementMovements::try_from(movements)
                     .expect("exact canonical vector"),
                 intent_hash: Hash::new(b"immutable-complete-intent"),
+                escrow_ids: Vec::new(),
             }),
         ];
         for details in variants {

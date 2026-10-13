@@ -49,6 +49,7 @@ fn instruction(count: usize) -> SettleAtomic {
             "atomic_fixture".parse().expect("business reference"),
         ),
         movements: AtomicSettlementMovements::try_from(values).expect("canonical movements"),
+        escrows: AtomicSettlementEscrows::empty(),
         expires_at_height: NonZeroU64::new(500).expect("nonzero expiry"),
         metadata: Metadata::default(),
     }
@@ -135,7 +136,9 @@ fn atomic_settlement_rejects_noncanonical_keys_and_invalid_movements() {
     #[derive(Encode)]
     struct Forged(Vec<AtomicSettlementMovement>);
     let valid = instruction(3).movements.as_slice().to_vec();
-    let mut cases = vec![vec![], vec![valid[0].clone(); 256]];
+    // Empty movement lists are bounded by the containing intent's leg rule
+    // (covered by `atomic_settlement_requires_one_leg_and_a_participating_owner`).
+    let mut cases = vec![vec![valid[0].clone(); 256]];
     let mut reversed = valid.clone();
     reversed.swap(0, 1);
     cases.push(reversed);
@@ -170,10 +173,11 @@ fn atomic_settlement_rejects_noncanonical_keys_and_invalid_movements() {
 }
 
 #[test]
-fn atomic_settlement_decoders_reject_empty_or_oversized_count_before_elements() {
-    // An empty or oversized declaration with no element body must fail on the count,
-    // before Vec's element planner or allocation is reached.
-    for count in [0_u64, 256, 65_536] {
+fn atomic_settlement_decoders_reject_oversized_count_before_elements() {
+    // An oversized declaration with no element body must fail on the count,
+    // before Vec's element planner or allocation is reached. An empty movement
+    // list is bounded by the containing intent's leg rule instead.
+    for count in [256_u64, 65_536] {
         let field = count.to_le_bytes();
         let mut payload = vec![8_u8]; // compact V1 byte length of the sole Vec field
         payload.extend_from_slice(&field);
@@ -184,10 +188,10 @@ fn atomic_settlement_decoders_reject_empty_or_oversized_count_before_elements() 
             .expect_err("reject receipt count");
         drop(flags);
         assert!(
-            matches!(error, ncore::Error::Message(ref text) if text == "atomic movement count outside 1..=255")
+            matches!(error, ncore::Error::Message(ref text) if text == "atomic movement count outside 0..=255")
         );
         assert!(
-            matches!(receipt_error, ncore::Error::Message(ref text) if text == "atomic movement count outside 1..=255")
+            matches!(receipt_error, ncore::Error::Message(ref text) if text == "atomic movement count outside 0..=255")
         );
     }
 }
@@ -201,6 +205,7 @@ fn atomic_settlement_containing_decoders_enforce_movement_validation() {
         network_id: NetworkId,
         settlement_id: SettlementId,
         movements: ForgedMovements,
+        escrows: AtomicSettlementEscrows,
         expires_at_height: NonZeroU64,
         metadata: Metadata,
     }
@@ -211,6 +216,7 @@ fn atomic_settlement_containing_decoders_enforce_movement_validation() {
         network_id: value.network_id,
         settlement_id: value.settlement_id,
         movements: ForgedMovements(values),
+        escrows: value.escrows,
         expires_at_height: value.expires_at_height,
         metadata: value.metadata,
     }
@@ -405,6 +411,7 @@ fn atomic_settlement_receipt_requires_one_typed_complete_outcome() {
             details: SettlementDetails::Atomic(crate::isi::AtomicSettlementDetails {
                 movements: value.movements.resolve().expect("resolved"),
                 intent_hash: value.intent_hash().expect("intent"),
+                escrow_ids: Vec::new(),
             }),
         };
         let bytes = norito::encode_canonical(&receipt).expect("receipt frame");
@@ -447,6 +454,7 @@ fn typed_receipt_iterator_retains_bilateral_and_all_atomic_references() {
         SettlementDetails::Atomic(crate::isi::AtomicSettlementDetails {
             movements: resolved,
             intent_hash: Hash::new(b"fixture-intent"),
+            escrow_ids: Vec::new(),
         }),
     ] {
         let frame = norito::encode_canonical(&details).expect("typed receipt frame");
@@ -481,6 +489,7 @@ fn atomic_receipt_rejects_missing_commitment_and_duplicate_kind() {
     let details = SettlementDetails::Atomic(crate::isi::AtomicSettlementDetails {
         movements: instruction(3).movements.resolve().expect("resolved"),
         intent_hash: Hash::new(b"fixture-intent"),
+        escrow_ids: Vec::new(),
     });
     let text = json::to_json(&details).expect("typed details JSON");
     // Generate the omission through the actual JSON value rather than assuming
@@ -580,4 +589,242 @@ fn atomic_settlement_generated_identity_has_root_and_container_roundtrips() {
         norito::decode_canonical::<Vec<Option<SettleAtomic>>>(&bytes).expect("container decode"),
         values
     );
+}
+
+fn escrow(label: &str, amount: u32) -> AtomicSettlementEscrow {
+    AtomicSettlementEscrow {
+        source: AssetId::new(asset(), account(1)),
+        escrow_id: crate::escrow::EscrowId::new(Hash::new(label.as_bytes())),
+        beneficiary: account(2),
+        amount: Quantity::from(amount),
+        conditions: vec![crate::escrow::ConditionalEscrowCondition::Oracle(
+            crate::escrow::ConditionalEscrowOracleCondition {
+                id: "coupon_paid".parse().expect("condition id"),
+                attestor: account(5),
+                predicate: crate::escrow::ConditionalEscrowPredicate::Equals(
+                    crate::escrow::ConditionalEscrowValue::Bool(true),
+                ),
+                sequence: core::num::NonZeroU32::new(1).expect("sequence"),
+            },
+        )],
+        expires_at_ms: 1_800_000_000_000,
+        evidence_hashes: vec![Hash::new(b"term-sheet")],
+    }
+}
+
+fn sorted_escrows(mut values: Vec<AtomicSettlementEscrow>) -> AtomicSettlementEscrows {
+    values.sort_by_key(|value| value.escrow_id);
+    AtomicSettlementEscrows::try_from(values).expect("canonical escrows")
+}
+
+fn instruction_with_escrows(count: usize) -> SettleAtomic {
+    let mut value = instruction(3);
+    value.escrows = sorted_escrows(
+        (0..count)
+            .map(|index| escrow(&format!("escrow-{index}"), 10 + index as u32))
+            .collect(),
+    );
+    value
+}
+
+#[test]
+fn atomic_settlement_escrows_roundtrip_and_bind_the_intent() {
+    for count in [0, 1, 16] {
+        let value = instruction_with_escrows(count);
+        let frame = norito::encode_canonical(&value).expect("canonical frame");
+        let decoded: SettleAtomic = norito::decode_canonical(&frame).expect("canonical decode");
+        assert_eq!(decoded, value);
+        assert_slice_roundtrip(value.clone());
+        assert_slice_roundtrip(SettlementInstructionBox::Atomic(value.clone()));
+        let json = json::to_json(&value).expect("JSON");
+        assert_eq!(
+            json::from_str::<SettleAtomic>(&json).expect("JSON decode"),
+            value
+        );
+        assert_eq!(value.escrows.escrow_ids().len(), count);
+    }
+    let value = instruction_with_escrows(2);
+    let original = value.intent_hash().expect("intent");
+    assert_ne!(
+        instruction(3).intent_hash().expect("no escrows"),
+        original,
+        "adding an escrow leg changes the consented intent"
+    );
+    let mut variants = Vec::new();
+    for field in 0..7 {
+        let mut values = value.escrows.as_slice().to_vec();
+        match field {
+            0 => values[1].source = AssetId::new(asset(), account(7)),
+            1 => values[1].escrow_id = crate::escrow::EscrowId::new(Hash::new(b"another-escrow")),
+            2 => values[1].beneficiary = account(8),
+            3 => values[1].amount = Quantity::from(99_u32),
+            4 => values[1]
+                .conditions
+                .push(crate::escrow::ConditionalEscrowCondition::Within(
+                    crate::escrow::ConditionalEscrowWithinCondition {
+                        id: "window".parse().expect("condition id"),
+                        duration_ms: NonZeroU64::new(60_000).expect("duration"),
+                    },
+                )),
+            5 => values[1].expires_at_ms += 1,
+            6 => values[1].evidence_hashes.clear(),
+            _ => unreachable!(),
+        }
+        let mut changed = value.clone();
+        changed.escrows = sorted_escrows(values);
+        variants.push(changed);
+    }
+    let mut removed = value.clone();
+    removed.escrows = sorted_escrows(value.escrows.as_slice()[..1].to_vec());
+    variants.push(removed);
+    for changed in variants {
+        assert_ne!(changed.intent_hash().expect("changed intent"), original);
+    }
+}
+
+#[test]
+fn atomic_settlement_escrows_enforce_bounds_order_and_terms() {
+    #[derive(Encode)]
+    struct Forged(Vec<AtomicSettlementEscrow>);
+    let valid = instruction_with_escrows(3).escrows.as_slice().to_vec();
+    let mut cases = Vec::new();
+    cases.push(
+        (0..17)
+            .map(|index| escrow(&format!("bound-{index}"), 1))
+            .collect::<Vec<_>>(),
+    );
+    let mut reversed = valid.clone();
+    reversed.swap(0, 1);
+    cases.push(reversed);
+    let mut duplicate = valid.clone();
+    duplicate[1].escrow_id = duplicate[0].escrow_id;
+    cases.push(duplicate);
+    let mut zero = valid.clone();
+    zero[1].amount = Quantity::from(0_u32);
+    cases.push(zero);
+    let mut scoped = valid.clone();
+    scoped[1].source = AssetId::with_scope(
+        asset(),
+        account(1),
+        AssetBalanceScope::Dataspace(DataSpaceId::new(4)),
+    );
+    cases.push(scoped);
+    for (index, values) in cases.into_iter().enumerate() {
+        let mut values = values;
+        if index == 0 {
+            values.sort_by_key(|value| value.escrow_id);
+        }
+        assert!(AtomicSettlementEscrows::try_from(values.clone()).is_err());
+        let text = json::to_json(&values).expect("untrusted JSON");
+        assert!(json::from_str::<AtomicSettlementEscrows>(&text).is_err());
+        let payload = Forged(values.clone()).encode();
+        let flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+        assert!(AtomicSettlementEscrows::decode_from_slice(&payload).is_err());
+        drop(flags);
+        let mut instruction = instruction(3);
+        instruction.escrows = AtomicSettlementEscrows::empty();
+        assert!(instruction.validate().is_ok());
+        let mut forged = instruction.clone();
+        forged.escrows = AtomicSettlementEscrows(values);
+        assert!(forged.validate().is_err());
+        assert!(forged.intent_hash().is_err());
+        assert!(norito::encode_canonical(&forged).is_err());
+    }
+}
+
+#[test]
+fn atomic_settlement_escrow_json_requires_every_field() {
+    let value = instruction_with_escrows(1);
+    let text = json::to_json(&value).expect("JSON");
+    let missing_escrows = text.replacen(
+        &format!(
+            ",\"escrows\":{}",
+            json::to_json(&value.escrows).expect("escrows JSON")
+        ),
+        "",
+        1,
+    );
+    assert_ne!(missing_escrows, text);
+    assert!(json::from_str::<SettleAtomic>(&missing_escrows).is_err());
+    for malformed in [
+        text.replacen(
+            "\"evidence_hashes\":",
+            "\"unknown\":0,\"evidence_hashes\":",
+            1,
+        ),
+        text.replacen("\"expires_at_ms\":1800000000000,", "", 1),
+        text.replacen("\"amount\":\"10\"", "\"amount\":10", 1),
+    ] {
+        assert_ne!(malformed, text);
+        assert!(json::from_str::<SettleAtomic>(&malformed).is_err());
+    }
+}
+
+#[test]
+fn atomic_settlement_requires_one_leg_and_a_participating_owner() {
+    let one_movement = |count: usize| -> AtomicSettlementMovements {
+        AtomicSettlementMovements::try_from(instruction(3).movements.as_slice()[..count].to_vec())
+            .expect("bounded movement list")
+    };
+    let escrows = |count: usize| {
+        sorted_escrows(
+            (0..count)
+                .map(|index| escrow(&format!("leg-{index}"), 1 + index as u32))
+                .collect(),
+        )
+    };
+    // A subscription carries one fee movement plus four escrow legs, a pure
+    // escrow exchange carries no movement at all, and one ordinary payment or
+    // one escrow leg is a complete intent. The settlement ID owner must debit
+    // at least one movement or escrow leg.
+    let escrow_only_owner = account(6);
+    for (movements, escrow_count, owner, accepted) in [
+        (1, 4, account(1), true),
+        (0, 2, account(1), true),
+        (1, 1, account(1), true),
+        (2, 0, account(1), true),
+        (1, 0, account(1), true),
+        (0, 1, account(1), true),
+        (0, 0, account(1), false),
+        (0, 2, account(3), false),
+        (1, 0, account(3), false),
+        (1, 1, escrow_only_owner.clone(), true),
+    ] {
+        let mut value = instruction(3);
+        value.movements = one_movement(movements);
+        value.escrows = escrows(escrow_count);
+        if owner == escrow_only_owner {
+            let mut legs = value.escrows.as_slice().to_vec();
+            legs[0].source = AssetId::new(asset(), escrow_only_owner.clone());
+            value.escrows = sorted_escrows(legs);
+        }
+        value.settlement_id.owner = owner.clone();
+        assert_eq!(
+            value.validate().is_ok(),
+            accepted,
+            "{movements} movements and {escrow_count} escrows owned by {owner}"
+        );
+        let payload = value.encode();
+        let flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+        let decoded = SettleAtomic::decode_from_slice(&payload).is_ok();
+        drop(flags);
+        assert_eq!(
+            decoded, accepted,
+            "the hand-written decoder enforces the leg and owner rules"
+        );
+        assert_eq!(value.intent_hash().is_ok(), accepted);
+        if accepted {
+            let frame = norito::encode_canonical(&value).expect("frame");
+            assert_eq!(
+                norito::decode_canonical::<SettleAtomic>(&frame).expect("decode"),
+                value
+            );
+            assert_slice_roundtrip(value.clone());
+            let json = json::to_json(&value).expect("JSON");
+            assert_eq!(
+                json::from_str::<SettleAtomic>(&json).expect("JSON decode"),
+                value
+            );
+        }
+    }
 }

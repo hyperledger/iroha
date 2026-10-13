@@ -6346,17 +6346,30 @@ pub mod isi {
     }
     /// Prepare one complete exact-consent batch without using incoming payments
     /// to fund its outgoing obligations. No receiver is implicitly registered.
+    ///
+    /// Conditional escrow funding legs (exact source bucket to the escrow's
+    /// already created deterministic custody bucket) join the same prepared
+    /// batch, prefunding budget and transcript as the signed movements.
     fn prepare_verified_settlement_numeric_batch(
         state_transaction: &mut StateTransaction<'_, '_>,
         authorization: crate::smartcontracts::isi::settlement::VerifiedSettlementNumericBatch,
     ) -> Result<PreparedNumericAssetMovementBatch, Error> {
-        let (authority, movements) = authorization.into_parts();
+        let (authority, movements, escrow_fundings) = authorization.into_parts();
         movements
             .validate()
             .map_err(|message| InstructionExecutionError::InvariantViolation(message.into()))?;
         let mut outbound = BTreeMap::<AssetId, Quantity>::new();
-        for movement in movements.as_slice() {
-            for bucket in [&movement.source, &movement.destination] {
+        let legs = movements
+            .as_slice()
+            .iter()
+            .map(|movement| (&movement.source, &movement.destination, &movement.quantity))
+            .chain(
+                escrow_fundings
+                    .iter()
+                    .map(|(source, custody, amount)| (source, custody, amount)),
+            );
+        for (source, destination, quantity) in legs {
+            for bucket in [source, destination] {
                 validate_committed_public_balance_scope(
                     state_transaction,
                     bucket.definition(),
@@ -6365,10 +6378,10 @@ pub mod isi {
                 )?;
             }
             let total = outbound
-                .entry(movement.source.clone())
+                .entry(source.clone())
                 .or_insert_with(Quantity::zero);
             *total = total
-                .checked_add(&movement.quantity)
+                .checked_add(quantity)
                 .map_err(|_| MathError::Overflow)?;
         }
         // This independent pre-debit budget is necessary: the general batch
@@ -6398,7 +6411,7 @@ pub mod isi {
                     .attempt_error_to_instruction_error(error)
             })?;
         }
-        let mut plans = Vec::with_capacity(movements.as_slice().len());
+        let mut plans = Vec::with_capacity(movements.as_slice().len() + escrow_fundings.len());
         for movement in movements.as_slice() {
             let plan = PreparedNumericTransferPlan::prepare_explicit_bilateral(
                 state_transaction,
@@ -6410,6 +6423,22 @@ pub mod isi {
             if plan.source_id != movement.source || plan.destination_id != movement.destination {
                 return Err(InstructionExecutionError::InvariantViolation(
                     "atomic settlement must preserve both exact signed balance buckets".into(),
+                ));
+            }
+            plans.push(plan);
+        }
+        for (source, custody, amount) in escrow_fundings {
+            let plan = PreparedNumericTransferPlan::prepare_explicit_bilateral(
+                state_transaction,
+                &authority,
+                source.clone(),
+                custody.clone(),
+                amount,
+            )?;
+            if plan.source_id != source || plan.destination_id != custody {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "atomic settlement escrow funding must preserve its exact source and custody buckets"
+                        .into(),
                 ));
             }
             plans.push(plan);

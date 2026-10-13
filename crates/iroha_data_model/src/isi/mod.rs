@@ -2888,8 +2888,9 @@ pub mod prelude {
             RwaInstructionBox, SetRwaControls, TransferRwa, UnfreezeRwa,
         },
         settlement::{
-            ATOMIC_SETTLEMENT_MAX_MOVEMENTS, ATOMIC_SETTLEMENT_MIN_MOVEMENTS,
-            AtomicSettlementDetails, AtomicSettlementMovement, AtomicSettlementMovements, DvpIsi,
+            ATOMIC_SETTLEMENT_MAX_ESCROWS, ATOMIC_SETTLEMENT_MAX_MOVEMENTS,
+            ATOMIC_SETTLEMENT_MIN_LEGS, AtomicSettlementDetails, AtomicSettlementEscrow,
+            AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, DvpIsi,
             DvpSettlementDetails, FundFxCorridorEscrow, FxCorridorId, FxCorridorOracleEvidence,
             FxCorridorPolicy, FxCorridorPolicyRegistry, FxCorridorPricingContext,
             FxCorridorSettlementDetails, FxCorridorUsage, PvpIsi, PvpSettlementDetails,

@@ -14959,7 +14959,7 @@
         ]
       },
       {
-        "reason": "Per-instruction shape limits of product instructions (Parliament sortition batch, MUSUBI pin outbox frames, atomic settlement movements, SoraFS release manifest, election options, pin-allocation fees and frame). Each bounds one instruction of its product; that instruction travels in a transaction bounded by transaction.max_tx_bytes and transaction.max_instructions. The delivery plan assigns these bounds to their product owners.",
+        "reason": "Per-instruction shape limits of product instructions (Parliament sortition batch, MUSUBI pin outbox frames, atomic settlement movements and escrow legs, SoraFS release manifest, election options, pin-allocation fees and frame). Each bounds one instruction of its product; that instruction travels in a transaction bounded by transaction.max_tx_bytes and transaction.max_instructions. The delivery plan assigns these bounds to their product owners.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/isi/governance/parliament.rs",
@@ -14984,6 +14984,7 @@
           {
             "path": "crates/iroha_data_model/src/isi/settlement/atomic.rs",
             "symbols": [
+              "ATOMIC_SETTLEMENT_MAX_ESCROWS",
               "ATOMIC_SETTLEMENT_MAX_MOVEMENTS"
             ],
             "exprs": {
@@ -20516,10 +20517,10 @@
           {
             "path": "crates/iroha_data_model/src/isi/settlement/atomic.rs",
             "symbols": [
-              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS"
+              "ATOMIC_SETTLEMENT_MIN_LEGS"
             ],
             "exprs": {
-              "ATOMIC_SETTLEMENT_MIN_MOVEMENTS": "1"
+              "ATOMIC_SETTLEMENT_MIN_LEGS": "1"
             }
           },
           {

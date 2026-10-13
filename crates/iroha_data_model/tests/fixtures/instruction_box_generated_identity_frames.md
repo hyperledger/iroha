@@ -3,7 +3,10 @@
 The current first-release capture contains all generated instruction-box variants.
 The atomic settlement variant was captured on 2026-09-12 with the compiled native
 codec and all five framing contexts plus the canonical instruction JSON carrier.
-The six other settlement variants reproduced their prior bytes exactly.
+The six other settlement variants reproduced their prior bytes exactly. On
+2026-10-13 that variant was recaptured after `SettleAtomic` gained its `escrows`
+field; the value is unchanged apart from an empty escrow list, and a temporary
+capture test (removed afterwards) produced every frame and the JSON carrier.
 
 The one-time unit capture first obtained actual compiler names and both codec
 hashes. Existing instruction roundtrip values supplied populated variant
@@ -29,8 +32,8 @@ writer, inferred-name fallback or alternative accepted codec identity remains.
 ## Fixture
 
 - File: `instruction_box_generated_identity_frames.json`
-- SHA-256: `a7df2e9bb1eb2726cb40e991c206c6fe43faffe0c756160ed964335d2d6c21df`
-- Size: 165,840 bytes.
+- SHA-256: `0f86c15c131e729554d3dd98b048a5781f5cf75985275e61c0bb014d58f64f26`
+- Size: 169,472 bytes.
 - Coverage: 12 types, 69 distinct variants, 345 complete frames, 69 JSON carriers.
 
 | Type | Variants |

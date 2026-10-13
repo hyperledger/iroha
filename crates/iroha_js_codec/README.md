@@ -45,6 +45,12 @@ The repo lifecycle uses one closed `Repo` envelope mirroring the registered
 model JSON, so the parsed proposal keeps the consented initiation and maturity
 intent hashes; generic base64 instruction literals cannot bypass the envelope.
 
+Native conditional escrow instructions use closed `OpenConditionalEscrow`,
+`AttestEscrowCondition` and `ExpireConditionalEscrow` envelopes whose payloads
+must equal the canonical model JSON (including `evidence_hashes`). Atomic
+settlement JSON requires the `escrows` array (possibly empty); every escrow leg
+field is mandatory because the leg is part of the consented intent hash.
+
 Native bindings convert buffers and error categories only. They also reuse the
 typed helper operations for their existing transaction builders and inspection
 APIs. There is no Node, daemon, network, filesystem, or key-custody dependency in
