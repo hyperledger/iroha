@@ -689,9 +689,14 @@ fn native_lane_first_prepare_admission_binds_original_source_and_retains_its_cha
 fn native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission() {
     let fixture = Fixture::new(true);
     let effective = Duration::from_millis(6_001);
-    let boundary = effective - fixture.record.params.max_clock_drift();
-    let (clock, time) =
-        iroha_primitives::time::TimeSource::new_mock(boundary - Duration::from_millis(1));
+    let boundary = effective
+        .checked_sub(fixture.record.params.max_clock_drift())
+        .expect("fixture effective time exceeds maximum drift");
+    let (clock, time) = iroha_primitives::time::TimeSource::new_mock(
+        boundary
+            .checked_sub(Duration::from_millis(1))
+            .expect("fixture boundary exceeds one millisecond"),
+    );
     let mut lane = fixture
         .recovery_with_clock(time)
         .complete()

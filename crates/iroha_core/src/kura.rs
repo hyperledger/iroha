@@ -4801,16 +4801,26 @@ impl Kura {
                 info!("Kura block thread is being shut down. Flushing sidecars and fsync state.");
                 should_exit = true;
             }
-            let prune_guard = kura.prune_lock.lock();
-            #[cfg(test)]
-            original_queued_sidecar_release_tests::fence_boundary(1);
-            if kura.prune_recovery_is_required() {
-                error!("Kura writer stopped because canonical prune recovery requires restart");
-                return;
+            {
+                // Both diagnostic queues finish publication, retry merging and accounting
+                // before an original physical release can reenter this Kura writer.
+                let mut sidecar_releases = kura.sidecar_lock.defer_notifications();
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+                let mut prune_releases = kura.prune_lock.defer_notifications();
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC359")))]
+                let prune_guard = prune_releases.lock();
+                #[cfg(all(test, sumeragi_core_mutation = "HC359"))]
+                let prune_guard = kura.prune_lock.lock();
+                #[cfg(test)]
+                original_queued_sidecar_release_tests::fence_boundary(1);
+                if kura.prune_recovery_is_required() {
+                    error!("Kura writer stopped because canonical prune recovery requires restart");
+                    return;
+                }
+                kura.flush_pipeline_sidecars(&mut sidecar_releases);
+                kura.flush_fastpq_proof_snapshots(&mut sidecar_releases);
+                drop(prune_guard);
             }
-            kura.flush_pipeline_sidecars();
-            kura.flush_fastpq_proof_snapshots();
-            drop(prune_guard);
             if should_exit {
                 let _prune_guard = kura.prune_lock.lock();
                 if kura.prune_recovery_is_required() {
@@ -6652,10 +6662,16 @@ impl Kura {
             ));
         }
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(2);
         self.ensure_canonical_storage_not_poisoned()?;
         let mut store = self.block_store.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(3);
         let count = store.read_exact_durable_index_count()?;
         let requested_height = u64::try_from(snapshot_height)?;
         let boundary_hash = if requested_height == 0 || requested_height > count {
@@ -6693,10 +6709,16 @@ impl Kura {
             ));
         }
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
         let _canonical_chain_guard = self.canonical_chain_lock.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(2);
         self.ensure_canonical_storage_not_poisoned()?;
         let mut store = self.block_store.lock();
+        #[cfg(all(test, unix))]
+        tests::original_snapshot_release_tests::fence_boundary(3);
         let durable_count = store.read_exact_durable_index_count()?;
         if usize::try_from(durable_count)? != snapshot_height {
             return Err(Error::HashesFileHeightMismatch);
@@ -10902,4 +10924,10 @@ pub(crate) mod tests {
     include!("kura/tests/17_read_only_evidence_tests.rs");
     include!("kura/tests/18_block_hash_ranges.rs");
     include!("kura/tests/19_transaction_history_budget.rs");
+
+    /// Original physical custody through real Strict-to-Fast startup reads.
+    #[cfg(unix)]
+    pub(super) mod original_snapshot_release_tests {
+        include!("kura/tests/snapshot_release_tests.rs");
+    }
 }

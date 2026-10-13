@@ -53,7 +53,7 @@ fn explicit_fixture_clock_cannot_be_rewritten_to_authorize_stale_amx_due_work() 
     let proposal = roots.global.proposal(Some(3_000), vec![signed]);
     let refusal = roots
         .global
-        .begin_proposal(proposal, Default::default())
+        .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
         .err()
         .expect("an explicit stale clock must keep the original due-work refusal");
     assert!(refusal.contains("stale due work"), "{refusal}");

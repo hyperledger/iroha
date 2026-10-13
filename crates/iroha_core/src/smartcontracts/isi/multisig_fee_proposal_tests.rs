@@ -755,22 +755,18 @@ fn registered_fee_reader_keeps_actual_binary_decoder_owner_and_unchanged_retry()
 fn settled_fee_reader_keeps_each_actual_binary_decoder_owner_and_same_evidence_retry() {
     use norito::core::DecodeBudgetContext;
     with_fixture(|tx, native| {
-        let proposal = proposal(&native.account_id);
+        let proposal = proposal(tx, &native.account_id);
         let terminal = terminal(&proposal);
         let hash = *Hash::new(b"three original settled fee decoders").as_ref();
         install_terminal(tx, &terminal, hash);
         let keys = [
-            multisig_proposal_terminal_state_key(&native.account_id, &proposal.instructions_hash),
+            multisig_proposal_terminal_state_key(&native.account_id, &proposal.proposal_id),
             multisig_proposal_terminal_execution_state_key(
                 hash,
                 &native.account_id,
-                &proposal.instructions_hash,
+                &proposal.proposal_id,
             ),
-            multisig_approval_outcome_state_key(
-                hash,
-                &native.account_id,
-                &proposal.instructions_hash,
-            ),
+            multisig_approval_outcome_state_key(hash, &native.account_id, &proposal.proposal_id),
         ];
         let original = keys
             .each_ref()
@@ -808,6 +804,7 @@ fn settled_fee_reader_keeps_each_actual_binary_decoder_owner_and_same_evidence_r
                 read_settled_fee_proposal(
                     &tx.world,
                     &native.account_id,
+                    &proposal.proposal_id,
                     &proposal.instructions_hash,
                     hash,
                     1,
@@ -826,6 +823,7 @@ fn settled_fee_reader_keeps_each_actual_binary_decoder_owner_and_same_evidence_r
                 read_settled_fee_proposal(
                     &tx.world,
                     &native.account_id,
+                    &proposal.proposal_id,
                     &proposal.instructions_hash,
                     hash,
                     1
@@ -893,8 +891,8 @@ fn fee_metadata_completed_invalid_json_keeps_original_diagnostics() {
 
 #[test]
 fn fee_terminal_hashes_stream_canonical_body_without_decoder_budget() {
-    with_fixture(|_, native| {
-        let proposal = proposal(&native.account_id);
+    with_fixture(|tx, native| {
+        let proposal = proposal(tx, &native.account_id);
         let terminal = terminal(&proposal);
         // Encoding owns a streaming hash writer and must not consume decoder budget.
         // TODO: qualify an actual checked-writer failure separately; this successful

@@ -61,7 +61,7 @@ impl std::fmt::Debug for NativeAmxExpiryDecisionCursorV1 {
             .field("next", &self.next)
             .field("positive", &self.positive)
             .field("has_pending_source", &self.has_pending_source())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl NativeAmxExpiryDecisionCursorV1 {

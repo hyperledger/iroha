@@ -470,8 +470,10 @@ mod tests {
         let key = config.genesis_key.clone();
         let chain = CertifiedTestChain::start(config).unwrap();
         let (clock, time) = TimeSource::new_mock(Duration::from_millis(2_002));
-        let mut config = Config::default();
-        config.transaction_time_to_live = Duration::from_secs(1);
+        let config = Config {
+            transaction_time_to_live: Duration::from_secs(1),
+            ..Config::default()
+        };
         let queue = Queue::test(config, &time);
         let selected = [2_001, 2_000].map(|created| {
             let accepted = AcceptedTransaction::accept_with_time_source(

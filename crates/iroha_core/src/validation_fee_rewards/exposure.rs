@@ -101,13 +101,16 @@ fn capture_stakes(
                 .range::<_, dyn ranges::AsStakePrefix>(ranges::StakeBounds::new(lane, validator))
             {
                 visit(CaptureVisit::Undo);
-                if before.is_some() && keys.insert(key) && keys.len() > MAX_REWARD_RECIPIENTS {
+                if before.is_some()
+                    && keys.insert(key.clone())
+                    && keys.len() > MAX_REWARD_RECIPIENTS
+                {
                     return Err(fail("historical reward stake recipient capacity exceeded"));
                 }
             }
             let mut parent_count = 0_usize;
             for key in keys {
-                let Some(share) = shares.get_before_block(key) else {
+                let Some(share) = shares.get_before_block(&key) else {
                     continue;
                 };
                 visit(CaptureVisit::Parent);

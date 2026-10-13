@@ -41,7 +41,7 @@ impl From<ExecutionDeferred> for QueryCommitteeError {
 
 fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
     let _ = bytes;
-    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+    QueryCommitteeError::Resource(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
 }
 
 // Complete allocator-visible backing of the closed one-shot constructor below. No temporary
@@ -592,12 +592,21 @@ mod tests {
                 BlsCrypto::for_query_committee(&members, &mut query_admission)
             })
         });
-        assert!(matches!(
-            result,
-            Err(QueryCommitteeError::Resource(
-                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
-            ))
-        ));
+        let Err(QueryCommitteeError::Resource(refused)) = result else {
+            panic!("committee admission must retain its original local refusal");
+        };
+        let original = refused
+            .decode_refusal()
+            .expect("original inherited decoder refusal");
+        assert_eq!(
+            original.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                limit: u64::try_from(demand - 1).unwrap(),
+                attempted: u64::try_from(demand).unwrap(),
+            }
+        );
+        assert!(refused.allocation_refusal().is_none());
+        assert!(refused.verification_refusal().is_none());
         assert_eq!(outer.consumed_allocated_bytes(), 0);
         assert!(!norito::core::decode_limits_active());
         outer.with(|| query_admission(demand - 1)).unwrap();

@@ -251,12 +251,12 @@ fn native_private_read_role_cannot_be_removed_by_reader_or_foreign_bank_manager(
         roots.participants[0].sign(&payer(), [Unregister::role(reader_role()).into()], 2_099);
     let view = roots.participants[1].state().view();
     let (_, clock) = TimeSource::new_mock(Duration::from_millis(2_100));
-    let bank_a_network = roots.participants[0].network_id();
-    let bank_b_network = roots.participants[1].network_id();
-    assert_ne!(bank_a_network, bank_b_network);
+    let origin_network = roots.participants[0].network_id();
+    let destination_network = roots.participants[1].network_id();
+    assert_ne!(origin_network, destination_network);
     let rejection = match AcceptedTransaction::accept_with_time_source(
         original,
-        &bank_b_network,
+        &destination_network,
         Duration::from_secs(1),
         view.world().parameters().transaction(),
         &view.crypto(),
@@ -271,9 +271,9 @@ fn native_private_read_role_cannot_be_removed_by_reader_or_foreign_bank_manager(
         crate::tx::AcceptTransactionFail::TransactionDomainMismatch(mismatch) => {
             assert_eq!(
                 mismatch.expected,
-                TransactionDomain::Network(bank_b_network)
+                TransactionDomain::Network(destination_network)
             );
-            assert_eq!(mismatch.actual, TransactionDomain::Network(bank_a_network));
+            assert_eq!(mismatch.actual, TransactionDomain::Network(origin_network));
         }
         other => {
             panic!("bank-A deletion must fail for its exact signed network domain, got {other:?}")

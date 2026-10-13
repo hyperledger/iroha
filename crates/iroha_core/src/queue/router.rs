@@ -522,37 +522,31 @@ pub(crate) fn assert_completed_routing_error_eq(
         (
             InvalidMultisigProposal {
                 account: a_account,
-                instructions_hash: a_instructions_hash,
+                proposal_id: a_proposal_id,
                 reason: a_reason,
             },
             InvalidMultisigProposal {
                 account: b_account,
-                instructions_hash: b_instructions_hash,
+                proposal_id: b_proposal_id,
                 reason: b_reason,
             },
         ) => {
             assert_eq!(a_account, b_account, "{context}: account");
-            assert_eq!(
-                a_instructions_hash, b_instructions_hash,
-                "{context}: instructions_hash"
-            );
+            assert_eq!(a_proposal_id, b_proposal_id, "{context}: proposal_id");
             assert_eq!(a_reason, b_reason, "{context}: reason");
         }
         (
             MultisigProposalCycle {
                 account: a_account,
-                instructions_hash: a_instructions_hash,
+                proposal_id: a_proposal_id,
             },
             MultisigProposalCycle {
                 account: b_account,
-                instructions_hash: b_instructions_hash,
+                proposal_id: b_proposal_id,
             },
         ) => {
             assert_eq!(a_account, b_account, "{context}: account");
-            assert_eq!(
-                a_instructions_hash, b_instructions_hash,
-                "{context}: instructions_hash"
-            );
+            assert_eq!(a_proposal_id, b_proposal_id, "{context}: proposal_id");
         }
         (StaleRoutingPlan, StaleRoutingPlan) => {}
         (
@@ -17258,8 +17252,13 @@ mod tests {
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || {
-                let direct = multisig_proposal_state_raw(state.view().world(), &account, &hash)
-                    .expect_err("actual direct proposal decode refusal");
+                let direct = multisig_proposal_state_raw(
+                    state.view().world(),
+                    &account,
+                    &test_id(&account, &hash),
+                    &hash,
+                )
+                .expect_err("actual direct proposal decode refusal");
                 // The signed approval is a CustomInstruction. Routing first decodes its
                 // JSON while checking for FX settlement, before reading persisted bytes.
                 let custom = multisig_instruction(&*approval)
@@ -17274,15 +17273,31 @@ mod tests {
                 else {
                     panic!("all actual operations must retain their original decoder refusal");
                 };
+                let repeated = multisig_proposal_state_raw(
+                    state.view().world(),
+                    &account,
+                    &test_id(&account, &hash),
+                    &hash,
+                )
+                .expect_err("repeated persisted read retains its actual decoder refusal");
+                let RoutingResolveError::Deferred(repeated) = repeated else {
+                    panic!("a repeated local refusal must not become a completed rejection");
+                };
+                assert_eq!(repeated.reason(), direct.reason());
+                let repeated_cause = repeated.decode_refusal().expect("repeated decoder cause");
+                let original_cause = direct.decode_refusal().expect("original decoder cause");
+                assert_eq!(repeated_cause.kind(), original_cause.kind());
                 assert_eq!(
-                    multisig_proposal_state_raw(
-                        state.view().world(),
-                        &account,
-                        &test_id(&account, &hash),
-                        &hash
-                    ),
-                    Err(RoutingResolveError::Deferred(expected_deferral.clone()))
+                    repeated_cause.resource_error(),
+                    original_cause.resource_error()
                 );
+                assert_ne!(
+                    repeated_cause, original_cause,
+                    "distinct actual reads retain distinct observations"
+                );
+                assert!(repeated.allocation_refusal().is_none());
+                assert!(repeated.verification_refusal().is_none());
+                assert!(repeated.phase().is_none());
                 assert_eq!(routed.reason(), direct.reason());
                 let direct_cause = direct
                     .decode_refusal()

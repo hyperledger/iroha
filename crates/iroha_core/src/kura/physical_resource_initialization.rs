@@ -287,7 +287,11 @@ impl Kura {
             // This is the writer order, never sidecar -> canonical. Query and
             // resident writers remain covered by the shared registry generation.
             let _prune_guard = self.prune_lock.lock();
+            #[cfg(all(test, unix, not(target_os = "espidf")))]
+            original_inventory_release_tests::fence_boundary(self, 1);
             let _canonical_guard = self.canonical_chain_lock.lock();
+            #[cfg(all(test, unix, not(target_os = "espidf")))]
+            original_inventory_release_tests::fence_boundary(self, 2);
             if !self.physical_resource_reconciliation_allowed() {
                 return Err(resource_inventory::Unavailable::Unregistered);
             }
@@ -315,4 +319,10 @@ impl Kura {
         }
         result
     }
+}
+
+/// Original physical sources through startup/re-audit family publication and invalidation.
+#[cfg(all(test, unix, not(target_os = "espidf")))]
+mod original_inventory_release_tests {
+    include!("inventory_release_tests.rs");
 }

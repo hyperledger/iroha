@@ -1050,5 +1050,8 @@ fn fast_init_keeps_history_sparse_and_rejects_canonical_mutation() {
     );
     assert!(kura.pipeline_sidecar_queue.lock().is_empty());
     assert!(kura.fastpq_proof_queue.lock().is_empty());
-    assert_eq!(kura.flush_pipeline_sidecars(), 0);
+    assert_eq!(
+        kura.flush_pipeline_sidecars(&mut kura.sidecar_lock.defer_notifications()),
+        0
+    );
 }

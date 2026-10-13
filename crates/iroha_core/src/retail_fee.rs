@@ -406,12 +406,18 @@ fn retail_registry_preserves_original_json_scope_and_completed_malformed_diagnos
             payout_policies: ValidationFeePayoutPolicyRegistryV1 {
                 entries: Vec::new(),
             },
+            history: None,
         };
         transaction
             .world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(empty.clone().into_custom_parameter()))
+            .set_parameter(Parameter::Custom(
+                empty
+                    .clone()
+                    .into_custom_parameter()
+                    .expect("empty registry encodes"),
+            ))
             .unwrap();
         assert_eq!(
             norito::with_decode_limits_scope(

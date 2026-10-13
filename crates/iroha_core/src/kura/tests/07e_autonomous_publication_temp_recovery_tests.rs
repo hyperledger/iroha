@@ -102,7 +102,16 @@ fn debug_block_dump_reserves_capacity_before_first_creation() {
     Arc::get_mut(&mut kura)
         .expect("exclusive debug capacity Kura")
         .max_disk_usage_bytes = baseline;
-    kura.append_debug_block_dump(&NativeBlocks::new().next());
+    let block = NativeBlocks::new().next();
+    let (mut prune_releases, mut canonical_releases, mut geometry_releases, mut sidecar_releases) = (
+        kura.prune_lock.defer_notifications(),
+        kura.canonical_chain_lock.defer_notifications(),
+        kura.lane_geometry_lock.defer_notifications(),
+        kura.sidecar_lock.defer_notifications(),
+    );
+    let _prune = prune_releases.lock();
+    let _canonical = canonical_releases.lock();
+    kura.append_debug_block_dump(&block, &mut geometry_releases, &mut sidecar_releases);
     assert!(
         !path.exists(),
         "debug output must not be created without capacity for its first line",

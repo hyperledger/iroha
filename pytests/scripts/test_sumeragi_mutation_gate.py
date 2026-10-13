@@ -1268,7 +1268,7 @@ def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row()
                        "proposal_id", "network_id", "transaction_ttl_ms"):
         assert f"altered.{coordinate} =" in body
     assert "ExecutionAttemptError::Rejected" in body
-    assert "tx.execution_deferral().is_none()" in body
+    assert "assert!(!tx.is_execution_deferred());" in body
 
 
 def test_multisig_cancellation_and_expiry_keep_original_custom_decode_refusal():
@@ -8455,4 +8455,184 @@ def test_native_frame_physical_notifications_outlive_all_original_storage_fences
         assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
         assert name in selected
     rows = re.findall(r"^\| HC355 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_recovery_capacity_notifications_outlive_fences_and_final_accounting():
+    names = ['kura::capacity_release_tests::original_capacity_recovery_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_restore_success_notifies_after_final_accounting', 'kura::capacity_release_tests::original_capacity_recovery_capacity_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_prune_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_canonical_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_accounting_refusal_notifies_after_invalidation', 'kura::capacity_release_tests::original_capacity_recovery_unwind_notifies_after_each_acquired_prefix']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC356"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        'original capacity recovery notice must follow all fences and final accounting', 'crates/iroha_core/src/kura/capacity_release_tests.rs') for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC356", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC356", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC356"', path.read_text())}
+    assert owners == {"kura/publication_capacity.rs"}
+    source = (ROOT / 'crates/iroha_core/src/kura/publication_capacity.rs').read_text()
+    implementation = source[source.index("fn validate_and_publish_configured_kura_capacity_after_startup_recovery("):]
+    closure = implementation.index("let publication = (|| -> Result<()>")
+    for field, batch in (("prune_lock", "prune_releases"), ("canonical_chain_lock", "canonical_releases"),
+                         ("lane_geometry_lock", "geometry_releases"), ("sidecar_lock", "sidecar_releases")):
+        assert implementation.index("self." + field + ".defer_notifications()") < closure
+        assert batch + ".lock()" in implementation
+    assert implementation.index("if publication.is_err()") > implementation.index("})();")
+    assert "self.invalidate_durable_budget_snapshot();" in implementation
+    controls = (ROOT / 'crates/iroha_core/src/kura/capacity_release_tests.rs').read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "block_store.try_lock()",
+                       "Error::PruneRecoveryRequired", "Error::StorageBudgetExceeded", "catch_unwind",
+                       "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
+                       "finish_restored_lane_segments_with_geometry", "disk_usage_initialized",
+                       "disk_usage_total_initialized", "durable_budget_snapshot_valid", "1..=4",
+                       "block index journal has a partial trailing entry",
+                       "Kura retained geometry root must be a non-symlink directory"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC356 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_durable_publication_notifications_outlive_outer_storage_writers():
+    names = ['kura::tests::original_durable_release_tests::original_durable_append_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_retry_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_refusal_notifies_after_every_storage_fence', 'kura::tests::original_durable_release_tests::original_durable_debug_append_notifies_after_outer_writer_retires']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC357"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        'original durable publication notice must wait for every storage fence', 'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs') for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC357", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC357", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC357"', path.read_text())}
+    assert owners == {"kura/durable_block_and_atomic_sidecar_io.rs"}
+    source = (ROOT / 'crates/iroha_core/src/kura/durable_block_and_atomic_sidecar_io.rs').read_text()
+    durable = source[source.index("fn store_block_durable("):source.index("fn validate_next_or_existing_block(")]
+    first_guard = durable.index("let _prune_guard =")
+    for field in ("prune_lock", "canonical_chain_lock", "lane_geometry_lock", "sidecar_lock"):
+        assert durable.index("self." + field + ".defer_notifications()") < first_guard
+    assert "self.append_debug_block_dump(" in durable
+    debug = source[source.index("fn append_debug_block_dump("):source.index("fn append_bound_debug_block_dump(")]
+    assert debug.count("DeferredPublicationFence") == 2
+    assert "defer_notifications()" not in debug
+    assert "validate_publication_disk_peak_locked(" in debug
+    controls = (ROOT / 'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs').read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "block_store.try_lock()",
+                       "block_store_write_lock.try_lock()", "block_data.try_lock()", "block_plain_text_path.try_lock()",
+                       "Error::BlockHeightGap", "canonical_block_wire_bytes_for_testing",
+                       "registration.belongs_to(&budget)", "reserved - charge", "foreign store release",
+                       "metadata_physical_assert_actual", "NativeBlocks::new()", "debug_output_new_blocks"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC357 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
+    names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC358"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure(
+        'original FASTPQ artifact notice must wait for every storage fence', 'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs') for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC358", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC358", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC358"', path.read_text())}
+    assert owners == {"kura/fastpq_artifact_store.rs"}
+    source = (ROOT / 'crates/iroha_core/src/kura/fastpq_artifact_store.rs').read_text()
+    persisted = source[source.index("pub fn persist_fastpq_artifact("):source.index("pub fn read_fastpq_artifact(")]
+    recovered = source[source.index("pub fn read_fastpq_artifact("):source.index("fn validate_fastpq_artifact_limits(")]
+    for implementation in (persisted, recovered):
+        first_guard = implementation.index("let _prune_guard =")
+        for field, batch in (("prune_lock", "prune_releases"), ("canonical_chain_lock", "canonical_releases"),
+                             ("sidecar_lock", "sidecar_releases")):
+            assert implementation.index("self." + field + ".defer_notifications()") < first_guard
+            assert batch + ".lock()" in implementation
+        assert "ensure_prune_recovery_not_required()?" in implementation
+        assert "durable_mutation_authorized()?" in implementation
+    assert persisted.index("self.lane_geometry_lock.defer_notifications()") < persisted.index("let _prune_guard =")
+    assert "geometry_releases.lock()" in persisted
+    assert "usage_mutation.finish_resources_before_disk_rescan()" in persisted
+    controls = (ROOT / 'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs').read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "block_store.try_lock()",
+                       "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
+                       "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
+                       "receipt.is_from(&kura)", "inventory(&kura)", "source.kind() == ErrorKind::InvalidData",
+                       "FASTPQ artifact storage quota exhausted", "FASTPQ content address contains different bytes",
+                       "FASTPQ artifact reference is absent", "FASTPQ artifact content or exact length differs from reference"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC358 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
+
+
+def test_queued_sidecar_notifications_outlive_writer_and_retry_queues():
+    names = ['kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_writer_notifies_after_attachment_publication', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_retry_and_exhaustion_finalize_before_notice', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_hash_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes', 'kura::original_queued_sidecar_release_tests::original_queued_sidecar_unwind_notifies_after_each_acquired_prefix']
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC359"]
+    assert rule.tests == tuple(names)
+    assert rule.causes == tuple(gate.ExpectedFailure('original queued sidecar notice must follow outer fences and finalized queues', 'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs') for _ in names)
+    assert not rule.scenarios
+    assert gate.has_switch("HC359", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch("HC359", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC359"', path.read_text())}
+    assert owners == {"kura.rs", "kura/indexed_sidecar_io.rs"}
+    source = (ROOT / 'crates/iroha_core/src/kura.rs').read_text()
+    writer = source[source.index("fn receive_blocks_loop("):source.index("/// Get the hash of the block", source.index("fn receive_blocks_loop("))]
+    first_guard = writer.index("let prune_guard =")
+    for field in ("prune_lock", "sidecar_lock"):
+        assert writer.index("kura." + field + ".defer_notifications()") < first_guard
+    assert "flush_pipeline_sidecars(&mut sidecar_releases)" in writer
+    assert "flush_fastpq_proof_snapshots(&mut sidecar_releases)" in writer
+    source = (ROOT / 'crates/iroha_core/src/kura/indexed_sidecar_io.rs').read_text()
+    direct = source[source.index("pub fn write_pipeline_metadata("):source.index("fn write_pipeline_metadata_unlocked(")]
+    for field in ("prune_lock", "sidecar_lock"):
+        assert direct.index("self." + field + ".defer_notifications()") < direct.index("let _prune_guard =")
+    assert "write_pipeline_metadata_unlocked(sidecar, &mut sidecar_releases)" in direct
+    for start, end in (("fn flush_pipeline_sidecars(", "/// Enqueue a FASTPQ"),
+                       ("fn flush_fastpq_proof_snapshots(", "/// Write per-block pipeline"),
+                       ("fn write_pipeline_metadata_unlocked(", "fn write_fastpq_proof_snapshots("),
+                       ("fn write_fastpq_proof_snapshots(", "/// Decode pipeline recovery")):
+        body = source[source.index(start):source.index(end, source.index(start))]
+        assert "sidecar_releases: &mut crate::publication_lock::DeferredPublicationFence<'_, ()>" in body
+        assert ".defer_notifications()" not in body
+    assert "self.write_fastpq_proof_snapshots(&snapshots, sidecar_releases)" in source
+    assert "queue.extend(retry.drain(..requeued))" in source
+    controls = (ROOT / 'crates/iroha_core/src/kura/queued_sidecar_release_tests.rs').read_text()
+    for obligation in ("transaction_history_budget()", "observe_release()", "wait_for_release(&mut registration)",
+                       "publication_fences_for_test()", "try_publication_lease()", "block_store.try_lock()",
+                       "pipeline_sidecar_queue", "fastpq_proof_queue", "catch_unwind",
+                       "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
+                       "receive_blocks_loop(&shutdown)", "shutdown.send()", "inventory(&kura)",
+                       "std::io::ErrorKind::AlreadyExists", "item.retries", "snapshot.clone()"):
+        assert obligation in controls
+    assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
+    selected = (ROOT / "scripts/taira_release_check.py").read_text()
+    for name in names:
+        assert "fn " + name.rsplit("::", 1)[-1] + "()" in controls
+        assert name in selected
+    rows = re.findall(r"^\| HC359 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
     assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in names)
