@@ -447,8 +447,9 @@ passes.
   final Omega fold. A's retained ArchiveReceive also completes all 22 checkpoints
   and final Omega, with exact replay after restart and unchanged monetary value.
   B's retained Send also completes all checkpoints and final Omega.
-  B's ArchiveStatus, C Unload and settlement remain in progress
-  and unproved. An explicit compiled-source
+  An external task interruption stopped B's ArchiveStatus after checkpoint 7;
+  an exact retained-state continuation is prepared. The remaining archive fold,
+  C Unload and settlement remain unproved. An explicit compiled-source
   registry is implemented with strict independent generation, exact graph and
   original matching, and build-input freshness checks. Production and engineering
   entries, complete host inspections and actual typed wrapper controls pass for

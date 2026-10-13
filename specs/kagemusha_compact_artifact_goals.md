@@ -267,7 +267,10 @@ has since completed checkpoints 7–10 and its final Omega fold. A's retained
 ArchiveReceive then completed all 22 checkpoints and its final Omega fold;
 exact replay after restart passes with unchanged monetary value. The same
 continuation also completed B's retained Send through all 11 checkpoints and
-its final Omega fold. It is running B's ArchiveStatus and then C Unload.
+its final Omega fold. An external task interruption stopped B's ArchiveStatus
+after checkpoint 7, without a terminal test result. A separate continuation test
+requires the exact retained checkpoint before resuming the remaining archive
+proofs and the first C Unload; it does not repeat completed monetary operations.
 That remaining archive fold, Unload, local Core settlement and native confirmation
 remain unproved until it finishes.
 No successful enrollment, Load, Send or Receive is repeated. Records are in

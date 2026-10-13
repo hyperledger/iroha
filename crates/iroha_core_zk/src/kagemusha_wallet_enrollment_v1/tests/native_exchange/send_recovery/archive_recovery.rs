@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "archive_recovery/interrupted.rs"]
+mod interrupted;
+
 fn completed(wallet: &mut Wallet, id: u8) -> Vec<u8> {
     let state::RequestStatusV1::Outcome(Completion::Complete(bytes)) =
         wallet.retry_request(&[id; 32]).unwrap()
