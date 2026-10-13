@@ -231,3 +231,77 @@ fn payout_only_checkpoint_accepts_first_pricing_and_preserves_genesis_after_reti
     changed.history.as_mut().unwrap().genesis_policy_hash = Some([9; 32]);
     assert!(changed.validate().is_err());
 }
+
+#[test]
+fn policy_parameter_roundtrip_preserves_validated_registry() {
+    let registry = source_registry();
+    registry.validate().unwrap();
+    let parameter = registry.clone().into_custom_parameter().unwrap();
+    assert_eq!(
+        ValidationFeePolicyRegistryV1::from_custom_parameter(&parameter),
+        Some(registry)
+    );
+    assert!(parameter.payload().get().len() <= iroha_primitives::json::MAX_JSON_BYTES);
+}
+
+#[test]
+fn policy_parameter_rejects_json_capacity_below_binary_capacity_without_panicking() {
+    let mut registry = ValidationFeePolicyRegistryV1 {
+        history: None,
+        registered_policies: Vec::new(),
+        payout_policies: ValidationFeePayoutPolicyRegistryV1 {
+            entries: vec![revised_payout(1)],
+        },
+    };
+    let mut revision = 1_u64;
+    let mut previous = registry.clone().into_custom_parameter().unwrap();
+    loop {
+        revision += 1;
+        registry
+            .payout_policies
+            .entries
+            .push(revised_payout(revision));
+        assert!(norito::to_bytes(&registry).unwrap().len() < MAX_VALIDATION_FEE_REGISTRY_BYTES);
+        registry.validate().unwrap();
+        match registry.clone().into_custom_parameter() {
+            Ok(parameter) => previous = parameter,
+            Err(error) => {
+                assert!(error.decode_resource_error().is_none(), "{error:?}");
+                assert_eq!(
+                    error.to_string(),
+                    "bounded JSON body exceeds its byte limit"
+                );
+                break;
+            }
+        }
+    }
+    assert!(revision > 2);
+    assert!(previous.payload().get().len() <= iroha_primitives::json::MAX_JSON_BYTES);
+    let accepted = ValidationFeePolicyRegistryV1::from_custom_parameter(&previous).unwrap();
+    accepted.validate().unwrap();
+    assert_eq!(
+        accepted.payout_policies.entries.len() + 1,
+        registry.payout_policies.entries.len()
+    );
+    let height = 100_000 + revision;
+    let compacted = registry
+        .compacted_suffix(height, u64::MAX, height)
+        .unwrap()
+        .unwrap();
+    compacted.validate().unwrap();
+    assert!(compacted.into_custom_parameter().is_ok());
+}
+
+#[test]
+fn policy_parameter_preserves_original_resource_refusal_and_retries() {
+    let registry = source_registry();
+    registry.validate().unwrap();
+    let expected = registry.clone().into_custom_parameter().unwrap();
+    let refused = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || registry.clone().into_custom_parameter(),
+    )
+    .unwrap_err();
+    assert!(refused.decode_resource_error().is_some(), "{refused:?}");
+    assert_eq!(registry.into_custom_parameter().unwrap(), expected);
+}

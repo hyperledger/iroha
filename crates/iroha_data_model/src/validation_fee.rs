@@ -381,9 +381,17 @@ impl ValidationFeePolicyRegistryV1 {
             .expect("valid validation-fee policy registry parameter identifier")
     }
     /// Convert this registry into an on-ledger custom parameter.
-    #[must_use]
-    pub fn into_custom_parameter(self) -> CustomParameter {
-        CustomParameter::new(Self::parameter_id(), Json::new(self))
+    ///
+    /// The caller must validate the registry and its binary evidence budget separately.
+    /// This constructor enforces the independent canonical JSON parameter boundary.
+    ///
+    /// # Errors
+    /// Returns an error if the canonical JSON exceeds its byte or structural limit, or
+    /// serialization cannot complete. Original Norito resource refusals retain their
+    /// typed error and admission-scope provenance.
+    pub fn into_custom_parameter(self) -> Result<CustomParameter, norito::Error> {
+        let payload = Json::try_new(self)?;
+        Ok(CustomParameter::new(Self::parameter_id(), payload))
     }
     /// Decode a validation-fee policy registry from a custom parameter.
     #[must_use]

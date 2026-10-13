@@ -303,9 +303,7 @@ impl VerifierRequestV1 {
         exchange: &VerifierExchangeV1,
         frame: &[u8],
     ) -> Result<RevocationOutcomeV1, Error> {
-        if !self.is_android()
-            || !matches!(exchange.action(), Some(ActionV1::RecheckRevocation))
-        {
+        if !self.is_android() || !matches!(exchange.action(), Some(ActionV1::RecheckRevocation)) {
             return Err(Error("revocation exchange kind"));
         }
         let (value, _) = exchange.request_response(self, frame)?;
@@ -315,9 +313,7 @@ impl VerifierRequestV1 {
         match (text(&value, "outcome")?, value.get("refusal_code")) {
             ("current", Some(Value::Null)) => Ok(RevocationOutcomeV1::Current),
             ("unavailable", Some(Value::Null)) => Ok(RevocationOutcomeV1::Unavailable),
-            ("refused", Some(code)) if code.as_u64() == Some(6) => {
-                Ok(RevocationOutcomeV1::Revoked)
-            }
+            ("refused", Some(code)) if code.as_u64() == Some(6) => Ok(RevocationOutcomeV1::Revoked),
             _ => Err(Error("revocation outcome")),
         }
     }

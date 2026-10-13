@@ -1629,7 +1629,7 @@ final class ToriiSDKFootgunTests: XCTestCase {
             transfer: transfer,
             signingKey: SigningKey.ed25519(privateKey: keypair.privateKeyBytes),
             creationTimeMs: 1)
-        let payload = try XCTUnwrap(InstructionTransactionV1.unsignedPayloadJSON(envelope))
+        let payload = try XCTUnwrap(InstructionTransactionV1.unsignedPayloadJSON(envelope, chainDiscriminant: AccountId.defaultNetworkPrefix))
         XCTAssertEqual(payload["metadata"], .object(["memo": .string("invoice 42")]))
         let unsigned = try IrohaSDK.buildTransferPayload(transfer: transfer, creationTimeMs: 1)
         let independentlySigned = try InstructionTransactionV1.envelope(payload: unsigned,

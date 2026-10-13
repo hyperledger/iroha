@@ -6380,10 +6380,13 @@ pub mod tests {
             signer1_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([InstructionBox::from(MultisigPropose::new(multisig_id,
-iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61;32]).unwrap(),
-vec![registration.into()],
-None))])
+        .with_instructions([InstructionBox::from(MultisigPropose::new(
+            multisig_id,
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                .unwrap(),
+            vec![registration.into()],
+            None,
+        ))])
         .sign(signer1.private_key());
         let limits = TransactionParameters::default();
         let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
@@ -6492,10 +6495,13 @@ None))])
             signer1_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([InstructionBox::from(MultisigPropose::new(multisig_id,
-iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61;32]).unwrap(),
-vec![registration.into()],
-None))])
+        .with_instructions([InstructionBox::from(MultisigPropose::new(
+            multisig_id,
+            iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                .unwrap(),
+            vec![registration.into()],
+            None,
+        ))])
         .sign(signer1.private_key());
         let limits = TransactionParameters::default();
         let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
@@ -7290,9 +7296,16 @@ None))])
             missing_authority.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([MultisigApprove::new(multisig_account.clone(),
-iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(&chain.network_id(), &multisig_account.clone(), &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61;32]).unwrap()),
-instructions_hash)])
+        .with_instructions([MultisigApprove::new(
+            multisig_account.clone(),
+            iroha_executor_data_model::isi::multisig::MultisigProposalId::derive(
+                &chain.network_id(),
+                &multisig_account.clone(),
+                &iroha_executor_data_model::isi::multisig::MultisigProposalNonce::new([0x61; 32])
+                    .unwrap(),
+            ),
+            instructions_hash,
+        )])
         .sign(keypair.private_key());
         let limits = TransactionParameters::default();
         let crypto_cfg = iroha_config::parameters::actual::Crypto::default();

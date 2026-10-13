@@ -671,7 +671,11 @@ mod tests {
             stx.world
                 .parameters_mut_for_testing()
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()));
+                .set_parameter(Parameter::Custom(
+                    registry.clone().into_custom_parameter().expect(
+                        "validation-fee fixture registry fits the canonical JSON parameter",
+                    ),
+                ));
         });
         chain.commit_at(now, Vec::new());
         let proposal_id = proposals[0].0.fingerprint();

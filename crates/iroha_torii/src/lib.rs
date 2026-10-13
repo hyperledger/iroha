@@ -70,9 +70,9 @@ mod amx_approval_proof;
 #[cfg(feature = "app_api")]
 mod app_api;
 mod authority_originals;
-mod certified_originals_auth;
 mod bridge_attestation;
 mod canonical_history;
+mod certified_originals_auth;
 mod finality_interval;
 mod game;
 mod history_producer;

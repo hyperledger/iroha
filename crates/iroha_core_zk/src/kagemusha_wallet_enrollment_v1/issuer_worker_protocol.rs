@@ -353,8 +353,10 @@ impl VerifierExchangeV1 {
         request: &VerifierRequestV1,
         frame: &[u8],
     ) -> Result<(Value, u64), Error> {
-        if !matches!(self.kind, Kind::Complete | Kind::Recover | Kind::Inspect | Kind::RecheckRevocation)
-            || self.configuration != request.configuration
+        if !matches!(
+            self.kind,
+            Kind::Complete | Kind::Recover | Kind::Inspect | Kind::RecheckRevocation
+        ) || self.configuration != request.configuration
             || self.request_binding != Some(request_binding(request))
         {
             return Err(Error("exchange request binding"));

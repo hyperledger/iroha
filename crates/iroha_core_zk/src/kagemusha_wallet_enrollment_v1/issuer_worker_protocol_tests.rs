@@ -5,32 +5,97 @@ use super::*;
 #[test]
 fn current_revocation_reply_is_fresh_bound_and_cannot_issue_enrollment_evidence() {
     let request = fixture(false);
-    let exchange = request.packet(ActionV1::RecheckRevocation, [10; 32], [19; 32], 700_000).unwrap();
+    let exchange = request
+        .packet(ActionV1::RecheckRevocation, [10; 32], [19; 32], 700_000)
+        .unwrap();
     let current = reply(&exchange, "current", Value::Null);
-    assert_eq!(request.revocation_response(&exchange, &framed(&current)).unwrap(), RevocationOutcomeV1::Current);
+    assert_eq!(
+        request
+            .revocation_response(&exchange, &framed(&current))
+            .unwrap(),
+        RevocationOutcomeV1::Current
+    );
     assert!(request.response(&exchange, &framed(&current)).is_err());
-    for field in ["exchange_id", "request_sha256", "journal_incarnation", "config_sha256"] {
+    for field in [
+        "exchange_id",
+        "request_sha256",
+        "journal_incarnation",
+        "config_sha256",
+    ] {
         let mut substituted = current.clone();
         change(&mut substituted, field, Value::from(hex::encode([0; 32])));
-        assert!(request.revocation_response(&exchange, &framed(&substituted)).is_err());
+        assert!(
+            request
+                .revocation_response(&exchange, &framed(&substituted))
+                .is_err()
+        );
     }
-    let other = request.packet(ActionV1::RecheckRevocation, [10; 32], [20; 32], 700_000).unwrap();
-    assert!(request.revocation_response(&other, &framed(&current)).is_err());
-    let inspect = request.packet(ActionV1::Inspect, [10; 32], [19; 32], 700_000).unwrap();
-    assert!(request.revocation_response(&inspect, &framed(&reply(&inspect, "current", Value::Null))).is_err());
-    assert_eq!(request.revocation_response(&exchange, &framed(&reply(&exchange, "unavailable", Value::Null))).unwrap(), RevocationOutcomeV1::Unavailable);
+    let other = request
+        .packet(ActionV1::RecheckRevocation, [10; 32], [20; 32], 700_000)
+        .unwrap();
+    assert!(
+        request
+            .revocation_response(&other, &framed(&current))
+            .is_err()
+    );
+    let inspect = request
+        .packet(ActionV1::Inspect, [10; 32], [19; 32], 700_000)
+        .unwrap();
+    assert!(
+        request
+            .revocation_response(&inspect, &framed(&reply(&inspect, "current", Value::Null)))
+            .is_err()
+    );
+    assert_eq!(
+        request
+            .revocation_response(
+                &exchange,
+                &framed(&reply(&exchange, "unavailable", Value::Null))
+            )
+            .unwrap(),
+        RevocationOutcomeV1::Unavailable
+    );
     let mut refused = reply(&exchange, "refused", Value::Null);
     change(&mut refused, "refusal_code", Value::from(6_u16));
-    assert_eq!(request.revocation_response(&exchange, &framed(&refused)).unwrap(), RevocationOutcomeV1::Revoked);
+    assert_eq!(
+        request
+            .revocation_response(&exchange, &framed(&refused))
+            .unwrap(),
+        RevocationOutcomeV1::Revoked
+    );
     change(&mut refused, "refusal_code", Value::from(9_u16));
-    assert!(request.revocation_response(&exchange, &framed(&refused)).is_err());
+    assert!(
+        request
+            .revocation_response(&exchange, &framed(&refused))
+            .is_err()
+    );
     for outcome in ["evidence", "prepared", "outcome_unknown", "rejected"] {
-        assert!(request.revocation_response(&exchange, &framed(&reply(&exchange, outcome, Value::Null))).is_err());
+        assert!(
+            request
+                .revocation_response(&exchange, &framed(&reply(&exchange, outcome, Value::Null)))
+                .is_err()
+        );
     }
-    assert!(request.revocation_response(&exchange, &framed(&reply(&exchange, "current", Value::from("Zg==")))).is_err());
+    assert!(
+        request
+            .revocation_response(
+                &exchange,
+                &framed(&reply(&exchange, "current", Value::from("Zg==")))
+            )
+            .is_err()
+    );
     let apple = fixture(true);
-    let apple_exchange = apple.packet(ActionV1::RecheckRevocation, [10; 32], [19; 32], 700_000).unwrap();
-    assert!(apple.revocation_response(&apple_exchange, &framed(&reply(&apple_exchange, "current", Value::Null))).is_err());
+    let apple_exchange = apple
+        .packet(ActionV1::RecheckRevocation, [10; 32], [19; 32], 700_000)
+        .unwrap();
+    assert!(
+        apple
+            .revocation_response(
+                &apple_exchange,
+                &framed(&reply(&apple_exchange, "current", Value::Null))
+            )
+            .is_err()
+    );
 }
 
 #[test]

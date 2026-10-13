@@ -7418,7 +7418,11 @@ mod validation_fee_registry_restore_tests {
                 .expect("valid fixture parameters");
             parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(registry.clone().into_custom_parameter()))
+                .set_parameter(Parameter::Custom(
+                    registry.clone().into_custom_parameter().expect(
+                        "validation-fee fixture registry fits the canonical JSON parameter",
+                    ),
+                ))
                 .expect("valid fixture parameters");
             parameters.commit();
         }
@@ -7537,7 +7541,11 @@ mod validation_fee_registry_restore_tests {
                 .get()
                 .custom()
                 .get(&ValidationFeePolicyRegistryV1::parameter_id()),
-            Some(&registry.into_custom_parameter()),
+            Some(
+                &registry
+                    .into_custom_parameter()
+                    .expect("validation-fee fixture registry fits the canonical JSON parameter")
+            ),
         );
         assert!(
             matches!(

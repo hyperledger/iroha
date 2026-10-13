@@ -5662,7 +5662,16 @@ pub mod isi {
                 format!("enacted validation-fee registry is invalid: {error}").into(),
             )
         })?;
-        let next = registry.into_custom_parameter();
+        let next = registry.into_custom_parameter().map_err(|error| {
+            state_transaction.attempt_error_to_instruction_error(
+                crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                    InstructionExecutionError::InvariantViolation(
+                        format!("validation-fee registry parameter encoding failed: {error}")
+                            .into(),
+                    )
+                }),
+            )
+        })?;
         let previous = {
             let parameters = state_transaction.world.parameters.get_mut();
             let previous = parameters.custom().get(next.id()).cloned();
@@ -8782,7 +8791,18 @@ pub mod isi {
                 registry.validate().map_err(|error| {
                     InstructionExecutionError::InvariantViolation(error.to_string().into())
                 })?;
-                let next = registry.into_custom_parameter();
+                let next = registry.into_custom_parameter().map_err(|error| {
+                    state_transaction.attempt_error_to_instruction_error(
+                        crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                            InstructionExecutionError::InvariantViolation(
+                                format!(
+                                    "validation-fee registry parameter encoding failed: {error}"
+                                )
+                                .into(),
+                            )
+                        }),
+                    )
+                })?;
                 let previous = state_transaction
                     .world
                     .parameters
@@ -21799,8 +21819,8 @@ pub mod isi {
                     RetailFeeAccountStateV1, RetailFeeScheduleV1,
                     VALIDATION_FEE_POLICY_SCHEMA_VERSION,
                     VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS, ValidationFeeChargingMode,
-                    ValidationFeePolicyRegistryEntryV1, ValidationFeePolicyRegistryError,
-                    ValidationFeePolicyV1, honiara_month_bounds,
+                    ValidationFeePolicyRegistryEntryV1, ValidationFeePolicyV1,
+                    honiara_month_bounds,
                 },
                 validation_fee_rewards::{
                     ValidationFeeRewardsState, validation_fee_reward_state_key,
@@ -21841,10 +21861,18 @@ pub mod isi {
                 )
                 .unwrap();
                 live.registered_policies.push(entry);
-                if norito::to_bytes(&live).unwrap().len() > MAX_VALIDATION_FEE_REGISTRY_BYTES {
+                // The actual on-ledger JSON limit is tighter for this corpus
+                // than its independent binary evidence limit. Both boundaries
+                // must admit a registry before it becomes component prestate.
+                assert!(
+                    norito::to_bytes(&live).unwrap().len() <= MAX_VALIDATION_FEE_REGISTRY_BYTES
+                );
+                live.validate().unwrap();
+                if let Err(error) = live.clone().into_custom_parameter() {
+                    assert!(error.decode_resource_error().is_none());
                     assert_eq!(
-                        live.validate(),
-                        Err(ValidationFeePolicyRegistryError::RegistryByteLimit)
+                        error.to_string(),
+                        "bounded JSON body exceeds its byte limit"
                     );
                     live.registered_policies.pop().unwrap();
                     break;
@@ -21860,6 +21888,14 @@ pub mod isi {
             assert!(live.registered_policies.len() > 2);
             let live_bytes = norito::to_bytes(&live).unwrap();
             assert!(live_bytes.len() <= MAX_VALIDATION_FEE_REGISTRY_BYTES);
+            let live_json_bytes = live
+                .clone()
+                .into_custom_parameter()
+                .unwrap()
+                .payload()
+                .get()
+                .len();
+            assert!(live_json_bytes <= iroha_primitives::json::MAX_JSON_BYTES);
             let current_month = live.head().unwrap().policy.effective_from_ms;
             let mut now = current_month + 1_000;
             // The refused successor must satisfy the real enactment notice rule too.
@@ -21939,9 +21975,11 @@ pub mod isi {
                     .unwrap();
                     let mut too_large = live.clone();
                     too_large.registered_policies.push(entry);
+                    too_large.validate().unwrap();
+                    let parameter_error = too_large.into_custom_parameter().unwrap_err();
                     assert_eq!(
-                        too_large.validate(),
-                        Err(ValidationFeePolicyRegistryError::RegistryByteLimit)
+                        parameter_error.to_string(),
+                        "bounded JSON body exceeds its byte limit"
                     );
                     let error = enact_validation_fee_policy(
                         fixture.proposal_id,
@@ -21950,11 +21988,11 @@ pub mod isi {
                         &fixture.certificate,
                         &mut attempt,
                     )
-                    .expect_err("valid successor must reach the real registry byte-cap refusal");
+                    .expect_err("valid successor must reach the real JSON parameter refusal");
                     assert!(
                         error
                             .to_string()
-                            .contains("registry exceeds its canonical byte limit"),
+                            .contains("bounded JSON body exceeds its byte limit"),
                         "{error}"
                     );
                     assert_eq!(
@@ -22139,16 +22177,16 @@ pub mod isi {
             }
             // Count the exact initially accepted registry and the distinct newly accepted
             // entry. Neither the rejected candidate nor repeated archival snapshots count.
-            let admitted_bytes = live_bytes.len()
-                + norito::to_bytes(accepted.registry().unwrap().head().unwrap())
+            let admitted_json_bytes = live_json_bytes
+                + norito::json::to_json(accepted.registry().unwrap().head().unwrap())
                     .unwrap()
                     .len();
             assert!(
-                admitted_bytes > MAX_VALIDATION_FEE_REGISTRY_BYTES,
-                "settlement permits cumulative accepted pricing beyond the former lifetime cap"
+                admitted_json_bytes > iroha_primitives::json::MAX_JSON_BYTES,
+                "settlement permits cumulative accepted pricing beyond the JSON live-state cap"
             );
             eprintln!(
-                "pricing capacity: {} valid retained policies, {} live bytes, {} original monthly receipts, {admitted_bytes} cumulative accepted bytes",
+                "pricing capacity: {} valid retained policies, {} live binary bytes, {live_json_bytes} live JSON bytes, {} original monthly receipts, {admitted_json_bytes} cumulative accepted JSON bytes",
                 live.registered_policies.len(),
                 live_bytes.len(),
                 receipts.len()

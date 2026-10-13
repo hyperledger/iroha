@@ -213,7 +213,10 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   enforce that bound before creating an obligation. A full page rolls over even
   during mandatory slashing, without limiting the number of earning changes.
   Payout custody/provider identities have the same 256-byte cap. The complete
-  hot signed fee-policy registry is limited to 1 MiB. Native maintenance removes
+  hot signed fee-policy registry is limited to 1 MiB in its binary evidence
+  representation and independently in its canonical JSON custom parameter.
+  Fallible parameter encoding rejects an oversized append atomically and preserves
+  original typed resource deferral. Native maintenance removes
   superseded pricing and payout prefixes only after authenticating their exact
   original committed corpus. Its checkpoint binds the source height, registry
   hash, immutable genesis-policy hash and contiguous retired revision floors.

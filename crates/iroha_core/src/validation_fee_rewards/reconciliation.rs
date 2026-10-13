@@ -989,6 +989,18 @@ mod tests {
                 for key in retired {
                     stx.world.smart_contract_state.remove(key);
                 }
+                if recover_before_compaction {
+                    // The checkpoint also retires the recovery predecessor; only
+                    // the current owner revision remains in the hot state.
+                    assert!(validate(&stx.world, &binding).is_err());
+                    let predecessor = validation_fee_beneficiary_revision_key(
+                        &binding,
+                        &original,
+                        owner.revision.checked_sub(1).unwrap(),
+                    )
+                    .unwrap();
+                    assert!(stx.world.smart_contract_state.remove(predecessor).is_some());
+                }
                 validate(&stx.world, &binding).unwrap();
                 let revision =
                     validation_fee_beneficiary_revision_key(&binding, &original, owner.revision)

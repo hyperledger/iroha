@@ -263,6 +263,7 @@ fn payment_request_binding_uses_signed_projection_and_rejects_changes() {
         .unwrap(),
     );
     let original = &capsule
+        .body()
         .retained_inputs
         .iter()
         .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)

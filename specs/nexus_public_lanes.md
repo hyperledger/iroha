@@ -194,6 +194,9 @@ original recovery block authenticates both predecessor and successor, alongside
 compaction of its claims. Current owners and aliases remain available for delayed
 entitlements. Signed policy prefixes similarly retire behind an authenticated
 registry checkpoint, preserving every schedule still needed by unsettled wallets.
+Admission checks the binary evidence budget and canonical JSON parameter limit
+independently. Parameter encoding is fallible: an oversized append is rejected
+atomically, while a local resource refusal retains its original deferral.
 
 The sole reward claim ledger uses authenticated beneficiary history and signed
 receipt sequences. No public instruction accepts arbitrary-recipient reward

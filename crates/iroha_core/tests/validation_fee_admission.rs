@@ -1138,7 +1138,9 @@ fn install_canonical_post_enactment_validation_fee_state(
         .world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter().expect(
+            "validation-fee fixture registry fits the canonical JSON parameter",
+        )))
         .expect("valid fixture parameters");
     state_transaction.apply();
     block
@@ -1252,7 +1254,9 @@ fn asset_balance(world: &impl WorldReadOnly, asset_id: &AssetId) -> Quantity {
 fn validation_fee_registry_cannot_be_installed_through_generic_parameter_path() {
     let (state, user, _, _, treasury, fee_asset) = test_state();
     let policy = validation_fee_policy(&state, fee_asset, treasury);
-    let custom = policy_registry(&state, &policy).into_custom_parameter();
+    let custom = policy_registry(&state, &policy)
+        .into_custom_parameter()
+        .expect("validation-fee fixture registry fits the canonical JSON parameter");
     let mut block = state.block(block_header(
         &state,
         TEST_POLICY_ENACTMENT_HEIGHT,
