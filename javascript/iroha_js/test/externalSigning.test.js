@@ -8,6 +8,8 @@ import { buildTransferAssetInstruction } from "../src/instructionBuilders.js";
 import { NetworkId } from "../src/networkId.js";
 import {
   buildTransactionPayload,
+  feePaymentFromQuote,
+  feePaymentIntentToNoritoJson,
   finalizeSignedTransaction,
   hashSignedTransaction,
   prepareExternalSignerTransactionPayload,
@@ -199,5 +201,68 @@ test("external-signer payloads reuse quoted charge kinds with scaled maxima", as
   await assert.rejects(
     prepareExternalSignerTransactionPayload(client, input, {}),
     /canonicalAuth is required/u,
+  );
+});
+
+baseTest("feePaymentFromQuote keeps every quoted charge kind and scales maxima", () => {
+  const authorityIntent = {
+    payer: "authority",
+    value: {
+      charge_limits: [
+        { kind: { kind: "nexus", value: null }, asset_definition_id: XOR, max_amount: "0.000123457" },
+        { kind: { kind: "pipeline_gas", value: null }, asset_definition_id: XOR, max_amount: "3" },
+      ],
+      gas_limit: 50_000,
+    },
+  };
+  assert.deepEqual(feePaymentFromQuote({ intent: authorityIntent }), {
+    payer: "authority",
+    chargeLimits: [
+      { kind: "nexus", assetDefinitionId: XOR, maxAmount: "0.000246914" },
+      { kind: "pipelineGas", assetDefinitionId: XOR, maxAmount: "6" },
+    ],
+    gasLimit: 50_000,
+  });
+  const exact = feePaymentFromQuote({ intent: authorityIntent }, { marginBps: 10_000 });
+  assert.deepEqual(JSON.parse(feePaymentIntentToNoritoJson(exact)), authorityIntent);
+
+  const sponsorIntent = {
+    payer: "sponsor",
+    value: {
+      program_id: { sponsor: SERVICE.accountId, name: "bond_fees" },
+      program_revision: 3,
+      charge_limits: [
+        { kind: { kind: "nexus", value: null }, asset_definition_id: XOR, max_amount: "1" },
+      ],
+      gas_limit: null,
+    },
+  };
+  const sponsored = feePaymentFromQuote({ intent: sponsorIntent }, { marginBps: 12_500 });
+  assert.deepEqual(sponsored, {
+    payer: "sponsor",
+    // Scaled maxima round up at the quoted decimal scale.
+    chargeLimits: [{ kind: "nexus", assetDefinitionId: XOR, maxAmount: "2" }],
+    programId: `${SERVICE.accountId}/bond_fees`,
+    programRevision: 3,
+  });
+  assert.deepEqual(
+    JSON.parse(feePaymentIntentToNoritoJson(feePaymentFromQuote({ intent: sponsorIntent }, { marginBps: 10_000 }))),
+    sponsorIntent,
+  );
+
+  assert.throws(() => feePaymentFromQuote({ intent: authorityIntent }, { marginBps: 9_999 }), /marginBps/u);
+  assert.throws(() => feePaymentFromQuote({ intent: authorityIntent }, { marginBps: 1.5 }), /marginBps/u);
+  assert.throws(() => feePaymentFromQuote({}), /signed authority or sponsor fee intent/u);
+  assert.throws(
+    () => feePaymentFromQuote({ intent: { payer: "nobody", value: { charge_limits: [] } } }),
+    /signed authority or sponsor fee intent/u,
+  );
+  assert.throws(() =>
+    feePaymentFromQuote({
+      intent: {
+        payer: "authority",
+        value: { charge_limits: [{ kind: { kind: "nexus" }, asset_definition_id: XOR, max_amount: "-1" }] },
+      },
+    }),
   );
 });

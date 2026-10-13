@@ -1212,6 +1212,50 @@ function scaleFeeLimit(maxAmount, marginBps, context) {
 }
 
 /**
+ * Convert a fee quote's signed intent into the ergonomic `feePayment` shape with headroom.
+ *
+ * Every quoted charge kind and asset is kept; each maximum is multiplied by
+ * `marginBps / 10000` (default 20000, i.e. 2x) and rounded up. Admission only
+ * requires each computed charge to stay at or below its signed maximum, and only
+ * the computed amount is debited. The payer selection, gas bound and sponsor
+ * program are copied exactly.
+ * @param {{intent: {payer: "authority" | "sponsor", value: object}}} quote
+ * @param {{marginBps?: number}} [options]
+ * @returns {object}
+ */
+export function feePaymentFromQuote(quote, options = {}) {
+  const { marginBps = FEE_LIMIT_MARGIN_BPS_DEFAULT } = options;
+  if (!Number.isSafeInteger(marginBps) || marginBps < 10_000) {
+    throw new RangeError("marginBps must be a safe integer >= 10000");
+  }
+  const intent = quote?.intent;
+  const value = intent?.value;
+  if ((intent?.payer !== "authority" && intent?.payer !== "sponsor") || !Array.isArray(value?.charge_limits)) {
+    throw new TypeError("quote.intent must be a signed authority or sponsor fee intent");
+  }
+  const feePayment = {
+    payer: intent.payer,
+    chargeLimits: value.charge_limits.map((limit, index) => ({
+      kind: limit?.kind?.kind === "pipeline_gas" ? "pipelineGas" : "nexus",
+      assetDefinitionId: limit?.asset_definition_id,
+      maxAmount: scaleFeeLimit(
+        limit?.max_amount,
+        marginBps,
+        `quote.intent.value.charge_limits[${index}].max_amount`,
+      ),
+    })),
+  };
+  if (value.gas_limit !== null && value.gas_limit !== undefined) {
+    feePayment.gasLimit = value.gas_limit;
+  }
+  if (intent.payer === "sponsor") {
+    feePayment.programId = `${value.program_id?.sponsor}/${value.program_id?.name}`;
+    feePayment.programRevision = value.program_revision;
+  }
+  return feePayment;
+}
+
+/**
  * Build an unsigned payload for an external wallet whose key the caller does not hold.
  *
  * Torii quotes only payloads whose authority signs the quote request, and
@@ -1253,25 +1297,10 @@ export async function prepareExternalSignerTransactionPayload(client, input, opt
     await client.quoteFees(twin, { canonicalAuth, signal }),
     "prepareExternalSignerTransactionPayload fee quote",
   );
-  const value = quote.intent?.value;
-  if (quote.intent?.payer !== "authority" || !Array.isArray(value?.charge_limits)) {
+  if (quote.intent?.payer !== "authority") {
     throw new Error("fee quote did not return an authority-paid intent");
   }
-  const feePayment = {
-    payer: "authority",
-    chargeLimits: value.charge_limits.map((limit, index) => ({
-      kind: limit.kind?.kind === "pipeline_gas" ? "pipelineGas" : "nexus",
-      assetDefinitionId: limit.asset_definition_id,
-      maxAmount: scaleFeeLimit(
-        limit.max_amount,
-        feeLimitMarginBps,
-        `fee quote charge_limits[${index}].max_amount`,
-      ),
-    })),
-    ...(value.gas_limit === null || value.gas_limit === undefined
-      ? {}
-      : { gasLimit: value.gas_limit }),
-  };
+  const feePayment = feePaymentFromQuote(quote, { marginBps: feeLimitMarginBps });
   const draft = buildTransactionPayload.call(this, { ...input, feePayment });
   return {
     ...draft,
@@ -3783,6 +3812,7 @@ export function _createTransactionApi(nativeRuntime) {
     transactionPayloadSigningHash: bind(transactionPayloadSigningHash),
     finalizeSignedTransaction: bind(finalizeSignedTransaction),
     prepareExternalSignerTransactionPayload: bind(prepareExternalSignerTransactionPayload),
+    feePaymentFromQuote: bind(feePaymentFromQuote),
     buildRegisterPinManifestInstruction: bind(
       buildRegisterPinManifestInstruction,
     ),

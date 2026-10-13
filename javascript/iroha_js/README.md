@@ -567,7 +567,10 @@ faucet-signed envelope natively against the policy (`options.policy`, else the
 advertised policy of the selected network), submits the envelope verbatim and
 waits for global state-resolved `Applied`. Stale anchors and solutions
 invalidated by an adaptive difficulty increase refetch the puzzle. It returns
-`{ hash, blockHeight }`.
+`{ hash, blockHeight }`. `faucetPowChallenge` and `faucetPowDigest` expose the
+challenge and scrypt digest for reconciliation with wallet vectors; puzzles
+beyond the native work budget (64 MiB scrypt memory, `N*r*p` at most 2^22,
+difficulty 1..=256) are refused before solving.
 
 ### External wallet signers
 
@@ -586,6 +589,34 @@ quotes an identical payload authored by the service account, keeps every quoted
 charge kind and asset, multiplies each maximum by `feeLimitMarginBps / 10000`
 (default 2x, rounded up) and builds the wallet-authored payload. The wallet
 account pays the fee and must hold the fee asset.
+`feePaymentFromQuote(quote, { marginBps })` converts a quote's signed intent
+(authority or sponsor) into the `feePayment` input with the same scaling;
+maxima are rounded up at the quoted decimal scale.
+
+`reviewTransactionPayload(payloadBytes, { networkId, authority })` decodes an
+unsigned payload natively for a signer and returns
+`{ schema: "iroha.connect-transaction-review.v1", networkId, authority, payloadHashHex, payloadByteLength, creationTimeMs, ttlMs, feePayment, metadata, instructions, warnings }`.
+Each instruction row is `{ index, kind, title, fields: [{ label, value }], json }`
+with dedicated rows for transfers, mints, burns, permission grants, atomic
+settlements (each movement and escrow leg), conditional-escrow instructions and
+repo initiations (including early repayment). It throws when the payload's
+NetworkId or authority differs from the session or the payload has more than
+`TRANSACTION_REVIEW_MAX_INSTRUCTIONS` (64) instructions. All rendered text goes
+through `sanitizeReviewText`, which escapes control, format (bidirectional) and
+line-separator characters as `\u{...}` and bounds the length.
+
+`ToriiClient.submitTransactionAndWait` treats an HTTP 409 `already_committed`
+or `already_enqueued` rejection of the same signed bytes as success of the
+submission step and continues with the finality wait, so resubmission is
+idempotent. Rejected outcomes throw `TransactionStatusError`; the status route
+carries no rejection reason (subscribe to `streamEvents` for it).
+
+`discoverNetworkIdentity(torii)` reads `GET /v1/accounts/capabilities` and the
+genesis block `GET /v1/explorer/blocks/1` and returns
+`{ networkId, networkPrefix, genesisHashHex }` only when the advertised
+`network_id` equals the genesis block hash; otherwise it throws
+`NetworkIdentityMismatchError`. Pinning the result across resets is left to the
+caller.
 
 From Node.js 22 or later, `createConnectAppSession` from
 `@iroha/iroha-js/connect-browser` uses the global `WebSocket` and sends the

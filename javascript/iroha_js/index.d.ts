@@ -10196,7 +10196,11 @@ export declare class ToriiBrowserClient {
     hashHex: string,
     options?: ToriiBrowserTransactionStatusPollOptions,
   ): Promise<ToriiAppliedTransactionStatus>;
-  /** Submit and wait; the transaction hash is derived from the signed bytes. */
+  /**
+   * Submit and wait; the transaction hash is derived from the signed bytes. An
+   * HTTP 409 `already_committed`/`already_enqueued` resubmission rejection
+   * continues with the finality wait.
+   */
   submitTransactionAndWait(
     signedTransaction: ArrayBufferView | ArrayBuffer | Buffer,
     options?: ToriiBrowserSubmitTransactionAndWaitOptions,
@@ -10805,7 +10809,11 @@ export declare class ToriiClient {
     hashHex: string,
     options?: TransactionStatusPollOptions,
   ): Promise<ToriiAppliedTransactionStatus>;
-  /** Submit and wait; the transaction hash is derived from the signed bytes. */
+  /**
+   * Submit and wait; the transaction hash is derived from the signed bytes. An
+   * HTTP 409 `already_committed`/`already_enqueued` resubmission rejection
+   * continues with the finality wait.
+   */
   submitTransactionAndWait(
     payload: VersionedSignedTransactionV1,
     options?: SubmitTransactionAndWaitOptions,
@@ -12061,6 +12069,15 @@ export function finalizeSignedTransaction(input: {
   publicKey: Buffer | ArrayBuffer | ArrayBufferView;
   authority: string;
 }): SignedTransactionResult;
+
+/**
+ * Convert a fee quote's signed intent into the ergonomic `feePayment` shape,
+ * scaling each charge maximum by `marginBps / 10000` (default 20000), rounded up.
+ */
+export function feePaymentFromQuote(
+  quote: Pick<FeeQuoteResponse, "intent">,
+  options?: { marginBps?: number },
+): BrowserFeePayment;
 
 /**
  * Quote a service-authored twin payload and build the wallet-authored payload
@@ -13521,6 +13538,100 @@ export function planDomainLease(
   },
   options: { canonicalAuth: CanonicalRequestAuth; signal?: AbortSignal },
 ): Promise<DomainLeasePlan>;
+
+/**
+ * V1 faucet proof-of-work challenge: SHA-256 over the domain, NetworkId bytes,
+ * UTF-8 account id, u64 BE anchor height, anchor block hash and optional salt.
+ */
+export function faucetPowChallenge(input: {
+  networkId: NetworkId;
+  accountId: string;
+  anchorHeight: number;
+  anchorBlockHashHex: string;
+  challengeSaltHex?: string | null;
+}): Buffer;
+
+/** scrypt digest of one 8-byte big-endian nonce over a faucet challenge. */
+export function faucetPowDigest(
+  challenge: Uint8Array,
+  nonceHex: string,
+  params: { N: number; r: number; p: number },
+): Promise<Buffer>;
+
+/** Raised when the capabilities advert and the genesis block disagree. */
+export declare class NetworkIdentityMismatchError extends Error {
+  readonly details: Record<string, unknown> | null;
+}
+
+/**
+ * Discover an endpoint's NetworkId from `GET /v1/accounts/capabilities` and
+ * require it to equal the genesis block hash from `GET /v1/explorer/blocks/1`.
+ */
+export function discoverNetworkIdentity(
+  torii: ToriiClient,
+  options?: { signal?: AbortSignal },
+): Promise<{ networkId: NetworkId; networkPrefix: number; genesisHashHex: string }>;
+
+export const TRANSACTION_REVIEW_SCHEMA: "iroha.connect-transaction-review.v1";
+export const TRANSACTION_REVIEW_MAX_INSTRUCTIONS: 64;
+
+export interface TransactionReviewField {
+  label: string;
+  value: string;
+}
+
+export interface TransactionReviewInstruction {
+  /** One-based position in the executable. */
+  index: number;
+  kind:
+    | "transfer"
+    | "mint"
+    | "burn"
+    | "grant_permission"
+    | "settlement_atomic"
+    | "settlement"
+    | "escrow"
+    | "repo"
+    | "unknown"
+    | "undecoded";
+  title: string;
+  fields: TransactionReviewField[];
+  /** Sanitized canonical instruction JSON, or null when not decodable. */
+  json: string | null;
+}
+
+export interface TransactionReview {
+  schema: "iroha.connect-transaction-review.v1";
+  networkId: string;
+  authority: string;
+  /** Exact 32-byte payload hash the signer signs (lowercase hex). */
+  payloadHashHex: string;
+  payloadByteLength: number;
+  creationTimeMs: string;
+  ttlMs: string | null;
+  feePayment: {
+    payer: "authority" | "sponsor" | null;
+    /** `sponsor/name@revision` for sponsored payloads, otherwise null. */
+    sponsorProgram: string | null;
+    gasLimit: string | null;
+    chargeLimits: Array<{ kind: "nexus" | "pipeline_gas" | null; assetDefinitionId: string; maxAmount: string }>;
+  };
+  metadata: string;
+  instructions: TransactionReviewInstruction[];
+  warnings: string[];
+}
+
+/** Escape control, format and bidirectional characters and bound review text. */
+export function sanitizeReviewText(value: unknown, maximum?: number): string;
+
+/**
+ * Decode an unsigned payload natively and describe it for a signer; fails
+ * closed on a NetworkId or authority mismatch or more than 64 instructions.
+ */
+export function reviewTransactionPayload(
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,
+  expected: { networkId: NetworkId; authority: string },
+): TransactionReview;
 
 /** Claim testnet funds through the V1 proof-of-work faucet (Node.js). */
 export function claimFaucet(

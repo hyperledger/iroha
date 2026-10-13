@@ -368,6 +368,7 @@ export {
   transactionPayloadSigningHash,
   finalizeSignedTransaction,
   prepareExternalSignerTransactionPayload,
+  feePaymentFromQuote,
   buildRegisterPinManifestInstruction,
   buildRegisterPinManifestTransaction,
   buildIvmProvedTransactionPayload,
@@ -562,7 +563,17 @@ export {
   repoIntentHashes,
 } from "./settlementIntents.js";
 export { planDomainLease, SNS_DOMAIN_SUFFIX_ID } from "./domainLease.js";
-export { claimFaucet } from "./accountFaucet.js";
+export { claimFaucet, faucetPowChallenge, faucetPowDigest } from "./accountFaucet.js";
+export {
+  reviewTransactionPayload,
+  sanitizeReviewText,
+  TRANSACTION_REVIEW_MAX_INSTRUCTIONS,
+  TRANSACTION_REVIEW_SCHEMA,
+} from "./transactionReview.js";
+export {
+  discoverNetworkIdentity,
+  NetworkIdentityMismatchError,
+} from "./networkIdentityDiscovery.js";
 export {
   resolveToriiClientConfig,
   extractToriiFeatureConfig,

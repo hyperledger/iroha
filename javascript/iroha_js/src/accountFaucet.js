@@ -87,6 +87,74 @@ export function faucetLeadingZeroBits(digest) {
   return bits;
 }
 
+const MAX_SCRYPT_MEMORY_BYTES = 64 * 1024 * 1024;
+const MAX_SCRYPT_WORK_UNITS = 4 * 1024 * 1024;
+
+/**
+ * Derive the V1 faucet proof-of-work challenge (`iroha_wallet::faucet_pow`).
+ *
+ * challenge = SHA-256("iroha:accounts:faucet:pow:v1" || network id bytes ||
+ * UTF-8 account id || u64 BE anchor height || anchor block hash [|| salt]).
+ * @param {{ networkId: NetworkId, accountId: string, anchorHeight: number, anchorBlockHashHex: string, challengeSaltHex?: string | null }} input
+ * @returns {Buffer}
+ */
+export function faucetPowChallenge({
+  networkId,
+  accountId,
+  anchorHeight,
+  anchorBlockHashHex,
+  challengeSaltHex = null,
+}) {
+  if (typeof accountId !== "string" || accountId.length === 0) {
+    throw new TypeError("faucet challenge accountId must be a non-empty string");
+  }
+  const height = Buffer.alloc(8);
+  height.writeBigUInt64BE(BigInt(safeInteger(anchorHeight, "faucet challenge anchorHeight", { min: 1 })));
+  const parts = [
+    POW_DOMAIN,
+    Buffer.from(networkId.toBytes()),
+    Buffer.from(accountId, "utf8"),
+    height,
+    exactHex(anchorBlockHashHex, 32, "faucet challenge anchorBlockHashHex"),
+  ];
+  if (challengeSaltHex !== null) {
+    parts.push(exactHex(challengeSaltHex, 32, "faucet challenge challengeSaltHex"));
+  }
+  return createHash("sha256").update(Buffer.concat(parts)).digest();
+}
+
+/**
+ * Compute one scrypt proof-of-work digest for an 8-byte big-endian nonce.
+ * @param {Uint8Array} challenge
+ * @param {string} nonceHex
+ * @param {{ N: number, r: number, p: number }} params
+ * @returns {Promise<Buffer>}
+ */
+export function faucetPowDigest(challenge, nonceHex, params) {
+  return scrypt(exactHex(nonceHex, 8, "faucet nonceHex"), Buffer.from(challenge), 32, {
+    ...params,
+    maxmem: scryptMaxMemory(params),
+  });
+}
+
+function scryptMaxMemory({ N, r }) {
+  return 256 * N * r + 1024 * 1024;
+}
+
+/** Reject puzzles beyond the native wallet's bounded proof-of-work budget. */
+function validateWorkBudget(logN, r, p, difficultyBits) {
+  const N = 2 ** logN;
+  const memory = (N + p + 2) * 128 * r;
+  if (
+    difficultyBits < 1 ||
+    difficultyBits > 256 ||
+    memory > MAX_SCRYPT_MEMORY_BYTES ||
+    N * r * p > MAX_SCRYPT_WORK_UNITS
+  ) {
+    throw new RangeError("faucet puzzle exceeds the bounded proof-of-work budget");
+  }
+}
+
 /**
  * Validate a `/v1/accounts/faucet/puzzle` response and derive its PoW challenge.
  *
@@ -118,20 +186,15 @@ export function faucetPuzzleChallenge(puzzle, { accountId, networkId }) {
   const r = safeInteger(puzzle.scrypt_r, "faucet puzzle scrypt_r", { min: 1, max: 1024 });
   const p = safeInteger(puzzle.scrypt_p, "faucet puzzle scrypt_p", { min: 1, max: 1024 });
   safeInteger(puzzle.max_anchor_age_blocks, "faucet puzzle max_anchor_age_blocks");
-  const height = Buffer.alloc(8);
-  height.writeBigUInt64BE(BigInt(anchorHeight));
-  const parts = [
-    POW_DOMAIN,
-    Buffer.from(networkId.toBytes()),
-    Buffer.from(accountId, "utf8"),
-    height,
-    exactHex(puzzle.anchor_block_hash_hex, 32, "faucet puzzle anchor_block_hash_hex"),
-  ];
-  if (puzzle.challenge_salt_hex !== null) {
-    parts.push(exactHex(puzzle.challenge_salt_hex, 32, "faucet puzzle challenge_salt_hex"));
-  }
+  validateWorkBudget(logN, r, p, difficultyBits);
   return {
-    challenge: createHash("sha256").update(Buffer.concat(parts)).digest(),
+    challenge: faucetPowChallenge({
+      networkId,
+      accountId,
+      anchorHeight,
+      anchorBlockHashHex: puzzle.anchor_block_hash_hex,
+      challengeSaltHex: puzzle.challenge_salt_hex,
+    }),
     anchorHeight,
     difficultyBits,
     scrypt: { N: 2 ** logN, r, p },
@@ -146,7 +209,7 @@ export async function solveFaucetPuzzle(challenge, { difficultyBits, scrypt: par
   const concurrency = options.concurrency ?? 4;
   const maxAttempts = options.maxAttempts ?? Math.min(2 ** Math.min(difficultyBits + 8, 40), Number.MAX_SAFE_INTEGER);
   const signal = options.signal;
-  const scryptOptions = { ...params, maxmem: 256 * params.N * params.r + 1024 * 1024 };
+  const scryptOptions = { ...params, maxmem: scryptMaxMemory(params) };
   let next = 0n;
   let found = null;
   const worker = async () => {

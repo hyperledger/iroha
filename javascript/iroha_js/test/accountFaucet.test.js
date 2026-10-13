@@ -7,6 +7,8 @@ import { ed25519 } from "@noble/curves/ed25519";
 import {
   claimFaucet,
   faucetLeadingZeroBits,
+  faucetPowChallenge,
+  faucetPowDigest,
   faucetPuzzleChallenge,
   solveFaucetPuzzle,
 } from "../src/accountFaucet.js";
@@ -83,6 +85,49 @@ baseTest("faucet challenge binds the network, account, anchor and optional salt"
   );
   assert.equal(faucetLeadingZeroBits(Buffer.from([0, 0x10, 0xff])), 11);
   assert.equal(faucetLeadingZeroBits(Buffer.from([0x80])), 0);
+});
+
+baseTest("faucet challenge and digest match the pinned Rust wallet vectors", async () => {
+  // crates/iroha_wallet/src/faucet_pow.rs faucet_challenge_matches_v1_preimage_vector
+  const challenge = faucetPowChallenge({
+    networkId: NetworkId.fromBytes(
+      Buffer.from("32c903e5b3497e34c2b844ebfe8a39c19e6cf8f95d44c1ffb8ba9dcb42f91149", "hex"),
+    ),
+    accountId: "sorau\uff9b1N\uff72\uff98\uff73dPBe\uff7cRo\uff78Q2\uff94g\uff7cQqe\uff76\uff8d\uff7d\uff81hRW2\uff7a\uff7fZ9\uff95\uff66U\uff85RX5NJYH53",
+    anchorHeight: 68,
+    anchorBlockHashHex: "d5c0016a6345e8ea379da42aab1fdc16ba82756e19e0b63c48c14735e8caf7ef",
+  });
+  assert.equal(challenge.toString("hex"), "21e547302359214b28f0d1e0b04b6aeaf62a0e597dbad018d93ab0ce6af81a05");
+  // Salted challenge plus scrypt(nonce = u64 BE 1, N = 16, r = 1, p = 1) digest vector.
+  const salted = faucetPowChallenge({
+    networkId: NetworkId.parse("hash:77FB29D14745ADCCFDC14350E1A6FE6A10265798CC936A1DAFA7D2552AC3B9F7#EBDD"),
+    accountId: "alice@test",
+    anchorHeight: 42,
+    anchorBlockHashHex: "4d7a5660c7f3f5fb9f0df1f6ee9ce4d2a0b8df4cb4aa9bb2f7cfbc4cb03e2b85",
+    challengeSaltHex: "ab".repeat(32),
+  });
+  const digest = await faucetPowDigest(salted, "0000000000000001", { N: 16, r: 1, p: 1 });
+  assert.equal(digest.toString("hex"), "651c3411aeadf70d44b6bffa97c40c667695c1e48b37c732e0c3f8e0db08a61b");
+  assert.equal(faucetLeadingZeroBits(Uint8Array.from([0x00, 0x00, 0x10])), 19);
+  assert.throws(
+    () => faucetPowChallenge({ networkId: NETWORK_ID, accountId: ACCOUNT, anchorHeight: 1, anchorBlockHashHex: "AA".repeat(32) }),
+    /lowercase/u,
+  );
+});
+
+baseTest("faucet puzzles beyond the native proof-of-work budget are refused", () => {
+  for (const overrides of [
+    { scrypt_log_n: 20 },
+    { scrypt_log_n: 16, scrypt_r: 8, scrypt_p: 8 },
+    { difficulty_bits: 0 },
+    { difficulty_bits: 257 },
+    { algorithm: "scrypt-leading-zero-bits-v2" },
+  ]) {
+    assert.throws(
+      () => faucetPuzzleChallenge(puzzle(overrides), { accountId: ACCOUNT, networkId: NETWORK_ID }),
+      /budget|difficulty_bits|algorithm/u,
+    );
+  }
 });
 
 baseTest("faucet solver returns a big-endian nonce meeting the difficulty", async () => {

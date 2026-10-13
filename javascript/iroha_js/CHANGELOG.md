@@ -26,6 +26,16 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
   submission.
 - Added `transactionPayloadSigningHash`, `finalizeSignedTransaction` and
   `prepareExternalSignerTransactionPayload` for external Ed25519 wallet signers.
+- Added `feePaymentFromQuote`, `reviewTransactionPayload` with
+  `sanitizeReviewText`, `TRANSACTION_REVIEW_SCHEMA` and
+  `TRANSACTION_REVIEW_MAX_INSTRUCTIONS`, `discoverNetworkIdentity` with
+  `NetworkIdentityMismatchError`, and the faucet primitives
+  `faucetPowChallenge` and `faucetPowDigest` (puzzles beyond the native work
+  budget are refused). The native host exports `decodeTransactionPayloadJson`.
+- Changed: `submitTransactionAndWait` continues with the finality wait after an
+  HTTP 409 `already_committed` or `already_enqueued` resubmission rejection.
+- Fixed: `getBlock` and other explorer block records accept the
+  `hash:<HEX>#<CRC>` literals Torii renders instead of rejecting every block.
 - Fixed: Connect app sessions encode and strictly decode plain frames in the
   native relay layout (`[u8; 32]` sid and X25519 keys element-framed;
   `sig_wallet` as a u32 algorithm plus an element-framed signature), pinned by
