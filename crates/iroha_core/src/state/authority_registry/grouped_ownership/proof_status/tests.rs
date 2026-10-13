@@ -22,10 +22,13 @@ fn record(key: &ProofId, status: ProofStatus) -> ProofRecord {
     }
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     for (tag, status) in STATUSES.into_iter().enumerate() {
-        let key = id("stark/fri", tag as u8);
+        let key = id(
+            "stark/fri",
+            u8::try_from(tag).expect("fixture value fits u8"),
+        );
         world.proofs.insert(key.clone(), record(&key, status));
     }
     proof_status_restore::rebuild(&mut world);
@@ -58,18 +61,18 @@ fn corrupt(previous: bool, mismatch: GroupMismatch) -> GroupedOwnershipError {
 
 #[test]
 fn every_status_and_stored_key_projection_are_preserved_without_new_admission_rules() {
-    let mut world = Box::new(World::default());
+    let mut world = World::default();
     for (ordinal, backend) in ["", "stark", "stark/fri", "stark:fri", "証明"]
         .into_iter()
         .enumerate()
     {
         for (tag, status) in STATUSES.into_iter().enumerate() {
-            let key = id(backend, tag as u8);
+            let key = id(backend, u8::try_from(tag).expect("fixture value fits u8"));
             let mut value = record(&key, status);
             // Existing reconstruction projects the stored map key. The status
             // relation must not infer additional proof-content admission rules.
             value.id = id("payload identity is checked by its separate owner", 90);
-            value.vk_commitment = Some([ordinal as u8; 32]);
+            value.vk_commitment = Some([u8::try_from(ordinal).expect("fixture value fits u8"); 32]);
             value.verified_at_height = Some(ordinal as u64);
             world.proofs.insert(key, value);
         }
@@ -147,21 +150,20 @@ fn omitted_empty_wrong_status_duplicate_and_foreign_groups_fail_in_either_image(
                 4 => Some(BTreeSet::from([key.clone(), id("unknown", 99)])),
                 _ => unreachable!(),
             };
-            world.proofs_by_status = Storage::from_iter(
-                [
-                    (ProofStatus::Submitted, replacement),
-                    (
-                        ProofStatus::Verified,
-                        Some(BTreeSet::from([id("stark/fri", 1)])),
-                    ),
-                    (
-                        ProofStatus::Rejected,
-                        Some(BTreeSet::from([id("stark/fri", 2)])),
-                    ),
-                ]
-                .into_iter()
-                .filter_map(|(status, members)| members.map(|members| (status, members))),
-            );
+            world.proofs_by_status = [
+                (ProofStatus::Submitted, replacement),
+                (
+                    ProofStatus::Verified,
+                    Some(BTreeSet::from([id("stark/fri", 1)])),
+                ),
+                (
+                    ProofStatus::Rejected,
+                    Some(BTreeSet::from([id("stark/fri", 2)])),
+                ),
+            ]
+            .into_iter()
+            .filter_map(|(status, members)| members.map(|members| (status, members)))
+            .collect::<Storage<_, _>>();
             if previous {
                 let mut block = world.proofs_by_status.block();
                 block.insert(ProofStatus::Submitted, correct);
@@ -185,7 +187,7 @@ fn omitted_empty_wrong_status_duplicate_and_foreign_groups_fail_in_either_image(
 
 #[test]
 fn physical_masked_rows_and_tombstones_have_exact_work_even_when_logically_absent() {
-    let mut world = Box::new(World::default());
+    let mut world = World::default();
     let key = id("x", 1);
     world
         .proofs
@@ -240,7 +242,7 @@ fn variable_backend_bytes_are_prepaid_and_long_valid_keys_only_defer_locally() {
         Ok(left.cmp(&right))
     );
     assert_eq!(exact.0, 0);
-    let mut world = Box::new(World::default());
+    let mut world = World::default();
     world
         .proofs
         .insert(left.clone(), record(&left, ProofStatus::Submitted));
@@ -289,7 +291,13 @@ fn physical_index_admission_precedes_empty_bucket_diagnosis_in_either_image() {
             let mut block = world.proofs_by_status.block();
             for (tag, status) in STATUSES.into_iter().enumerate() {
                 // Retain all three physical undo entries, including no-op writes.
-                block.insert(status, BTreeSet::from([id("stark/fri", tag as u8)]));
+                block.insert(
+                    status,
+                    BTreeSet::from([id(
+                        "stark/fri",
+                        u8::try_from(tag).expect("fixture value fits u8"),
+                    )]),
+                );
             }
             block.commit();
         }

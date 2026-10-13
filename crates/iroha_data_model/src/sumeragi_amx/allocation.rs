@@ -45,6 +45,70 @@ pub enum AmxProofAllocationErrorV1 {
 }
 use AmxProofAllocationErrorV1 as Error;
 
+/// Move-only physical custody of the canonical certificate-only handoff proof.
+/// This wrapper grants allocation custody, never certificate/epoch authority.
+pub struct AllocatedAmxHandoffProofV1(RetainedPayload<super::AmxHandoffProofV1>);
+impl fmt::Debug for AllocatedAmxHandoffProofV1 {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.debug_struct("AllocatedAmxHandoffProofV1")
+            .field("canonical", self.canonical())
+            .finish()
+    }
+}
+impl AllocatedAmxHandoffProofV1 {
+    /// Borrow the exact immutable certificate-only proof.
+    pub fn canonical(&self) -> &super::AmxHandoffProofV1 {
+        self.0.get()
+    }
+    /// Whether every retained backing belongs to this original finite pool.
+    pub fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.0.belongs_to(budget)
+    }
+    /// Complete physical graph and ledger charge.
+    pub fn allocation_bytes(&self) -> Option<usize> {
+        self.0.allocation_bytes()
+    }
+    pub(crate) fn into_retained(self) -> RetainedPayload<super::AmxHandoffProofV1> {
+        self.0
+    }
+
+    /// The source reader must authenticate the exact final-epoch carrier first.
+    /// No decoded committee enters this API. The returned graph consists only of
+    /// three exact copies of the original certificate's canonical byte fields.
+    ///
+    /// # Errors
+    /// Certificate bounds, cumulative decode allowance or original finite-pool admission refused.
+    pub fn from_original_certificate(
+        certificate: &CommitCertificate,
+        budget: &AllocationBudget,
+    ) -> Result<Self, Error> {
+        if certificate.consensus_header().is_empty()
+            || certificate.consensus_header().len() > MAX_AMX_HEADER_BYTES
+            || certificate.commit_qc().is_empty()
+            || certificate.commit_qc().len() > MAX_AMX_QC_BYTES
+            || certificate.result_preimage().is_empty()
+            || certificate.result_preimage().len() > MAX_RESULT_PREIMAGE_BYTES
+        {
+            return Err(Error::Invalid("handoff certificate bounds"));
+        }
+        let mut demand = Demand::default();
+        demand.array::<u8>(certificate.consensus_header().len())?;
+        demand.array::<u8>(certificate.commit_qc().len())?;
+        demand.array::<u8>(certificate.result_preimage().len())?;
+        demand.finish()?;
+        ncore::reserve_decode_allocation(demand.bytes)?;
+        let mut construction = Construction::new(&demand, budget)?;
+        let proof = super::AmxHandoffProofV1 {
+            block: AmxCertifiedBlockV1 {
+                consensus_header: construction.bytes(certificate.consensus_header())?,
+                commit_qc: construction.bytes(certificate.commit_qc())?,
+                result_preimage: construction.bytes(certificate.result_preimage())?,
+            },
+        };
+        construction.finish_payload(proof, budget).map(Self)
+    }
+}
+
 /// Move-only canonical record proof and every charge for its actual nested backing.
 ///
 /// No authority is granted by this owner. The immutable canonical borrow remains an ordinary
@@ -115,6 +179,7 @@ impl AllocatedAmxRecordProofV1 {
                     tx: begin.tx,
                     participants: construction.vector(participants),
                     deadline: begin.deadline,
+                    expires_at_ms: begin.expires_at_ms,
                 })
             }
             AmxRecordV1::Prepared(prepared) => AmxRecordV1::Prepared(*prepared),
@@ -332,12 +397,22 @@ impl Construction {
             .map_err(|_| Error::Invalid("byte plan changed"))?;
         Ok(self.vector(output))
     }
-    #[allow(unsafe_code)]
     fn finish(
-        mut self,
+        self,
         proof: AmxRecordProofV1,
         budget: &AllocationBudget,
     ) -> Result<AllocatedAmxRecordProofV1, Error> {
+        self.finish_payload(proof, budget)
+            .map(AllocatedAmxRecordProofV1)
+    }
+    // Only the two closed proof constructors call this private finisher. Each enumerates
+    // every nested backing before creation; this is not a public generic adoption API.
+    #[allow(unsafe_code)]
+    fn finish_payload<T>(
+        mut self,
+        proof: T,
+        budget: &AllocationBudget,
+    ) -> Result<RetainedPayload<T>, Error> {
         let complete = self.reservation.remaining_bytes() == 0
             && self
                 .charges
@@ -355,10 +430,11 @@ impl Construction {
             return Err(Error::Invalid("exact proof plan changed"));
         }
         let charges = self.charges.take().expect("original construction");
-        // SAFETY: three byte buffers, exact compressed siblings and the optional Begin vector
-        // exhaust this closed DTO's heap fields. No sharing, mutation, Clone or extraction.
+        // SAFETY: each private caller enumerated the closed DTO's complete graph: the
+        // three certificate buffers, plus record siblings/participants only for record proofs.
+        // No sharing, mutation, Clone or extraction can escape this custody owner.
         match unsafe { RetainedPayload::try_new(proof, charges, budget) } {
-            Ok(owner) => Ok(AllocatedAmxRecordProofV1(owner)),
+            Ok(owner) => Ok(owner),
             Err((proof, charges, _)) => {
                 drop(proof);
                 drop(charges);
@@ -373,6 +449,7 @@ enum RawRecord {
     Begin {
         tx: [u8; 32],
         deadline: u64,
+        expires_at_ms: u64,
         count: usize,
         participants: [DataSpaceId; MAX_AMX_PARTICIPANTS],
     },
@@ -415,10 +492,12 @@ impl RawRecord {
                 let (count, participants) =
                     fixed_field::<Vec<DataSpaceId>, _>(body, &mut field_offset, read_participants)?;
                 let deadline = fixed_field::<u64, _>(body, &mut field_offset, fixed::<u64>)?;
+                let expires_at_ms = fixed_field::<u64, _>(body, &mut field_offset, fixed::<u64>)?;
                 finish_fixed(body, field_offset)?;
                 Ok(Self::Begin {
                     tx,
                     deadline,
+                    expires_at_ms,
                     count,
                     participants,
                 })
@@ -439,6 +518,7 @@ impl RawRecord {
             Self::Begin {
                 tx,
                 deadline,
+                expires_at_ms,
                 count,
                 participants: parsed,
             } => {
@@ -451,6 +531,7 @@ impl RawRecord {
                     tx,
                     participants: construction.vector(participants),
                     deadline,
+                    expires_at_ms,
                 })
             }
         })
@@ -685,6 +766,8 @@ mod tests {
                 tx,
                 participants: vec![DataSpaceId::new(21), DataSpaceId::new(22)],
                 deadline,
+
+                expires_at_ms: 1_000_000,
             }))
             .unwrap()
         };
@@ -1037,6 +1120,8 @@ mod tests {
                     .map(|value| DataSpaceId::new(u64::try_from(value).unwrap()))
                     .collect(),
                 deadline: 17,
+
+                expires_at_ms: 1_000_000,
             });
             let frame = norito::encode_canonical(&original).unwrap();
             let pointer = frame.as_ptr();
@@ -1082,6 +1167,7 @@ mod tests {
                 participants,
                 count: decoded_count,
                 deadline,
+                expires_at_ms,
             } = retry.unwrap()
             else {
                 panic!("exact original Begin variant");
@@ -1096,6 +1182,7 @@ mod tests {
                 begin.participants.as_slice()
             );
             assert_eq!(deadline, begin.deadline);
+            assert_eq!(expires_at_ms, begin.expires_at_ms);
             assert_eq!(usage.total_elements(), count);
             // read_seq_len_slice retains the pre-existing logical count charge. No body,
             // alignment, Vec or span backing is allocated by this stack projection.
@@ -1121,6 +1208,8 @@ mod tests {
                 .map(|value| DataSpaceId::new(u64::try_from(value).unwrap()))
                 .collect(),
             deadline: 17,
+
+            expires_at_ms: 1_000_000,
         });
         let frame = norito::encode_canonical(&original).unwrap();
         let failure = norito::with_decode_limits_scope(
@@ -1152,6 +1241,7 @@ mod tests {
                     ncore::framed_byte_array_field::<32>(body, &mut offset)?;
                     ncore::framed_field::<Vec<DataSpaceId>>(body, &mut offset)?;
                     let deadline = fixed_field::<u64, _>(body, &mut offset, fixed::<u64>)?;
+                    ncore::framed_field::<u64>(body, &mut offset)?;
                     finish_fixed(body, offset)?;
                     Ok(deadline)
                 })?;
@@ -1193,6 +1283,7 @@ mod tests {
             framed_test_field(&[0x75; 32]),
             framed_test_field(&participants),
             framed_test_field(&17_u64.to_le_bytes()),
+            framed_test_field(&1_000_000_u64.to_le_bytes()),
         ];
         let payload = fixed_test_record_payload(0, &fields);
         assert_eq!(

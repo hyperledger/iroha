@@ -53,21 +53,30 @@ fn initialize(program: &[u8], host: &mut dyn IVMHost) {
         .any(|entrypoint| entrypoint.name == "hajimari")
     {
         let (vm, result) = run_entry(program, "hajimari", 4_000_000, host);
-        assert_eq!(result, Ok(()));
-        assert_eq!(vm.public_call_result_word(0), Ok(0));
+        assert!(matches!(result, Ok(())));
+        assert!(matches!(vm.public_call_result_word(0), Ok(0)));
     }
 }
 fn assert_outcome(case: &cases::Case, program: &[u8], vm: &IVM, result: &Result<(), VMError>) {
     match case.outcome {
         cases::Outcome::Success(words) => {
-            assert_eq!(*result, Ok(()), "actual complete result for {}", case.id);
-            assert_eq!(vm.call_result_word_count(), Ok(words.len()));
+            assert!(
+                matches!(*result, Ok(())),
+                "actual complete result for {}",
+                case.id
+            );
+            assert_eq!(
+                (vm.call_result_word_count()).expect("expected successful fixture result"),
+                words.len()
+            );
             for (index, expected) in words.iter().enumerate() {
                 match expected {
                     cases::Word::Int(expected) => {
                         assert_eq!(common::decode_i64_return_word(vm, index), *expected)
                     }
-                    cases::Word::Unit => assert_eq!(vm.public_call_result_word(index), Ok(0)),
+                    cases::Word::Unit => {
+                        assert!(matches!(vm.public_call_result_word(index), Ok(0)))
+                    }
                     cases::Word::Decimal(expected) => {
                         let tlv = vm
                             .validate_tlv(vm.public_call_result_word(index).unwrap())
@@ -133,40 +142,57 @@ fn assert_outcome(case: &cases::Case, program: &[u8], vm: &IVM, result: &Result<
                 "complete original declared and builtin error descriptors"
             );
             assert_eq!(descriptor.variant(code).unwrap().name, name);
-            let expected = VMError::ContractAbort {
-                contract: interface.seiyaku_name.clone().into_boxed_str(),
-                name: name.to_owned(),
-                error_type: descriptor.identity.clone(),
-                schema_hash: descriptor.schema_hash(),
-                code,
-                message: None,
+            let VMError::ContractAbort {
+                contract,
+                name: actual_name,
+                error_type,
+                schema_hash,
+                code: actual_code,
+                message,
+            } = result.as_ref().unwrap_err().as_unmetered()
+            else {
+                panic!(
+                    "expected original nominal failure for {}: {result:?}",
+                    case.id
+                );
             };
             assert_eq!(
-                result.as_ref().unwrap_err().as_unmetered(),
-                &expected,
+                (
+                    contract.as_ref(),
+                    actual_name.as_str(),
+                    error_type.as_str(),
+                    *schema_hash,
+                    *actual_code,
+                    message.as_deref()
+                ),
+                (
+                    interface.seiyaku_name.as_str(),
+                    name,
+                    descriptor.identity.as_str(),
+                    descriptor.schema_hash(),
+                    code,
+                    None
+                ),
                 "complete original nominal failure identity for {}",
                 case.id
             );
             assert!(vm.public_call_result_word(0).is_err());
         }
         cases::Outcome::DivisionByZero => {
-            assert_eq!(
-                result.as_ref().unwrap_err().as_unmetered(),
-                &VMError::NumericFault(NumericFaultV1::DivisionByZero)
+            assert!(
+                matches!((&(result.as_ref().unwrap_err().as_unmetered()), &(&VMError::NumericFault(NumericFaultV1::DivisionByZero))), (VMError::NumericFault(__actual_value), VMError::NumericFault(__expected_value)) if __actual_value == __expected_value)
             );
             assert!(vm.public_call_result_word(0).is_err());
         }
         cases::Outcome::InvalidScale => {
-            assert_eq!(
-                result.as_ref().unwrap_err().as_unmetered(),
-                &VMError::NumericFault(NumericFaultV1::InvalidScale)
+            assert!(
+                matches!((&(result.as_ref().unwrap_err().as_unmetered()), &(&VMError::NumericFault(NumericFaultV1::InvalidScale))), (VMError::NumericFault(__actual_value), VMError::NumericFault(__expected_value)) if __actual_value == __expected_value)
             );
             assert!(vm.public_call_result_word(0).is_err());
         }
         cases::Outcome::QuantityUnderflow => {
-            assert_eq!(
-                result.as_ref().unwrap_err().as_unmetered(),
-                &VMError::NumericFault(NumericFaultV1::QuantityUnderflow)
+            assert!(
+                matches!((&(result.as_ref().unwrap_err().as_unmetered()), &(&VMError::NumericFault(NumericFaultV1::QuantityUnderflow))), (VMError::NumericFault(__actual_value), VMError::NumericFault(__expected_value)) if __actual_value == __expected_value)
             );
             assert!(vm.public_call_result_word(0).is_err());
         }
@@ -274,10 +300,13 @@ fn actual_local_pairs_reject_unfunded_execution_before_any_complete_source_effec
             initialize(program, &mut host);
             let initial = state(&host);
             let (vm, result) = run_entry(program, "main", 0, &mut host);
-            assert_eq!(
-                result.as_ref().unwrap_err().as_unmetered(),
-                &VMError::OutOfGas
-            );
+            assert!(matches!(
+                (
+                    &(result.as_ref().unwrap_err().as_unmetered()),
+                    &(&VMError::OutOfGas)
+                ),
+                (VMError::OutOfGas, VMError::OutOfGas)
+            ));
             assert_eq!(state(&host), initial);
             assert!(vm.public_call_result_word(0).is_err());
         }
@@ -319,13 +348,16 @@ fn actual_local_pairs_preserve_permission_authorization_and_denial_before_role_e
             let mut host = WsvHost::new_with_subject(wsv, caller);
             let (vm, result) = run_entry(program, "main", 4_000_000, &mut host);
             if authorized {
-                assert_eq!(result, Ok(()));
-                assert_eq!(vm.public_call_result_word(0), Ok(0));
+                assert!(matches!(result, Ok(())));
+                assert!(matches!(vm.public_call_result_word(0), Ok(0)));
             } else {
-                assert_eq!(
-                    result.as_ref().unwrap_err().as_unmetered(),
-                    &VMError::PermissionDenied
-                );
+                assert!(matches!(
+                    (
+                        &(result.as_ref().unwrap_err().as_unmetered()),
+                        &(&VMError::PermissionDenied)
+                    ),
+                    (VMError::PermissionDenied, VMError::PermissionDenied)
+                ));
                 assert!(vm.public_call_result_word(0).is_err());
             }
             assert_eq!(

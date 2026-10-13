@@ -42,12 +42,16 @@ pub(in crate::managed) struct PendingUnsignedClosure {
     history: History,
 }
 // A consuming read returns the same owner when the exact closure is still pending.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "A pending consuming read returns the original history owner without a new allocation in bounded admission"
+)]
 pub(in crate::managed) enum UnsignedClosureVerification {
     Pending(History),
     Closed(VerifiedUnsignedClosure),
 }
 pub(in crate::managed) struct VerifiedUnsignedClosure {
-    history: std::sync::Arc<History>,
+    history: std::rc::Rc<History>,
     digest: [u8; 32],
     successor: [u8; 32],
     cumulative_reserved: usize,
@@ -87,7 +91,7 @@ impl VerifiedUnsignedClosure {
         self.history.require_current_with_pass(pass)?;
         self.require_receipt()
     }
-    pub(super) fn shared_history(&self) -> &std::sync::Arc<History> {
+    pub(super) fn shared_history(&self) -> &std::rc::Rc<History> {
         &self.history
     }
     pub(in crate::managed) fn retained_history(&self) -> &History {
@@ -184,12 +188,12 @@ impl History {
         {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
-        if let Some(closed) = &self.closed {
-            if closed.plan != digest(plan)? || closed.tail != plan.tail {
-                return Err(invalid(
-                    "unsigned closure changed its reserved closing plan",
-                ));
-            }
+        if let Some(closed) = &self.closed
+            && (closed.plan != digest(plan)? || closed.tail != plan.tail)
+        {
+            return Err(invalid(
+                "unsigned closure changed its reserved closing plan",
+            ));
         }
         Ok(())
     }
@@ -209,12 +213,11 @@ impl History {
         successor: &dyn SemanticSuccessor,
         pass: Option<&'pass EnrollmentReadPass<'snapshot>>,
     ) -> Result<Option<parser_pass::CurrentReadAdmission<'history, 'pass, 'snapshot>>> {
-        let current = match pass {
-            Some(pass) => pass.current_read(self)?,
-            None => {
-                self.require_current()?;
-                None
-            }
+        let current = if let Some(pass) = pass {
+            pass.current_read(self)?
+        } else {
+            self.require_current()?;
+            None
         };
         self.check_successor_binding(successor, pass)?;
         Ok(current)
@@ -401,7 +404,12 @@ impl History {
                     ReadPhase::PrepareAfterRetirement
                 }
                 PrepareNext::Closing(plan) => {
-                    write_record(&self.operation, "closing.nrt", &plan)?;
+                    metadata::retain(&self.operation, None, None, 1, &plan, |image| {
+                        if !image.same_bytes(&self.image) {
+                            return Err(invalid("closure source changed before publication"));
+                        }
+                        Ok(())
+                    })?;
                     ReadPhase::PrepareAfterClosing
                 }
                 PrepareNext::Ready => return Ok(PendingUnsignedClosure { history: self }),
@@ -447,7 +455,7 @@ impl History {
             .ok_or_else(|| invalid("verified unsigned closure lost its closed record"))?;
         let evidence = self.scope.enrollment()?;
         let value = VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(Self::read_retained_with_pass(
+            history: std::rc::Rc::new(Self::read_retained_with_pass(
                 &self.operation,
                 self.purpose,
                 self.semantic,
@@ -477,10 +485,12 @@ impl History {
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<UnsignedClosureVerification> {
         if norito::core::decode_limits_active() {
-            return match self.verify_unsigned_closure_with_pass(successor, inspect, pass)? {
-                Some(value) => Ok(UnsignedClosureVerification::Closed(value)),
-                None => Ok(UnsignedClosureVerification::Pending(self)),
-            };
+            return self
+                .verify_unsigned_closure_with_pass(successor, inspect, pass)?
+                .map_or_else(
+                    || Ok(UnsignedClosureVerification::Pending(self)),
+                    |value| Ok(UnsignedClosureVerification::Closed(value)),
+                );
         }
         let Some(fields) = self.inspect_owned_closure(successor, &mut inspect, pass)? else {
             return Ok(UnsignedClosureVerification::Pending(self));
@@ -630,7 +640,7 @@ impl ClosureFields {
             history.into_retained_records()
         };
         VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(history),
+            history: std::rc::Rc::new(history),
             digest: self.digest,
             successor: self.successor,
             cumulative_reserved: self.cumulative_reserved,
@@ -685,7 +695,7 @@ impl PendingUnsignedClosure {
         authorization.check(self.history.purpose, deadline)?;
         self.history.require_fees(authorization.fees())?;
         authorization.claim_body_replacement(successor.target(), deadline)?;
-        let mut history = match inspect.into_closure(self.history, successor)? {
+        let mut history = match inspect.verify_into_closure(self.history, successor)? {
             UnsignedClosureVerification::Closed(value) => return Ok(value),
             UnsignedClosureVerification::Pending(history) => history,
         };
@@ -720,12 +730,20 @@ impl PendingUnsignedClosure {
             .closing
             .as_ref()
             .ok_or_else(|| invalid("unsigned closing plan absent"))?;
-        write_record(
+        metadata::retain(
             &history.operation,
-            "closed.nrt",
+            None,
+            None,
+            2,
             &ClosureRecord {
                 plan: digest(plan)?,
                 tail: plan.tail.clone(),
+            },
+            |image| {
+                if !image.same_bytes(&history.image) {
+                    return Err(invalid("closure source changed before completion"));
+                }
+                Ok(())
             },
         )?;
         inspect.after_closed(history, successor, authorization, deadline)
@@ -790,11 +808,7 @@ fn require_missing_wallet(attempt: &Attempt) -> Result<()> {
     if attempt.is_committed() {
         return Err(invalid("committed request absence cannot close a body"));
     }
-    if attempt.directory.entries(7)?.iter().any(|name| {
-        !["authorization.nrt", "observation.nrt", "retired.nrt"]
-            .iter()
-            .any(|allowed| name == *allowed)
-    }) {
+    if !attempt.directory.entries(1)?.is_empty() {
         return Err(invalid(
             "missing-wallet body closure found later or unknown custody",
         ));

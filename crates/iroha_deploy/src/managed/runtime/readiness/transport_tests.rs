@@ -171,13 +171,12 @@ fn peer_zero_submission_reuses_transport_but_rechecks_compatibility_and_all_four
     };
     let hash = run(&mut owner, &budget).unwrap();
     let requests = transport.requests.lock().unwrap();
-    let capabilities: Vec<_> = requests
+    let capabilities = requests
         .iter()
         .filter(|r| r.url.path() == "/v1/node/capabilities")
-        .collect();
+        .count();
     assert_eq!(
-        capabilities.len(),
-        2,
+        capabilities, 2,
         "the new submitter must obtain its own compatibility verdict"
     );
     let posts: Vec<_> = requests

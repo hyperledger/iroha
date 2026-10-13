@@ -184,11 +184,17 @@ fn expected_entry(
             intent
                 .validate()
                 .map_err(|_| corrupt_state("invalid retained native delivery intent"))?;
-            if intent.record != source.record
-                || intent.request_digest != source.request_digest
-                || intent.source_execution != source.execution
-                || intent.recorder_policy != source.recorder_policy
-            {
+            if (
+                &intent.record,
+                &intent.request_digest,
+                &intent.source_execution,
+                &intent.recorder_policy,
+            ) != (
+                &source.record,
+                &source.request_digest,
+                &source.execution,
+                &source.recorder_policy,
+            ) {
                 return Err(corrupt_state(
                     "native delivery intent substitutes its source",
                 ));

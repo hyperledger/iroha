@@ -1,5 +1,5 @@
 //! Explicit administrative registration of the original private AMX participant on its parent.
-//! The SNS attachment loop never calls this action. Native CanSetParameters admission remains
+//! The SNS attachment loop never calls this action. Native `CanSetParameters` admission remains
 //! mandatory. Completion authenticates successful original transaction inclusion, not current
 //! registry freshness or any Prepared/Decision relay.
 
@@ -44,7 +44,7 @@ struct Origin {
 /// Authenticated result of the sole original administrative transaction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmxRegistrationFinality {
-    /// Successful native RegisterAmxDataspaceV1 execution under the original signer.
+    /// Successful native `RegisterAmxDataspaceV1` execution under the original signer.
     Registered(ManagedTransactionFinality),
     /// The exact original native transaction failed; a later grant never replaces its bytes.
     Rejected(ManagedTransactionFinality),
@@ -104,7 +104,7 @@ impl AttachmentStore {
     /// Original child, signer, parent endpoint, UTC/fee ceilings and pre-dispatch checkpoint
     /// publish atomically before any signing. Retry/reopen preserve the same wallet journal and
     /// bounded native replay. A fresh I/O deadline cannot renew the original authorization.
-    /// The native handler independently requires CanSetParameters; this action grants nothing.
+    /// The native handler independently requires `CanSetParameters`; this action grants nothing.
     ///
     /// # Errors
     /// Rejects changed or incomplete original custody/context/fees/time, stale release, exhausted
@@ -132,44 +132,41 @@ impl AttachmentStore {
                 AttachmentError::Operation("cannot open selected AMX administrator wallet")
             })?;
 
-        let (directory, original) = match self.directory.open_child_optional(DIRECTORY)? {
-            Some(directory) => {
-                validate_inventory(&directory)?;
-                let bytes = directory.read(ORIGIN, MAX_RECORD_BYTES)?;
-                let original: Origin = norito::decode_canonical_with_limits(
-                    &bytes,
-                    norito::canonical_decode_limits(bytes.len()),
-                )
-                .map_err(|_| {
-                    AttachmentError::Invalid("invalid original AMX administrative record")
-                })?;
-                original.validate(&self.record.identity, config, deadline_unix_ms, options)?;
-                (directory, original)
-            }
-            None => {
-                parent.observe(source, &rand::random())?;
-                self.require_active()?;
-                operations::require_deadline(options.deadline)?;
-                self.validate_amx_parent(config, bootstrap, parent)?;
-                let original = Origin {
-                    identity: self.record.identity.clone(),
-                    administrator: config.account.clone(),
-                    torii_root: config.torii_api_url.to_string(),
-                    chain_discriminant: config.account_chain_discriminant,
-                    terms: native(Terms::new(deadline_unix_ms, options))?,
-                    checkpoint: native(native_operation::checkpoint_bytes(parent.verifier()))?,
-                };
-                original.validate(&self.record.identity, config, deadline_unix_ms, options)?;
-                let bytes = encode_bounded(&original, MAX_RECORD_BYTES)?;
-                self.revalidate()?;
-                self.require_active()?;
-                operations::require_deadline(options.deadline)?;
-                self.validate_amx_parent(config, bootstrap, parent)?;
-                let directory = self
-                    .directory
-                    .publish_private_child(DIRECTORY, &[(ORIGIN, &bytes)])?;
-                (directory, original)
-            }
+        let (directory, original) = if let Some(directory) =
+            self.directory.open_child_optional(DIRECTORY)?
+        {
+            validate_inventory(&directory)?;
+            let bytes = directory.read(ORIGIN, MAX_RECORD_BYTES)?;
+            let original: Origin = norito::decode_canonical_with_limits(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+            .map_err(|_| AttachmentError::Invalid("invalid original AMX administrative record"))?;
+            original.validate(&self.record.identity, config, deadline_unix_ms, options)?;
+            (directory, original)
+        } else {
+            parent.observe(source, &rand::random())?;
+            self.require_active()?;
+            operations::require_deadline(options.deadline)?;
+            self.validate_amx_parent(config, bootstrap, parent)?;
+            let original = Origin {
+                identity: self.record.identity.clone(),
+                administrator: config.account.clone(),
+                torii_root: config.torii_api_url.to_string(),
+                chain_discriminant: config.account_chain_discriminant,
+                terms: native(Terms::new(deadline_unix_ms, options))?,
+                checkpoint: native(native_operation::checkpoint_bytes(parent.verifier()))?,
+            };
+            original.validate(&self.record.identity, config, deadline_unix_ms, options)?;
+            let bytes = encode_bounded(&original, MAX_RECORD_BYTES)?;
+            self.revalidate()?;
+            self.require_active()?;
+            operations::require_deadline(options.deadline)?;
+            self.validate_amx_parent(config, bootstrap, parent)?;
+            let directory = self
+                .directory
+                .publish_private_child(DIRECTORY, &[(ORIGIN, &bytes)])?;
+            (directory, original)
         };
         validate_inventory(&directory)?;
         let request = original.request(options.deadline);

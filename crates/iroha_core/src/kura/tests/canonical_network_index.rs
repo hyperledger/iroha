@@ -299,6 +299,7 @@ fn canonical_network_index_rebuild_missing_body_and_replacement_stay_explicit() 
 
 #[test]
 fn canonical_network_position_roundtrips_and_refuses_retired_phase_layout() {
+    use norito::codec::{DecodeAll, Encode};
     #[derive(norito::Encode)]
     struct RetiredPosition {
         block_height: u64,
@@ -307,8 +308,6 @@ fn canonical_network_position_roundtrips_and_refuses_retired_phase_layout() {
         block_hash: HashOf<BlockHeader>,
         entrypoint_hash: HashOf<TransactionEntrypoint>,
     }
-
-    use norito::codec::{DecodeAll, Encode};
     let position = kaigi_signal_test_locator(3, 7).position;
     let bytes = norito::encode_canonical(&position).unwrap();
     assert_eq!(

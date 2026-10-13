@@ -116,7 +116,7 @@ impl SnsNameRecordCacheKey {
 }
 #[derive(Clone, Debug)]
 enum CachedSnsNameRecord {
-    Found(NameRecordV1),
+    Found(Box<NameRecordV1>),
     NotFound(SnsRegistrationNotFoundV1),
 }
 #[derive(Clone, Debug)]
@@ -130,7 +130,7 @@ struct SnsNameRecordCacheEntry {
 /// block identity observed when the lookup was performed. Found records also
 /// expire at the next lifecycle deadline.
 #[derive(Debug, Default)]
-pub(crate) struct SnsNameRecordCache {
+pub struct SnsNameRecordCache {
     inner: Mutex<SnsNameRecordCacheInner>,
 }
 #[derive(Debug, Default)]
@@ -163,7 +163,7 @@ impl SnsNameRecordCache {
             block_height,
             block_hash,
             valid_until_ms,
-            CachedSnsNameRecord::Found(record),
+            CachedSnsNameRecord::Found(Box::new(record)),
         );
     }
     fn insert_not_found(
@@ -225,9 +225,11 @@ impl SnsNameRecordCacheInner {
             self.entries.remove(key);
             return None;
         }
-        Some(match entry.outcome.clone() {
-            CachedSnsNameRecord::Found(record) => Ok(record),
-            CachedSnsNameRecord::NotFound(absence) => Err(SnsError::RegistrationNotFound(absence)),
+        Some(match &entry.outcome {
+            CachedSnsNameRecord::Found(record) => Ok(record.as_ref().clone()),
+            CachedSnsNameRecord::NotFound(absence) => {
+                Err(SnsError::RegistrationNotFound(absence.clone()))
+            }
         })
     }
     fn insert(&mut self, key: SnsNameRecordCacheKey, entry: SnsNameRecordCacheEntry) {

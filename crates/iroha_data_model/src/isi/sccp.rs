@@ -50,6 +50,64 @@ pub struct InitializeSccpV1 {
 }
 impl crate::seal::Instruction for InitializeSccpV1 {}
 
+/// Accept a seat or reserve position in the currently drawn pause panel (§4.14.7).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1")]
+#[derive(Copy)]
+pub struct AcceptSccpPausePanelSeatV1 {
+    /// Exact sequence of the seated panel.
+    pub panel_seq: u64,
+}
+impl crate::seal::Instruction for AcceptSccpPausePanelSeatV1 {}
+
+/// Endorse one current-head emergency pause as an eligible panel seat holder (§4.14.7).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::EndorseSccpFastPauseV1")]
+#[derive(Copy)]
+pub struct EndorseSccpFastPauseV1 {
+    /// Live chain network identity; a signature never crosses resets.
+    pub network_id: crate::NetworkId,
+    /// External route whose transfer activity is paused.
+    pub network: SccpNetworkV1,
+    /// Exact primary or backup panel identifier.
+    pub panel_id: [u8; 32],
+    /// Current `FastHold` subject revision, used as the endorsement nonce.
+    pub head: u64,
+    /// Nonzero public incident digest.
+    pub incident_digest: [u8; 32],
+}
+impl crate::seal::Instruction for EndorseSccpFastPauseV1 {}
+
 /// Lock XOR and record an outbound message to an external network (§4.4).
 #[derive(
     Debug,
@@ -113,6 +171,36 @@ pub struct SubmitSccpInboundMessageV1 {
     pub proof: SccpSourceProofBytesV1,
 }
 impl crate::seal::Instruction for SubmitSccpInboundMessageV1 {}
+
+/// Prove a captured deployment finalized an unrecorded payload during its reconciliation window.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(no_fast_from_json)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::ProveSccpForgedMintV1")]
+#[norito(decode_from_slice)]
+pub struct ProveSccpForgedMintV1 {
+    /// External destination network.
+    pub network: SccpNetworkV1,
+    /// Quarantined route revision with an open reconciliation window.
+    pub revision: u32,
+    /// Authenticated finalization event and its message-id-bound payload preimage.
+    pub proof: crate::sccp::reconciliation::SccpForgedMintProofV1,
+}
+impl crate::seal::Instruction for ProveSccpForgedMintV1 {}
 
 /// `SettleSccpV1::Inbound` target.
 #[derive(
@@ -453,6 +541,20 @@ mod tests {
 
     #[test]
     fn every_instruction_roundtrips() {
+        check(&AcceptSccpPausePanelSeatV1 {
+            panel_seq: u64::MAX,
+        });
+        check(&EndorseSccpFastPauseV1 {
+            network_id: crate::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+                crate::block::BlockHeader,
+            >::from_untyped_unchecked(
+                iroha_crypto::Hash::new([7; 32])
+            )),
+            network: ETH,
+            panel_id: [8; 32],
+            head: u64::MAX,
+            incident_digest: [9; 32],
+        });
         let evidence = SubmitSccpForgeryEvidenceV1 {
             qc: [0xa1; 116],
             header: [0xb2; 221],

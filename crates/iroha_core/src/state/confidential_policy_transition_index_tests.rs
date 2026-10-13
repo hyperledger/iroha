@@ -59,15 +59,15 @@ fn rebuild_restores_consumed_and_changed_transitions_for_replacement() {
         let mut consumed = first_definition;
         consumed.set_confidential_policy(AssetConfidentialPolicy::shielded_only());
         changes.insert(first.clone(), consumed);
-        let mut changed = second_definition;
-        changed.set_confidential_policy(policy_with_transition(
+        let mut tampered_value = second_definition;
+        tampered_value.set_confidential_policy(policy_with_transition(
             ConfidentialPolicyMode::Convertible,
             ConfidentialPolicyMode::ShieldedOnly,
             42,
             Some(7),
             b"policy-index-current",
         ));
-        changes.insert(second.clone(), changed);
+        changes.insert(second.clone(), tampered_value);
         changes.commit();
     }
     let source_before = norito::json::to_json(&world.asset_definitions).unwrap();

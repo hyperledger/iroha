@@ -260,14 +260,28 @@ impl NativePaymentReturnOperation {
     pub fn settlement_id(&self) -> &SettlementId {
         self.request.settlement_id()
     }
-    /// Run the existing native payment and return both independently verified receipts.
+    /// Explicitly authorize a paid full-return attempt with the exact reviewed return fee intent.
     /// # Errors
-    /// Original native payment or exact link verification failure.
-    pub async fn run(
+    /// Original native submission or exact link verification failure.
+    pub async fn submit(
         &self,
         options: &NativePaymentRunOptions,
     ) -> Result<NativePaymentReturnSettlement, NativePaymentError> {
-        let settled = self.payment.run(options).await?;
+        let settled = self.payment.submit(options).await?;
+        Ok(NativePaymentReturnSettlement {
+            receipt: self.request.verify_return(settled.receipt)?,
+            carrier: settled.carrier,
+        })
+    }
+    /// Resume the original full-return carrier without creating or signing another identity.
+    /// A fresh gateway may recover verified reverse success; otherwise explicit submission is required.
+    /// # Errors
+    /// Original native resume or exact link verification failure.
+    pub async fn resume(
+        &self,
+        options: &NativePaymentRunOptions,
+    ) -> Result<NativePaymentReturnSettlement, NativePaymentError> {
+        let settled = self.payment.resume(options).await?;
         Ok(NativePaymentReturnSettlement {
             receipt: self.request.verify_return(settled.receipt)?,
             carrier: settled.carrier,

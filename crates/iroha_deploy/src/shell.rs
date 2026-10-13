@@ -4,6 +4,9 @@ use color_eyre::eyre::{Result, WrapErr as _, eyre};
 use std::path::{Path, PathBuf};
 
 /// Quote one control-free value as a POSIX shell word.
+///
+/// # Errors
+/// Returns an error when the value contains NUL, newline, or carriage return.
 pub fn single_quote(value: &str) -> Result<String> {
     if value.contains(['\0', '\n', '\r']) {
         return Err(eyre!("shell value contains a control character"));
@@ -12,6 +15,9 @@ pub fn single_quote(value: &str) -> Result<String> {
 }
 
 /// Quote a UTF-8 path as one POSIX shell word.
+///
+/// # Errors
+/// Returns an error for non-UTF-8 paths or paths containing NUL, newline, or carriage return.
 pub fn quote_path(path: &Path) -> Result<String> {
     let value = path
         .to_str()
@@ -20,6 +26,9 @@ pub fn quote_path(path: &Path) -> Result<String> {
 }
 
 /// Resolve a lexical path against the current directory and quote it as one shell word.
+///
+/// # Errors
+/// Returns an error if the current directory cannot be resolved or the resulting path cannot be quoted.
 pub fn absolute_quote_path(path: &Path) -> Result<String> {
     let absolute = if path.is_absolute() {
         PathBuf::from(path)

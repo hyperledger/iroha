@@ -9,14 +9,14 @@
 //! depth.
 mod cursor;
 mod engine;
-pub(crate) mod memory;
-pub(crate) mod specs;
+pub mod memory;
+pub mod specs;
 
-pub(crate) use engine::{Limits, Prepared, RowPage, prepare};
-pub(crate) use specs::CollectionSpec;
+pub use engine::{Limits, Prepared, RowPage, prepare};
+pub use specs::CollectionSpec;
 
 /// Collections whose reads accept `aggregate` (advertised by `/v1/node/capabilities`).
-pub(crate) fn aggregate_collections() -> impl Iterator<Item = &'static str> {
+pub fn aggregate_collections() -> impl Iterator<Item = &'static str> {
     specs::ALL
         .into_iter()
         .filter(|spec| spec.positioned == 0)
@@ -24,7 +24,7 @@ pub(crate) fn aggregate_collections() -> impl Iterator<Item = &'static str> {
 }
 
 /// Collections exported by query projection archives.
-pub(crate) const PROJECTION_EXPORT_COLLECTIONS: [&str; 5] = [
+pub const PROJECTION_EXPORT_COLLECTIONS: [&str; 5] = [
     "accounts",
     "account_assets",
     "asset_holders",
@@ -41,7 +41,7 @@ pub struct CollectionError {
     /// Stable error code such as `invalid_filter`.
     pub code: &'static str,
     /// Human-readable description.
-    pub message: String,
+    pub message: Box<str>,
     /// The request control at fault (`filter`, `sort`, …).
     pub control: &'static str,
     /// The offending data field or value, when one is known.
@@ -60,7 +60,7 @@ impl CollectionError {
     ) -> Self {
         Self {
             code,
-            message: message.into(),
+            message: message.into().into_boxed_str(),
             control,
             actual: None,
             expected: None,
@@ -85,7 +85,7 @@ impl CollectionError {
 
     /// The error envelope returned to clients.
     pub fn envelope(&self) -> ErrorEnvelope {
-        ErrorEnvelope::new(self.code, self.message.clone()).with_details(ErrorDetails {
+        ErrorEnvelope::new(self.code, self.message.to_string()).with_details(ErrorDetails {
             field: Some(self.control.to_owned()),
             actual: self.actual.clone(),
             expected: self.expected.clone(),
@@ -110,9 +110,35 @@ impl fmt::Display for CollectionError {
 
 impl std::error::Error for CollectionError {}
 
+impl From<CollectionError> for crate::Error {
+    fn from(err: CollectionError) -> Self {
+        Self::CollectionQuery(Box::new(err))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_collection_error_preserves_the_response_details() {
+        let error = CollectionError::new("invalid_filter", "filter", "unknown field")
+            .with_actual("ownd_by")
+            .with_expected("owned_by")
+            .with_hint("use the canonical field name");
+        let envelope = error.envelope();
+        assert_eq!(error.to_string(), "unknown field");
+        assert_eq!(envelope.code, "invalid_filter");
+        assert_eq!(envelope.message, "unknown field");
+        let details = envelope.details.expect("collection error details");
+        assert_eq!(details.field.as_deref(), Some("filter"));
+        assert_eq!(details.actual.as_deref(), Some("ownd_by"));
+        assert_eq!(details.expected.as_deref(), Some("owned_by"));
+        assert_eq!(
+            details.hint.as_deref(),
+            Some("use the canonical field name")
+        );
+    }
 
     #[test]
     fn capability_lists_name_real_collections() {
@@ -125,11 +151,5 @@ mod tests {
         for id in PROJECTION_EXPORT_COLLECTIONS {
             assert!(specs::ALL.iter().any(|spec| spec.id == id), "{id}");
         }
-    }
-}
-
-impl From<CollectionError> for crate::Error {
-    fn from(err: CollectionError) -> Self {
-        Self::CollectionQuery(Box::new(err))
     }
 }

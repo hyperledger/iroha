@@ -21,6 +21,10 @@ fn with_chain(assert_original: fn(&CertifiedTestChain)) {
 }
 
 #[test]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "the reservation is retained by ownership in production; this test checks its original pool"
+)]
 fn native_certificate_binds_exact_original_x_body_qc_and_historical_keys() {
     with_chain(|chain| {
         let view = chain.state().view();
@@ -28,7 +32,9 @@ fn native_certificate_binds_exact_original_x_body_qc_and_historical_keys() {
         let block = reader.certified(2).unwrap();
         assert!(block.block().network_entrypoint_count() > 0);
         let stop = AtomicBool::new(false);
-        let budget = chain.state().ivm_execution_budget();
+        // The response owns its original request pool; asynchronous publication cleanup
+        // in the separate State pool must not change this request's custody ledger.
+        let budget = AllocationBudget::new(128 << 20);
         let occupied = budget.reserved_bytes();
         let retained = finality(&view, NonZeroU64::new(2), &budget, control(&stop)).unwrap();
         assert!(retained._charge.belongs_to(&budget));
@@ -88,6 +94,10 @@ fn native_certificate_binds_exact_original_x_body_qc_and_historical_keys() {
 }
 
 #[test]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "the reservation is retained by ownership in production; this test checks its original pool"
+)]
 fn native_certificate_capacity_refusal_preserves_original_wait_and_retries_same_receipt() {
     with_chain(|chain| {
         let view = chain.state().view();
@@ -95,7 +105,9 @@ fn native_certificate_capacity_refusal_preserves_original_wait_and_retries_same_
         let block = reader.certified(2).unwrap();
         let original_x = *block.certified_result().header().as_bytes();
         let stop = AtomicBool::new(false);
-        let budget = chain.state().ivm_execution_budget();
+        // The response owns its original request pool; asynchronous publication cleanup
+        // in the separate State pool must not change this request's custody ledger.
+        let budget = AllocationBudget::new(128 << 20);
         let mut reserve = budget
             .try_reserve(ReleaseRegistration::allocation_layout())
             .unwrap();
@@ -146,7 +158,9 @@ fn native_certificate_owners_release_on_unwind_and_genesis_never_fabricates_qc()
         let genesis = reader.certified(1).unwrap();
         assert!(genesis.commit_qc().is_none());
         let stop = AtomicBool::new(false);
-        let budget = chain.state().ivm_execution_budget();
+        // The response owns its original request pool; asynchronous publication cleanup
+        // in the separate State pool must not change this request's custody ledger.
+        let budget = AllocationBudget::new(128 << 20);
         let occupied = budget.reserved_bytes();
         assert!(matches!(
             finality(&view, NonZeroU64::new(1), &budget, control(&stop)),
@@ -187,7 +201,9 @@ fn native_latest_genesis_is_unavailable_until_first_commit() {
 #[inline(never)]
 fn check_latest_genesis_then_commit(chain: &mut CertifiedTestChain) {
     let stop = AtomicBool::new(false);
-    let budget = chain.state().ivm_execution_budget();
+    // The response owns its original request pool; asynchronous publication cleanup
+    // in the separate State pool must not change this request's custody ledger.
+    let budget = AllocationBudget::new(128 << 20);
     {
         let view = chain.state().view();
         let reader = CertifiedChain::new(&view).unwrap();

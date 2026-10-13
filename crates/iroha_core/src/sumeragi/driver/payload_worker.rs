@@ -94,7 +94,8 @@ impl PayloadWork {
     /// Convert only payload actions; return every other action unchanged.
     ///
     /// # Errors
-    /// Returns the original action when it is not a payload action.
+    ///
+    /// Returns the original action unchanged when it is not payload work.
     pub fn from_action(action: Action) -> Result<Self, Action> {
         match action {
             Action::AuthorPayload {
@@ -290,8 +291,9 @@ impl PayloadWorker {
     /// stop the worker; neither can masquerade as an absent body or a successful read.
     ///
     /// # Errors
-    /// Propagates unrecoverable storage, payload verification, encoding or transport
-    /// failures. Recoverable resource refusals retain their work for a later turn.
+    ///
+    /// Returns an I/O error for corrupt stored payload evidence, violated worker
+    /// contracts, or unrecoverable storage or network delivery failures.
     pub fn step(
         &mut self,
         work: PayloadWork,

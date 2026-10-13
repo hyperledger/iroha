@@ -33,7 +33,9 @@ use iroha_data_model::prelude::*;
 /// [`crate::sumeragi::node::consensus_configuration_fingerprint`].
 ///
 /// # Errors
-/// Returns an error when the signed genesis parameters violate the consensus invariants.
+///
+/// Returns an error if the signed genesis parameters violate the
+/// first-release consensus invariants.
 pub fn compute_consensus_parameters_fingerprint(
     params: &ConsensusGenesisParams,
 ) -> Result<[u8; 32], String> {

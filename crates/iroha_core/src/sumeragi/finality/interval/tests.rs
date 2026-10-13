@@ -111,7 +111,6 @@ fn check_late_source_replacement(chain: &CertifiedTestChain) {
             }
         }
     }
-
     let view = chain.state().view();
     let source = NativeFinalityProofSource::new(
         view.chain_id(),

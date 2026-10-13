@@ -292,7 +292,7 @@ fn repeated_publication_preserves_identity_and_empty_frontiers_are_committed() {
     let mut workspace = MerkleMapUpdateWorkspace::new();
     let empty = cold(&storage, &mut store, &mut workspace);
     let mut block = storage.block();
-    block.insert_block(HashSet::new(), height(1));
+    block.insert_block(BTreeSet::new(), height(1));
     let mut prepared = block.prepare_commit().unwrap();
     let candidate = prepared
         .prepare_membership_root(&empty, &mut store, &mut workspace)
@@ -309,7 +309,7 @@ fn repeated_publication_preserves_identity_and_empty_frontiers_are_committed() {
         "frontier is part of the logical commitment"
     );
     let mut block = storage.block();
-    block.insert_block(HashSet::new(), height(1));
+    block.insert_block(BTreeSet::new(), height(1));
     let mut prepared = block.prepare_commit().unwrap();
     store.reads = 0;
     store.writes = 0;
@@ -585,7 +585,7 @@ fn equal_current_membership_cannot_hide_different_rollback_values() {
     );
     for (storage, baseline, expected) in [(&first, a, 1), (&second, b, 2)] {
         let mut replacement = storage.block_and_revert();
-        replacement.insert_block(HashSet::new(), height(3));
+        replacement.insert_block(BTreeSet::new(), height(3));
         let mut prepared = replacement.prepare_commit().unwrap();
         let candidate = prepared
             .prepare_membership_root(&baseline, &mut store, &mut workspace)
@@ -685,7 +685,12 @@ fn current_and_rollback_values_require_exact_authenticated_preimages() {
         };
         let reference = canonical_height_digest(at);
         let location = store.height_allocations[&reference];
-        assert_eq!(read(&mut store).unwrap(), Some(height(at as usize)));
+        assert_eq!(
+            read(&mut store).unwrap(),
+            Some(height(
+                usize::try_from(at).expect("fixture value fits usize")
+            ))
+        );
         store.heights.remove(&location);
         assert_eq!(
             read(&mut store),
@@ -705,7 +710,12 @@ fn current_and_rollback_values_require_exact_authenticated_preimages() {
             Err(MembershipReadError::ValueSource("height read refused"))
         );
         store.fail_height_read = None;
-        assert_eq!(read(&mut store).unwrap(), Some(height(at as usize)));
+        assert_eq!(
+            read(&mut store).unwrap(),
+            Some(height(
+                usize::try_from(at).expect("fixture value fits usize")
+            ))
+        );
     }
     // Even a matching preimage cannot place a leaf beyond its retained cut.
     let mut wrong_frontier = baseline.clone();
@@ -936,7 +946,7 @@ fn replacement_repairs_a_missing_old_height_from_the_original_state() {
         Err(MembershipReadError::MissingValue(old_value))
     );
     let mut block = storage.block_and_revert();
-    block.insert_block(HashSet::new(), height(2));
+    block.insert_block(BTreeSet::new(), height(2));
     let mut prepared = block.prepare_commit().unwrap();
     store.fail_height_write = Some(store.height_writes + 1);
     assert!(matches!(
@@ -1087,7 +1097,7 @@ fn writing_a_new_height_location_does_not_repair_an_original_rollback_location()
     );
 
     let mut block = storage.block_and_revert();
-    block.insert_block(HashSet::new(), height(2));
+    block.insert_block(BTreeSet::new(), height(2));
     let mut prepared = block.prepare_commit().unwrap();
     let candidate = prepared
         .prepare_membership_root(&baseline, &mut store, &mut workspace)

@@ -3598,7 +3598,7 @@ pub mod isi {
     pub(crate) fn execute_oracle_dispute_bond_transfer(
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
-        dispute_id: &iroha_data_model::oracle::OracleDisputeId,
+        dispute_id: iroha_data_model::oracle::OracleDisputeId,
         source_id: AssetId,
         destination_id: AssetId,
         amount: Quantity,
@@ -3612,7 +3612,7 @@ pub mod isi {
                 "Oracle dispute bond movement does not match configured custody".into(),
             ));
         }
-        let binding = canonical_numeric_movement_binding(dispute_id)?;
+        let binding = canonical_numeric_movement_binding(&dispute_id)?;
         execute_numeric_asset_movement(
             state_transaction,
             source_id,
@@ -4936,7 +4936,7 @@ pub mod isi {
                         state_transaction.network_id(),
                         &escrow_id,
                         source_id.definition(),
-                    )?;
+                    );
                 if source_id.account() != &authority
                     || destination_id.definition() != source_id.definition()
                     || destination_id.account() != &expected_custody
@@ -5021,7 +5021,7 @@ pub mod isi {
                     state_transaction.network_id(),
                     &child_id,
                     &parent.asset_definition,
-                )?;
+                );
                 let expected_destination =
                     AssetId::new(parent.asset_definition.clone(), child_custody);
                 if source_id != expected_source
@@ -5336,7 +5336,7 @@ pub mod isi {
                         state_transaction.network_id(),
                         &lease_id,
                         source.definition(),
-                    )?;
+                    );
                 if source.account() != &authority
                     || destination.definition() != source.definition()
                     || destination.account() != &expected_custody
@@ -5353,11 +5353,11 @@ pub mod isi {
                     destination.clone(),
                     amount.clone(),
                 ))?;
-                let movement = NumericAssetMovementAuthorization::embedded_user(
+
+                NumericAssetMovementAuthorization::embedded_user(
                     &authority,
                     EmbeddedNumericAssetMovementPurpose::VpnLease(binding),
-                );
-                movement
+                )
             }
             VerifiedVpnNumericPurpose::Settlement {
                 lease_id,
@@ -5406,11 +5406,11 @@ pub mod isi {
                     record.lease_fee.clone(),
                     record.status,
                 ))?;
-                let movement = NumericAssetMovementAuthorization::retained(
+
+                NumericAssetMovementAuthorization::retained(
                     &authority,
                     RetainedNumericAssetMovementPurpose::VpnLease(binding),
-                );
-                movement
+                )
             }
             VerifiedVpnNumericPurpose::Refund {
                 lease_id,
@@ -5453,11 +5453,11 @@ pub mod isi {
                     legs.clone(),
                     record.refund_available_at_ms(),
                 ))?;
-                let movement = NumericAssetMovementAuthorization::retained(
+
+                NumericAssetMovementAuthorization::retained(
                     &authority,
                     RetainedNumericAssetMovementPurpose::VpnLease(binding),
-                );
-                movement
+                )
             }
         };
         let applied = PreparedNumericAssetMovementBatch::prepare_with_authorization(
@@ -5590,6 +5590,10 @@ pub mod isi {
             ),
         )
     }
+    enum PreparedTransferControl {
+        NotRequired,
+        Required(Option<AssetTransferControlRecord>),
+    }
     struct PreparedNumericTransferPlan {
         retail_payment: bool,
         source_id: AssetId,
@@ -5598,7 +5602,7 @@ pub mod isi {
         event_source_id: AssetId,
         event_destination_id: AssetId,
         amount: Quantity,
-        control_before: Option<Option<AssetTransferControlRecord>>,
+        control_before: PreparedTransferControl,
         control_update: Option<AssetTransferControlRecord>,
         retail_usage_update: Option<PreparedRetailDailyUsageUpdate>,
         numeric_spec: NumericSpec,
@@ -5716,7 +5720,7 @@ pub mod isi {
             )?;
             let (control_before, control_update) = match control_policy {
                 NumericAssetTransferControlPolicy::Enforce => (
-                    Some(active_control_record(
+                    PreparedTransferControl::Required(active_control_record(
                         state_transaction,
                         event_source_id.account(),
                         event_source_id.definition(),
@@ -5735,7 +5739,9 @@ pub mod isi {
                 | NumericAssetTransferControlPolicy::GovernanceSlash
                 | NumericAssetTransferControlPolicy::GovernanceRestitution
                 | NumericAssetTransferControlPolicy::GovernanceUnlock
-                | NumericAssetTransferControlPolicy::CitizenshipRelease => (None, None),
+                | NumericAssetTransferControlPolicy::CitizenshipRelease => {
+                    (PreparedTransferControl::NotRequired, None)
+                }
             };
             match destination_admission {
                 NumericAssetDestinationAdmissionPolicy::ImplicitReceive => {
@@ -5951,7 +5957,7 @@ pub mod isi {
                     ));
                 }
             }
-            if let Some(control_before) = &self.control_before {
+            if let PreparedTransferControl::Required(control_before) = &self.control_before {
                 let control = active_control_record(
                     state_transaction,
                     self.source_id.account(),
@@ -6133,11 +6139,7 @@ pub mod isi {
             }
             // Individual plans cannot independently spend the same free balance.
             // Check the complete ordered batch after all virtual debits and credits.
-            for source_id in plans
-                .iter()
-                .map(|plan| &plan.source_id)
-                .collect::<BTreeSet<_>>()
-            {
+            for source_id in plans.iter().map(|plan| &plan.source_id) {
                 if let Some(after) = virtual_balances.get(source_id) {
                     crate::smartcontracts::isi::staking::ensure_public_lane_reserves_after_debit(
                         state_transaction.world(),
@@ -6211,7 +6213,7 @@ pub mod isi {
                 retail_usage_updates.push(update);
             }
             for plan in &mut plans {
-                plan.control_before = None;
+                plan.control_before = PreparedTransferControl::NotRequired;
                 plan.control_update = None;
             }
             Ok(Self {

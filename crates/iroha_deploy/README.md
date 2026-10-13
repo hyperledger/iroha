@@ -11,6 +11,22 @@ The design, file formats and phase plan are in
 
 What exists so far:
 
+- `genesis::sccp`: canonical Taira localnets initialize SCCP inside genesis with
+  a fresh OS-random nonce, a minimum one-hour epoch, 21-day unbonding and a
+  10,000-basis-point slash ceiling. Generation one comes from the native signed
+  committee; no route is seeded. Public nonce and signed-network markers live in
+  `sccp-reset-history` beside the network directory and must survive resets.
+  Other NPoS genesis manifests opt in with
+  `kagami genesis generate --sccp-reset-history <directory>`;
+  signing uses `kagami genesis sign --sccp-reset-history <same-directory>`.
+  Each nonce can sign only one identity. Reseating a previously signed draft
+  additionally requires `--fresh-sccp-reset-nonce`; the devnet reset script
+  selects this explicitly. Failed publication can consume a nonce, so retry
+  with a fresh nonce rather than reusing its reservation.
+  An explicit peer configuration must use the same staking profile, which is
+  bound into the signed Nexus policy. Parliament and reconciliation launch
+  gates remain closed.
+
 - `bootstrap::publication`: offline native release production from independently pinned complete
   manifest bytes, signed-genesis key/network and a bounded contiguous current finality-proof prefix. Kagami exposes
   `advanced network-bootstrap prepare`; it derives consensus coordinates, signs the canonical
@@ -51,6 +67,11 @@ What exists so far:
   Within worker admission, the current executable reuses the retained launcher's content hash
   only after a fresh native open rejoins its exact path, identity and unchanged snapshot.
   Both opened files are revalidated; different paths still receive full content admission.
+  Generated managed global and private client configurations explicitly select the SDK
+  `direct_loopback` HTTP policy. Managed reopening checks that policy with the retained
+  client identity. Local requests use proxy-free cleartext pools without loading system
+  certificate roots. Exported configurations and remote parent clients retain `ordinary`
+  transport; importing a private child signer does not copy its local transport policy.
   Readiness submission reuses peer zero's transport after checking its endpoint against the
   selected client configuration. The rebuilt submission context performs fresh compatibility
   checks and retains the original deadline, signer, fee limits and four-validator proof checks.

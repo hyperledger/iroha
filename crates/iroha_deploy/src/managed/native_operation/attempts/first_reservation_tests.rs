@@ -13,13 +13,15 @@ fn generated_with(
         .unwrap()
         .test_child(Purpose::ReservePolicy)?;
     generated(
-        &fixture.operation,
-        Purpose::ReservePolicy,
-        fixture.semantic,
-        &HistoryScope::FixedBody,
-        &grant,
-        fixture.deadline,
-        None,
+        crate::managed::native_operation::attempts::GeneratedSelection {
+            operation: &fixture.operation,
+            purpose: Purpose::ReservePolicy,
+            semantic: fixture.semantic,
+            scope: &HistoryScope::FixedBody,
+            authorization: &grant,
+            deadline: fixture.deadline,
+            body_expiry: None,
+        },
         |attempt| fixture.inspect(attempt),
         |_| Err(invalid("first reservation has no predecessor")),
         |attempt, _, _| Ok(fixture.retain(attempt)),
@@ -31,14 +33,10 @@ fn generated_with(
 #[test]
 fn first_reservation_requires_exact_native_owner_and_closes_original_after_ordinary_error() {
     let _resources = crate::managed::native_test_guard();
-    let fixture = Fixture::build(true);
-    let bytes = fixture
-        .operation
-        .read("original.nrt", MAX_RECORD_BYTES)
-        .unwrap();
-    // This local-record fixture does not claim a native proof. Republish its exact semantic
-    // bytes before any history owner exists so the real CreateNew producer can be tested.
-    std::fs::remove_file(fixture.operation.path().join("original.nrt")).unwrap();
+    let fixture = Fixture::build_with_original(true, false);
+    // This local-record fixture owns the genuine atomic Unselected image. Its canonical
+    // policy bytes are sufficient semantic input without claiming a native proof.
+    let bytes = encode(&fixture.policy, MAX_RECORD_BYTES).unwrap();
     let mut publication = PublishedInitialIntent::publish(
         &fixture.operation,
         bytes.to_vec(),
@@ -88,18 +86,31 @@ fn first_reservation_requires_exact_native_owner_and_closes_original_after_ordin
             .unwrap()
             .open_child("0001")
             .unwrap();
-        let authorization = row.read("authorization.nrt", MAX_RECORD_BYTES).unwrap();
+        let authorization =
+            metadata::test_read_component(&fixture.operation, Some(1), "authorization.nrt")
+                .unwrap()
+                .unwrap();
         let mut changed = authorization.clone();
         changed.push(0);
-        row.write_atomic("authorization.nrt", &changed, PublishMode::Replace)
-            .unwrap();
+        metadata::test_replace_component(
+            &fixture.operation,
+            Some(1),
+            "authorization.nrt",
+            Some(&changed),
+        )
+        .unwrap();
         assert!(
             first
                 .validate(&fixture.operation, Purpose::ReservePolicy, fixture.semantic)
                 .is_err()
         );
-        row.write_atomic("authorization.nrt", &authorization, PublishMode::Replace)
-            .unwrap();
+        metadata::test_replace_component(
+            &fixture.operation,
+            Some(1),
+            "authorization.nrt",
+            Some(&authorization),
+        )
+        .unwrap();
         row.write_atomic("foreign.nrt", b"unexpected", PublishMode::CreateNew)
             .unwrap();
         assert!(
@@ -245,7 +256,11 @@ fn active_and_late_active_generated_prerequisites_keep_canonical_admission() {
                 .unwrap(),
             original
         );
-        assert!(!fixture.operation.path().join("dispatch.nrt").exists());
+        assert!(
+            metadata::test_read_component(&fixture.operation, None, "dispatch.nrt")
+                .unwrap()
+                .is_none()
+        );
     }
     let wide = norito::DecodeLimits::new(
         MAX_RECORD_BYTES,
@@ -311,7 +326,8 @@ fn active_and_late_active_generated_prerequisites_keep_canonical_admission() {
 fn active_original_publication_keeps_the_existing_write_recipe_without_a_receipt() {
     let _resources = crate::managed::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("publication")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "publication").unwrap();
     // Local publication custody only: these bytes are never passed as native proof or intent.
     let original = vec![4, 5, 6];
     let limits =
@@ -360,5 +376,11 @@ fn active_original_publication_keeps_the_existing_write_recipe_without_a_receipt
             .as_slice(),
         original.as_slice()
     );
-    assert_eq!(directory.entries(2).unwrap().len(), 1);
+    assert_eq!(
+        directory.entries(2).unwrap(),
+        [
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("original.nrt")
+        ]
+    );
 }

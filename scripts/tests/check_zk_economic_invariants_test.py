@@ -200,6 +200,10 @@ class TrackedMatrix(Base):
             "faulty_verifier_pool_deposit_moves_existing_units_and_never_mints",
             "faulty_verifier_general_bridge_moves_only_existing_source_units",
             "dropped_transaction_discards_a_faulty_pool_withdrawal",
+            "faulty_verifier_fee_sponsor_cannot_rebind_a_lease_or_overlap_a_live_route",
+            "faulty_verifier_fee_sponsor_capacity_is_exact_and_identical_replay_adds_no_lock",
+            "faulty_verifier_fee_sponsor_failed_batch_discards_earlier_allocation",
+            "faulty_verifier_fee_sponsor_respects_current_height_and_scheduled_revision",
         })
 
 
@@ -828,7 +832,7 @@ class Summary(Base):
         self.assertEqual(summary["operations"], len(MATRIX["operations"]))
         self.assertEqual(sum(summary["effects_by_class"].values()), summary["effects"])
         self.assertEqual(sum(summary["effects_by_status"].values()), summary["effects"])
-        self.assertEqual(summary["added_tests"], 5)
+        self.assertEqual(summary["added_tests"], 9)
         self.assertEqual(summary["defects"], len(MATRIX["defects"]))
 
 

@@ -20,6 +20,7 @@ use std::{
 pub(super) mod cold_start_smoke;
 mod context_smoke;
 mod publication_smoke;
+mod reset_smoke;
 
 const LOCAL_CLEANUP: [&str; 3] = ["localnet", "down", "local"];
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
@@ -354,7 +355,8 @@ impl Harness {
             self.execute_on_every_peer(deployment, expected)?;
         }
         publication_smoke::run(self)?;
-        context_smoke::run(self, &initial, &first)
+        context_smoke::run(self, &initial, &first)?;
+        reset_smoke::run(self)
     }
 
     pub(super) fn execute_on_every_peer(

@@ -1,0 +1,4 @@
+{
+  "status": "Functional tests/clippy/builds passed; original source guard omitted newly added crates/norito/src/prepared_canonical.rs. Retained as limited-scope evidence; final builds recapture all current Rust modules before build/copy.",
+  "omitted_source": "crates/norito/src/prepared_canonical.rs"
+}

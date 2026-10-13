@@ -1,8 +1,10 @@
-//! Available native registration checks (§4.14.3 P1–P3), without a launch-gate bypass.
+//! Available native registration checks (§4.14.3 P1–P5), without a launch-gate bypass.
 //!
 //! The original opaque execution tip authenticates Global/NetworkId/I. Retained generations
 //! authenticate the pin and every reachable successor; a valid shape alone never does.
-//! P0/P5 still have no Core authority owner. EVM P4 awaits the locked artifact owner.
+//! P0 still depends on qualified Parliament and reconciliation. EVM P4 consumes the
+//! embedded artifact lock; TON P3 requires the compiled minter/wallet/bucket references;
+//! P5 reads the native offence publication's retained maximum.
 
 use super::{Error, SccpRegisterRouteActionV1, refuse, store};
 use crate::{
@@ -16,7 +18,10 @@ use iroha_data_model::{
     block::consensus::SumeragiRootScope,
     sccp::{deployment::SccpCommitteePinV1, deployment::SccpDeploymentV1},
 };
-use iroha_sccp::v1::ton_cell::{TonMinterInitV1, minter_account_id};
+use iroha_sccp::v1::{
+    evm_abi::ConstructorArgsV1,
+    ton_cell::{TonMinterInitV1, locked_code_refs, minter_account_id},
+};
 
 // Fixed §3.1 constant, not a node-local setting or caller-supplied grace period.
 const PIN_MARGIN_MS: u64 = 86_400_000;
@@ -83,7 +88,19 @@ pub(super) fn validate_available(
         params.committee_heartbeat_ms,
         identity.parent_height,
     )?;
+    forgery_floor(world, register.initial_committee.generation)?;
     deployment(register, record, &identity)
+}
+
+fn forgery_floor(world: &(impl WorldReadOnly + ?Sized), generation: u64) -> Result<(), Error> {
+    if !cfg!(all(test, sumeragi_core_mutation = "HC283"))
+        && store::forgery_max_generation(world).is_some_and(|maximum| maximum >= generation)
+    {
+        return Err(refuse(
+            "pinned generation does not exceed the retained forgery maximum",
+        ));
+    }
+    Ok(())
 }
 
 fn retained_pin<'a>(
@@ -175,6 +192,13 @@ fn deployment(
 ) -> Result<(), Error> {
     match register.deployment {
         SccpDeploymentV1::Ton(ton) => {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC326"))
+                && [ton.minter_code, ton.wallet_code, ton.bucket_code] != locked_code_refs()
+            {
+                return Err(refuse(
+                    "TON code references differ from the locked artifacts",
+                ));
+            }
             let pin = register.initial_committee;
             let init = TonMinterInitV1 {
                 taira_network_id: identity.network,
@@ -195,12 +219,22 @@ fn deployment(
             }
             Ok(())
         }
-        SccpDeploymentV1::Evm(_) => {
-            // TODO: P4 must consume the artifact owner's exact locked creation code and
-            // canonical deployer. A matching runtime hash or offered address is insufficient.
-            Err(refuse(
-                "native EVM creation-code/deployer authority is unavailable",
-            ))
+        SccpDeploymentV1::Evm(evm) => {
+            let expected = ConstructorArgsV1 {
+                taira_network_id: identity.network,
+                consensus_instance: identity.instance,
+                network: register.network,
+                route_revision: register.revision,
+                max_wrapped_supply: register.max_wrapped_supply,
+                pin: register.initial_committee,
+            }
+            .address();
+            if !cfg!(all(test, sumeragi_core_mutation = "HC276")) && expected != evm.address {
+                return Err(refuse(
+                    "EVM address differs from the exact locked CREATE2 deployment",
+                ));
+            }
+            Ok(())
         }
     }
 }

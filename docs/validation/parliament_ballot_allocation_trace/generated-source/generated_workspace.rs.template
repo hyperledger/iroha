@@ -1,0 +1,432 @@
+//! One-invocation native worker and allocator routing. Allocation failure exits
+//! this diagnostic process with an explicit status; it is never proof rejection.
+
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    ffi::OsStr,
+    fs::OpenOptions,
+    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+    path::Path,
+    ptr,
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
+};
+
+use iroha_parliament_ballot_proof::{
+    profile::{Role, Row},
+    proving::{StatementError, VerifyError},
+    test_codec::TestCodecError,
+};
+use norito::json::JsonSerialize;
+
+use super::{
+    arena::{Arena, HEAP_BYTES},
+    budget::{Budget, VerificationError},
+    native,
+};
+
+static ARENA: AtomicPtr<Arena> = AtomicPtr::new(ptr::null_mut());
+static INVOKED: AtomicBool = AtomicBool::new(false);
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+static CHARGED_UNITS: AtomicU64 = AtomicU64::new(0);
+static CHARGED_BYTES: AtomicU64 = AtomicU64::new(0);
+
+struct Routed;
+
+// SAFETY: while armed, every default allocation is served by the fixed arena.
+// Deallocation dispatches by pointer provenance, including after disarming.
+// Before/after the single joined worker, ordinary runtime allocation uses System.
+unsafe impl GlobalAlloc for Routed {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if ACTIVE.load(Ordering::Acquire) {
+            let arena = ARENA.load(Ordering::Acquire);
+            if arena.is_null() {
+                unsafe { libc::_exit(74) };
+            }
+            let pointer = unsafe { &*arena }.allocate(layout);
+            if pointer.is_null() {
+                exhausted();
+            }
+            crate::trace::record_alloc(pointer, layout);
+            pointer
+        } else {
+            unsafe { System.alloc(layout) }
+        }
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        let arena = ARENA.load(Ordering::Acquire);
+        if !arena.is_null() && unsafe { &*arena }.contains(pointer) {
+            crate::trace::record_free(pointer, layout);
+            unsafe { (&*arena).release(pointer, layout) };
+        } else {
+            unsafe { System.dealloc(pointer, layout) };
+        }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Routed = Routed;
+
+fn exhausted() -> ! {
+    // No allocator, formatting machinery, mutex, unwinding or error hook is
+    // used on exhaustion. Values were stored immediately after reservation.
+    let mut bytes = [0u8; 256];
+    let mut length = 0;
+    append(
+        &mut bytes,
+        &mut length,
+        b"{\"outcome\":\"resource_exhausted\",\"charged_units\":",
+    );
+    decimal(
+        &mut bytes,
+        &mut length,
+        CHARGED_UNITS.load(Ordering::Relaxed),
+    );
+    append(&mut bytes, &mut length, b",\"charged_bytes\":");
+    decimal(
+        &mut bytes,
+        &mut length,
+        CHARGED_BYTES.load(Ordering::Relaxed),
+    );
+    append(&mut bytes, &mut length, b",\"arena_enforced\":true,\"complete_workspace_certificate\":false,\"profile_qualified\":false}\n");
+    let mut written = 0;
+    while written < length {
+        let count = unsafe {
+            libc::write(
+                libc::STDOUT_FILENO,
+                bytes.as_ptr().add(written).cast(),
+                length - written,
+            )
+        };
+        if count <= 0 {
+            break;
+        }
+        written += count.cast_unsigned();
+    }
+    unsafe { libc::_exit(73) }
+}
+
+fn append(output: &mut [u8; 256], length: &mut usize, bytes: &[u8]) {
+    output[*length..*length + bytes.len()].copy_from_slice(bytes);
+    *length += bytes.len();
+}
+
+fn decimal(output: &mut [u8; 256], length: &mut usize, mut value: u64) {
+    let mut digits = [0u8; 20];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    append(output, length, &digits[start..]);
+}
+
+#[derive(Clone, Copy)]
+pub struct Options<'a> {
+    pub row: Row,
+    pub role: Role,
+    pub path: &'a Path,
+    pub heap_limit: usize,
+    pub units: u64,
+    pub input_bytes: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ResultState {
+    outcome: &'static str,
+    stage: &'static str,
+    exit: i32,
+    charged_units: u64,
+    charged_bytes: u64,
+}
+
+impl ResultState {
+    const fn failure(outcome: &'static str, stage: &'static str, exit: i32) -> Self {
+        Self {
+            outcome,
+            stage,
+            exit,
+            charged_units: 0,
+            charged_bytes: 0,
+        }
+    }
+}
+
+struct Request {
+    path: [u8; 4096],
+    path_length: usize,
+    row: Row,
+    role: Role,
+    units: u64,
+    input_bytes: u64,
+    stack: *mut u8,
+    result: ResultState,
+}
+
+#[derive(Debug, JsonSerialize)]
+// These independent public evidence flags are deliberately separate from the
+// feature identity and cannot be collapsed into one qualification verdict.
+#[allow(clippy::struct_excessive_bools)]
+pub struct Report {
+    pub accelerated: bool,
+    pub outcome: &'static str,
+    pub verifier_stage: &'static str,
+    pub charged_units: u64,
+    pub charged_bytes: u64,
+    pub heap_reserved_bytes: usize,
+    pub metadata_reserved_bytes: usize,
+    pub stack_usable_bytes: usize,
+    pub guard_bytes: usize,
+    pub control_reserved_bytes: usize,
+    pub workspace_reserved_bytes: usize,
+    pub heap_limit_bytes: usize,
+    pub arena_peak_block_bytes: usize,
+    pub arena_peak_requested_bytes: usize,
+    pub arena_live_exit_block_bytes: usize,
+    pub arena_live_exit_requested_bytes: usize,
+    pub arena_allocations: usize,
+    pub arena_enforced: bool,
+    pub complete_workspace_certificate: bool,
+    pub profile_qualified: bool,
+}
+
+pub fn run(options: Options<'_>) -> Result<(Report, i32), native::NativeError> {
+    if INVOKED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Err(native::NativeError("repeated_invocation", 0));
+    }
+    if options.path.as_os_str().as_bytes().len() > 4096 || options.heap_limit > HEAP_BYTES {
+        return Err(native::NativeError("options_bounds", 0));
+    }
+    if std::mem::size_of::<Arena>() > 4096
+        || std::mem::size_of::<Request>() > native::CONTROL_BYTES - 4096
+    {
+        return Err(native::NativeError("control_layout", 0));
+    }
+    let mapping = native::Mapping::new(options.heap_limit)?;
+    crate::trace::set_base(mapping.arena().cast::<u8>().wrapping_add(native::CONTROL_BYTES));
+    // mmap is page aligned and control starts at a 4096-byte aligned offset.
+    #[allow(clippy::cast_ptr_alignment)]
+    let request = mapping.control().cast::<Request>();
+    let mut path = [0u8; 4096];
+    let path_bytes = options.path.as_os_str().as_bytes();
+    path[..path_bytes.len()].copy_from_slice(path_bytes);
+    // SAFETY: the fixed control partition is aligned and large enough, and all
+    // Request fields are fixed-size; no external caller input buffer is retained.
+    unsafe {
+        request.write(Request {
+            path,
+            path_length: path_bytes.len(),
+            row: options.row,
+            role: options.role,
+            units: options.units,
+            input_bytes: options.input_bytes,
+            stack: mapping.stack(),
+            result: ResultState::failure("worker_error", "not_started", 4),
+        });
+    }
+    if ARENA
+        .compare_exchange(
+            ptr::null_mut(),
+            mapping.arena(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return Err(native::NativeError("concurrent_invocation", 0));
+    }
+    CHARGED_UNITS.store(0, Ordering::Relaxed);
+    CHARGED_BYTES.store(0, Ordering::Relaxed);
+    // SAFETY: callback cannot unwind (C ABI aborts); request and stack remain
+    // valid through join, and nothing returned owns an arena allocation.
+    let joined = unsafe { mapping.run(worker, request.cast()) };
+    ACTIVE.store(false, Ordering::Release);
+    let stats = unsafe { &*mapping.arena() }.stats();
+    if stats.live_blocks != 0 || stats.live_requested != 0 {
+        // Retaining an arena allocation across unmapping would be unsound.
+        unsafe { libc::_exit(74) };
+    }
+    let guard_bytes = mapping.guard_bytes();
+    let workspace_reserved_bytes = mapping.length();
+    // This is a one-invocation process. Retain the published mapping until the
+    // OS reclaims it at exit: a concurrent GlobalAlloc caller may already have
+    // loaded ARENA, so clearing it and unmapping would require hazard-pointer
+    // synchronization. Retention also makes subsequent run() attempts refuse.
+    std::mem::forget(mapping);
+    joined?;
+    let result = unsafe { (*request).result };
+    Ok((
+        Report {
+            accelerated: cfg!(feature = "accel"),
+            outcome: result.outcome,
+            verifier_stage: result.stage,
+            charged_units: result.charged_units,
+            charged_bytes: result.charged_bytes,
+            heap_reserved_bytes: HEAP_BYTES,
+            metadata_reserved_bytes: native::METADATA_BYTES,
+            stack_usable_bytes: native::STACK_BYTES,
+            guard_bytes,
+            control_reserved_bytes: native::CONTROL_BYTES,
+            workspace_reserved_bytes,
+            heap_limit_bytes: options.heap_limit,
+            arena_peak_block_bytes: stats.peak_blocks,
+            arena_peak_requested_bytes: stats.peak_requested,
+            arena_live_exit_block_bytes: stats.live_blocks,
+            arena_live_exit_requested_bytes: stats.live_requested,
+            arena_allocations: stats.allocations,
+            arena_enforced: true,
+            complete_workspace_certificate: false,
+            profile_qualified: false,
+        },
+        result.exit,
+    ))
+}
+
+extern "C" fn worker(argument: *mut libc::c_void) -> *mut libc::c_void {
+    // SAFETY: run supplies an exclusive Request in the retained control region.
+    let request = unsafe { &mut *argument.cast::<Request>() };
+    let stack_matches = native::current_stack()
+        .is_ok_and(|(base, size)| base == request.stack && size == native::STACK_BYTES);
+    if !stack_matches {
+        request.result = ResultState::failure("worker_error", "native_stack_mismatch", 4);
+        return ptr::null_mut();
+    }
+    request.result = execute(request);
+    // All record/statement/verifier/error ownership has ended in execute.
+    let trace_was_active = ACTIVE.load(Ordering::Acquire);
+    ACTIVE.store(false, Ordering::Release);
+    if trace_was_active { crate::trace::end(); }
+    ptr::null_mut()
+}
+
+fn execute(request: &Request) -> ResultState {
+    let path = Path::new(OsStr::from_bytes(&request.path[..request.path_length]));
+    // File acquisition and metadata are supervisor setup, before reservation
+    // and arena activation. O_NONBLOCK prevents a FIFO/device open from waiting
+    // before the regular-file check; only regular files are admitted below.
+    let Ok(mut file) = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+    else {
+        return ResultState::failure("input_error", "open", 3);
+    };
+    let Ok(metadata) = file.metadata() else {
+        return ResultState::failure("input_error", "metadata", 3);
+    };
+    if !metadata.is_file() {
+        return ResultState::failure("input_error", "not_regular_file", 3);
+    }
+    let Ok(length) = usize::try_from(metadata.len()) else {
+        return ResultState::failure("admission_rejected", "length_overflow", 2);
+    };
+    let mut budget = Budget::new(request.units, request.input_bytes);
+    let Ok(reservation) = budget.reserve(length) else {
+        return ResultState::failure("admission_rejected", "reserve", 2);
+    };
+    let charge = reservation.charge();
+    debug_assert_eq!(
+        budget.remaining_units(),
+        request.units - charge.verification_units
+    );
+    debug_assert_eq!(
+        budget.remaining_input_bytes(),
+        request.input_bytes - charge.input_bytes
+    );
+    CHARGED_UNITS.store(charge.verification_units, Ordering::Relaxed);
+    CHARGED_BYTES.store(charge.input_bytes, Ordering::Relaxed);
+    crate::trace::begin();
+    ACTIVE.store(true, Ordering::Release);
+    let mut result = ResultState::failure("input_error", "read", 3);
+    result.charged_units = charge.verification_units;
+    result.charged_bytes = charge.input_bytes;
+    let mut record = vec![0u8; length];
+    if !crate::trace::read_record(&mut file, &mut record) {
+        return result;
+    }
+    let receipt = reservation.verify(request.row, request.role, &record);
+    result.charged_units = receipt.charge.verification_units;
+    result.charged_bytes = receipt.charge.input_bytes;
+    match receipt.result {
+        Ok(()) => {
+            result.outcome = "accepted";
+            result.stage = "complete";
+            result.exit = 0;
+        }
+        Err(error) => {
+            (result.outcome, result.stage, result.exit) = classify(error);
+        }
+    }
+    result
+}
+
+fn classify(error: VerificationError) -> (&'static str, &'static str, i32) {
+    match error {
+        VerificationError::InputLengthChanged { .. } => ("input_error", "input_length", 3),
+        VerificationError::Profile(_)
+        | VerificationError::Codec(TestCodecError::Statement(StatementError::Profile(_)))
+        | VerificationError::Proof(VerifyError::Statement(StatementError::Profile(_))) => {
+            ("worker_error", "profile", 4)
+        }
+        VerificationError::Proof(VerifyError::Backend(_)) => ("worker_error", "backend", 4),
+        VerificationError::Codec(_) => ("rejected", "codec", 1),
+        VerificationError::Proof(_) => ("rejected", "proof", 1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhaustion_decimal_writer_is_bounded_and_exact() {
+        for value in [0, 1, 9, 10, 999, u64::MAX] {
+            let mut output = [0; 256];
+            let mut length = 0;
+            decimal(&mut output, &mut length, value);
+            assert_eq!(&output[..length], value.to_string().as_bytes());
+        }
+    }
+
+    #[test]
+    fn operational_failures_are_never_invalid_proofs() {
+        use iroha_parliament_ballot_proof::profile::ProfileError;
+        use iroha_zkp_vole::proof::ProofError;
+        let profile = ProfileError::DescriptorLength { actual: 0 };
+        for error in [
+            VerificationError::Profile(profile),
+            VerificationError::Codec(TestCodecError::Statement(StatementError::Profile(profile))),
+            VerificationError::Proof(VerifyError::Statement(StatementError::Profile(profile))),
+            VerificationError::Proof(VerifyError::Backend(ProofError::ChallengeMismatch)),
+        ] {
+            let (outcome, _, exit) = classify(error);
+            assert_eq!((outcome, exit), ("worker_error", 4));
+        }
+        assert_eq!(
+            classify(VerificationError::InputLengthChanged {
+                expected: 1,
+                actual: 2
+            }),
+            ("input_error", "input_length", 3)
+        );
+        assert_eq!(
+            classify(VerificationError::Codec(TestCodecError::Truncated)),
+            ("rejected", "codec", 1)
+        );
+        assert_eq!(
+            classify(VerificationError::Proof(VerifyError::Rejected)),
+            ("rejected", "proof", 1)
+        );
+    }
+}
+
+#[path = "/private/tmp/parliament-allocation-trace/worker-src-3/controls.rs"]
+mod trace_controls;
+pub use trace_controls::run as run_trace_control;

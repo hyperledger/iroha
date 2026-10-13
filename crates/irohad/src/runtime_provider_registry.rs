@@ -5396,7 +5396,7 @@ mod tests {
                 .expect("provider-ingest completion signer key");
         config.torii.sorafs_storage.provider_ingest_runtime = Some(
             iroha_config::parameters::actual::SorafsProviderIngestRuntime {
-                native_source_origins: Default::default(),
+                native_source_origins: std::collections::BTreeMap::default(),
                 native_completion_credential: None,
                 authenticated_source_fetch_handle:
                     "network://sorafs/provider-ingest/source-primary".to_owned(),

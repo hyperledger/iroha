@@ -1,0 +1,21 @@
+{
+  "time_utc": "2026-10-13T04:41:18.746516+00:00",
+  "command": [
+    "python3",
+    "scripts/formal/check_sora_parliament_source_contract.py"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: crates/iroha_core/src/state.rs: start phases must use the original block and height in order\n",
+  "source_hashes": {
+    "crates/iroha_core/src/state.rs": "7d01f4b945eb43399358f8c889515c7407cd173c9ba631a0fe1b91decbb78582",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786"
+  },
+  "source_identity_unchanged_during_check": true,
+  "scope": "Actual read-only source check at this recorded snapshot; no counterfactual edits. Earlier receipt is source-contract-requirement-audit-earlier.json. Historical diagnostics remain separate.",
+  "production_gate": {
+    "binding_ballot_available": false,
+    "qualified_attempt_latency_ms": null
+  }
+}

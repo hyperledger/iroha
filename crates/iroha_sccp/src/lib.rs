@@ -17,11 +17,14 @@ pub mod api;
 mod ethereum_native;
 pub mod ethereum_source;
 pub mod light_client;
+mod native_memory;
 pub mod v1;
 pub use ethereum_native::*;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod test_support;
+mod ton_cell_hash;
 mod ton_native;
+pub use ton_native::watch as ton_watch;
 // Explicit list of the public `ton_native` primitives. The raw `BoC`/cell types and the
 // block-opening helpers are `pub` inside this private module for crate-internal use only.
 pub use ton_native::{

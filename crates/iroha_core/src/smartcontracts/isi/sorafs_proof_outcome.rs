@@ -2343,7 +2343,7 @@ mod tests {
             }),
             "revision or predecessor is stale",
         );
-        let stale = signer_policy(
+        let outdated = signer_policy(
             2,
             Some([0xEE; 32]),
             &pdp_key_v2,
@@ -2352,7 +2352,7 @@ mod tests {
         );
         assert_instruction_error_contains(
             transact(&mut state, 4, NOW + 2, |state_transaction| {
-                SetSorafsProofOutcomeSignerPolicy::new(stale)
+                SetSorafsProofOutcomeSignerPolicy::new(outdated)
                     .execute(&account(&manager), state_transaction)
             }),
             "revision or predecessor is stale",

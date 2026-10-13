@@ -70,7 +70,10 @@ fn relabelled_native_proof_is_rejected_by_production_dispatch() {
     let bundle = zk_testkit::unqualified_native_ballot_bundle();
     let key = bundle.vk_record.key.as_ref().unwrap();
     let proof = ProofBox::new(bundle.backend.into(), bundle.proof_bytes.clone());
-    assert!(!zk::verify_backend(bundle.backend, &proof, Some(key)));
+    assert!(
+        !zk::verify_backend(bundle.backend, &proof, Some(key))
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }
 #[test]
 fn unadmitted_native_key_and_schema_mutation_cannot_register() {

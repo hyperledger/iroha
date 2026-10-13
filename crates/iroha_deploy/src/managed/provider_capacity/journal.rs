@@ -1,13 +1,14 @@
 //! Bounded immutable generated declaration intent; the wallet owns the sole signed journal.
 
 use super::*;
-use crate::managed::native_operation::attempts::{self, History, Observation, Purpose, Selected};
+#[cfg(test)]
+use crate::managed::native_operation::attempts::Observation;
+use crate::managed::native_operation::attempts::{self, History, Purpose, Selected};
 use iroha_crypto::HashOf;
 use iroha_data_model::sorafs::{
     capacity::CapacityDeclarationRecord, pricing::PricingScheduleRecord,
     reserve::history::validate_provider_record,
 };
-use iroha_fs::PublishMode;
 use iroha_wallet::operations::ProviderCapacityDeclarationRequest;
 use provider_economics::{
     EconomicAmounts, MAX_CREDIT_BYTES, MAX_PARTITION_BYTES, MAX_POLICY_BYTES, MAX_PRICING_BYTES,
@@ -159,15 +160,6 @@ impl Original {
 }
 
 impl Selected<Original> {
-    pub fn matches(
-        &self,
-        policy: &ReserveAuthorityPolicyV1,
-        utc: u64,
-        options: &BoundedTransactionOptions,
-    ) -> Result<()> {
-        self.matches_intent(policy)?;
-        self.terms.matches(utc, options)
-    }
     pub fn request(&self, deadline: Instant) -> ProviderCapacityDeclarationRequest {
         Original::request(self, &self.terms, deadline)
     }
@@ -176,18 +168,22 @@ impl Selected<Original> {
 pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Original>> {
     let names = directory.entries(3)?;
     if names.iter().any(|name| {
-        !["original.nrt", "dispatch.nrt", "attempts"]
+        !["original.nrt", "operation.nrt", "attempts"]
             .iter()
             .any(|allowed| name == *allowed)
     }) {
         return Err(invalid("funding semantic intent contains unknown material"));
     }
     let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         return Ok(None);
     };
+    attempts::metadata::require_published(directory, &bytes)?;
+    decode_original(&bytes).map(Some)
+}
+fn decode_original(bytes: &[u8]) -> Result<Original> {
     let original: Original = norito::decode_canonical_with_limits(
-        &bytes,
+        bytes,
         // Checkpoint and prior declaration byte sequences retain their documented caps; the
         // total allocation, total element count, frame and nesting limits remain finite.
         norito::DecodeLimits::new(
@@ -200,7 +196,16 @@ pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Origina
     )
     .map_err(|_| invalid("invalid bounded original capacity declaration intent"))?;
     original.validate()?;
-    Ok(Some(original))
+    Ok(original)
+}
+/// Complete only the exact retained initialization before selecting fresh native inputs.
+pub(super) fn recover_intent(
+    directory: &PrivateDirectory,
+    validate: impl FnOnce(&Original) -> Result<()>,
+) -> Result<()> {
+    attempts::metadata::recover_original(directory, MAX_ORIGINAL_BYTES, |bytes| {
+        validate(&decode_original(bytes)?)
+    })
 }
 pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selected<Original>>> {
     let Some(intent) = read_intent(directory)? else {
@@ -220,15 +225,15 @@ pub(super) fn required_original(directory: &PrivateDirectory) -> Result<Selected
 pub(super) fn publish_intent(directory: &PrivateDirectory, original: &Original) -> Result<()> {
     original.validate()?;
     let bytes = encode(original, MAX_ORIGINAL_BYTES)?;
-    if let Some(retained) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? {
-        if retained != bytes {
-            return Err(invalid("original funding semantic selection changed"));
-        }
-        return Ok(());
-    }
-    directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
-    Ok(())
+    crate::managed::native_operation::initial_intent::PublishedInitialIntent::publish(
+        directory,
+        bytes,
+        MAX_ORIGINAL_BYTES,
+        "original funding semantic selection changed",
+    )
+    .map(|_| ())
 }
+#[cfg(test)]
 pub(super) fn explicit(
     directory: &PrivateDirectory,
     original: &Original,

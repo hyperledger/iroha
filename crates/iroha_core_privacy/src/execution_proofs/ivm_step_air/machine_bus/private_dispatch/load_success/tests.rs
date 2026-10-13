@@ -1159,13 +1159,31 @@ fn actual_native_private_stack_load_preserves_atomic_value_and_tag_and_rejects_f
             );
             let mut recorder =
                 ivm::execution_step_recorder::DiagnosticStepRecorder::try_new(16, &budget).unwrap();
-            assert_eq!(
+            assert!(match (
                 vm.run_with_host_diagnostic_steps(
                     &mut ivm::host::DefaultHost::default(),
                     &mut recorder
                 ),
-                Err(expected_error)
-            );
+                expected_error
+            ) {
+                (Err(VMError::PrivacyViolation), VMError::PrivacyViolation)
+                | (Err(VMError::OutOfGas), VMError::OutOfGas) => true,
+                (
+                    Err(VMError::MisalignedAccess { addr: actual }),
+                    VMError::MisalignedAccess { addr: expected },
+                ) => actual == expected,
+                (
+                    Err(VMError::MemoryAccessViolation {
+                        addr: actual_addr,
+                        perm: actual_perm,
+                    }),
+                    VMError::MemoryAccessViolation {
+                        addr: expected_addr,
+                        perm: expected_perm,
+                    },
+                ) => actual_addr == expected_addr && actual_perm == expected_perm,
+                _ => false,
+            });
             let record = &recorder.records()[0];
             assert_eq!(record.instruction, Some(p.words[0]));
             assert_eq!(

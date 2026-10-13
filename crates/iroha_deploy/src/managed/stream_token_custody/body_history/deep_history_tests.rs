@@ -2,6 +2,7 @@
 //! These local histories do not qualify current signing eligibility or running services.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::test_support::native_fixture::quote_instructions,
     stream_token_custody::{
@@ -257,7 +258,7 @@ fn populate_deep_history(fixture: &mut Fixture, complete_before: Instant) -> Com
         assert_eq!(history.anchor.active, Some(ordinal));
         assert!(!history.has_pending());
         assert!(
-            history.anchor.completed.is_some() && history.original().unwrap().is_some(),
+            history.anchor.completed.is_some() && history.original().is_some(),
             "body {ordinal} must complete its signed Original before dispatch: selected_at_unix_ms={}, body_expiry_unix_ms={}, now_unix_ms={}, completed={}, original_present={}, inclusive_finish_phases={finish_phases:?}",
             history
                 .bodies
@@ -276,7 +277,7 @@ fn populate_deep_history(fixture: &mut Fixture, complete_before: Instant) -> Com
                 .expires_at_unix_ms,
             now_ms().unwrap(),
             history.anchor.completed.is_some(),
-            history.original().unwrap().is_some(),
+            history.original().is_some(),
         );
         let retention_started = Instant::now();
         let selected = fixture
@@ -465,13 +466,10 @@ fn verify_deep_history(fixture: &Fixture, completed: CompletedDeepHistory) {
         .unwrap();
     require_full_census(history.current_history().unwrap());
     drop(history.read_current(&fixture.owner).unwrap());
-    let closure = oldest.read("closed.nrt", 64 * 1024).unwrap();
-    oldest
-        .write_atomic(
-            "closed.nrt",
-            b"changed oldest closure",
-            PublishMode::Replace,
-        )
+    let closure = metadata::test_read_component(&oldest, None, "closed.nrt")
+        .unwrap()
+        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(b"changed oldest closure"))
         .unwrap();
     assert!(
         history
@@ -482,9 +480,7 @@ fn verify_deep_history(fixture: &Fixture, completed: CompletedDeepHistory) {
             .is_err()
     );
     assert!(history.read_current(&fixture.owner).is_err());
-    oldest
-        .write_atomic("closed.nrt", &closure, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&oldest, None, "closed.nrt", Some(&closure)).unwrap();
     require_full_census(history.current_history().unwrap());
     drop(history.read_current(&fixture.owner).unwrap());
 

@@ -113,9 +113,8 @@ impl RetainedProviderServicePlan {
     /// Exact fixed generated journal policy authenticated by its original canonical digest.
     /// This is local durability intent, not current approval authority or an external rollback seal.
     #[must_use]
-    pub fn attestation_journal_policy(
-        &self,
-    ) -> sorafs_node::provider_attestation_journal::MusubiProviderAttestationJournalPolicyV1 {
+    pub fn attestation_journal_policy()
+    -> sorafs_node::provider_attestation_journal::MusubiProviderAttestationJournalPolicyV1 {
         sorafs_node::provider_attestation_journal::MusubiProviderAttestationJournalPolicyV1::default(
         )
     }
@@ -186,6 +185,12 @@ fn policy(capabilities: &[CapabilityTlv]) -> Result<RegisteredAccountReadV1> {
         .ok_or_else(|| eyre!("generated provider lacks exact account-read policy"))
 }
 
+/// One shared uniqueness inventory for generated signing identities and TLS keys.
+pub(super) struct ProviderKeyInventory<'a> {
+    pub unique: &'a mut BTreeSet<iroha_crypto::PublicKey>,
+    pub tls_keys: &'a mut BTreeSet<Hash>,
+}
+
 impl GeneratedProvider {
     pub(super) fn generate(
         directory: &Path,
@@ -194,9 +199,9 @@ impl GeneratedProvider {
         provider: ProviderId,
         operator: &AccountId,
         network: &network_material::NetworkServicePlanV1,
-        unique: &mut BTreeSet<iroha_crypto::PublicKey>,
-        tls_keys: &mut BTreeSet<Hash>,
+        keys: ProviderKeyInventory<'_>,
     ) -> Result<Self> {
+        let ProviderKeyInventory { unique, tls_keys } = keys;
         ensure!(
             usize::from(slot) < PROVIDER_COUNT,
             "provider slot exceeds original topology"

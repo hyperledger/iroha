@@ -1,4 +1,5 @@
 // Instruction fixtures and committed-state routing regression tests.
+use ivm::ProgramMetadata;
 fn minimal_contract_bytes() -> (iroha_crypto::Hash, Vec<u8>) {
     let mut program = ivm::ProgramMetadata {
         version_major: 1,

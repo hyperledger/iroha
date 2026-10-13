@@ -38,13 +38,6 @@
 //! - [`sha256`] (M3): one SHA-256 compression per block on spread-table
 //!   units (degree 5, one lookup), and the codec of a Poseidon digest as the
 //!   32-byte canonical message of one padded block;
-//! - [`blake2b`]: constrained BLAKE2b-256, Iroha hash marking, and streaming
-//!   compression with linked state, counters and final flag;
-//! - [`merkle`]: ordinary counted application-tree inclusion, with exact
-//!   leaf/internal domains and constrained ragged-edge promotion;
-//! - [`bls12_381`]: canonical 381-bit arithmetic, extension fields, curve
-//!   and pairing components, and the native W3f hash-to-field transcript.
-//!   These components alone do not establish signatures or finality;
 //! - [`table`] (M3b): the shared lookup table of the Q leaf, through which
 //!   the SHA-256 and P-256 window lookups ride on foreign-field range
 //!   arguments, and its soundness conditions;
@@ -91,14 +84,11 @@
 #![forbid(unsafe_code)]
 
 pub mod arith;
-pub mod blake2b;
-pub mod bls12_381;
 pub mod bytes;
 pub mod cells;
 pub mod ecc;
 pub mod ff;
 pub mod imt;
-pub mod merkle;
 pub mod p256;
 pub mod phase;
 pub mod poseidon;

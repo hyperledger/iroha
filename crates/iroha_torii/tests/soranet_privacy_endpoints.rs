@@ -280,7 +280,7 @@ async fn privacy_share_endpoint_combines_shares() {
         replay_error.into_response().status(),
         StatusCode::BAD_REQUEST
     );
-    let metrics = telemetry.metrics().await;
+    let metrics = telemetry.metrics();
     let suppressed = metrics
         .soranet_privacy_bucket_suppressed
         .get_metric_with_label_values(&["middle"])

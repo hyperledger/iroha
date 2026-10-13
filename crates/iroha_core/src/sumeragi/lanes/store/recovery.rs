@@ -8,7 +8,6 @@ pub struct LaneStoreOpen {
     pub(super) store: FileLaneBlockStore,
     target: u64,
     pub(super) validated: u64,
-    refusal: Option<crate::execution_attempt::ExecutionDeferred>,
 }
 impl LaneStoreOpen {
     pub(super) fn new(store: FileLaneBlockStore, target: u64) -> Self {
@@ -16,7 +15,6 @@ impl LaneStoreOpen {
             store,
             target,
             validated: 0,
-            refusal: None,
         }
     }
     /// Complete recovery, returning this exact owner on every refusal or error.
@@ -34,14 +32,7 @@ impl LaneStoreOpen {
         // Borrow the original startup owner through cleanup; the scope returns only the
         // small attempt result before this function moves the complete owner once.
         let outcome = FileLaneBlockStore::with_original_refunds(&budget, || {
-            if let Err(error) = self.progress() {
-                self.refusal = match &error {
-                    Attempt::Deferred(original) => Some(original.clone()),
-                    Attempt::Rejected(_) => None,
-                };
-                return Err(error);
-            }
-            self.refusal = None;
+            self.progress()?;
             *self.store.state.lock() = StoreState {
                 tip: self.target,
                 read: None,

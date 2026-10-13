@@ -210,7 +210,8 @@ fn sample_stark_vk_box(
 fn stark_single_fold_roundtrip_ok_and_fail() {
     let env = build_sample_air_composition_envelope();
     let bytes = norito::to_bytes(&env).expect("encode");
-    let native_ok = iroha_core_zk::stark::verify_stark_fri_envelope(&bytes);
+    let native_ok = iroha_core_zk::stark::verify_stark_fri_envelope(&bytes)
+        .expect("verification attempt must complete for this semantic fixture");
     assert!(native_ok, "native STARK verifier rejected sample envelope");
     // Tamper auxiliary term and expect rejection
     let mut env_bad_comp = env.clone();
@@ -219,7 +220,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     }
     let bytes_bad_comp = norito::to_bytes(&env_bad_comp).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_comp),
+        !verify_stark_fri_envelope(&bytes_bad_comp)
+            .expect("verification attempt must complete for this semantic fixture"),
         "tampered composition term should fail"
     );
     // Tamper with the derived index and expect rejection
@@ -227,7 +229,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     env_bad_index.proof.queries[0][0].j = env_bad_index.proof.queries[0][0].j.wrapping_add(1);
     let bytes_bad_index = norito::to_bytes(&env_bad_index).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_index),
+        !verify_stark_fri_envelope(&bytes_bad_index)
+            .expect("verification attempt must complete for this semantic fixture"),
         "tampered query index should fail"
     );
     // Corrupt one z1 value and expect failure
@@ -235,7 +238,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     mutate_fp4(&mut env_bad.proof.queries[0][1].z);
     let bytes_bad = norito::to_bytes(&env_bad).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad),
+        !verify_stark_fri_envelope(&bytes_bad)
+            .expect("verification attempt must complete for this semantic fixture"),
         "tampered STARK proof should fail"
     );
     // Wrong root should fail deterministically
@@ -243,7 +247,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     mutate_digest(&mut env_bad_root.proof.commits.roots[0]);
     let bytes_bad_root = norito::to_bytes(&env_bad_root).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_root),
+        !verify_stark_fri_envelope(&bytes_bad_root)
+            .expect("verification attempt must complete for this semantic fixture"),
         "tampered root must fail"
     );
     // Broken Merkle path should fail
@@ -251,7 +256,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     mutate_digest(&mut env_bad_path.proof.queries[0][0].path_y0.siblings[0]);
     let bytes_bad_path = norito::to_bytes(&env_bad_path).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_path),
+        !verify_stark_fri_envelope(&bytes_bad_path)
+            .expect("verification attempt must complete for this semantic fixture"),
         "broken Merkle path should fail"
     );
     // Round-count/roots mismatch should fail
@@ -260,7 +266,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     env_bad_rounds.proof.queries[0].pop();
     let bytes_bad_rounds = norito::to_bytes(&env_bad_rounds).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_rounds),
+        !verify_stark_fri_envelope(&bytes_bad_rounds)
+            .expect("verification attempt must complete for this semantic fixture"),
         "mismatched round count should fail validation"
     );
     // Query-count/header mismatch should fail
@@ -268,7 +275,8 @@ fn stark_single_fold_roundtrip_ok_and_fail() {
     env_bad_query_header.params.queries = 2;
     let bytes_bad_query_header = norito::to_bytes(&env_bad_query_header).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes_bad_query_header),
+        !verify_stark_fri_envelope(&bytes_bad_query_header)
+            .expect("verification attempt must complete for this semantic fixture"),
         "mismatched query count in params should fail"
     );
 }
@@ -284,7 +292,8 @@ fn stark_rejects_duplicate_auxiliary_composition_wires() {
     comp_values[0].aux_terms[1].wire_index = first_wire;
     let bytes = norito::to_bytes(&env).expect("encode duplicate auxiliary wires");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "duplicate auxiliary composition wires must be rejected"
     );
 }
@@ -300,7 +309,8 @@ fn stark_rejects_auxiliary_composition_wire_retarget_without_digest_match() {
         comp_values[0].aux_terms[1].wire_index.saturating_add(1);
     let bytes = norito::to_bytes(&env).expect("encode retargeted auxiliary wire");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "auxiliary wire-index retargeting must remain bound to the AIR public digest"
     );
 }
@@ -328,7 +338,7 @@ fn stark_composition_constructor_requires_strict_auxiliary_wire_order() {
     )
     .expect_err("duplicate auxiliary wires must fail before proof construction");
     assert!(
-        duplicate_err.contains("strictly ordered"),
+        matches!(&duplicate_err, iroha_core_zk::stark::StarkProofProductionError::Input(message) if message.contains("strictly ordered")),
         "unexpected duplicate-wire error: {duplicate_err}"
     );
     let unsorted_terms = vec![
@@ -352,7 +362,7 @@ fn stark_composition_constructor_requires_strict_auxiliary_wire_order() {
     )
     .expect_err("unsorted auxiliary wires must fail before proof construction");
     assert!(
-        unsorted_err.contains("strictly ordered"),
+        matches!(&unsorted_err, iroha_core_zk::stark::StarkProofProductionError::Input(message) if message.contains("strictly ordered")),
         "unexpected unsorted-wire error: {unsorted_err}"
     );
 }
@@ -361,7 +371,8 @@ fn stark_low_level_envelope_requires_air_section() {
     let env = build_sample_envelope();
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "native STARK verifier must reject V1 envelopes without AIR openings"
     );
 }
@@ -370,7 +381,8 @@ fn stark_six_lane_fp4_roundtrip_ok() {
     let env = build_sample_air_envelope();
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        verify_stark_fri_envelope(&bytes),
+        verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "native STARK verifier rejected the canonical six-lane Fp4 envelope"
     );
 }
@@ -381,7 +393,8 @@ fn stark_rejects_mismatched_merkle_indices() {
     core::mem::swap(&mut first.path_y0, &mut first.path_y1);
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "index-mismatched Merkle openings must be rejected"
     );
 }
@@ -398,7 +411,8 @@ fn stark_rejects_unbound_air_composition_root() {
     );
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR composition root must authenticate the base-field composition openings"
     );
 }
@@ -408,7 +422,8 @@ fn stark_rejects_tampered_air_trace_root() {
     mutate_digest(&mut env.proof.air.as_mut().expect("AIR section").trace_root);
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR trace root must authenticate sampled trace rows"
     );
 }
@@ -418,7 +433,8 @@ fn stark_rejects_tampered_air_public_digest() {
     mutate_digest(&mut env.proof.air.as_mut().expect("AIR section").public_digest);
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR public digest must remain bound to sampled rows and composition openings"
     );
 }
@@ -429,7 +445,8 @@ fn stark_rejects_air_trace_width_mismatch() {
     air.trace_width = air.trace_width.saturating_add(1);
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR trace width must match the V1 AIR layout"
     );
 }
@@ -441,7 +458,8 @@ fn stark_rejects_air_opening_count_mismatch() {
     air.openings.clear();
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR opening count must match verifier query count"
     );
 }
@@ -454,7 +472,8 @@ fn stark_air_width_limit_is_enforced() {
     let mut limits = StarkVerifierLimits::default();
     limits.max_air_width = trace_width - 1;
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes, &limits),
+        !verify_stark_fri_envelope_with_limits(&bytes, &limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "AIR trace width must respect verifier limits"
     );
 }
@@ -499,7 +518,8 @@ fn stark_open_verify_envelope_rejects_synthetic_air_proof() {
         norito::to_bytes(&env).expect("encode OpenVerifyEnvelope"),
     );
     assert!(
-        !verify_backend(backend, &proof, Some(&vk_box)),
+        !verify_backend(backend, &proof, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture"),
         "wrapped STARK OpenVerifyEnvelope must fail closed when the AIR section is missing"
     );
     // Changing circuit_id without updating the inner envelope's `domain_tag` must fail.
@@ -510,7 +530,8 @@ fn stark_open_verify_envelope_rejects_synthetic_air_proof() {
         norito::to_bytes(&env_bad).expect("encode tampered OpenVerifyEnvelope"),
     );
     assert!(
-        !verify_backend(backend, &proof_bad, Some(&vk_box)),
+        !verify_backend(backend, &proof_bad, Some(&vk_box))
+            .expect("verification attempt must complete for this semantic fixture"),
         "STARK OpenVerifyEnvelope must bind circuit_id via domain_tag"
     );
 }
@@ -520,7 +541,8 @@ fn retired_poseidon2_backend_label_is_rejected() {
     let retired_backend = "stark/fri/poseidon2-goldilocks";
     let proof = ProofBox::new(retired_backend.to_owned(), vec![0xA5]);
     assert!(
-        !verify_backend(retired_backend, &proof, None),
+        !verify_backend(retired_backend, &proof, None)
+            .expect("verification attempt must complete for this semantic fixture"),
         "the pre-release Poseidon2 backend label must remain rejection-only"
     );
 }
@@ -1239,7 +1261,8 @@ fn stark_envelope_respects_limits() {
     let env = build_sample_air_composition_envelope();
     let bytes = norito::to_bytes(&env).expect("encode");
     assert!(
-        verify_stark_fri_envelope(&bytes),
+        verify_stark_fri_envelope(&bytes)
+            .expect("verification attempt must complete for this semantic fixture"),
         "default limits should accept the sample envelope"
     );
     let default_limits = StarkVerifierLimits::default();
@@ -1250,13 +1273,15 @@ fn stark_envelope_respects_limits() {
     env_bad_tag.params.domain_tag = "TOO-LONG-TAG".into();
     let bytes_bad_tag = norito::to_bytes(&env_bad_tag).expect("encode");
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes_bad_tag, &tight_limits),
+        !verify_stark_fri_envelope_with_limits(&bytes_bad_tag, &tight_limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "envelope with oversized domain tag must fail under stricter limits"
     );
     // Apply envelope byte budget lower than payload size to confirm size guard triggers.
     tight_limits.max_envelope_bytes = bytes.len().saturating_sub(1);
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes, &tight_limits),
+        !verify_stark_fri_envelope_with_limits(&bytes, &tight_limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "envelope larger than allowed byte budget must fail"
     );
     let mut relaxed_limits = default_limits;
@@ -1265,7 +1290,8 @@ fn stark_envelope_respects_limits() {
     relaxed_limits.max_envelope_bytes = default_limits.max_envelope_bytes + 1;
     let oversized_envelope_bytes = vec![0_u8; default_limits.max_envelope_bytes + 1];
     assert!(
-        !verify_stark_fri_envelope_with_limits(&oversized_envelope_bytes, &relaxed_limits),
+        !verify_stark_fri_envelope_with_limits(&oversized_envelope_bytes, &relaxed_limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "raised public limits must not relax the native encoded-envelope byte cap"
     );
     let over_canonical_domain_tag = "d".repeat(default_limits.max_domain_tag_len + 1);
@@ -1278,7 +1304,7 @@ fn stark_envelope_respects_limits() {
     )
     .expect_err("public STARK prover must reject over-canonical domain tags");
     assert!(
-        err.contains("domain tag"),
+        matches!(&err, iroha_core_zk::stark::StarkProofProductionError::Input(message) if message.contains("domain tag")),
         "domain-tag rejection should be explicit, got: {err}"
     );
     let over_canonical_transcript_label = "T".repeat(default_limits.max_transcript_label_len + 1);
@@ -1291,7 +1317,7 @@ fn stark_envelope_respects_limits() {
     )
     .expect_err("public STARK prover must reject over-canonical transcript labels");
     assert!(
-        err.contains("transcript label"),
+        matches!(&err, iroha_core_zk::stark::StarkProofProductionError::Input(message) if message.contains("transcript label")),
         "transcript-label rejection should be explicit, got: {err}"
     );
     let mut env_over_canonical_tag = env.clone();
@@ -1299,7 +1325,8 @@ fn stark_envelope_respects_limits() {
     let bytes_over_canonical_tag =
         norito::to_bytes(&env_over_canonical_tag).expect("encode over-canonical domain tag");
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes_over_canonical_tag, &relaxed_limits),
+        !verify_stark_fri_envelope_with_limits(&bytes_over_canonical_tag, &relaxed_limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "raised public limits must not relax the canonical domain-tag cap"
     );
     let mut env_over_canonical_label = env;
@@ -1307,7 +1334,8 @@ fn stark_envelope_respects_limits() {
     let bytes_over_canonical_label = norito::to_bytes(&env_over_canonical_label)
         .expect("encode over-canonical transcript label");
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes_over_canonical_label, &relaxed_limits),
+        !verify_stark_fri_envelope_with_limits(&bytes_over_canonical_label, &relaxed_limits)
+            .expect("verification attempt must complete for this semantic fixture"),
         "raised public limits must not relax the canonical transcript-label cap"
     );
 }

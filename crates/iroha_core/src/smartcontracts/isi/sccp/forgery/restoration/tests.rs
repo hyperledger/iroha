@@ -673,8 +673,12 @@ fn absent_original_tip_refuses_undo_only_offences_and_maximum() {
         assert!(state.view().native_execution_tip().is_none());
         if maximum_only {
             state.world.sccp_forgery_max_generation =
-                crate::state::sccp_forgery_custody::initialize_max(None, Some(Some(1)), &budget)
-                    .unwrap();
+                crate::state::sccp_forgery_custody::initialize_max(
+                    None,
+                    crate::state::sccp_forgery_custody::MaxGenerationPredecessor::Value(Some(1)),
+                    &budget,
+                )
+                .unwrap();
         } else {
             // Copy the exact key through the destination's original owner, then create a
             // current-empty/predecessor-present claim. The decoded claim is not authority.

@@ -21,12 +21,15 @@ use iroha_primitives::json::Json;
 /// Consensus restrictions selected by a generated dataspace profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsensusPolicy {
-    /// Allow either permissioned or NPoS consensus.
+    /// Allow either permissioned or `NPoS` consensus.
     Any,
-    /// Require NPoS (public dataspace rule).
+    /// Require `NPoS` (public dataspace rule).
     PublicDataspace,
 }
 /// Enforce the profile consensus restriction before creating artifacts.
+///
+/// # Errors
+/// Returns an error when a public dataspace selects a consensus mode other than `NPoS`.
 pub fn validate_consensus_mode(
     consensus_mode: SumeragiConsensusMode,
     policy: ConsensusPolicy,
@@ -42,6 +45,9 @@ pub fn validate_consensus_mode(
 }
 /// Build the canonical operator-owned genesis with explicit authority and consensus parameters.
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+///
+/// # Errors
+/// Returns an error for invalid bootstrap identifiers, missing `NPoS` seed, invalid consensus parameters, or failed genesis construction.
 pub fn generate_default(
     builder: GenesisBuilder,
     genesis_public_key: &PublicKey,

@@ -134,11 +134,6 @@ std::thread_local! {
     static SIDECAR_DIRECTORY_CANONICALIZATIONS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     static AUTONOMOUS_ARTIFACT_VALIDATIONS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
-const CONSENSUS_SIDECAR_MATCH_SCAN_BUDGET: usize = 64;
-/// Lane evidence that authorizes a later durable publication must cross the
-/// complete data/index/directory barrier independently of ordinary batched
-/// sidecar persistence.
-const REQUIRED_LANE_SIDECAR_FSYNC_MODE: FsyncMode = FsyncMode::Always;
 const PIPELINE_SIDECARS_DATA_FILE: &str = "sidecars.norito";
 const PIPELINE_SIDECARS_INDEX_FILE: &str = "sidecars.index";
 const PIPELINE_INDEX_ENTRY_SIZE: usize = core::mem::size_of::<u64>() * 2;
@@ -414,7 +409,7 @@ pub struct Kura {
     /// Exclusive OS lock dropped after every Kura resource but before temporary-directory cleanup.
     _store_root_lock_file: Option<std::fs::File>,
     /// Retains the temporary storage directory used by isolated Kura instances.
-    _temp_store_dir: Option<tempfile::TempDir>,
+    temp_store_dir: Option<tempfile::TempDir>,
 }
 #[derive(Debug)]
 struct KuraInstanceIdentityMarker;
@@ -439,18 +434,7 @@ include!("kura/resident_inventory_owners.rs");
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BlockNotify {
     NewBlock,
-    StorageBudgetEviction,
     Shutdown,
-}
-/// Result of one bounded lane-history compaction pass.
-///
-/// Capacity-blocked maintenance is deliberately distinct from incomplete
-/// progress: callers must exit the pass and retain the uncompacted evidence,
-/// never retry while holding the startup or retirement lock corridor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LaneHistoryCompactionOutcome {
-    Complete,
-    CapacityBlocked,
 }
 impl Kura {
     /// Retain the original configured pool for State history construction and edits.
@@ -859,11 +843,8 @@ impl Kura {
         index.complete =
             index.incomplete_heights.is_empty() && index.indexed_heights.len() == chain_len;
     }
-    fn truncate_transaction_entrypoint_index(&self, keep: usize) {
-        let mut index = self.transaction_entrypoint_index.lock();
-        Self::truncate_transaction_entrypoint_index_to(&mut index, keep);
-    }
 
+    #[cfg(test)]
     fn truncate_transaction_entrypoint_index_to(
         index: &mut TransactionEntrypointIndex,
         keep: usize,
@@ -887,10 +868,6 @@ impl Kura {
         let mut index = self.block_height_index.lock();
         index.retain(|_, indexed_height| *indexed_height != height);
         index.insert(hash, height);
-    }
-    fn truncate_block_height_index(&self, keep: usize) {
-        let mut index = self.block_height_index.lock();
-        index.retain(|_, height| height.get() <= keep);
     }
 }
 impl Kura {
@@ -1125,7 +1102,7 @@ impl Kura {
                 store_root,
             )
         })?;
-        kura_inner._temp_store_dir = Some(temp_store_dir);
+        kura_inner.temp_store_dir = Some(temp_store_dir);
         Ok(kura)
     }
     fn acquire_store_root_lock(
@@ -1167,9 +1144,9 @@ impl Kura {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600).custom_flags(i32::from_ne_bytes(
-                rustix::fs::OFlags::NOFOLLOW.bits().to_ne_bytes(),
-            ));
+            options
+                .mode(0o600)
+                .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
         }
         let file = options
             .open(&lock_path)
@@ -1590,7 +1567,7 @@ impl Kura {
             pause_total_disk_usage_scan_after_scan: AtomicBool::new(false),
             #[cfg(test)]
             total_disk_usage_scan_paused: AtomicBool::new(false),
-            _temp_store_dir: None,
+            temp_store_dir: None,
         });
 
         if config.init_mode == InitMode::Strict {
@@ -1808,7 +1785,7 @@ impl Kura {
             pause_total_disk_usage_scan_after_scan: AtomicBool::new(false),
             #[cfg(test)]
             total_disk_usage_scan_paused: AtomicBool::new(false),
-            _temp_store_dir: Some(temp_store_dir),
+            temp_store_dir: Some(temp_store_dir),
         })
     }
     /// Attach a telemetry sink for storage and durable finality reporting.
@@ -2176,6 +2153,7 @@ impl Kura {
                     Some(current.saturating_sub(delta))
                 });
     }
+    #[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
     fn invalidate_pending_budget_cache(&self) {
         self.pending_budget_bytes_valid
             .store(false, Ordering::Relaxed);
@@ -2266,13 +2244,6 @@ impl Kura {
             resource_inventory::Unavailable::InvalidInventory,
         );
     }
-    /// Preserve a local storage read failure by closing the permanent native gate.
-    /// Only storage-coordinate reads belong here; candidate identity checks run afterwards.
-    pub(crate) fn consensus_storage_read<T>(&self, result: Result<T>) -> Result<T> {
-        result.inspect_err(|error| {
-            self.poison_canonical_storage("consensus storage read failed", error);
-        })
-    }
     /// The permanent native consensus gate shared by every instance using this Kura.
     /// A clone obtained after poison is already closed; there is no replaceable binding.
     pub(crate) fn native_consensus_gate(&self) -> Arc<crate::sumeragi::driver::NodeGate> {
@@ -2352,11 +2323,6 @@ impl Kura {
         }
         self.ensure_prune_recovery_not_required()
     }
-    /// Number of newest canonical block bodies protected from Kura eviction.
-    #[must_use]
-    pub(crate) fn blocks_in_memory(&self) -> NonZeroUsize {
-        self.blocks_in_memory
-    }
     fn lane_storage_entries_from_geometry(
         &self,
         lane_config: &LaneConfig,
@@ -2412,6 +2378,7 @@ impl Kura {
                 )
             })
     }
+    #[cfg(test)]
     fn lane_storage_entry(&self, lane_id: LaneId) -> Result<LaneStorageEntry> {
         self.lane_storage_entries
             .lock()
@@ -2513,22 +2480,6 @@ impl Kura {
             && left.ctime_nsec() == right.ctime_nsec()
     }
     #[cfg(unix)]
-    fn sidecar_file_metadata_unchanged_across_rename(
-        left: &SecureMetadata,
-        right: &SecureMetadata,
-    ) -> bool {
-        use std::os::unix::fs::MetadataExt as _;
-        // Renaming the bound object legitimately advances ctime. Preserve the
-        // exact-object, link-count, length, and content-mtime checks that detect
-        // replacement or concurrent writes across quarantine publication.
-        Self::sidecar_metadata_same_object(left, right)
-            && left.nlink() == 1
-            && right.nlink() == 1
-            && left.len() == right.len()
-            && left.mtime() == right.mtime()
-            && left.mtime_nsec() == right.mtime_nsec()
-    }
-    #[cfg(unix)]
     fn sidecar_directory_metadata_unchanged(left: &SecureMetadata, right: &SecureMetadata) -> bool {
         use std::os::unix::fs::MetadataExt as _;
         Self::sidecar_metadata_same_object(left, right)
@@ -2619,21 +2570,6 @@ impl Kura {
     fn sidecar_is_single_link(_metadata: &SecureMetadata) -> bool {
         false
     }
-    #[cfg(unix)]
-    fn sidecar_has_link_count(metadata: &SecureMetadata, expected: u64) -> bool {
-        use std::os::unix::fs::MetadataExt as _;
-        metadata.nlink() == expected
-    }
-    #[cfg(windows)]
-    fn sidecar_has_link_count(metadata: &SecureMetadata, expected: u64) -> bool {
-        u32::try_from(expected)
-            .ok()
-            .is_some_and(|expected| metadata.number_of_links() == Some(expected))
-    }
-    #[cfg(all(not(unix), not(windows)))]
-    fn sidecar_has_link_count(_metadata: &SecureMetadata, _expected: u64) -> bool {
-        false
-    }
     fn canonical_sidecar_directory_for(
         store_root: &Path,
         expected_directory: &Path,
@@ -2712,139 +2648,6 @@ impl Kura {
             canonical_path: current.as_ref().map(|(path, _)| path.clone()),
             metadata: current.map(|(_, metadata)| metadata),
         })
-    }
-    fn stable_sidecar_directory_inventory(
-        &self,
-        expected_directory: &Path,
-    ) -> Result<StableSidecarDirectoryInventory> {
-        self.stable_sidecar_directory_inventory_with_recognized_child(expected_directory, None)
-    }
-    fn stable_sidecar_directory_inventory_with_recognized_child(
-        &self,
-        expected_directory: &Path,
-        recognized_child: Option<&Path>,
-    ) -> Result<StableSidecarDirectoryInventory> {
-        if recognized_child.is_some_and(|child| child.parent() != Some(expected_directory)) {
-            return Err(Error::IO(
-                std::io::Error::new(
-                    ErrorKind::InvalidInput,
-                    "recognized startup replay child is not direct",
-                ),
-                expected_directory.to_path_buf(),
-            ));
-        }
-        let before = self.stable_sidecar_directory_metadata(expected_directory)?;
-        let mut files = BTreeMap::new();
-        if before.metadata.is_some() {
-            let entries = std::fs::read_dir(expected_directory)
-                .map_err(|error| Error::IO(error, expected_directory.to_path_buf()))?;
-            for entry in entries {
-                let entry =
-                    entry.map_err(|error| Error::IO(error, expected_directory.to_path_buf()))?;
-                let path = entry.path();
-                if recognized_child == Some(path.as_path()) {
-                    self.canonical_sidecar_directory(&path)?.ok_or_else(|| {
-                        Error::IO(
-                            std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "recognized startup replay child directory disappeared during identity capture",
-                            ),
-                            path.clone(),
-                        )
-                    })?;
-                    continue;
-                }
-                let metadata = self
-                    .regular_sidecar_metadata(&path, expected_directory)?
-                    .ok_or_else(|| {
-                        Error::IO(
-                            std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "startup replay sidecar disappeared during identity capture",
-                            ),
-                            path.clone(),
-                        )
-                    })?;
-                files.insert(path, metadata);
-            }
-        }
-        let after = self.stable_sidecar_directory_metadata(expected_directory)?;
-        if !Self::stable_sidecar_directory_metadata_unchanged(&before, &after) {
-            return Err(Error::IO(
-                std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    "startup replay sidecar directory changed during identity capture",
-                ),
-                expected_directory.to_path_buf(),
-            ));
-        }
-        Ok(StableSidecarDirectoryInventory {
-            directory: after,
-            files,
-        })
-    }
-    fn startup_auxiliary_identity_error(&self, path: &Path, change: &str) -> Error {
-        Error::IO(
-            std::io::Error::new(
-                ErrorKind::InvalidData,
-                format!("startup replay sidecar identity changed: {change}"),
-            ),
-            path.to_path_buf(),
-        )
-    }
-    fn require_startup_auxiliary_identity(
-        expected: &StableSidecarDirectoryInventory,
-        current: &StableSidecarDirectoryInventory,
-    ) -> Result<()> {
-        let error = |path: &Path, change: &str| {
-            Error::IO(
-                std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    format!("startup replay sidecar identity changed: {change}"),
-                ),
-                path.to_path_buf(),
-            )
-        };
-        for (path, metadata) in &expected.files {
-            let found = current
-                .files
-                .get(path)
-                .ok_or_else(|| error(path, "file removed"))?;
-            if !Self::stable_sidecar_metadata_unchanged(metadata, found) {
-                return Err(error(path, "file object or metadata changed"));
-            }
-        }
-        if let Some(path) = current
-            .files
-            .keys()
-            .find(|path| !expected.files.contains_key(*path))
-        {
-            return Err(error(path, "file added"));
-        }
-        if !Self::stable_sidecar_directory_metadata_unchanged(
-            &expected.directory,
-            &current.directory,
-        ) {
-            let change = match (&expected.directory.metadata, &current.directory.metadata) {
-                (None, Some(_)) => "directory appeared",
-                (Some(_), None) => "directory disappeared",
-                _ => "directory object, path, or metadata changed",
-            };
-            return Err(error(&expected.directory.expected_path, change));
-        }
-        Ok(())
-    }
-    fn stable_sidecar_directory_inventory_unchanged(
-        left: &StableSidecarDirectoryInventory,
-        right: &StableSidecarDirectoryInventory,
-    ) -> bool {
-        Self::stable_sidecar_directory_metadata_unchanged(&left.directory, &right.directory)
-            && left.files.len() == right.files.len()
-            && left.files.iter().all(|(path, metadata)| {
-                right.files.get(path).is_some_and(|current| {
-                    Self::stable_sidecar_metadata_unchanged(metadata, current)
-                })
-            })
     }
     fn regular_sidecar_metadata_for(
         store_root: &Path,
@@ -2934,7 +2737,7 @@ impl Kura {
                 path.to_path_buf(),
             ));
         }
-        let _file_name = path.file_name().ok_or_else(|| {
+        let file_name = path.file_name().ok_or_else(|| {
             Error::IO(
                 std::io::Error::new(
                     ErrorKind::InvalidInput,
@@ -2947,7 +2750,7 @@ impl Kura {
         let file = std::fs::File::from(
             rustix::fs::openat(
                 &immediate.file,
-                _file_name,
+                file_name,
                 rustix::fs::OFlags::RDWR
                     | rustix::fs::OFlags::NOFOLLOW
                     | rustix::fs::OFlags::CLOEXEC,
@@ -2958,6 +2761,7 @@ impl Kura {
         );
         #[cfg(not(unix))]
         let file = {
+            let _ = file_name;
             let mut options = std::fs::OpenOptions::new();
             options.read(true).write(true);
             #[cfg(windows)]
@@ -3045,7 +2849,7 @@ impl Kura {
         path: &Path,
         create: bool,
         append: bool,
-        _namespace: Option<&BoundProgressNamespace>,
+        bound_namespace: Option<&BoundProgressNamespace>,
     ) -> std::io::Result<std::fs::File> {
         let before = match secure_file_metadata::from_path(path) {
             Ok(metadata) => Some(metadata),
@@ -3072,7 +2876,7 @@ impl Kura {
                 std::io::Error::new(ErrorKind::InvalidInput, "sidecar path has no file name")
             })?;
             let owned_parent;
-            let parent = if let Some(namespace) = _namespace {
+            let parent = if let Some(namespace) = bound_namespace {
                 let immediate = namespace.directories.first().ok_or_else(|| {
                     std::io::Error::new(
                         ErrorKind::InvalidData,
@@ -3155,9 +2959,9 @@ impl Kura {
                     .map_err(std::io::Error::from)?;
             if !opened.is_file()
                 || !Self::sidecar_is_single_link(&opened)
-                || after.st_dev as u64 != opened.dev()
-                || after.st_ino as u64 != opened.ino()
-                || after.st_nlink as u64 != 1
+                || crate::kura::unix_device_identity(after.st_dev) != opened.dev()
+                || after.st_ino != opened.ino()
+                || after.st_nlink != 1
                 || before
                     .as_ref()
                     .is_some_and(|metadata| !Self::sidecar_metadata_same_object(metadata, &opened))
@@ -3171,6 +2975,7 @@ impl Kura {
         }
         #[cfg(not(unix))]
         {
+            let _ = bound_namespace;
             let mut options = std::fs::OpenOptions::new();
             options.read(true).write(true).create(create).append(append);
             #[cfg(windows)]
@@ -3216,14 +3021,14 @@ impl Kura {
                 "progress temp is outside its bound namespace",
             ));
         }
-        let _name = path.file_name().ok_or_else(|| {
+        let entry_name = path.file_name().ok_or_else(|| {
             std::io::Error::new(ErrorKind::InvalidInput, "progress temp has no entry name")
         })?;
         #[cfg(unix)]
         {
             let entry = match rustix::fs::statat(
                 &immediate.file,
-                _name,
+                entry_name,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             ) {
                 Ok(entry) => entry,
@@ -3232,19 +3037,20 @@ impl Kura {
             };
             if rustix::fs::FileType::from_raw_mode(entry.st_mode)
                 != rustix::fs::FileType::RegularFile
-                || entry.st_nlink as u64 != 1
+                || entry.st_nlink != 1
             {
                 return Err(std::io::Error::new(
                     ErrorKind::InvalidData,
                     "progress temp is not a direct single-link regular file",
                 ));
             }
-            rustix::fs::unlinkat(&immediate.file, _name, rustix::fs::AtFlags::empty())
+            rustix::fs::unlinkat(&immediate.file, entry_name, rustix::fs::AtFlags::empty())
                 .map_err(std::io::Error::from)?;
             return Ok(());
         }
         #[cfg(not(unix))]
         {
+            let _ = entry_name;
             match secure_file_metadata::from_path(path) {
                 Ok(metadata)
                     if metadata.is_file()
@@ -3280,7 +3086,7 @@ impl Kura {
                 "progress file is outside its bound namespace",
             ));
         }
-        let _name = path.file_name().ok_or_else(|| {
+        let entry_name = path.file_name().ok_or_else(|| {
             std::io::Error::new(ErrorKind::InvalidInput, "progress file has no entry name")
         })?;
         let expected_metadata = secure_file_metadata::from_file(expected)?;
@@ -3295,28 +3101,29 @@ impl Kura {
             use std::os::unix::fs::MetadataExt as _;
             let entry = rustix::fs::statat(
                 &immediate.file,
-                _name,
+                entry_name,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)?;
             if rustix::fs::FileType::from_raw_mode(entry.st_mode)
                 != rustix::fs::FileType::RegularFile
                 || expected_metadata.nlink() != 1
-                || entry.st_dev as u64 != expected_snapshot.file.dev()
-                || entry.st_ino as u64 != expected_snapshot.file.ino()
-                || entry.st_nlink as u64 != 1
+                || crate::kura::unix_device_identity(entry.st_dev) != expected_snapshot.file.dev()
+                || entry.st_ino != expected_snapshot.file.ino()
+                || entry.st_nlink != 1
             {
                 return Err(std::io::Error::new(
                     ErrorKind::InvalidData,
                     "progress file changed before exact-object removal",
                 ));
             }
-            rustix::fs::unlinkat(&immediate.file, _name, rustix::fs::AtFlags::empty())
+            rustix::fs::unlinkat(&immediate.file, entry_name, rustix::fs::AtFlags::empty())
                 .map_err(std::io::Error::from)?;
             return Ok(());
         }
         #[cfg(not(unix))]
         {
+            let _ = entry_name;
             let current = secure_file_metadata::from_path(path)?;
             if current.file_type().is_symlink()
                 || !current.is_file()
@@ -3347,17 +3154,16 @@ impl Kura {
                 "progress temp is outside its bound namespace",
             ));
         }
-        let _name = path.file_name().ok_or_else(|| {
+        let entry_name = path.file_name().ok_or_else(|| {
             std::io::Error::new(ErrorKind::InvalidInput, "progress temp has no entry name")
         })?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt as _;
-
             let file = std::fs::File::from(
                 rustix::fs::openat(
                     &immediate.file,
-                    _name,
+                    entry_name,
                     rustix::fs::OFlags::RDWR
                         | rustix::fs::OFlags::CREATE
                         | rustix::fs::OFlags::EXCL
@@ -3370,15 +3176,15 @@ impl Kura {
             let metadata = secure_file_metadata::from_file(&file)?;
             let entry = rustix::fs::statat(
                 &immediate.file,
-                _name,
+                entry_name,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)?;
             if !metadata.is_file()
                 || metadata.nlink() != 1
-                || entry.st_dev as u64 != metadata.dev()
-                || entry.st_ino as u64 != metadata.ino()
-                || entry.st_nlink as u64 != 1
+                || crate::kura::unix_device_identity(entry.st_dev) != metadata.dev()
+                || entry.st_ino != metadata.ino()
+                || entry.st_nlink != 1
             {
                 return Err(std::io::Error::new(
                     ErrorKind::InvalidData,
@@ -3389,6 +3195,7 @@ impl Kura {
         }
         #[cfg(not(unix))]
         {
+            let _ = entry_name;
             let mut options = std::fs::OpenOptions::new();
             options.read(true).write(true).create_new(true);
             #[cfg(windows)]
@@ -3418,7 +3225,8 @@ impl Kura {
             published: false,
             source,
         };
-        let _published = |source| BoundProgressPromotionError {
+        #[cfg(unix)]
+        let publication_error = |source| BoundProgressPromotionError {
             published: true,
             source,
         };
@@ -3440,13 +3248,13 @@ impl Kura {
                 "progress promotion escapes its bound namespace",
             )));
         }
-        let _temp_name = temp_path
+        let source_entry = temp_path
             .file_name()
             .ok_or_else(|| {
                 std::io::Error::new(ErrorKind::InvalidInput, "progress temp has no entry name")
             })
             .map_err(unpublished)?;
-        let _main_name = main_path
+        let destination_entry = main_path
             .file_name()
             .ok_or_else(|| {
                 std::io::Error::new(ErrorKind::InvalidInput, "progress index has no entry name")
@@ -3458,37 +3266,42 @@ impl Kura {
             let metadata = temp.metadata().map_err(unpublished)?;
             let before = rustix::fs::statat(
                 &immediate.file,
-                _temp_name,
+                source_entry,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)
             .map_err(unpublished)?;
             if !metadata.is_file()
                 || metadata.nlink() != 1
-                || before.st_dev as u64 != metadata.dev()
-                || before.st_ino as u64 != metadata.ino()
-                || before.st_nlink as u64 != 1
+                || crate::kura::unix_device_identity(before.st_dev) != metadata.dev()
+                || before.st_ino != metadata.ino()
+                || before.st_nlink != 1
             {
                 return Err(unpublished(std::io::Error::new(
                     ErrorKind::InvalidData,
                     "progress temp changed before promotion",
                 )));
             }
-            rustix::fs::renameat(&immediate.file, _temp_name, &immediate.file, _main_name)
-                .map_err(std::io::Error::from)
-                .map_err(unpublished)?;
+            rustix::fs::renameat(
+                &immediate.file,
+                source_entry,
+                &immediate.file,
+                destination_entry,
+            )
+            .map_err(std::io::Error::from)
+            .map_err(unpublished)?;
             let after = rustix::fs::statat(
                 &immediate.file,
-                _main_name,
+                destination_entry,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)
-            .map_err(_published)?;
-            if after.st_dev as u64 != metadata.dev()
-                || after.st_ino as u64 != metadata.ino()
-                || after.st_nlink as u64 != 1
+            .map_err(publication_error)?;
+            if crate::kura::unix_device_identity(after.st_dev) != metadata.dev()
+                || after.st_ino != metadata.ino()
+                || after.st_nlink != 1
             {
-                return Err(_published(std::io::Error::new(
+                return Err(publication_error(std::io::Error::new(
                     ErrorKind::InvalidData,
                     "promoted progress index has the wrong identity",
                 )));
@@ -3497,7 +3310,14 @@ impl Kura {
         }
         #[cfg(not(unix))]
         {
-            let _ = (namespace, temp_path, main_path, temp);
+            let _ = (
+                namespace,
+                temp_path,
+                main_path,
+                temp,
+                source_entry,
+                destination_entry,
+            );
             Err(BoundProgressPromotionError {
                 published: false,
                 source: std::io::Error::new(
@@ -3553,7 +3373,8 @@ impl Kura {
             published: false,
             source,
         };
-        let _published = |source| BoundProgressPromotionError {
+        #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+        let publication_error = |source| BoundProgressPromotionError {
             published: true,
             source,
         };
@@ -3575,13 +3396,13 @@ impl Kura {
                 "progress append-intent promotion escapes its bound namespace",
             )));
         }
-        let _temp_name = temp_path
+        let source_entry = temp_path
             .file_name()
             .ok_or_else(|| {
                 std::io::Error::new(ErrorKind::InvalidInput, "progress build has no entry name")
             })
             .map_err(unpublished)?;
-        let _intent_name = intent_path
+        let destination_entry = intent_path
             .file_name()
             .ok_or_else(|| {
                 std::io::Error::new(ErrorKind::InvalidInput, "progress intent has no entry name")
@@ -3593,16 +3414,16 @@ impl Kura {
             let metadata = temp.metadata().map_err(unpublished)?;
             let before = rustix::fs::statat(
                 &immediate.file,
-                _temp_name,
+                source_entry,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)
             .map_err(unpublished)?;
             if !metadata.is_file()
                 || metadata.nlink() != 1
-                || before.st_dev as u64 != metadata.dev()
-                || before.st_ino as u64 != metadata.ino()
-                || before.st_nlink as u64 != 1
+                || crate::kura::unix_device_identity(before.st_dev) != metadata.dev()
+                || before.st_ino != metadata.ino()
+                || before.st_nlink != 1
             {
                 return Err(unpublished(std::io::Error::new(
                     ErrorKind::InvalidData,
@@ -3611,25 +3432,25 @@ impl Kura {
             }
             rustix::fs::renameat_with(
                 &immediate.file,
-                _temp_name,
+                source_entry,
                 &immediate.file,
-                _intent_name,
+                destination_entry,
                 rustix::fs::RenameFlags::NOREPLACE,
             )
             .map_err(std::io::Error::from)
             .map_err(unpublished)?;
             let after = rustix::fs::statat(
                 &immediate.file,
-                _intent_name,
+                destination_entry,
                 rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
             )
             .map_err(std::io::Error::from)
-            .map_err(_published)?;
-            if after.st_dev as u64 != metadata.dev()
-                || after.st_ino as u64 != metadata.ino()
-                || after.st_nlink as u64 != 1
+            .map_err(publication_error)?;
+            if crate::kura::unix_device_identity(after.st_dev) != metadata.dev()
+                || after.st_ino != metadata.ino()
+                || after.st_nlink != 1
             {
-                return Err(_published(std::io::Error::new(
+                return Err(publication_error(std::io::Error::new(
                     ErrorKind::InvalidData,
                     "published progress append intent has the wrong identity",
                 )));
@@ -3638,7 +3459,14 @@ impl Kura {
         }
         #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
         {
-            let _ = (namespace, temp_path, intent_path, temp);
+            let _ = (
+                namespace,
+                temp_path,
+                intent_path,
+                temp,
+                source_entry,
+                destination_entry,
+            );
             Err(BoundProgressPromotionError {
                 published: false,
                 source: std::io::Error::new(
@@ -3760,11 +3588,11 @@ impl Kura {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options.custom_flags(i32::from_ne_bytes(
+            options.custom_flags(
                 (rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::NOFOLLOW)
                     .bits()
-                    .to_ne_bytes(),
-            ));
+                    .cast_signed(),
+            );
         }
         #[cfg(windows)]
         {
@@ -3810,6 +3638,10 @@ impl Kura {
     /// state as an empty namespace without weakening the no-follow checks used
     /// once the namespace exists. A missing, replaced, symlinked, or mutated
     /// parent remains an error.
+    #[expect(
+        dead_code,
+        reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+    )]
     fn bound_progress_sidecar_directory_is_absent(
         &self,
         data_path: &Path,
@@ -3936,10 +3768,10 @@ impl Kura {
             let canonical_after = std::fs::canonicalize(expected_path)
                 .map_err(|error| Error::IO(error, expected_path.to_path_buf()))?;
             if !metadata.is_dir()
-                || before.st_dev as u64 != metadata.dev()
-                || before.st_ino as u64 != metadata.ino()
-                || after.st_dev as u64 != metadata.dev()
-                || after.st_ino as u64 != metadata.ino()
+                || crate::kura::unix_device_identity(before.st_dev) != metadata.dev()
+                || before.st_ino != metadata.ino()
+                || crate::kura::unix_device_identity(after.st_dev) != metadata.dev()
+                || after.st_ino != metadata.ino()
                 || canonical_after != canonical_path
             {
                 return Err(Error::IO(
@@ -4117,6 +3949,13 @@ impl Kura {
         }
         Ok(BoundProgressPair::Present(bound))
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+        )
+    )]
     fn bound_progress_pair_namespace(pair: &BoundProgressPair) -> &BoundProgressNamespace {
         match pair {
             BoundProgressPair::Absent(namespace) => namespace,
@@ -4142,7 +3981,9 @@ impl Kura {
             .directories
             .iter()
             .enumerate()
-            .all(|(_index, directory)| {
+            .all(|(directory_index, directory)| {
+                #[cfg(not(unix))]
+                let _ = directory_index;
                 let Ok(opened) = secure_file_metadata::from_file(&directory.file) else {
                     return false;
                 };
@@ -4154,7 +3995,8 @@ impl Kura {
                 #[cfg(unix)]
                 if let Some(name) = directory.entry_name.as_deref() {
                     use std::os::unix::fs::MetadataExt as _;
-                    let Some(parent) = namespace.directories.get(_index.saturating_add(1)) else {
+                    let Some(parent) = namespace.directories.get(directory_index.saturating_add(1))
+                    else {
                         return false;
                     };
                     if directory.expected_path.parent() != Some(parent.expected_path.as_path())
@@ -4177,8 +4019,8 @@ impl Kura {
                     // without resolving the whole root-to-child path again.
                     return rustix::fs::FileType::from_raw_mode(entry.st_mode)
                         == rustix::fs::FileType::Directory
-                        && entry.st_dev as u64 == opened.dev()
-                        && entry.st_ino as u64 == opened.ino();
+                        && crate::kura::unix_device_identity(entry.st_dev) == opened.dev()
+                        && entry.st_ino == opened.ino();
                 }
                 Self::canonical_sidecar_directory_for(&self.store_root, &directory.expected_path)
                     .ok()
@@ -4222,7 +4064,7 @@ impl Kura {
             return false;
         };
         if rustix::fs::FileType::from_raw_mode(entry.st_mode) != rustix::fs::FileType::RegularFile
-            || entry.st_nlink as u64 != 1
+            || entry.st_nlink != 1
         {
             return false;
         }
@@ -4232,8 +4074,8 @@ impl Kura {
         };
         opened.is_file()
             && Self::sidecar_file_metadata_unchanged(&expected.file, &opened)
-            && entry.st_dev as u64 == opened.dev()
-            && entry.st_ino as u64 == opened.ino()
+            && crate::kura::unix_device_identity(entry.st_dev) == opened.dev()
+            && entry.st_ino == opened.ino()
     }
 
     /// Retain the strong present-pair snapshot checks without repeated full-path resolution.
@@ -4373,6 +4215,13 @@ impl Kura {
         }
         self.bound_progress_namespace_unchanged(namespace)
     }
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+        )
+    )]
     fn sync_bound_progress_absence(&self, namespace: &BoundProgressNamespace, kind: &str) -> bool {
         if !self.sync_bound_progress_namespace(namespace, kind) {
             return false;
@@ -4395,6 +4244,10 @@ impl Kura {
             Ok(None)
         ) && self.bound_progress_namespace_unchanged(namespace)
     }
+    #[expect(
+        dead_code,
+        reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+    )]
     fn sync_bound_progress_sidecar(&self, bound: &BoundProgressSidecar, kind: &str) -> bool {
         if self.emergency_fast_startup_enabled() {
             return false;
@@ -4410,6 +4263,10 @@ impl Kura {
         self.sync_bound_progress_namespace(&bound.namespace, kind)
             && self.bound_progress_sidecar_unchanged(bound)
     }
+    #[expect(
+        dead_code,
+        reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+    )]
     fn bound_indexed_sidecar_payload_heights(
         &self,
         bound: &mut BoundProgressSidecar,
@@ -4523,6 +4380,10 @@ impl Kura {
         }
         Ok(heights)
     }
+    #[expect(
+        dead_code,
+        reason = "TODO: connect descriptor-bound progress publication; preserve namespace identity, exact resource admission and crash-recovery validation"
+    )]
     fn bound_indexed_sidecar_height_range(
         &self,
         bound: &mut BoundProgressSidecar,
@@ -4698,7 +4559,10 @@ impl Kura {
         }
         let expected_len = usize::try_from(metadata.file.len())?;
         // The cumulative decode allowance and physical pool are separate obligations.
-        norito::core::reserve_decode_allocation(expected_len).map_err(Error::NoritoFrame)?;
+        norito::core::classify_decode_attempt(|| {
+            norito::core::reserve_decode_allocation(expected_len)
+        })
+        .map_err(Error::CodecAttempt)?;
         let mut bytes = allocate(expected_len)?;
         if bytes.as_ref().len() != expected_len || bytes.as_mut().len() != expected_len {
             return Err(Error::CanonicalBlockWireMismatch { height: 0 });
@@ -4742,27 +4606,6 @@ impl Kura {
             bytes,
             metadata: path_after.expect("validated stable sidecar metadata exists"),
         }))
-    }
-    fn read_regular_sidecar_snapshot(
-        &self,
-        path: &Path,
-        expected_directory: &Path,
-        byte_limit: usize,
-    ) -> Result<Option<StableSidecarRead<Vec<u8>>>> {
-        Self::read_regular_sidecar_snapshot_for(
-            &self.store_root,
-            path,
-            expected_directory,
-            byte_limit,
-        )
-    }
-    fn read_regular_sidecar_bytes(
-        &self,
-        path: &Path,
-        expected_directory: &Path,
-        byte_limit: usize,
-    ) -> Result<Option<Vec<u8>>> {
-        Self::read_regular_sidecar_bytes_for(&self.store_root, path, expected_directory, byte_limit)
     }
 
     /// Start the background writer after native startup has authenticated its execution prefix.
@@ -4930,7 +4773,7 @@ impl Kura {
                 buffer.resize(length, 0);
                 block_store.read_block_data(slot.start, &mut buffer)?;
             }
-            let block = decode_framed_signed_block(&buffer).map_err(Error::BlockDecode)?;
+            let block = decode_framed_signed_block(&buffer).map_err(Error::CodecAttempt)?;
             if block.header().height().get() != height
                 || block.hash() != expected[position]
                 || block.header().prev_block_hash() != previous
@@ -4993,9 +4836,6 @@ impl Kura {
                     Ok(BlockNotify::NewBlock) => {
                         debug!("kura writer received sidecar flush signal");
                     }
-                    Ok(BlockNotify::StorageBudgetEviction) => {
-                        debug!("kura writer received storage-budget eviction signal");
-                    }
                     Ok(BlockNotify::Shutdown) => {
                         should_exit = true;
                         debug!("kura writer received shutdown signal");
@@ -5026,9 +4866,6 @@ impl Kura {
                 None => match block_rx.recv() {
                     Ok(BlockNotify::NewBlock) => {
                         debug!("kura writer received sidecar flush signal");
-                    }
-                    Ok(BlockNotify::StorageBudgetEviction) => {
-                        debug!("kura writer received storage-budget eviction signal");
                     }
                     Ok(BlockNotify::Shutdown) => {
                         should_exit = true;
@@ -5552,7 +5389,7 @@ impl Kura {
                             ?error,
                             block_index, height, "Failed to decode evicted block payload"
                         );
-                        return Err(canonical_decode_attempt_error(error, Error::BlockDecode));
+                        return Err(canonical_decode_attempt_error(error, Error::CodecAttempt));
                     }
                 };
                 shell.initialize(decoded)
@@ -5587,7 +5424,7 @@ impl Kura {
                                 "committed inline block body is not decodable",
                             );
                         }
-                        return Err(canonical_decode_attempt_error(error, Error::BlockDecode));
+                        return Err(canonical_decode_attempt_error(error, Error::CodecAttempt));
                     }
                 }
             };
@@ -5985,6 +5822,7 @@ impl Kura {
         let sidecars = Self::sidecar_bytes(blocks_dir)?;
         Ok(files.saturating_add(sidecars))
     }
+    #[cfg(test)]
     fn blocks_root_bytes(root: &Path) -> Result<u64> {
         Self::blocks_root_usage_bytes(root).map(|(enforced, _)| enforced)
     }
@@ -6241,6 +6079,7 @@ impl Kura {
         )?);
         Ok(used)
     }
+    #[cfg(test)]
     fn kura_disk_usage_bytes(&self) -> Result<u64> {
         if self.store_root.as_os_str().is_empty() {
             return Ok(0);
@@ -6884,6 +6723,7 @@ impl Kura {
     /// Exclude canonical Kura writers while a validated State result is
     /// consumed. The caller must not invoke a Kura mutation while holding this
     /// lease because canonical mutations acquire the same lock.
+    #[cfg(test)]
     pub(crate) fn canonical_publication_lease(&self) -> PublicationGuard<'_> {
         self.canonical_chain_lock.lock()
     }
@@ -7191,15 +7031,6 @@ impl Kura {
     }
 }
 impl Kura {
-    fn fixed_bytes_path_component(bytes: &[u8]) -> String {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
-        for byte in bytes {
-            encoded.push(char::from(HEX[usize::from(*byte >> 4)]));
-            encoded.push(char::from(HEX[usize::from(*byte & 0x0f)]));
-        }
-        encoded
-    }
     fn invalid_lane_artifact_error(path: PathBuf, message: impl Into<String>) -> Error {
         Error::IO(
             std::io::Error::new(ErrorKind::InvalidData, message.into()),
@@ -7701,6 +7532,7 @@ impl BlockStore {
         self.validate_eviction_compaction_stage(&stage)?;
         Ok(Some(stage))
     }
+    #[cfg(test)]
     fn sync_eviction_compaction_stage(&self, expected: &EvictionCompactionStageV1) -> Result<()> {
         let path = self.eviction_compaction_stage_path();
         if self.read_eviction_compaction_stage()?.as_ref() != Some(expected) {
@@ -7768,6 +7600,7 @@ impl BlockStore {
         }
         Ok(())
     }
+    #[cfg(test)]
     fn write_eviction_compaction_stage(&self, stage: &EvictionCompactionStageV1) -> Result<()> {
         self.validate_eviction_compaction_stage(stage)?;
         let path = self.eviction_compaction_stage_path();
@@ -8536,7 +8369,6 @@ impl BlockStore {
         hashes: &[HashOf<BlockHeader>],
     ) -> Result<Option<DaBlockRewriteStageV1>> {
         const IMAGE_ENVELOPE_BUDGET: u64 = 256;
-
         let logical_count = self.read_index_count()?;
         let needs_stage = start_height < logical_count || offsets.contains(&EVICTED_BLOCK_START);
         if !needs_stage {
@@ -9597,6 +9429,7 @@ impl BlockStore {
             }
         }
     }
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     fn schedule_fsync_after_write(&mut self) -> Result<()> {
         self.mark_fsync_pending();
         self.flush_pending_fsync(false)
@@ -9857,19 +9690,19 @@ impl BlockStore {
                 marker_path,
             ));
         };
-        let marker =
-            norito::decode_canonical::<BlockStoreCommitMarker>(&marker_bytes).map_err(|error| {
-                match error {
-                    norito::Error::NonCanonicalEncoding => Error::IO(
-                        std::io::Error::new(
-                            ErrorKind::InvalidData,
-                            "block commit marker is non-canonical or structurally invalid",
-                        ),
-                        marker_path.clone(),
-                    ),
-                    other => Error::NoritoFrame(other),
-                }
-            })?;
+        let marker = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical::<BlockStoreCommitMarker>(&marker_bytes)
+        })
+        .map_err(|error| match error.error() {
+            norito::Error::NonCanonicalEncoding => Error::IO(
+                std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "block commit marker is non-canonical or structurally invalid",
+                ),
+                marker_path.clone(),
+            ),
+            _ => Error::CodecAttempt(error),
+        })?;
         if marker.version != BlockStoreCommitMarker::VERSION
             || (marker.count == 0) != marker.tip_hash.is_none()
         {
@@ -10176,6 +10009,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// IO Error.
+    #[cfg(test)]
     pub(crate) fn overwrite_block_hashes(&mut self, hashes: &[HashOf<BlockHeader>]) -> Result<()> {
         let hashes_file = self.ensure_hashes_file()?;
         hashes_file.try_io(|file| {
@@ -10188,64 +10022,6 @@ impl BlockStore {
                 writer.write_all(hash.as_ref())?;
             }
             writer.flush()
-        })?;
-        self.schedule_fsync_after_write()?;
-        Ok(())
-    }
-    /// Rewrite a suffix of the hashes file while preserving every preceding byte.
-    ///
-    /// `start_block_height` is the zero-based hash index at which `hashes` begins.
-    /// The existing journal must already contain the entire prefix. This is used by
-    /// startup recovery when that prefix is protected by durable finality.
-    fn overwrite_block_hash_suffix(
-        &mut self,
-        start_block_height: u64,
-        hashes: &[HashOf<BlockHeader>],
-    ) -> Result<()> {
-        let path = self.path_to_blockchain.join(HASHES_FILE_NAME);
-        let start_location = start_block_height
-            .checked_mul(SIZE_OF_BLOCK_HASH)
-            .ok_or_else(|| {
-                Error::IO(
-                    std::io::Error::new(
-                        ErrorKind::InvalidInput,
-                        "hash suffix start offset overflowed",
-                    ),
-                    path.clone(),
-                )
-            })?;
-        let suffix_count = u64::try_from(hashes.len())?;
-        let new_count = start_block_height
-            .checked_add(suffix_count)
-            .ok_or_else(|| {
-                Error::IO(
-                    std::io::Error::new(ErrorKind::InvalidInput, "hash suffix count overflowed"),
-                    path.clone(),
-                )
-            })?;
-        let new_len = new_count.checked_mul(SIZE_OF_BLOCK_HASH).ok_or_else(|| {
-            Error::IO(
-                std::io::Error::new(ErrorKind::InvalidInput, "hash suffix length overflowed"),
-                path.clone(),
-            )
-        })?;
-        let hashes_file = self.ensure_hashes_file()?;
-        hashes_file.try_io(|file| {
-            let current_len = file.metadata()?.len();
-            if current_len < start_location {
-                return Err(std::io::Error::new(
-                    ErrorKind::InvalidData,
-                    "hashes journal does not contain the finalized prefix",
-                ));
-            }
-            file.seek(SeekFrom::Start(start_location))?;
-            let mut writer = BufWriter::new(&mut *file);
-            for hash in hashes {
-                writer.write_all(hash.as_ref())?;
-            }
-            writer.flush()?;
-            drop(writer);
-            file.set_len(new_len)
         })?;
         self.schedule_fsync_after_write()?;
         Ok(())
@@ -10423,6 +10199,7 @@ impl BlockStore {
     ///
     /// # Errors
     /// Propagates I/O and encoding errors.
+    #[cfg(test)]
     pub(crate) fn append_block_batch(
         &mut self,
         blocks: &[iroha_data_model::block::SharedSignedBlock],
@@ -11059,11 +10836,7 @@ pub(crate) mod tests {
         super::Kura::remove_transaction_entrypoint_height(&mut index, height_two);
         assert!(!index.indexed_heights.contains(&height_two));
         assert!(!index.incomplete_heights.contains(&height_two));
-        assert!(
-            index.kaigi_signal_candidates[&call_id]
-                .get(&height_two)
-                .is_none()
-        );
+        assert!(!index.kaigi_signal_candidates[&call_id].contains_key(&height_two));
         index.indexed_heights.insert(height_two);
         insert_kaigi_signal_test_locator(
             &mut index,

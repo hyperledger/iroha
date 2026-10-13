@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::signed_recovery_http::{
     assert_recovery_reads, with_recovery_http,
 };
@@ -112,7 +113,7 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
     let policy_proof = native.policy_proof(&manager.account);
     let selected_policy = policy_proof
         .verify(
-            &manager.chain.to_string(),
+            manager.chain.as_ref(),
             manager.network_id,
             &manager.account,
             &policy,
@@ -172,11 +173,8 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
         checkpoint: checkpoint_bytes(&before).unwrap(),
     };
     coordinator.validate_original(&original).unwrap();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("register")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "register").unwrap();
     let original = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -332,10 +330,10 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
     let committed = native.observe(&coordinator.authority);
     assert_original_carrier(&committed, &signed, 4);
     let finalized = verify_carrier(&committed, &signed).unwrap();
-    let authorization_bytes = original
-        .directory()
-        .read("authorization.nrt", 64 * 1024)
-        .unwrap();
+    let authorization_bytes =
+        metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+            .unwrap()
+            .expect("retained authorization frame");
     for permit_finality in [false, true] {
         let recovered =
             with_recovery_http(&native, &prepared, &signed, permit_finality, |requests| {
@@ -359,10 +357,9 @@ fn generated_native_registration_retains_exact_reserve_operator_wallet_and_disti
         assert_eq!(recovered.finalized, permit_finality.then_some(finalized));
         assert!(recovered.current.is_none());
         assert_eq!(
-            original
-                .directory()
-                .read("authorization.nrt", 64 * 1024)
-                .unwrap(),
+            metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+                .unwrap()
+                .expect("retained authorization frame"),
             authorization_bytes,
         );
         assert_eq!(

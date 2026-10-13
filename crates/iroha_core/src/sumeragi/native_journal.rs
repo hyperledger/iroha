@@ -240,8 +240,10 @@ impl NativeJournalCursor {
     /// retain its exact native tip. A scope mismatch leaves the previous tip unchanged.
     ///
     /// # Errors
-    /// Rejects a nonadvancing, malformed or unauthenticated journal, a changed root
-    /// scope or retained tip, or an original resource refusal during verification.
+    ///
+    /// Returns an error for a nonadvancing journal, invalid certified history,
+    /// a root-scope mismatch, replacement of the retained tip, or exhausted
+    /// reader resources. The previous tip remains unchanged on failure.
     pub fn advance(
         &mut self,
         journal: NativeFinalitySource<'_>,
@@ -290,8 +292,9 @@ impl NativeJournalCursor {
 /// DKG authorization root; phase clocks require a genuine H2+ journal before any advancement.
 ///
 /// # Errors
-/// Rejects invalid limits, an empty or oversized frame, noncanonical block encoding,
-/// a foreign network, or a genesis whose native signing epoch cannot be authenticated.
+///
+/// Returns an error for invalid limits, oversized or malformed wire data, a
+/// foreign network genesis, or invalid genesis signatures or validator epoch.
 pub fn authenticate_signed_genesis(
     wire: &[u8],
     network: NetworkId,

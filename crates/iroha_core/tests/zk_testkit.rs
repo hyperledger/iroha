@@ -47,6 +47,7 @@ impl UnqualifiedNativeBallotBundle {
             ),
             self.vk_record.key.as_ref(),
         )
+        .expect("verification attempt must complete for this semantic fixture")
     }
     /// Actual native transcript, without the outer unadmitted relation label.
     pub fn native_transcript(&self) -> &[u8] {
@@ -91,11 +92,14 @@ pub fn unqualified_native_ballot_bundle() -> UnqualifiedNativeBallotBundle {
     rejected.circuit_id = circuit_id.into();
     let proof_bytes = norito::encode_canonical(&rejected).expect("relabelled native envelope");
     record.max_proof_bytes = u32::try_from(proof_bytes.len()).expect("bounded native envelope");
-    assert!(!zk::verify_backend(
-        backend,
-        &ProofBox::new(backend.into(), proof_bytes.clone()),
-        record.key.as_ref()
-    ));
+    assert!(
+        !zk::verify_backend(
+            backend,
+            &ProofBox::new(backend.into(), proof_bytes.clone()),
+            record.key.as_ref()
+        )
+        .expect("verification attempt must complete for this semantic fixture")
+    );
     UnqualifiedNativeBallotBundle {
         original,
         transcript: inner.proof,

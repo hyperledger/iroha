@@ -79,7 +79,7 @@ fn certificate(keys: &[KeyPair], header: &BlockHeader, result: Hash32, last: boo
                 view: 0,
                 block_hash: header.hash(&crypto),
                 result,
-                signer: index as u32,
+                signer: u32::try_from(index).expect("fixture value fits u32"),
                 sig: iroha_sumeragi::types::Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
 
@@ -96,7 +96,7 @@ fn install_structural_outputs(block: &mut SignedBlock) {
     let outputs = (0..block.external_transactions().count())
         .map(|index| {
             ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
-                input_index: index as u32,
+                input_index: u32::try_from(index).expect("fixture value fits u32"),
                 result: TransactionResult::new(Ok(Vec::new())),
                 completions: Vec::new(),
             })
@@ -218,7 +218,7 @@ fn transcript_proposal(
             .unwrap()
             .into_unsigned_proposal();
     assert_eq!(
-        crate::block::ValidBlock::sumeragi_block_time(
+        crate::block::ValidBlock::sumeragi_block_time_floor(
             &proposal,
             parent.header().creation_time(),
             Duration::from_millis(1),
@@ -233,6 +233,7 @@ fn transcript_proposal(
                 parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: Duration::ZERO,
             },
             &[transaction],
         );
@@ -266,12 +267,14 @@ fn build_history_with_epoch_length(
 ) -> Vec<iroha_data_model::block::SharedSignedBlock> {
     let original_keys = keys(false);
     let genesis_key = KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519);
-    let mut policy = SumeragiNposParameters::default();
-    policy.epoch_seed = [0x35; 32];
-    policy.epoch_length_blocks = NonZeroU64::new(epoch_length).unwrap();
-    policy.evidence_horizon_blocks = evidence_horizon;
-    policy.slashing_delay_blocks = epoch_length;
-    policy.max_validators = 4;
+    let policy = SumeragiNposParameters {
+        epoch_seed: [0x35; 32],
+        epoch_length_blocks: NonZeroU64::new(epoch_length).unwrap(),
+        evidence_horizon_blocks: evidence_horizon,
+        slashing_delay_blocks: epoch_length,
+        max_validators: 4,
+        ..Default::default()
+    };
     let validators = members(&original_keys)
         .into_iter()
         .map(|member| (member.validator, member.proof_of_possession))
@@ -449,7 +452,11 @@ fn build_history_with_epoch_length(
                     transcript_hash: record.transcript_hash,
                 }),
                 previous_authorization_id: current.authorization.authorization_id().unwrap(),
-                transition_id: if retain { [0; 32] } else { [height as u8; 32] },
+                transition_id: if retain {
+                    [0; 32]
+                } else {
+                    [u8::try_from(height).expect("fixture value fits u8"); 32]
+                },
                 decision: if retain {
                     ValidatorEpochDecisionV1::Retain
                 } else {
@@ -489,7 +496,8 @@ fn build_history_with_epoch_length(
         install_structural_outputs(&mut block);
         let payload = payload::encode(&block).unwrap();
         let header = BlockHeader {
-            control_witness: crate::sumeragi::epoch_beacon::control::encode(beacon).unwrap(),
+            control_witness: crate::sumeragi::epoch_beacon::control::encode(beacon.as_ref())
+                .unwrap(),
             instance,
             epoch: schedule::core_epoch(&current).unwrap().id,
             height,
@@ -1020,7 +1028,7 @@ fn historical_pulse_requires_signed_header_bytes_and_complete_native_context() {
                 );
                 result.beacon = Some(pulses[0]);
                 header.control_witness =
-                    crate::sumeragi::epoch_beacon::control::encode(result.beacon).unwrap();
+                    crate::sumeragi::epoch_beacon::control::encode(result.beacon.as_ref()).unwrap();
                 *bytes = fixture_result_preimage(&original_x, &result);
             }
             *qc = certificate(

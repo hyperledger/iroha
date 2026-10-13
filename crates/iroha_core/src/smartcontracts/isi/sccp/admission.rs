@@ -1,8 +1,6 @@
 //! Admission of fee-exempt SCCP transactions (`specs/sccp.md` §4.2.3, §4.8, §4.11, §4.12.4,
 //! §4.13.4, §4.19): native forgery evidence, keeper advances and self-claims.
 //!
-//! TODO: add shared Keepalive admission when its canonical instruction lands.
-//!
 //! A transaction is SCCP-exempt only when it is eligible ([`super::fees::exempt_class`]): it
 //! has one of the [`SccpExemptClassV1`] shapes ([`exempt_shape`], a pure function of its signed
 //! payload) and meets that kind's eligibility rule against the committed parent World. A
@@ -45,6 +43,8 @@ use std::collections::{BTreeMap, BTreeSet};
 /// kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Encode)]
 pub enum SccpExemptClassV1 {
+    /// Shared standalone Ed25519 progress carrier, at most one per block and authority.
+    Keepalive,
     /// An advance of one light client that is not a `Backfill`, from any authority, which may
     /// be unregistered (§4.13.4).
     KeeperAdvance {
@@ -119,12 +119,27 @@ impl SccpAdmissionKeysV1 {
 
 /// Admission rejection of a transaction that claims an SCCP exemption but fails
 /// pre-verification against committed state.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("SCCP exempt admission rejected: {reason}")]
+/// The original unfinished attempt has one owner and is neither cloned nor compared.
+#[derive(Debug)]
 pub struct SccpAdmissionRejectV1 {
     /// Human-readable reason.
     pub reason: String,
+    /// Original unfinished local attempt, distinct from a completed rejection.
+    pub deferred: Option<crate::execution_attempt::ExecutionDeferred>,
+    /// The native verifier completed and identified invalid external proof bytes.
+    /// Missing original state, profile/time policy and local refusal remain false.
+    pub source_data_rejected: bool,
 }
+
+impl core::fmt::Display for SccpAdmissionRejectV1 {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.deferred {
+            Some(original) => write!(formatter, "SCCP admission deferred: {original}"),
+            None => write!(formatter, "SCCP exempt admission rejected: {}", self.reason),
+        }
+    }
+}
+impl std::error::Error for SccpAdmissionRejectV1 {}
 
 impl SccpAdmissionRejectV1 {
     /// Build a rejection with `reason`.
@@ -132,6 +147,66 @@ impl SccpAdmissionRejectV1 {
     pub fn new(reason: impl Into<String>) -> Self {
         Self {
             reason: reason.into(),
+            deferred: None,
+            source_data_rejected: false,
+        }
+    }
+
+    /// Preserve a native verifier's original local refusal through queue admission.
+    pub(crate) fn from_attempt(
+        error: iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1,
+    ) -> Self {
+        use iroha_allocation::{ChargedBufferError, PrepaidSharedError};
+        use iroha_sccp::light_client::{
+            prepared::SccpLcAttemptErrorV1 as Attempt,
+            state::admitted::SccpLcDeltaAdmissionErrorV1 as Output,
+        };
+        if cfg!(all(test, sumeragi_core_mutation = "HC307")) {
+            return Self::new(error.to_string());
+        }
+        let deferred = match error {
+            Attempt::Protocol(error) => {
+                let mut rejected = Self::new(error.to_string());
+                rejected.source_data_rejected = error.is_invalid_source_data();
+                return rejected;
+            }
+            Attempt::Admission(original)
+            | Attempt::Buffer(ChargedBufferError::Admission(original))
+            | Attempt::Output(
+                Output::Admission(original)
+                | Output::Buffer(ChargedBufferError::Admission(original)),
+            ) => original.into(),
+            Attempt::Decode(original) => match original.into_local_refusal() {
+                Ok(original) => original.into(),
+                Err(error) => {
+                    let mut rejected = Self::new(error.to_string());
+                    rejected.source_data_rejected = true;
+                    return rejected;
+                }
+            },
+            Attempt::Buffer(original @ ChargedBufferError::Allocator { .. })
+            | Attempt::Output(Output::Buffer(original @ ChargedBufferError::Allocator { .. })) => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
+            }
+            Attempt::Control(original @ PrepaidSharedError::Allocator { .. }) => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
+            }
+            Attempt::Output(Output::Capacity(reason) | Output::Conflict(reason)) => {
+                return Self::new(reason);
+            }
+            Attempt::Output(Output::Codec(error)) => return Self::new(error.to_string()),
+            Attempt::Control(PrepaidSharedError::Reservation(_)) | Attempt::Invariant(_) => {
+                ivm::error::ExecutionDeferral::VerifierArtifactsUnavailable.into()
+            }
+        };
+        Self {
+            reason: String::new(),
+            deferred: Some(deferred),
+            source_data_rejected: false,
         }
     }
 }
@@ -146,7 +221,7 @@ fn downcast<T: 'static>(instruction: &InstructionBox) -> Option<&T> {
 ///
 /// * [`SccpExemptClassV1::ForgeryEvidence`]: exactly one `SubmitSccpForgeryEvidenceV1`;
 /// * [`SccpExemptClassV1::KeeperAdvance`]: exactly one `AdvanceSccpLightClientV1` (§4.13.4);
-/// * [`SccpExemptClassV1::SelfClaim`]: `[Register<Account>(authority)?,
+/// * [`SccpExemptClassV1::SelfClaim`][]: `[Register<Account>(authority)?,
 ///   AdvanceSccpLightClientV1*, SubmitSccpInboundMessageV1]` or `[SettleSccpV1::Inbound]`
 ///   (§4.12.4).
 ///
@@ -154,6 +229,9 @@ fn downcast<T: 'static>(instruction: &InstructionBox) -> Option<&T> {
 /// the per-block cap.
 #[must_use]
 pub fn exempt_shape(payload: &TransactionPayload) -> Option<SccpExemptClassV1> {
+    if super::keepalive::valid_shape(payload) {
+        return Some(SccpExemptClassV1::Keepalive);
+    }
     let Executable::Instructions(instructions) = &payload.instructions else {
         return None;
     };
@@ -226,6 +304,10 @@ pub(crate) fn exempt_class_of_entrypoint_from(
 /// The committed state that exempt pre-verification reads beyond World: every committed state
 /// view provides it.
 pub trait SccpAdmissionView {
+    /// Original finite State execution pool, shared without granting replacement capacity.
+    fn sccp_execution_budget(&self) -> iroha_allocation::AllocationBudget;
+    /// Configured closed verifier-work ceilings for the original admission attempt.
+    fn sccp_verifier_limits(&self) -> &iroha_config::parameters::actual::Sccp;
     /// Return the live Taira `NetworkId`, which message ids bind.
     fn taira_network_id(&self) -> iroha_data_model::NetworkId;
     /// Return the Taira time of the latest committed block (admission-time freshness checks).
@@ -238,6 +320,12 @@ pub trait SccpAdmissionView {
 }
 
 impl<T: StateReadOnly + ?Sized> SccpAdmissionView for T {
+    fn sccp_execution_budget(&self) -> iroha_allocation::AllocationBudget {
+        self.execution_budget()
+    }
+    fn sccp_verifier_limits(&self) -> &iroha_config::parameters::actual::Sccp {
+        &self.zk().sccp
+    }
     fn taira_network_id(&self) -> iroha_data_model::NetworkId {
         *self.network_id()
     }
@@ -278,6 +366,9 @@ pub fn classify(
         return Ok(None);
     };
     match class {
+        SccpExemptClassV1::Keepalive => Ok(Some(
+            SccpAdmissionKeysV1::new(class).with_exclusive(&payload.authority),
+        )),
         SccpExemptClassV1::ForgeryEvidence => Err(SccpAdmissionRejectV1::new(
             "native forgery admission requires the original queue ingress owner",
         )),
@@ -292,7 +383,7 @@ pub fn classify(
             .ok_or_else(|| SccpAdmissionRejectV1::new("malformed keeper-advance shape"))?;
             super::light_clients::preverify_keeper_advance(
                 world,
-                view.committed_time_ms(),
+                view,
                 next_block_height,
                 instruction,
                 &payload.authority,
@@ -397,6 +488,24 @@ pub struct SccpPendingIndexV1 {
 }
 
 impl SccpPendingIndexV1 {
+    /// Borrow all shared-carrier holders without copying pending transaction graphs.
+    pub(crate) fn keepalive_holders(
+        &self,
+    ) -> impl Iterator<Item = HashOf<TransactionEntrypoint>> + '_ {
+        self.by_entrypoint.iter().filter_map(|(hash, keys)| {
+            (keys.class == SccpExemptClassV1::Keepalive).then_some(*hash)
+        })
+    }
+    /// Borrow the current holder of one authority's standalone Keepalive pending slot.
+    #[must_use]
+    pub fn keepalive_holder(
+        &self,
+        authority: &iroha_data_model::account::AccountId,
+    ) -> Option<HashOf<TransactionEntrypoint>> {
+        let key =
+            SccpAdmissionKeysV1::derive_key(SccpExemptClassV1::Keepalive, "exclusive", authority);
+        self.exclusive.get(&key).copied()
+    }
     /// Check whether `hash` may claim `keys` without mutating the index.
     ///
     /// # Errors
@@ -506,6 +615,7 @@ pub struct SccpExemptBlockBudgetV1 {
     remaining: Option<u32>,
     advanced_networks: BTreeSet<SccpNetworkV1>,
     forgery_included: bool,
+    keepalive_included: bool,
 }
 
 impl SccpExemptBlockBudgetV1 {
@@ -525,6 +635,7 @@ impl SccpExemptBlockBudgetV1 {
             remaining: parameters.map(|parameters| parameters.max_exempt_transactions_per_block),
             advanced_networks: BTreeSet::new(),
             forgery_included: false,
+            keepalive_included: false,
         }
     }
 
@@ -536,6 +647,12 @@ impl SccpExemptBlockBudgetV1 {
         };
         if self.remaining == Some(0) {
             return false;
+        }
+        if class == SccpExemptClassV1::Keepalive {
+            if self.keepalive_included {
+                return false;
+            }
+            self.keepalive_included = true;
         }
         if class == SccpExemptClassV1::ForgeryEvidence {
             if self.forgery_included {
@@ -563,6 +680,84 @@ mod tests {
         test_support::{blank_state, header, sample_signed_transaction},
     };
     use iroha_data_model::{account::AccountId, sccp::params::SccpParametersV1};
+
+    #[test]
+    fn source_rejection_preserves_typed_protocol_blame_and_original_local_refusal() {
+        use iroha_sccp::light_client::{SccpLcError, prepared::SccpLcAttemptErrorV1 as Attempt};
+        let malformed = SccpAdmissionRejectV1::from_attempt(Attempt::Protocol(
+            SccpLcError::MalformedFrame("bad frame"),
+        ));
+        assert!(malformed.source_data_rejected && malformed.deferred.is_none());
+        for error in [
+            SccpLcError::UnknownSigningSet { set_id: 9 },
+            SccpLcError::UnknownCheckpoint { source_height: 9 },
+            SccpLcError::SourceTimeInFuture {
+                source_ms: 10,
+                taira_now_ms: 9,
+            },
+        ] {
+            let refusal = SccpAdmissionRejectV1::from_attempt(Attempt::Protocol(error));
+            assert!(!refusal.source_data_rejected && refusal.deferred.is_none());
+        }
+        let local = SccpAdmissionRejectV1::from_attempt(Attempt::Invariant(
+            "original output control unavailable",
+        ));
+        assert!(!local.source_data_rejected && local.deferred.is_some());
+        assert!(!SccpAdmissionRejectV1::new("unclassified admission refusal").source_data_rejected);
+    }
+
+    #[test]
+    fn admission_moves_each_original_allocator_cause_through_the_vm_boundary() {
+        use iroha_allocation::{ChargedBufferError, PrepaidSharedError};
+        use iroha_sccp::light_client::{
+            prepared::SccpLcAttemptErrorV1 as Attempt,
+            state::admitted::SccpLcDeltaAdmissionErrorV1 as Output,
+        };
+
+        for (shared, error) in [
+            (
+                false,
+                Attempt::Buffer(ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                }),
+            ),
+            (
+                false,
+                Attempt::Output(Output::Buffer(ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                })),
+            ),
+            (
+                true,
+                Attempt::Control(PrepaidSharedError::Allocator {
+                    requested_bytes: 31,
+                }),
+            ),
+        ] {
+            let rejection = SccpAdmissionRejectV1::from_attempt(error);
+            assert!(!rejection.source_data_rejected);
+            let deferred = rejection.deferred.expect("original physical refusal");
+            assert!(deferred.allocation_refusal().is_none());
+            let ivm::VMError::AllocatorDeferred(original) = deferred.into_vm_error() else {
+                panic!("original physical allocator error must survive admission");
+            };
+            if shared {
+                assert_eq!(
+                    original.into_shared_error().unwrap(),
+                    PrepaidSharedError::Allocator {
+                        requested_bytes: 31
+                    }
+                );
+            } else {
+                assert!(matches!(
+                    original.into_buffer_error().unwrap(),
+                    ChargedBufferError::Allocator {
+                        requested_bytes: 31
+                    }
+                ));
+            }
+        }
+    }
 
     fn entry(seed: u8) -> HashOf<TransactionEntrypoint> {
         HashOf::from_untyped_unchecked(Hash::prehashed([seed; 32]))
@@ -943,19 +1138,19 @@ mod tests {
         let advance = signed(0x64, vec![keeper_advance(false).into()]);
         let ordinary = sample_signed_transaction();
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &advance),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &advance).unwrap(),
+            None,
             "nothing is exempt without SCCP"
         );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &backfill),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &backfill).unwrap(),
+            None,
             "a Backfill pays the ordinary fee"
         );
         assert_eq!(
-            classify(&*stx.world, &stx, 3, &ordinary),
-            Ok(None),
+            classify(&*stx.world, &stx, 3, &ordinary).unwrap(),
+            None,
             "an unshaped transaction is never pre-verified"
         );
         assert!(
@@ -969,7 +1164,10 @@ mod tests {
         let state = blank_state();
         let view = state.world_view();
         let transaction = sample_signed_transaction();
-        assert_eq!(classify(&view, &state.view(), 1, &transaction), Ok(None));
+        assert_eq!(
+            classify(&view, &state.view(), 1, &transaction).unwrap(),
+            None
+        );
         assert!(!allows_unregistered_authority(transaction.instructions()));
         assert!(block_exempt_cap_ok(&view, &[SccpExemptClassV1::SelfClaim]));
         assert_eq!(exempt_cap(&view), None);

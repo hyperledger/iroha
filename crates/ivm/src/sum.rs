@@ -135,7 +135,11 @@ mod tests {
             let handle =
                 allocate_words(&mut vm, SumLayoutV1::try_new(1, 1).unwrap(), tag, &[0]).unwrap();
             crate::value_record::complete_test_result(&mut vm, &[handle]);
-            assert_eq!(entrypoint_return_is_error(&vm, &schema), Ok(expected));
+            assert_eq!(
+                (entrypoint_return_is_error(&vm, &schema))
+                    .expect("expected successful fixture result"),
+                expected
+            );
             let wrapped = EntrypointValueTypeV1 {
                 nodes: vec![
                     Node::Tuple(2),
@@ -154,7 +158,10 @@ mod tests {
             )
             .unwrap();
             crate::value_record::complete_test_result(&mut wrapped_vm, &[wrapped_handle, 0]);
-            assert_eq!(entrypoint_return_is_error(&wrapped_vm, &wrapped), Ok(false));
+            assert!(matches!(
+                entrypoint_return_is_error(&wrapped_vm, &wrapped),
+                Ok(false)
+            ));
             vm.store_u64(handle, 2).unwrap();
             assert!(entrypoint_return_is_error(&vm, &schema).is_err());
         }
@@ -165,48 +172,72 @@ mod tests {
         let layout = SumLayoutV1::option(2).expect("Option layout");
         let none = allocate_words(&mut vm, layout, 0, &[]).expect("none");
         assert_eq!(none, Memory::HEAP_START);
-        assert_eq!(validate_active_words(&vm, none, layout), Ok((false, 0)));
-        assert_eq!(read_words(&vm, none, layout), Ok((false, vec![])));
+        assert_eq!(
+            (validate_active_words(&vm, none, layout)).expect("expected successful fixture result"),
+            (false, 0)
+        );
+        assert_eq!(
+            (read_words(&vm, none, layout)).expect("expected successful fixture result"),
+            (false, vec![])
+        );
         let some = allocate_words(&mut vm, layout, 1, &[7, 9]).expect("some");
-        assert_eq!(validate_active_words(&vm, some, layout), Ok((true, 2)));
-        assert_eq!(read_words(&vm, some, layout), Ok((true, vec![7, 9])));
+        assert_eq!(
+            (validate_active_words(&vm, some, layout)).expect("expected successful fixture result"),
+            (true, 2)
+        );
+        assert_eq!(
+            (read_words(&vm, some, layout)).expect("expected successful fixture result"),
+            (true, vec![7, 9])
+        );
     }
     #[test]
     fn result_branches_use_their_own_exact_width() {
         let mut vm = IVM::new(0);
         let layout = SumLayoutV1::try_new(1, 3).expect("Result layout");
         let err = allocate_words(&mut vm, layout, 0, &[44]).expect("err");
-        assert_eq!(read_words(&vm, err, layout), Ok((false, vec![44])));
+        assert_eq!(
+            (read_words(&vm, err, layout)).expect("expected successful fixture result"),
+            (false, vec![44])
+        );
         let ok = allocate_words(&mut vm, layout, 1, &[1, 2, 3]).expect("ok");
-        assert_eq!(read_words(&vm, ok, layout), Ok((true, vec![1, 2, 3])));
+        assert_eq!(
+            (read_words(&vm, ok, layout)).expect("expected successful fixture result"),
+            (true, vec![1, 2, 3])
+        );
     }
     #[test]
     fn malformed_values_and_forged_handles_fail_closed() {
         let mut vm = IVM::new(0);
         let layout = SumLayoutV1::try_new(1, 2).expect("layout");
-        assert_eq!(
+        assert!(matches!(
             allocate_words(&mut vm, layout, 1, &[1]),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             allocate_words(&mut vm, layout, 3, &[1]),
             Err(VMError::DecodeError)
-        );
+        ));
         let value = allocate_words(&mut vm, layout, 0, &[8]).expect("valid sum");
         vm.store_u64(value + 16, 9)
             .expect("forge inactive reserved payload");
-        assert_eq!(read_words(&vm, value, layout), Err(VMError::DecodeError));
+        assert!(matches!(
+            read_words(&vm, value, layout),
+            Err(VMError::DecodeError)
+        ));
         vm.store_u64(value + 16, 0)
             .expect("restore inactive reserved payload");
         vm.store_u64(value, 2).expect("forge tag");
-        assert_eq!(read_words(&vm, value, layout), Err(VMError::DecodeError));
-        assert_eq!(
+        assert!(matches!(
+            read_words(&vm, value, layout),
+            Err(VMError::DecodeError)
+        ));
+        assert!(matches!(
             read_words(&vm, Memory::HEAP_START + 4096, layout),
             Err(VMError::DecodeError)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             read_words(&vm, value + 1, layout),
             Err(VMError::DecodeError)
-        );
+        ));
     }
 }

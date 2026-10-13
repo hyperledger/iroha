@@ -19,6 +19,9 @@ struct RetrySource {
     sent: Arc<AtomicUsize>,
 }
 impl Source for RetrySource {
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+        Box::pin(async { Ok(self.proofs.keys().next_back().copied().unwrap_or(0)) })
+    }
     fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
         Box::pin(async move {
             Ok(self
@@ -138,8 +141,10 @@ impl WorkflowClock for Clock {
     }
     fn sleep(&self, duration: Duration) -> WorkflowFuture<'_, ()> {
         Box::pin(async move {
-            self.0
-                .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+            self.0.fetch_add(
+                u64::try_from(duration.as_millis()).expect("fixture duration fits u64"),
+                Ordering::Relaxed,
+            );
         })
     }
 }
@@ -193,6 +198,8 @@ async fn replacement_case(rejections: &[bool]) {
         authority: account.transactions[0].authority().clone(),
         fee_payment: account.transactions[0].fee_payment_intent().clone(),
         instruction: Mutex::new(None),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 8,
         reads: AtomicUsize::new(0),
     });
@@ -224,12 +231,12 @@ async fn replacement_case(rejections: &[bool]) {
         retry_rejected_step: true,
     };
     for (index, rejected) in rejections.iter().enumerate() {
-        ledger.begin_observation(digest).unwrap();
+        ledger.begin_observation(digest, None).unwrap();
         let driver = ReauthenticatedDriver {
             payload: Mutex::new(Some(
                 norito::encode_canonical(account.transactions[index].payload()).unwrap(),
             )),
-            ordinal: index as u8 + 1,
+            ordinal: u8::try_from(index).expect("fixture index fits u8") + 1,
         };
         let result = handle.run(&driver, &options).await;
         if *rejected {

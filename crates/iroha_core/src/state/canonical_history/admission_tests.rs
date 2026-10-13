@@ -59,9 +59,8 @@ fn source_admission_distinguishes_semantic_budget_error_from_local_history_limit
         assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
         assert_eq!(budget.reserved_bytes(), baseline);
         if semantic {
-            assert_eq!(
-                error,
-                ExecutionAttemptError::Rejected(QueryExecutionFail::GasBudgetExceeded)
+            assert!(
+                matches!(error, ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (QueryExecutionFail::GasBudgetExceeded))
             );
         } else {
             let ExecutionAttemptError::Deferred(local) = error else {
@@ -159,7 +158,13 @@ fn admitted_source_preserves_its_own_state_shell_refusal_before_body_io() {
         calls, 1,
         "logical admission precedes the actual State shell reservation"
     );
-    assert_eq!(error, ExecutionAttemptError::Deferred(expected));
+    let ExecutionAttemptError::Deferred(actual) = error else {
+        panic!("original shell refusal must remain deferred")
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.allocation_refusal(), expected.allocation_refusal());
+    assert_eq!(actual.decode_refusal(), expected.decode_refusal());
+    assert_eq!(actual.phase(), expected.phase());
     assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
     assert_eq!(budget.reserved_bytes(), baseline);
     budget.set_limit_bytes(original_limit);
@@ -269,9 +274,8 @@ fn authenticated_receipt_visitors_keep_semantic_and_original_local_outcomes() {
             "failed visitor drops its receipt shell"
         );
         if semantic {
-            assert_eq!(
-                error,
-                ExecutionAttemptError::Rejected(QueryExecutionFail::GasBudgetExceeded)
+            assert!(
+                matches!(error, ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (QueryExecutionFail::GasBudgetExceeded))
             );
         } else {
             let ExecutionAttemptError::Deferred(local) = error else {

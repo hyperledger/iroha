@@ -54,7 +54,7 @@ fn disk_fixtures_detect_advert_key_mismatch() {
         match err {
             AdvertError::AdmissionFailed { error, .. } => {
                 assert!(
-                    matches!(error, ProviderAdmissionAdvertError::AdvertKeyMismatch),
+                    matches!(*error, ProviderAdmissionAdvertError::AdvertKeyMismatch),
                     "expected advert key mismatch, got {error:?}"
                 );
             }

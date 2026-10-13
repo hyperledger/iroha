@@ -76,7 +76,10 @@ fn check_original_sequence(chain: &CertifiedTestChain) {
         view.block_hashes().iter().copied().collect::<Vec<_>>(),
         hashes
     );
-    assert_eq!(view.height(), chain.height() as usize);
+    assert_eq!(
+        view.height(),
+        usize::try_from(chain.height()).expect("fixture value fits usize")
+    );
 }
 
 #[inline(never)]
@@ -162,7 +165,28 @@ fn compare_original_refusal(actual: ProofError, expected: ProofError, zero: bool
     assert_eq!(actual.to_string(), expected.to_string());
     match (actual, expected) {
         (ProofError::Deferred(actual), ProofError::Deferred(expected)) => {
-            assert_eq!(actual, expected);
+            assert_eq!(actual.reason(), expected.reason());
+            assert_eq!(actual.phase(), expected.phase());
+            assert!(
+                actual.allocation_refusal().is_none() && expected.allocation_refusal().is_none()
+            );
+            assert!(
+                actual.verification_refusal().is_none()
+                    && expected.verification_refusal().is_none()
+            );
+            let actual_decode = actual.decode_refusal().expect("actual decoder cause");
+            let expected_decode = expected
+                .decode_refusal()
+                .expect("independent decoder cause");
+            assert_eq!(actual_decode.kind(), expected_decode.kind());
+            assert_eq!(
+                actual_decode.resource_error(),
+                expected_decode.resource_error()
+            );
+            assert_eq!(
+                actual_decode.allocation_bytes(),
+                expected_decode.allocation_bytes()
+            );
             assert_eq!(
                 actual.reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
@@ -320,10 +344,13 @@ fn check_target_before_gap(chain: &CertifiedTestChain) {
             .unwrap();
         let expected = build_proof(&view, 4).unwrap_err();
         let actual = reader.proof(4).unwrap_err();
-        assert!(matches!(
-            actual,
-            ProofError::Chain(ChainReadError::Malformed { height: 4, .. })
-        ));
+        assert!(
+            matches!(
+                actual,
+                ProofError::Chain(ChainReadError::ResultMismatch { height: 4 })
+            ),
+            "exact replaced result at original height 4: actual={actual:?}, standalone={expected:?}"
+        );
         assert_eq!(actual.to_string(), expected.to_string());
         chain
             .kura()
@@ -345,12 +372,17 @@ fn check_target_before_gap(chain: &CertifiedTestChain) {
 #[cfg(unix)]
 #[test]
 fn scoped_producer_refuses_missing_replaced_and_linked_journals_and_retries_original_inode() {
+    // Keep fixture State generations alive throughout exact reader accounting.
+    // Reader-owned buffers still refund synchronously on refusal or scope exit;
+    // unrelated epoch reclamation must not change this test's baseline.
+    let _fixture_retirement_pin = crossbeam_epoch::pin();
     with_chain_at(3, check_journal_replacement);
 }
 
 #[cfg(unix)]
 #[inline(never)]
 fn check_journal_replacement(chain: &CertifiedTestChain) {
+    use std::os::unix::fs::MetadataExt as _;
     struct RestoreJournal<'a> {
         source: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -363,8 +395,6 @@ fn check_journal_replacement(chain: &CertifiedTestChain) {
             std::fs::rename(self.saved, self.source).unwrap();
         }
     }
-
-    use std::os::unix::fs::MetadataExt as _;
     let view = chain.state().view();
     let original = build_proof(&view, 3).unwrap();
     let source =
@@ -377,6 +407,10 @@ fn check_journal_replacement(chain: &CertifiedTestChain) {
     with_proof_reader(&view, |reader| {
         for kind in ["missing", "same-bytes-replacement", "symlink"] {
             reader.proof(2).unwrap();
+            eprintln!(
+                "journal {kind}: warmed={}, baseline={reserved}",
+                budget.reserved_bytes()
+            );
             std::fs::rename(&source, &saved).unwrap();
             let restore = RestoreJournal {
                 source: &source,
@@ -399,12 +433,21 @@ fn check_journal_replacement(chain: &CertifiedTestChain) {
                 ProofError::Chain(ChainReadError::NotInView { height: 1 })
             ));
             assert_eq!(actual.to_string(), expected.to_string());
-            assert_eq!(budget.reserved_bytes(), reserved);
+            assert_eq!(
+                budget.reserved_bytes(),
+                reserved,
+                "journal {kind}: cursor_present={}",
+                reader.chain.is_some()
+            );
             assert_eq!(std::fs::read(&saved).unwrap(), bytes);
             drop(restore);
             assert_eq!(std::fs::metadata(&source).unwrap().ino(), original_identity);
             assert_eq!(std::fs::read(&source).unwrap(), bytes);
             assert_eq!(reader.proof(3).unwrap(), original);
+            eprintln!(
+                "journal {kind}: retry={}, baseline={reserved}",
+                budget.reserved_bytes()
+            );
         }
     });
     assert_eq!(budget.reserved_bytes(), reserved);
@@ -437,6 +480,10 @@ fn check_unwind_cleanup(chain: &CertifiedTestChain) {
 
 #[test]
 fn ascending_proofs_cannot_hide_corruption_of_a_previously_verified_real_quorum() {
+    // Keep fixture State generations alive throughout exact reader accounting.
+    // Reader-owned buffers still refund synchronously on refusal or scope exit;
+    // unrelated epoch reclamation must not change this test's baseline.
+    let _fixture_retirement_pin = crossbeam_epoch::pin();
     with_chain_at(3, check_earlier_quorum_loss);
 }
 
@@ -519,10 +566,13 @@ fn check_genesis_source_loss(chain: &CertifiedTestChain) {
         let expected = build_proof(&view, 3).unwrap_err();
         let actual = reader.proof(3).unwrap_err();
         assert_eq!(actual.to_string(), expected.to_string());
-        assert!(matches!(
-            actual,
-            ProofError::Chain(ChainReadError::Malformed { height: 1, .. })
-        ));
+        assert!(
+            matches!(
+                actual,
+                ProofError::Chain(ChainReadError::ResultMismatch { height: 1 })
+            ),
+            "exact replaced result at original height 1: actual={actual:?}, standalone={expected:?}"
+        );
         assert_eq!(budget.reserved_bytes(), reserved);
         chain
             .kura()
@@ -588,6 +638,10 @@ fn check_warm_failure_order(chain: &CertifiedTestChain) {
     };
     with_proof_reader(&view, |reader| {
         reader.proof(2).unwrap();
+        eprintln!(
+            "warm-order: warmed={}, baseline={reserved}",
+            budget.reserved_bytes()
+        );
         // This changes actual original QCs after the prior prefix's fresh byte
         // fence. The warm target now fails, while a fresh reader must diagnose
         // the earlier gap before verifying the target certificate.
@@ -599,7 +653,12 @@ fn check_warm_failure_order(chain: &CertifiedTestChain) {
             ProofError::Chain(ChainReadError::Certificate { height: 2, .. })
         ));
         assert_eq!(actual.to_string(), expected.to_string());
-        assert_eq!(budget.reserved_bytes(), reserved);
+        assert_eq!(
+            budget.reserved_bytes(),
+            reserved,
+            "warm error: cursor_present={}",
+            reader.chain.is_some()
+        );
         for (height, qc) in [(2, earlier_qc), (3, target_qc)] {
             chain
                 .kura()
@@ -609,13 +668,29 @@ fn check_warm_failure_order(chain: &CertifiedTestChain) {
                 )
                 .unwrap();
         }
+        eprintln!(
+            "warm-order: restored={}, baseline={reserved}",
+            budget.reserved_bytes()
+        );
         assert_eq!(reader.proof(3).unwrap(), original);
+        eprintln!(
+            "warm-order: retry={}, baseline={reserved}",
+            budget.reserved_bytes()
+        );
         assert_eq!(
             chain.committed(3).block().encode_wire().unwrap(),
             original.block_wire
         );
+        eprintln!(
+            "warm-order: committed-read={}, baseline={reserved}",
+            budget.reserved_bytes()
+        );
     });
-    assert_eq!(budget.reserved_bytes(), reserved);
+    assert_eq!(
+        budget.reserved_bytes(),
+        reserved,
+        "warm reader drop with original publications still retained"
+    );
     drop(original_publications);
     assert_eq!(chain.height(), 3);
 }

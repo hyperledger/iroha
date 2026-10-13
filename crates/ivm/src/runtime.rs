@@ -142,7 +142,7 @@ mod tests {
         unpaid.load_program(&program).unwrap();
         unpaid.select_entrypoint("echo").unwrap();
         unpaid.set_host(PreparedHost(prepared));
-        assert_eq!(unpaid.run(), Err(VMError::DecodeError));
+        assert!(matches!(unpaid.run(), Err(VMError::DecodeError)));
         assert!(unpaid.call_result_word_count().is_err());
         #[cfg(debug_assertions)]
         assert_eq!(crate::argument_record_decode_count(), 1);

@@ -105,6 +105,7 @@ zeroize = { workspace = true }
 rustix = { version = "1.1.4", features = ["fs", "process"] }
 
 [dev-dependencies]
+iroha_measurement = { workspace = true }
 iroha_sumeragi = { workspace = true }
 iroha_data_model = { workspace = true, default-features = false, features = ["test-fixtures", "transparent_api"] }
 iroha_test_samples = { workspace = true }
@@ -116,3 +117,8 @@ tempfile = { workspace = true }
 [[test]]
 name = "tx_ttl"
 path = "tests/tx_ttl.rs"
+
+# Diagnostic-only actual SDK flow through the shared phase/resource recorder.
+[[test]]
+name = "sdk_phase_tree_measurement"
+path = "tests/sdk_phase_tree_measurement.rs"

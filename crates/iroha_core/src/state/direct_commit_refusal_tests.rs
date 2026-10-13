@@ -8,7 +8,7 @@ use crate::state::{State, StateParameters, storage_transactions};
 use iroha_allocation::release::DeferredRelease;
 use mv::{PublicationCleanup, PublicationPreparationError};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     num::NonZeroUsize,
     pin::Pin,
@@ -110,7 +110,7 @@ impl Wake for ProbeOriginalStateOnMembershipRelease {
 fn original_membership_probe(state: &State) -> storage_transactions::DetachedTransactionsBlock {
     let mut block = state.transactions.block();
     block.insert_block(
-        HashSet::new(),
+        BTreeSet::new(),
         NonZeroUsize::new(state.transactions.latest_height() + 1).unwrap(),
     );
     block.prepare_commit().unwrap().detach()
@@ -209,7 +209,7 @@ fn check_commit_retirement(case: CommitCase, source: NotificationSource) {
         // commit_empty_block_for_testing does in the original State fixture API.
         block.finalize_axt_asset_incarnations().unwrap();
         block.transactions.insert_block(
-            HashSet::new(),
+            BTreeSet::new(),
             NonZeroUsize::new(before_height + 1).unwrap(),
         );
         block.transactions.validate_commit().unwrap();

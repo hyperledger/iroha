@@ -181,12 +181,28 @@ pub(super) fn matches<T: SerializePayload>(value: &T, bytes: &[u8]) -> bool {
     let mut exact = Exact(bytes);
     norito::codec::encode_adaptive_into(value, &mut exact).is_ok() && exact.0.is_empty()
 }
+/// One selected map update, preserving deletion as distinct from absence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SelectedValue<'a> {
+    Deleted,
+    Updated(&'a [u8]),
+}
+
+impl<'a> SelectedValue<'a> {
+    pub(super) const fn value(self) -> Option<&'a [u8]> {
+        match self {
+            Self::Deleted => None,
+            Self::Updated(bytes) => Some(bytes),
+        }
+    }
+}
+
 /// A selected deletion differs from no update. Repeated matching rows are refused.
 pub(super) fn select<'a>(
     bytes: &'a [u8],
     name: &[u8],
     key: Option<&dyn Fn(&[u8]) -> bool>,
-) -> Result<Option<Option<&'a [u8]>>, super::Error> {
+) -> Result<Option<SelectedValue<'a>>, super::Error> {
     let mut found = None;
     visit::<super::Error>(bytes, |entry| {
         if entry.name == name
@@ -199,7 +215,11 @@ pub(super) fn select<'a>(
             if found.is_some() {
                 return Err(norito::Error::NonCanonicalEncoding.into());
             }
-            found = Some(entry.value);
+            found = Some(
+                entry
+                    .value
+                    .map_or(SelectedValue::Deleted, SelectedValue::Updated),
+            );
         }
         Ok(())
     })?;
@@ -231,6 +251,7 @@ mod tests {
                 select(&joined, b"sccp_committee_current", None)
                     .unwrap()
                     .unwrap()
+                    .value()
                     .unwrap()
             )
             .unwrap(),
@@ -271,7 +292,7 @@ mod tests {
                 Some(&|bytes| matches(&3_u64, bytes))
             )
             .unwrap(),
-            Some(None)
+            Some(SelectedValue::Deleted)
         );
         assert_eq!(
             select(

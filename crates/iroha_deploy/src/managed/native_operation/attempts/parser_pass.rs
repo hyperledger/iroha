@@ -9,11 +9,11 @@
 
 use super::*;
 use crate::managed::stream_token_custody::body_history::SnapshotReadPass;
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, rc::Rc};
 
 pub(in crate::managed) struct EnrollmentReadPass<'a> {
     snapshot: &'a SnapshotReadPass<'a>,
-    latest: RefCell<Option<Arc<History>>>,
+    latest: RefCell<Option<Rc<History>>>,
     count: std::cell::Cell<usize>,
     retained: Option<&'a History>,
     parser_handles: bool,
@@ -77,7 +77,7 @@ impl<'a> EnrollmentReadPass<'a> {
                 history
                     .scope
                     .predecessor()
-                    .map(|prior| Arc::clone(prior.shared_history())),
+                    .map(|prior| Rc::clone(prior.shared_history())),
             ),
             count: std::cell::Cell::new(0),
             retained: None,
@@ -97,7 +97,7 @@ impl<'a> EnrollmentReadPass<'a> {
                     .history()
                     .scope
                     .predecessor()
-                    .map(|prior| Arc::clone(prior.shared_history())),
+                    .map(|prior| Rc::clone(prior.shared_history())),
             ),
             count: std::cell::Cell::new(0),
             retained: None,
@@ -123,7 +123,7 @@ impl<'a> EnrollmentReadPass<'a> {
                 .latest
                 .borrow()
                 .as_ref()
-                .is_some_and(|latest| Arc::ptr_eq(latest, prior.shared_history()))
+                .is_some_and(|latest| Rc::ptr_eq(latest, prior.shared_history()))
     }
     fn close_latest(&self) -> Result<()> {
         if let Some(history) = self.latest.borrow().as_ref() {
@@ -180,7 +180,7 @@ impl<'a> EnrollmentReadPass<'a> {
         let mut next = latest.as_ref();
         for _ in 0..MAX_ATTEMPTS {
             let Some(current) = next else { return false };
-            if Arc::ptr_eq(current, prior.shared_history()) {
+            if Rc::ptr_eq(current, prior.shared_history()) {
                 return true;
             }
             next = current
@@ -202,8 +202,8 @@ impl<'a> EnrollmentReadPass<'a> {
         let predecessor = closure.retained_history().scope.predecessor();
         match (prior.as_ref(), predecessor) {
             (None, None) => {}
-            (Some(prior), Some(predecessor))
-                if Arc::ptr_eq(prior, predecessor.shared_history()) => {}
+            (Some(prior), Some(predecessor)) if Rc::ptr_eq(prior, predecessor.shared_history()) => {
+            }
             _ => {
                 return Err(invalid(
                     "parser predecessor closure changed its exact chain",
@@ -218,7 +218,7 @@ impl<'a> EnrollmentReadPass<'a> {
             .ok_or_else(|| invalid("parser history exceeds its body bound"))?;
         drop(prior);
         self.latest
-            .replace(Some(Arc::clone(closure.shared_history())));
+            .replace(Some(Rc::clone(closure.shared_history())));
         self.count.set(count);
         Ok(())
     }

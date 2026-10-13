@@ -32,7 +32,7 @@ fn prepared_membership_retains_writer_and_drop_preserves_storage() {
     assert!(
         prepared
             .as_block()
-            .has_exact_staged_block(height(2), &HashSet::from([key(2)]))
+            .has_exact_staged_block(height(2), &BTreeSet::from([key(2)]))
     );
     assert_eq!(storage.view().get(&key(2)), None);
     assert_eq!(norito::json::to_json(&storage).unwrap(), before);
@@ -84,7 +84,7 @@ fn prepared_repeat_and_replacement_preserve_actual_older_membership() {
     assert_eq!(norito::json::to_json(&storage).unwrap(), before_repeat);
 
     let mut block = storage.block_and_revert();
-    block.insert_block(HashSet::from([replacement]), height(2));
+    block.insert_block(BTreeSet::from([replacement]), height(2));
     let prepared = block.prepare_commit().unwrap();
     assert_eq!(prepared.get(&older), Some(height(1)));
     assert_eq!(prepared.get(&shared), Some(height(1)));
@@ -103,7 +103,7 @@ fn prepared_repeat_and_replacement_preserve_actual_older_membership() {
         .unwrap()
         .publish();
     let mut block = storage.block_and_revert();
-    block.insert_block(HashSet::new(), height(3));
+    block.insert_block(BTreeSet::new(), height(3));
     block.prepare_commit().unwrap().publish();
     assert_eq!(storage.view().get(&shared), Some(height(1)));
     assert_eq!(storage.view().get(&replacement), Some(height(2)));
@@ -128,7 +128,7 @@ fn membership_admission_errors_drop_writer_without_publication() {
     ));
     assert!(storage.write_lock.try_lock().is_some());
     let mut replacement = storage.block_and_revert();
-    replacement.insert_block(HashSet::from([key(30)]), height(1));
+    replacement.insert_block(BTreeSet::from([key(30)]), height(1));
     assert!(matches!(
         replacement.prepare_commit(),
         Err(TransactionsBlockError::HeightMismatch {
@@ -172,7 +172,7 @@ fn prepared_maximum_height_repeat_and_replacement_do_not_require_advance() {
         .publish();
     assert_eq!(norito::json::to_json(&storage).unwrap(), before);
     let mut block = storage.block_and_revert();
-    block.insert_block(HashSet::from([replacement]), height(usize::MAX));
+    block.insert_block(BTreeSet::from([replacement]), height(usize::MAX));
     block.prepare_commit().unwrap().publish();
     assert_eq!(storage.view().get(&older), Some(height(usize::MAX - 1)));
     assert_eq!(storage.view().get(&tip), None);
@@ -199,7 +199,7 @@ fn detached_membership_releases_writer_without_copying_or_publishing() {
     assert!(!detached.replaces_tip());
     let (staged_height, staged_keys) = detached.staged_membership();
     assert_eq!(staged_height, height(2));
-    assert_eq!(staged_keys, &HashSet::from([key(51)]));
+    assert_eq!(staged_keys, &BTreeSet::from([key(51)]));
     assert_eq!(
         detached.observe_predecessor(&storage),
         MembershipPredecessorStatus::Current
@@ -248,7 +248,7 @@ fn detached_candidates_share_a_cut_and_observe_busy_without_waiting() {
         second.observe_predecessor(&storage),
         MembershipPredecessorStatus::Changed
     );
-    assert_eq!(first.staged_membership().1, &HashSet::from([key(60)]));
+    assert_eq!(first.staged_membership().1, &BTreeSet::from([key(60)]));
 }
 
 #[test]
@@ -257,13 +257,13 @@ fn detached_replacement_retains_mode_and_rejects_same_height_aba() {
     stage(&storage, 1, &[key(70)]).commit().unwrap();
     stage(&storage, 2, &[key(71)]).commit().unwrap();
     let mut replacement = storage.block_and_revert();
-    replacement.insert_block(HashSet::from([key(72)]), height(2));
+    replacement.insert_block(BTreeSet::from([key(72)]), height(2));
     let detached = replacement.prepare_commit().unwrap().detach();
     assert!(detached.replaces_tip());
     assert_eq!(detached.predecessor_height(), 2);
-    assert_eq!(detached.staged_membership().1, &HashSet::from([key(72)]));
+    assert_eq!(detached.staged_membership().1, &BTreeSet::from([key(72)]));
     assert_eq!(storage.view().get(&key(71)), Some(height(2)));
-    for keys in [HashSet::from([key(73)]), HashSet::from([key(71)])] {
+    for keys in [BTreeSet::from([key(73)]), BTreeSet::from([key(71)])] {
         let mut replacement = storage.block_and_revert();
         replacement.insert_block(keys, height(2));
         replacement.commit().unwrap();

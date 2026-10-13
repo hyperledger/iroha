@@ -15,9 +15,7 @@ fn invalid(message: impl std::fmt::Display) -> QueryExecutionFail {
 }
 
 /// Project a local read refusal only at the HTTP boundary, without inventing missing history.
-pub(crate) fn query_attempt_error(
-    error: ExecutionAttemptError<QueryExecutionFail>,
-) -> crate::Error {
+pub fn query_attempt_error(error: ExecutionAttemptError<QueryExecutionFail>) -> crate::Error {
     let query_error = match error {
         ExecutionAttemptError::Deferred(_) => QueryExecutionFail::CapacityLimit,
         ExecutionAttemptError::Rejected(error) => error,
@@ -26,14 +24,14 @@ pub(crate) fn query_attempt_error(
 }
 
 /// Preserve canonical body failures and allocation refusal until the HTTP boundary.
-pub(crate) fn canonical_attempt_error(
+pub fn canonical_attempt_error(
     error: ExecutionAttemptError<iroha_data_model::query::error::CanonicalHistoryError>,
 ) -> crate::Error {
     query_attempt_error(error.map_rejection(QueryExecutionFail::CanonicalHistory))
 }
 
 /// Surface DA hydration pressure as a retryable HTTP refusal, never an empty index.
-pub(crate) fn da_hydration_error(error: iroha_core::state::DaIndexHydrationError) -> crate::Error {
+pub fn da_hydration_error(error: iroha_core::state::DaIndexHydrationError) -> crate::Error {
     match error {
         iroha_core::state::DaIndexHydrationError::Deferred(original) => {
             query_attempt_error(ExecutionAttemptError::Deferred(original))
@@ -63,7 +61,7 @@ fn read_carrier(
 }
 
 /// Borrow signed calls after validating the complete output join; never zip trees.
-pub(crate) fn signed_calls(
+pub fn signed_calls(
     block: &SignedBlock,
 ) -> Result<
     impl Iterator<
@@ -93,7 +91,7 @@ pub(crate) fn signed_calls(
 
 /// Resolve a unique ordinary signed submission from exact authenticated history.
 /// Reveals and internal invocations cannot impersonate an external submission.
-pub(crate) fn exact_external_outcome(
+pub fn exact_external_outcome(
     state: &State,
     height: NonZeroUsize,
     hash: HashOf<BlockHeader>,
@@ -187,9 +185,11 @@ mod tests {
             da_hydration_error(deferred).into_response().status(),
             axum::http::StatusCode::TOO_MANY_REQUESTS
         );
-        let missing = iroha_core::state::DaIndexHydrationError::MissingBlock {
-            height: std::num::NonZeroU64::new(1).unwrap(),
-        };
+        let missing = iroha_core::state::DaIndexHydrationError::Completed(
+            iroha_core::state::DaIndexHydrationFailure::MissingBlock {
+                height: std::num::NonZeroU64::new(1).unwrap(),
+            },
+        );
         assert!(matches!(
             da_hydration_error(missing),
             crate::Error::Query(iroha_data_model::ValidationFail::InternalError(_))

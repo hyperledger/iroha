@@ -360,6 +360,7 @@ REQUIRED_CATALOGS = (
     "nexus_consensus_policy_v1",
     "execution_output_policy_v1",
     "fastpq_source_policy_v1",
+    "fraud_admission_policy_v1",
 )
 CATALOG_FORMS = ("policy_push", "zk_policy_put", "struct_tree")
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(?:tokio\s*::\s*)?test\b")

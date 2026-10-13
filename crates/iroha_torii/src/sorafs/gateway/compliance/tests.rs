@@ -1848,9 +1848,11 @@ impl GatewayComplianceFeedTransport for DeadlineTransport {
 }
 #[test]
 fn feed_fetch_enforces_one_cumulative_deadline() {
-    let mut limits = GatewayComplianceFetchLimits::default();
-    limits.connect_timeout = Duration::from_millis(10);
-    limits.total_timeout = Duration::from_millis(15);
+    let limits = GatewayComplianceFetchLimits {
+        connect_timeout: Duration::from_millis(10),
+        total_timeout: Duration::from_millis(15),
+        ..Default::default()
+    };
     let mut response = fetch_response(Vec::new());
     response.elapsed = Duration::from_millis(8);
     let transport = DeadlineTransport { response };

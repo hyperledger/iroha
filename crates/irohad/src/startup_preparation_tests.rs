@@ -88,7 +88,7 @@ mod startup_preparation_tests {
 
     fn fixture_with_source_account(
         instructions: impl IntoIterator<Item = InstructionBox>,
-        source_only_account: Option<AccountId>,
+        source_only_account: Option<&AccountId>,
     ) -> (FixtureResources, LocalSemanticGenesisFixture) {
         let directory = tempfile::tempdir().unwrap();
         let mut fixture = offline_semantic_genesis_fixture(instructions);
@@ -170,7 +170,7 @@ mod startup_preparation_tests {
     /// The common offline helper deliberately keeps proposals resultless and stays unchanged.
     fn seal_startup_genesis(
         fixture: &mut LocalSemanticGenesisFixture,
-        source_only_account: Option<AccountId>,
+        source_only_account: Option<&AccountId>,
     ) {
         use iroha_core::state::WorldReadOnly as _;
 
@@ -186,7 +186,7 @@ mod startup_preparation_tests {
         let budget =
             iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);
         let mut accounts = vec![genesis_account(signer.public_key().clone())];
-        if let Some(account) = &source_only_account {
+        if let Some(account) = source_only_account {
             // This is the exact fresh target account set in PreparedStartup. The extra account
             // exists only in the signing source, so Unregister succeeds there but not on replay.
             assert!(accounts.iter().all(|existing| existing.id() != account));
@@ -226,7 +226,7 @@ mod startup_preparation_tests {
                 .expect("genesis lane policy");
         apply_state_geometry_config_before_kura_replay(&mut state, &policies)
             .expect("genesis geometry");
-        if let Some(account) = &source_only_account {
+        if let Some(account) = source_only_account {
             assert!(state.world_view().accounts().get(account).is_some());
         }
         let voters = iroha_core::sumeragi::schedule::genesis_validators(&fixture.genesis)
@@ -248,7 +248,7 @@ mod startup_preparation_tests {
         .unwrap_or_else(|(_, error)| {
             panic!("fixture must genuinely execute before sealing: {error}")
         });
-        if let Some(account) = &source_only_account {
+        if let Some(account) = source_only_account {
             assert!(staged.world().accounts().get(account).is_none());
         }
         drop(staged);
@@ -288,11 +288,13 @@ mod startup_preparation_tests {
         drop(reservation);
     }
 
+    type CustodyProbe = (Weak<State>, Weak<Kura>, mpsc::Receiver<(bool, bool, bool)>);
+
     /// Add a real supervised child that observes custody only after original shutdown admission.
     fn custody_probe(
         runtime: &tokio::runtime::Runtime,
         prepared: &mut PreparedStartup,
-    ) -> (Weak<State>, Weak<Kura>, mpsc::Receiver<(bool, bool, bool)>) {
+    ) -> CustodyProbe {
         let state = Arc::downgrade(&prepared.native.state);
         let kura = Arc::downgrade(&prepared.native.kura);
         let child_state = state.clone();
@@ -430,8 +432,10 @@ mod startup_preparation_tests {
                 .public_key()
                 .clone(),
         );
-        let (_resources, fixture) =
-            fixture_with_source_account([Unregister::account(absent.clone()).into()], Some(absent));
+        let (_resources, fixture) = fixture_with_source_account(
+            [Unregister::account(absent.clone()).into()],
+            Some(&absent),
+        );
         let config = fixture.config.clone();
         let runtime = runtime();
         let calls = Cell::new(0);

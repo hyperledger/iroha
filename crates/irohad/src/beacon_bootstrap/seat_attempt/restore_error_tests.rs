@@ -40,7 +40,7 @@ fn corrupted_original_checkpoint_closes_the_receiver_without_rewriting_or_reroll
         .unwrap();
     let pending = restored.resume().unwrap_err();
     assert!(matches!(
-        pending.cause,
+        pending.cause(),
         AttemptError::Local(LocalGlobalThresholdBeaconDkgErrorV1::Checkpoint(
             DkgCheckpointErrorV1::Encryption(iroha_crypto::encryption::Error::Decryption(_))
         ))
@@ -64,7 +64,7 @@ fn corrupted_original_checkpoint_closes_the_receiver_without_rewriting_or_reroll
     let terminal_reserved = budget.reserved_bytes();
     assert!(terminal_reserved < budget.limit_bytes());
     let pending = pending.owner.resume().unwrap_err();
-    assert!(matches!(pending.cause, AttemptError::Phase));
+    assert!(matches!(pending.cause(), AttemptError::Phase));
     assert_eq!(budget.reserved_bytes(), terminal_reserved);
     assert_eq!(pending.owner.phase, Phase::Terminal);
     assert_eq!(std::ptr::from_ref(&*pending.owner), receiver);
@@ -262,14 +262,15 @@ impl rand::TryCryptoRng for RefusingRng {}
 
 #[test]
 fn checked_secret_failures_close_restore_but_actual_crypto_rng_refusals_remain_local() {
-    let custody = ClaimError::Directory(seat_export::ExportError::Custody);
-    assert!(AttemptError::Claim(custody).terminal(Phase::RestoringGeneration));
     use iroha_crypto::hybrid::{HybridError, HybridKeyPair, HybridSecretKey};
     use iroha_crypto::threshold_bls::{
         AdaptiveThresholdBlsParameters, BeaconPurpose, DasRenDealerSecret,
         DasRenSecretCoefficientsV1, MAX_DEALER_COEFFICIENTS_V1, ThresholdBlsError,
         ThresholdBlsSession,
     };
+
+    let custody = ClaimError::Directory(seat_export::ExportError::Custody);
+    assert!(AttemptError::Claim(custody).terminal(Phase::RestoringGeneration));
     // These controls exercise checked primitive causes, not disk/native authority.
     let error = HybridSecretKey::from_bytes([0; 32], [0; 2400])
         .err()

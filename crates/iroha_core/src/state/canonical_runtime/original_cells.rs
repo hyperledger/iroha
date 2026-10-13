@@ -136,6 +136,10 @@ impl<'state> BoundOriginalRuntimeCells<'state> {
     }
 
     /// Borrow exact current/undo native tips without decoding claims as authority.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(in crate::state) fn native_execution_tip(
         &self,
     ) -> (

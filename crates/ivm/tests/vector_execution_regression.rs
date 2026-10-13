@@ -101,9 +101,8 @@ fn program_admission_enforces_syscall_policy_before_host_dispatch() {
     let program = program_with(ProgramMetadata::default(), &[scall, halt]);
     let mut vm = IVM::new(10_000);
     vm.set_host(PermissiveHost { called: false });
-    assert_eq!(
-        vm.load_program(&program),
-        Err(VMError::UnknownSyscall(0xDF))
+    assert!(
+        matches!(vm.load_program(&program), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (0xDF))
     );
     let host = vm
         .host_mut_any()

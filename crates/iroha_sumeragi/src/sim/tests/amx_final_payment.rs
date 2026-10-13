@@ -39,6 +39,22 @@ fn last_payment(seed: u64) -> Scenario {
 }
 
 #[test]
+fn amx_final_payment_client_expiry_uses_the_certified_wall_epoch() {
+    let mut world = World::new(last_payment(0));
+    world.now = 2_000;
+    world.amx_tick();
+    let amx = world.amx.as_ref().unwrap();
+    assert_eq!(amx.txs.len(), 1);
+    let transaction = amx.txs.values().next().unwrap();
+    let wall = crate::sim::driver::Clock::default().local(world.now);
+    assert_eq!(
+        transaction.expires_at_ms,
+        wall + amx.config.expires_after_ms
+    );
+    assert!(transaction.expires_at_ms > u64::try_from(world.wall_ms(0)).unwrap());
+}
+
+#[test]
 fn amx_final_payment_recovers_lost_relayer_jobs_without_unrelated_work() {
     let mut scenario = last_payment(0);
     scenario.script.push((5_000, Fault::Crash(0)));
@@ -122,16 +138,84 @@ fn amx_final_payment_due_job_rebuilds_after_relayer_restart_without_background_w
     let amx = world.amx.as_ref().unwrap();
     assert_eq!(amx.seen.begun.len(), 1);
     let (&tx, (_, _, expires_at_ms)) = amx.seen.begun.first_key_value().unwrap();
-    let &(outcome, _, decided_at) = amx
+    let &(outcome, height, decided_at) = amx
         .seen
         .decided
         .get(&tx)
         .expect("reconstructed original expiry work must close the final obligation");
     assert_eq!(outcome, Outcome::Abort);
-    assert!(decided_at >= *expires_at_ms && decided_at >= 30_000);
+    let decision = world.oracle.refs[0].get(&height).unwrap();
+    let certified = amx.exec_of(0, &decision.result).unwrap();
+    assert!(certified.block_time_ms >= *expires_at_ms);
+    assert!(decided_at >= 30_000);
     assert_eq!(
         amx.seen.settled.get(&(1, tx)).map(|value| value.0),
         Some(Outcome::Abort)
+    );
+    assert_eq!(world.machines[0].crashes, 1);
+}
+
+#[test]
+fn amx_final_payment_certified_abort_delivery_rebuilds_after_relayer_restart() {
+    let mut scenario = last_payment(2);
+    scenario.duration = 90_000;
+    scenario.heal_at = scenario.duration;
+    scenario.net_rules.push(NetRule::StallInstance {
+        inst: 2,
+        from: 0,
+        until: scenario.duration,
+    });
+    let config = scenario.amx.as_mut().unwrap();
+    config.settle_window = scenario.duration + 1;
+    config.settle_delay = 40_000;
+    let mut world = World::new(scenario);
+
+    // Stop on the actual certified decision, rather than guessing a crash time.
+    // The deterministic delivery delay leaves the original decision job pending.
+    while world.now < 40_000 && world.amx.as_ref().unwrap().seen.decided.is_empty() {
+        world.run_until(world.now + 25);
+        assert!(world.failure.is_none(), "{:?}", world.failure);
+    }
+    let amx = world.amx.as_ref().unwrap();
+    assert_eq!(amx.seen.begun.len(), 1);
+    let (&tx, &(outcome, decision_height, decided_at)) = amx
+        .seen
+        .decided
+        .first_key_value()
+        .expect("expiry must first produce a certified Abort");
+    assert_eq!(outcome, Outcome::Abort);
+    let delivery_delay = amx.config.settle_delay * u64::from(tx.0[1]) / u64::from(u8::MAX);
+    assert!(world.now - decided_at < delivery_delay);
+    assert!(!amx.seen.settled.contains_key(&(1, tx)));
+    assert!(matches!(amx.seen.votes.get(&(1, tx)), Some(Vote::Yes(_))));
+
+    world.crash(0);
+    world.run_until(world.now + 3_000);
+    assert!(world.failure.is_none(), "{:?}", world.failure);
+    assert!(
+        !world
+            .amx
+            .as_ref()
+            .unwrap()
+            .seen
+            .settled
+            .contains_key(&(1, tx)),
+        "escrow cannot release merely because local time passes or the relayer crashes"
+    );
+    world.restart(0);
+    world.run().unwrap_or_else(|failure| panic!("{failure}"));
+
+    assert!(world.workload_every().is_none());
+    let amx = world.amx.as_ref().unwrap();
+    assert_eq!(amx.seen.begun.len(), 1);
+    assert_eq!(
+        amx.seen.decided.get(&tx),
+        Some(&(outcome, decision_height, decided_at))
+    );
+    assert_eq!(
+        amx.seen.settled.get(&(1, tx)).map(|value| value.0),
+        Some(Outcome::Abort),
+        "restart must reconstruct and deliver the original certified Abort"
     );
     assert_eq!(world.machines[0].crashes, 1);
 }

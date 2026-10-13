@@ -70,6 +70,14 @@ RAYON_WORKER_THREADS = 8
 WORKER_ENVIRONMENT_KEYS = ("RAYON_NUM_THREADS", "RUST_TEST_THREADS", "CARGO_BUILD_JOBS", "CARGO_INCREMENTAL")
 MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_TRANSPORT_LOG_BYTES = 64 * 1024 * 1024
+# Current protocol/default owners: nexus/private_settlement.rs and
+# iroha_config/parameters/defaults.rs; source parity is checked by script tests.
+PRIVATE_PROOF_BOUND_BYTES = 8 * 1024 * 1024
+PRIVATE_CARRIER_BOUND_BYTES = 4 * 1024 * 1024
+PRIVATE_CAPSULE_BOUND_BYTES = 1024 * 1024
+HTTP_BODY_BOUND_BYTES = 64_000_000
+# The genuine finite APZ1 profile used by this harness, not the proof ceiling.
+APZ1_PROOF_BYTES = 2_527_280
 TRANSPORT_PROVENANCE = "retained process binary and local authenticated-ingress observations"
 REQUEST_FIELDS = {
     "version", "protocol", "kind", "request_id", "invocation_nonce", "commit", "seed", "run"
@@ -80,7 +88,8 @@ STATE_PHASES = (
 )
 EVIDENCE_NAMES = frozenset(
     {"request.json", "processes-before.json", "processes-after.json", "authorities.json",
-     "prepare-barrier.json", "commit-certificates.json", "receipt.json", "restarts.json"}
+     "prepare-barrier.json", "commit-certificates.json", "receipt.json", "restarts.json",
+     "prepared-artifact-sizes.json", "verified-carrier-sizes.json"}
     | {f"state-{phase}.json" for phase in STATE_PHASES}
     | {f"{prefix}-{peer:02}.json" for prefix in (
         "continuous", "state-restarted", "finality-before", "finality-after"
@@ -779,6 +788,59 @@ def validate_certificates(evidence: dict[str, Any], result: dict[str, Any], iden
     return bundle
 
 
+def validate_artifact_sizes(evidence: dict[str, Any]) -> None:
+    """Check Rust-measured opaque artifact geometry and independent representation bounds.
+
+    These digest-bound measurements are produced by the retained Rust harness;
+    Python neither reconstructs confidential bytes nor verifies their proofs.
+    This profile does not claim to exercise the maximum signed carrier size.
+    """
+    prepared = fields(evidence["prepared-artifact-sizes.json"], {"legs"}, "prepared artifact sizes")
+    rows = prepared["legs"]
+    manifest_legs = evidence["receipt.json"]["manifest"]["legs"]
+    require(isinstance(rows, list) and len(rows) == len(manifest_legs) == 3,
+            "size evidence must cover all three receipt legs")
+    row_fields = {"leg_ordinal", "proof_bytes", "proof_base64_bytes", "material_norito_bytes",
+                  "availability_request_json_bytes", "upload_request_json_bytes",
+                  "upload_request_norito_bytes", "capsule_norito_bytes", "http_body_bound_bytes",
+                  "proof_bound_bytes"}
+    for ordinal, value in enumerate(rows):
+        row = fields(value, row_fields, "prepared leg sizes")
+        require(integer(row["leg_ordinal"], 0, 2, "size leg ordinal")
+                == integer(manifest_legs[ordinal]["ordinal"], 0, 2, "receipt leg ordinal") == ordinal,
+                "size evidence reorders or substitutes a receipt leg")
+        integer(row["proof_bound_bytes"], PRIVATE_PROOF_BOUND_BYTES, PRIVATE_PROOF_BOUND_BYTES,
+                "recorded proof bound")
+        integer(row["http_body_bound_bytes"], HTTP_BODY_BOUND_BYTES, HTTP_BODY_BOUND_BYTES,
+                "recorded HTTP body bound")
+        proof = integer(row["proof_bytes"], 1, PRIVATE_PROOF_BOUND_BYTES, "proof bytes")
+        require(proof == APZ1_PROOF_BYTES, "proof bytes differ from the genuine finite APZ1 profile")
+        base64_bytes = 4 * ((proof + 2) // 3)
+        integer(row["proof_base64_bytes"], base64_bytes, base64_bytes, "canonical proof base64 bytes")
+        integer(row["capsule_norito_bytes"], 1, PRIVATE_CAPSULE_BOUND_BYTES,
+                "canonical capsule bytes")
+        # These canonical observations have no separate transport cap. Their
+        # nested/top-level framing need not be additive: validate positive u64
+        # measurements without inventing a relationship to the other lengths.
+        for name in ("material_norito_bytes", "upload_request_norito_bytes"):
+            integer(row[name], 1, 2**64 - 1, name)
+        for name in ("availability_request_json_bytes", "upload_request_json_bytes"):
+            integer(row[name], base64_bytes + 1, HTTP_BODY_BOUND_BYTES, name)
+    carrier = fields(evidence["verified-carrier-sizes.json"], {"signed_carrier_norito_bytes",
+        "signed_carrier_json_bytes", "public_receipt_norito_bytes", "carrier_bound_bytes"},
+        "verified carrier sizes")
+    integer(carrier["carrier_bound_bytes"], PRIVATE_CARRIER_BOUND_BYTES, PRIVATE_CARRIER_BOUND_BYTES,
+            "recorded carrier bound")
+    # Finalize carries a commit bundle; the receipt separately adds the
+    # consensus-assigned finalized_height. Bound their measured encodings
+    # independently. Rust authenticates both objects and their semantic join.
+    integer(carrier["public_receipt_norito_bytes"], 1, PRIVATE_CARRIER_BOUND_BYTES,
+            "public receipt bytes")
+    integer(carrier["signed_carrier_norito_bytes"], 1, PRIVATE_CARRIER_BOUND_BYTES,
+            "signed carrier Norito bytes")
+    integer(carrier["signed_carrier_json_bytes"], 1, HTTP_BODY_BOUND_BYTES, "signed carrier JSON bytes")
+
+
 def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
                  *, kind: str = "smoke") -> dict[str, Any]:
     """Validate the exact financial evidence population of the selected experiment."""
@@ -822,6 +884,7 @@ def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
                                     evidence["restarts.json"] if kind == "smoke" else None,
                                     validator_sha, kind=kind)
     bundle = validate_certificates(evidence, result, identities)
+    validate_artifact_sizes(evidence)
     before, after = validate_states(evidence, height, kind=kind)
     checks = sum(validate_continuous(evidence[f"continuous-{peer:02}.json"], peer, bundle, before, after)
                  for peer in range(16))

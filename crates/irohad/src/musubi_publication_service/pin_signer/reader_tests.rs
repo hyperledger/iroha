@@ -95,9 +95,11 @@ fn original_state_capacity_refuses_before_clock_or_signing_and_preserves_retry_o
         .expect_err("original State capacity is occupied");
     assert_eq!(clock.calls, 0, "refuse before clock, fees or signing");
     require_original_release(error, &budget, held, registration);
-    assert_eq!(
-        signer.prepare_finalized_archive(&fixture.query, &mut clock, 200_000),
-        Err(MusubiPublicationPinSigningErrorV1::Clock),
+    assert!(
+        matches!(
+            signer.prepare_finalized_archive(&fixture.query, &mut clock, 200_000),
+            Err(MusubiPublicationPinSigningErrorV1::Clock)
+        ),
         "retry of the same source passes native finality after its original refund"
     );
     assert_eq!(clock.calls, 1);
@@ -131,12 +133,14 @@ fn captured_view_conversion_preserves_the_complete_original_refusal() {
     else {
         panic!("expected original capacity refusal: {original:?}");
     };
-    let expected = expected.clone();
+    let expected_reason = expected.reason();
+    let expected_allocation = expected.allocation_refusal().cloned();
     let converted = MusubiPublicationPinSigningErrorV1::from(original);
-    assert_eq!(
-        converted,
-        MusubiPublicationPinSigningErrorV1::Deferred(expected)
-    );
+    let MusubiPublicationPinSigningErrorV1::Deferred(retained) = &converted else {
+        panic!("conversion must retain the sole original refusal");
+    };
+    assert_eq!(retained.reason(), expected_reason);
+    assert_eq!(retained.allocation_refusal(), expected_allocation.as_ref());
     require_original_release(converted, &budget, held, registration);
     assert_eq!(
         fixture
@@ -159,26 +163,26 @@ fn initial_and_final_reads_distinguish_locally_future_evidence_from_invalid_fina
             future.snapshot.finalized_height += 1;
         }
         let mut clock = ClosedClock { calls: 0 };
-        assert_eq!(
+        assert!(matches!(
             signer.prepare_finalized_archive(&future, &mut clock, 200_000),
             Err(MusubiPublicationPinSigningErrorV1::LocallyAhead)
-        );
+        ));
         assert_eq!(clock.calls, 0);
-        assert_eq!(
+        assert!(matches!(
             signer.recheck_finalized_archive(&future),
             Err(MusubiPublicationPinSigningErrorV1::LocallyAhead)
-        );
+        ));
     }
     let mut substituted = fixture.query.clone();
     substituted.snapshot.finalized_block_hash = [0xD2; 32];
     let mut clock = ClosedClock { calls: 0 };
-    assert_eq!(
+    assert!(matches!(
         signer.prepare_finalized_archive(&substituted, &mut clock, 200_000),
         Err(MusubiPublicationPinSigningErrorV1::Finality)
-    );
+    ));
     assert_eq!(clock.calls, 0);
-    assert_eq!(
+    assert!(matches!(
         signer.recheck_finalized_archive(&substituted),
         Err(MusubiPublicationPinSigningErrorV1::Finality)
-    );
+    ));
 }

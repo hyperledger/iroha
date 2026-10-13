@@ -44,7 +44,7 @@ fn ready(fd: i32, events: i16, deadline: Instant) -> Result<()> {
             revents: 0,
         };
         // SAFETY: one initialized pollfd is exclusively borrowed throughout the call.
-        let count = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+        let count = unsafe { libc::poll(&raw mut descriptor, 1, milliseconds) };
         if count < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
             continue;
         }
@@ -69,10 +69,7 @@ fn write_all(pipe: &mut UnixStream, mut bytes: &[u8], deadline: Instant) -> Resu
                 if matches!(
                     error.kind(),
                     io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
-                ) =>
-            {
-                ()
-            }
+                ) => {}
             Err(_) => return Err(Error::Unavailable),
         }
     }
@@ -91,10 +88,7 @@ fn read_exact(pipe: &mut UnixStream, mut bytes: &mut [u8], deadline: Instant) ->
                 if matches!(
                     error.kind(),
                     io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
-                ) =>
-            {
-                ()
-            }
+                ) => {}
             Err(_) => return Err(Error::Unavailable),
         }
     }
@@ -116,7 +110,7 @@ impl SpawnActions {
     fn duplicate(&mut self, source: &OwnedFd, target: i32) -> Result<()> {
         // SAFETY: actions is initialized and source stays live until spawn returns.
         if unsafe {
-            libc::posix_spawn_file_actions_adddup2(&mut self.0, source.as_raw_fd(), target)
+            libc::posix_spawn_file_actions_adddup2(&raw mut self.0, source.as_raw_fd(), target)
         } != 0
         {
             return Err(Error::Unavailable);
@@ -127,7 +121,7 @@ impl SpawnActions {
 impl Drop for SpawnActions {
     fn drop(&mut self) {
         unsafe {
-            libc::posix_spawn_file_actions_destroy(&mut self.0);
+            libc::posix_spawn_file_actions_destroy(&raw mut self.0);
         }
     }
 }
@@ -194,9 +188,9 @@ impl Process {
         // until posix_spawn returns. No application Rust closure runs in the forked child.
         let status = unsafe {
             libc::posix_spawn(
-                &mut pid,
+                &raw mut pid,
                 originals[0].as_ptr(),
-                &actions.0,
+                &raw const actions.0,
                 std::ptr::null(),
                 arguments.as_ptr(),
                 environment.as_ptr(),
@@ -228,7 +222,7 @@ impl Process {
         }
         let mut status = 0;
         // SAFETY: pid is the unreaped child returned by our sole posix_spawn.
-        let result = unsafe { libc::waitpid(self.pid, &mut status, libc::WNOHANG) };
+        let result = unsafe { libc::waitpid(self.pid, &raw mut status, libc::WNOHANG) };
         if result == 0 {
             return Ok(());
         }
@@ -279,7 +273,7 @@ impl Drop for Process {
         // The node owns its children individually; a process-global wait-any reaper is unsupported.
         let mut before = 0;
         let alive = loop {
-            let observed = unsafe { libc::waitpid(self.pid, &mut before, libc::WNOHANG) };
+            let observed = unsafe { libc::waitpid(self.pid, &raw mut before, libc::WNOHANG) };
             if observed < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
                 continue;
             }
@@ -298,7 +292,7 @@ impl Drop for Process {
         }
         let mut status = 0;
         loop {
-            let result = unsafe { libc::waitpid(self.pid, &mut status, 0) };
+            let result = unsafe { libc::waitpid(self.pid, &raw mut status, 0) };
             if result == self.pid {
                 self.reaped = true;
                 break;
@@ -371,9 +365,9 @@ mod tests {
         assert_eq!(
             unsafe {
                 libc::posix_spawn(
-                    &mut pid,
+                    &raw mut pid,
                     originals[0].as_ptr(),
-                    &actions.0,
+                    &raw const actions.0,
                     std::ptr::null(),
                     arguments.as_ptr(),
                     environment.as_ptr(),
@@ -394,7 +388,7 @@ mod tests {
         let mut status = 0;
         // SAFETY: this is only the pid created and already joined by the test's owner.
         assert_eq!(
-            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) },
             -1
         );
         assert_eq!(

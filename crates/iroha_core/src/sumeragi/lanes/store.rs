@@ -157,7 +157,7 @@ impl FileLaneBlockStore {
     // Every nested operation retains the same original pool. Its outermost scope
     // outlives both state and batch guards before invoking arbitrary release callbacks.
     fn with_original_refunds<R>(budget: &AllocationBudget, operation: impl FnOnce() -> R) -> R {
-        if cfg!(all(test, sumeragi_core_mutation = "HC282")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC350")) {
             operation()
         } else {
             budget.with_deferred_refund_notifications(|_| operation())
@@ -283,6 +283,10 @@ impl FileLaneBlockStore {
                 .ok_or_else(|| invalid("lane artifact disappeared during enumeration"))?;
             directory.require_same_regular_file(name, &original)?;
             drop(original);
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "lane artifacts have canonical lowercase names; uppercase lookalikes must be rejected"
+            )]
             match name.strip_suffix(&format!(".{FRAME_SUFFIX}")) {
                 Some(number) => {
                     let height = number
@@ -378,14 +382,11 @@ impl FileLaneBlockStore {
                     Ok(batch) => Some(batch),
                     // An authenticated malformed payload is distinct from local resource pressure.
                     Err(AdmissionAttemptError::Rejected(_)) => None,
-                    Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
+                    Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
                         return Err(Attempt::Deferred(reason));
                     }
                     Err(AdmissionAttemptError::Deferred(reason)) => {
-                        return Err(crate::execution_attempt::norito_decode_attempt_error(
-                            reason.into(),
-                            |error| io::Error::new(io::ErrorKind::InvalidData, error),
-                        ));
+                        return Err(Attempt::Deferred(reason.into()));
                     }
                 };
                 self.revalidate_custody()?;

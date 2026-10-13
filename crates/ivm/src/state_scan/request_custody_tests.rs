@@ -84,7 +84,7 @@ fn resumed_cursor_key_remains_funded_and_invalid_cursor_refunds_inputs() {
         Ok(_) => panic!("cursor accepted a different instance"),
         Err(error) => error,
     };
-    assert_eq!(error, VMError::NoritoInvalid);
+    assert!(matches!(error, VMError::NoritoInvalid));
     assert_eq!((vm.register(10), vm.register(11)), inputs);
     assert_eq!(pool.reserved_bytes(), baseline);
     drop(vm);
@@ -99,10 +99,7 @@ fn input_decoder_preserves_local_allocator_failures_and_releases_context() {
         norito::Error::AllocationFailed { bytes: 64 },
         norito::Error::NonCanonicalEncoding,
     ] {
-        let expected = match error {
-            norito::Error::AllocationFailed { .. } => unavailable(),
-            _ => VMError::NoritoInvalid,
-        };
+        let allocator_refusal = matches!(error, norito::Error::AllocationFailed { .. });
         let mut owner = Some(
             pool.try_reserve_bytes(
                 limits.max_total_allocated_bytes()
@@ -111,7 +108,15 @@ fn input_decoder_preserves_local_allocator_failures_and_releases_context() {
             .unwrap(),
         );
         let result: Result<(), _> = decode_request_value(&mut owner, limits, || Err(error));
-        assert_eq!(result.unwrap_err(), expected);
+        let actual = result.unwrap_err();
+        if allocator_refusal {
+            assert!(matches!(
+                actual,
+                VMError::ExecutionDeferred(crate::ExecutionDeferral::AllocationUnavailable)
+            ));
+        } else {
+            assert!(matches!(actual, VMError::NoritoInvalid));
+        }
         assert_eq!(
             pool.reserved_bytes(),
             owner.as_ref().unwrap().remaining_bytes()

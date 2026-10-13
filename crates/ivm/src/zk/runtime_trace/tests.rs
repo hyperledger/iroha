@@ -135,7 +135,9 @@ fn combine_prepays_old_and_new_peak_and_keeps_refused_checkpoints() {
     original.set_limit_bytes(before + wanted - 1);
     let expected = original.try_reserve_bytes(wanted).unwrap_err();
     let refusal = a.try_combine(&b).unwrap_err();
-    assert_eq!(refusal, VMError::AllocationDeferred(expected));
+    assert!(
+        matches!(refusal, VMError::AllocationDeferred(__actual_error_field) if __actual_error_field == (expected))
+    );
     assert_eq!(original.reserved_bytes(), before);
     assert!(Owner::ptr_eq(&a.0, &checkpoint.0));
     assert_eq!(a.pcs(), &[4, 8]);
@@ -168,10 +170,10 @@ fn foreign_empty_and_standalone_owners_never_substitute_for_original_credit() {
     let pcs = PcTraceLog::new(Some(&original));
     let delta = DeltaTraceLog::new(Some(&original));
     let foreign_delta = DeltaTraceLog::new(Some(&foreign));
-    assert_eq!(
+    assert!(matches!(
         RuntimeTraceCapture::try_capture(&pcs, &foreign_delta).unwrap_err(),
-        owner_unavailable()
-    );
+        VMError::ExecutionDeferred(ExecutionDeferral::TraceOwnerUnavailable)
+    ));
     assert_eq!(
         (original.reserved_bytes(), foreign.reserved_bytes()),
         (0, 0)
@@ -182,9 +184,18 @@ fn foreign_empty_and_standalone_owners_never_substitute_for_original_credit() {
     let local = RuntimeTraceCapture::try_capture(&PcTraceLog::new(None), &DeltaTraceLog::new(None))
         .unwrap();
     let before = (original.reserved_bytes(), foreign.reserved_bytes());
-    assert_eq!(a.try_combine(&b).unwrap_err(), owner_unavailable());
-    assert_eq!(a.try_combine(&local).unwrap_err(), owner_unavailable());
-    assert_eq!(local.try_combine(&a).unwrap_err(), owner_unavailable());
+    assert!(matches!(
+        a.try_combine(&b).unwrap_err(),
+        VMError::ExecutionDeferred(ExecutionDeferral::TraceOwnerUnavailable)
+    ));
+    assert!(matches!(
+        a.try_combine(&local).unwrap_err(),
+        VMError::ExecutionDeferred(ExecutionDeferral::TraceOwnerUnavailable)
+    ));
+    assert!(matches!(
+        local.try_combine(&a).unwrap_err(),
+        VMError::ExecutionDeferred(ExecutionDeferral::TraceOwnerUnavailable)
+    ));
     assert_eq!(
         (original.reserved_bytes(), foreign.reserved_bytes()),
         before
@@ -210,17 +221,17 @@ fn partial_allocator_refusal_and_private_copy_unwind_keep_sources_and_credit() {
     let (pcs, delta) = logs(Some(&original), 12, true);
     let before = original.reserved_bytes();
     REFUSE_SHELL.set(true);
-    assert_eq!(
+    assert!(matches!(
         RuntimeTraceCapture::try_capture(&pcs, &delta).unwrap_err(),
-        unavailable()
-    );
+        VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+    ));
     assert_eq!(original.reserved_bytes(), before);
     for stage in 1..=3 {
         REFUSE_ALLOCATION.set(stage);
-        assert_eq!(
+        assert!(matches!(
             RuntimeTraceCapture::try_capture(&pcs, &delta).unwrap_err(),
-            unavailable()
-        );
+            VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+        ));
         assert_eq!(original.reserved_bytes(), before);
     }
     // The complete shell and all three backing allocations exist before this
@@ -237,7 +248,12 @@ fn partial_allocator_refusal_and_private_copy_unwind_keep_sources_and_credit() {
     let capture = RuntimeTraceCapture::try_capture(&pcs, &delta).unwrap();
     let retained = original.reserved_bytes();
     REFUSE_ALLOCATION.set(3);
-    assert_eq!(capture.try_combine(&capture).unwrap_err(), unavailable());
+    assert!(matches!(
+        capture.try_combine(&capture),
+        Err(VMError::ExecutionDeferred(
+            ExecutionDeferral::AllocationUnavailable
+        ))
+    ));
     assert_eq!(original.reserved_bytes(), retained);
     assert_eq!(capture.delta(1).unwrap().changes[6], (7, 13, false));
     drop((capture, pcs, delta));
@@ -305,7 +321,12 @@ fn checked_public_layout_overflow_is_not_allocator_fallback() {
             changes: usize::MAX,
         },
     ] {
-        assert_eq!(geometry.plan(), Err(overflow()));
+        assert!(matches!(
+            geometry.plan(),
+            Err(VMError::AllocationDeferred(
+                AllocationRefusal::DemandOverflow
+            ))
+        ));
     }
 }
 

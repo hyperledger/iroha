@@ -149,11 +149,11 @@ struct FrozenContracts<'frozen> {
     contracts: FrozenStorageImages<'frozen, HashOf<IvmBytecode>, IvmBytecodeEntry>,
     // The contract-only engine adds no predicates for these real context owners.
     // The action child borrows all ten for its derived-index consistency relation.
-    _ids: FrozenStorageImages<'frozen, TriggerId, TriggeringEventType>,
-    _active_data: FrozenStorageImages<'frozen, TriggerId, ()>,
-    _active_pipeline: FrozenStorageImages<'frozen, TriggerId, ()>,
-    _active_time: FrozenStorageImages<'frozen, TriggerId, ()>,
-    _active_by_call: FrozenStorageImages<'frozen, TriggerId, ()>,
+    ids: FrozenStorageImages<'frozen, TriggerId, TriggeringEventType>,
+    active_data: FrozenStorageImages<'frozen, TriggerId, ()>,
+    active_pipeline: FrozenStorageImages<'frozen, TriggerId, ()>,
+    active_time: FrozenStorageImages<'frozen, TriggerId, ()>,
+    active_by_call: FrozenStorageImages<'frozen, TriggerId, ()>,
     strategy: Option<CheckedStrategy>,
 }
 impl<'frozen> FrozenContracts<'frozen> {
@@ -206,11 +206,11 @@ impl<'frozen> FrozenContracts<'frozen> {
             time,
             by_call,
             contracts,
-            _ids: ids,
-            _active_data: active_data,
-            _active_pipeline: active_pipeline,
-            _active_time: active_time,
-            _active_by_call: active_by_call,
+            ids,
+            active_data,
+            active_pipeline,
+            active_time,
+            active_by_call,
             strategy: None,
         })
     }

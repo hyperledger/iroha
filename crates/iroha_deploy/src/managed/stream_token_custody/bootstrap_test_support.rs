@@ -1,9 +1,7 @@
 //! Test-only preparation through the custody owner using genuine selected native cuts.
 use super::*;
-use crate::managed::native_operation::test_support::native_fixture::{
-    NativeFixture, NativeReadHttp,
-};
-use std::sync::Arc;
+use crate::managed::native_operation::attempts::metadata;
+use crate::managed::native_operation::test_support::native_fixture::NativeFixture;
 
 /// Supplies an actual State proof at the exact retained native checkpoint.
 pub(super) struct NativeEnrollmentReads<'a>(pub(super) &'a NativeFixture);
@@ -47,9 +45,10 @@ impl ManagedStreamTokenCustody {
         )
         .unwrap();
         assert!(history.has_pending());
-        assert!(history.original().unwrap().is_none());
+        assert!(history.original().is_none());
         assert!(history.dispatch().is_err());
-        let history = history
+
+        history
             .finish_pending_with_reads(
                 self,
                 current,
@@ -57,8 +56,7 @@ impl ManagedStreamTokenCustody {
                 options.deadline,
                 &NativeEnrollmentReads(native),
             )
-            .unwrap();
-        history
+            .unwrap()
     }
 
     pub(in crate::managed) fn bootstrap_native_configure(
@@ -170,11 +168,11 @@ impl ManagedStreamTokenCustody {
         options: &BoundedTransactionOptions,
     ) {
         self.validate_original(original, purpose).unwrap();
-        let directory = self
-            .authority
-            .directory
-            .ensure_child(&purpose.directory_name().unwrap())
-            .unwrap();
+        let directory = metadata::ensure_operation(
+            &self.authority.directory,
+            &purpose.directory_name().unwrap(),
+        )
+        .unwrap();
         journal::publish_intent(&directory, original).unwrap();
         let account = AccountService::new(self.authority.config.clone()).unwrap();
         journal::explicit(
@@ -214,8 +212,7 @@ impl ManagedStreamTokenCustody {
         options: &BoundedTransactionOptions,
     ) {
         let directory = original.directory();
-        let mut http =
-            NativeReadHttp::start_config(&self.authority.config, Arc::clone(native.chain.state()));
+        let mut http = native.read_http(&self.authority.config);
         let path = directory.path().join("transaction");
         match original
             .request(original.terms.signing_deadline(options.deadline).unwrap())

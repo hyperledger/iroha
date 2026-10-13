@@ -45,7 +45,7 @@ pub(crate) fn fixture(size: usize) -> (AvailableBody, AvailabilitySource, Alloca
     let budget = AllocationBudget::new(1 << 25);
     let mut bytes = ChargedBuffer::new(size, &budget).unwrap();
     for index in 0..size {
-        bytes.push_reserved((index % 251) as u8);
+        bytes.push_reserved(u8::try_from(index % 251).expect("fixture value fits u8"));
     }
     let payload = PayloadBytes::from_charged(bytes, &budget)
         .unwrap_or_else(|_| panic!("original payload admission"));

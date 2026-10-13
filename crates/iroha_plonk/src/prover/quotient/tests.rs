@@ -845,3 +845,102 @@ fn lookup_mask_weight_refusal_preserves_unwritten_workspace() {
     assert_eq!(first, [Fp::from(7); 4]);
     assert_eq!(last, [Fp::from(9); 4]);
 }
+
+#[test]
+fn lookup_batches_reuse_dead_columns_and_match_individual_ffts() {
+    fn check<F: PastaField>() {
+        let domain = FftDomain::<F>::new(4).unwrap();
+        let quotient = crate::keys::QuotientDomain::<F>::new(4, 6).unwrap();
+        let n = domain.n();
+        let masks = [vec![F::from(2); n], vec![F::from(3); n]];
+        for workers in [1, 3, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                for owned in 3..=17 {
+                    for lookups in [1, 2, 3, 4, 5, 8, 10] {
+                        let mut storage = vec![vec![F::from(17); n]; owned];
+                        let pointers: Vec<_> = storage.iter().map(Vec::as_ptr).collect();
+                        let mut columns = storage.iter_mut().map(Vec::as_mut_slice);
+                        let first = [
+                            columns.next().unwrap(),
+                            columns.next().unwrap(),
+                            columns.next().unwrap(),
+                        ];
+                        let weights = prepare_lookup_mask_weights(
+                            &mut columns,
+                            [&masks[0], &masks[1]],
+                            [F::from(5), F::from(125)],
+                            lookups,
+                            None,
+                        )
+                        .unwrap();
+                        let mut batch = lookup_batch_columns(first, &mut columns, lookups);
+                        let capacity = lookups.min(4).min(1 + owned.saturating_sub(5) / 3);
+                        assert_eq!(batch.len(), 3 * capacity);
+                        assert_eq!(
+                            batch
+                                .iter()
+                                .map(|column| column.as_ptr())
+                                .collect::<Vec<_>>(),
+                            pointers[..3]
+                                .iter()
+                                .chain(pointers[5.min(owned)..].iter().take(batch.len() - 3))
+                                .copied()
+                                .collect::<Vec<_>>()
+                        );
+                        let coefficients: Vec<Vec<_>> = (0..3 * lookups)
+                            .map(|column| {
+                                (0..n)
+                                    .map(|row| F::from((column * n + row + 1) as u64))
+                                    .collect()
+                            })
+                            .collect();
+                        let original = coefficients.clone();
+                        let mut powers = vec![F::ZERO; n];
+                        for coset in 0..quotient.pieces() {
+                            let shift = quotient.shift(coset).unwrap();
+                            let plan = domain.coset_plan(&mut powers, shift).unwrap();
+                            for sources in coefficients.chunks(batch.len()) {
+                                let unused: Vec<_> = batch[sources.len()..]
+                                    .iter()
+                                    .map(|column| column.to_vec())
+                                    .collect();
+                                evaluate_many(
+                                    Some(&plan),
+                                    sources,
+                                    &mut batch[..sources.len()],
+                                    None,
+                                )
+                                .unwrap();
+                                for (source, actual) in sources.iter().zip(&batch) {
+                                    let expected =
+                                        quotient.evaluate(&domain, source, coset).unwrap();
+                                    assert_eq!(&**actual, expected);
+                                }
+                                for (actual, expected) in batch[sources.len()..].iter().zip(unused)
+                                {
+                                    assert_eq!(&**actual, expected, "unused tail was overwritten");
+                                }
+                                if let Some([first, last]) = weights {
+                                    assert_eq!(first, vec![F::from(10); n]);
+                                    assert_eq!(last, vec![F::from(375); n]);
+                                }
+                            }
+                        }
+                        assert_eq!(coefficients, original, "immutable FFT inputs changed");
+                        drop(batch);
+                        assert_eq!(
+                            storage.iter().map(Vec::as_ptr).collect::<Vec<_>>(),
+                            pointers
+                        );
+                    }
+                }
+            });
+        }
+    }
+    check::<Fp>();
+    check::<Fq>();
+}

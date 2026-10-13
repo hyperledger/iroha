@@ -285,6 +285,11 @@ fn vega_utc_date_from_timestamp_ms_v1(
 /// The polynomial coefficients, evaluation point, proof randomness, and transaction signing key
 /// remain native Rust values for their complete lifetime. This builder makes no claim about the
 /// deliberately exposed distribution-wide knowledge-soundness limitation.
+///
+/// # Errors
+///
+/// Returns an error if the polynomial witness cannot be constructed or the production builder
+/// rejects proving, context validation, or transaction signing.
 pub fn build_privacy_release_jindo_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     fixture_seed: [u8; 32],
@@ -331,6 +336,11 @@ pub fn build_privacy_release_jindo_network_action_v1(
 ///
 /// The mDL document fragments, issuer signature, holder device key, proof
 /// randomness, and transaction signing key never cross this native boundary.
+///
+/// # Errors
+///
+/// Returns an error if the compiled profile is unavailable, the credential fixture or presentation
+/// date is invalid, or the production builder rejects proof generation or signing.
 pub fn build_privacy_release_vega_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     fixture_seed: [u8; 32],
@@ -390,6 +400,11 @@ pub fn build_privacy_release_vega_network_action_v1(
 /// two-phase prover and consuming authorization API.
 ///
 /// This helper exists only in the non-default release-evidence feature.
+///
+/// # Errors
+///
+/// Returns an error if the compiled profile or pool fixture cannot be constructed, native bundle
+/// proving or authorization fails, or the envelope and transaction intent bindings disagree.
 pub fn build_privacy_release_orchard_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     pool_id: PrivacyPoolIdV1,
@@ -558,6 +573,11 @@ fn build_pq_masp_transaction_v1(
 ///
 /// This helper exists only in the non-default release-evidence feature. The
 /// complex witness and ML-DSA secret never cross its API boundary.
+///
+/// # Errors
+///
+/// Returns an error if the contexts disagree on network, authority, or genesis, fixture construction
+/// or proving fails, or the resulting transactions violate the required replay and epoch bindings.
 pub fn build_privacy_release_pq_masp_network_actions_v1(
     preactivation_context: PrivacyReleaseTransactionContextV1,
     canonical_context: PrivacyReleaseTransactionContextV1,

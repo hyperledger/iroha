@@ -112,7 +112,7 @@ fn purpose_parity<T>(
     assert_eq!(expected.directory.path(), path);
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let names = directory.entries(2).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     let config = expected.config.clone();
@@ -281,7 +281,7 @@ fn native_boundary<T>(
     let expected = ServiceAuthority::open_provider(&parent.prepared, provider, purpose()).unwrap();
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     assert!(borrowed().is_err(), "ordinary child lock remains exclusive");
     #[cfg(unix)]
@@ -339,10 +339,10 @@ fn native_boundary<T>(
                 lock.try_lock().is_err(),
                 "successful child Result still holds its real native lock"
             ),
-            Err(error) => {
-                assert!(cfg!(windows));
-                assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-            }
+            #[cfg(windows)]
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            #[cfg(not(windows))]
+            Err(error) => panic!("retained operation lock must open: {error}"),
         }
         generation_for_hook
             .write_atomic("peer3.toml", &hook_changed, PublishMode::Replace)
@@ -362,7 +362,7 @@ fn native_boundary<T>(
     // A successful original re-open proves that the refused held child Result released its lock.
     let retry = ServiceAuthority::open_provider(&parent.prepared, provider, purpose()).unwrap();
     assert_eq!(retry.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
     retry.validate_profile().unwrap();
     drop(retry);
     let (retry, parses) = parsed(&borrowed);
@@ -387,7 +387,7 @@ fn funding_creators_refuse_fresh_native_changes_and_release_children_on_parent_e
         .provider_id;
     let parent = parent(&prepared, provider);
     let identity = parent.directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&parent._lock).unwrap();
+    let lock_identity = FileIdentity::of(&parent.lock).unwrap();
     let mut peers = UnavailablePeers::start(&prepared);
     macro_rules! boundary {
         ($owner:ty, $purpose:expr, $name:expr, $parent:expr, $provider:expr) => {
@@ -419,7 +419,7 @@ fn funding_creators_refuse_fresh_native_changes_and_release_children_on_parent_e
         .is_err()
     );
     assert_eq!(parent.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&parent._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&parent.lock).unwrap(), lock_identity);
     assert_eq!(
         FileIdentity::of(&parent.directory.open_read("operation.lock").unwrap()).unwrap(),
         lock_identity

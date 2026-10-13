@@ -20,9 +20,23 @@
 //! any relation on any supported row. Every random-oracle call can be evaluated
 //! inside a caller-chosen [`hash::Namespace`]; the empty prefix is plain FAEST.
 //!
-//! The [`faest`] module instantiates the backend with the plain FAEST AES
-//! one-way-function relation so that every layer can be checked against the official
-//! FAEST v3.0.2 reference test vectors (`tests/fixtures/faest_v3_0_2`). When the
+//! # Variants
+//!
+//! The backend runs one of three explicit variants ([`variant`]). The *reference*
+//! variant (empty prefix) is plain FAEST v3.0 and is the only FAEST-conformant
+//! one: it is what the official vectors check. The *prefixed* variant is the same
+//! construction inside a non-empty namespace. The *extended* variant
+//! (`lambda = 256` only) adds a per-proof public salt to the first challenge and
+//! to `H_5`, limits the grinding counter to `2^20` values and appends a 16-byte
+//! affine check to every leaf commitment. The prefixed and extended variants are
+//! FAEST-derived; the extended variant has no official vectors, only the tests of
+//! this crate.
+//!
+//! The [`faest`] module instantiates the backend with the plain FAEST AES and
+//! Even-Mansour one-way-function relations (key generation, signing and
+//! verification for the twelve standard parameter sets) so that every layer can be
+//! checked against the official FAEST v3.0.2 reference test vectors
+//! (`tests/fixtures/faest_v3_0_2`), whose signatures it reproduces byte for byte. When the
 //! backend is used with any other relation the result is *FAEST-derived*: it reuses
 //! the FAEST proof machinery but is not a standard FAEST signature and must not be
 //! described as one.
@@ -60,6 +74,7 @@ pub mod quicksilver;
 pub mod randomness;
 pub mod transcript;
 pub mod universal_hash;
+pub mod variant;
 pub mod vole;
 
 /// Version of the FAEST specification this backend follows.

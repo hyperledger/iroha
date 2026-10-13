@@ -1521,7 +1521,8 @@ def require_block_start_enactment_phases(state: str) -> None:
     # This small statement region contains only the original height and the
     # four unconditional calls: private-settlement expiry, the SCCP begin-block
     # step (specs/sccp.md S0, before the governance pass), Parliament enactment,
-    # then SCCP G4 fast-pause lapse cleanup (§4.7.2, §4.14.7). Ignore line comments, but reject hidden conditions,
+    # then SCCP G4 fast-pause lapse cleanup (§4.7.2, §4.14.7). Ignore line
+    # comments, but reject hidden conditions,
     # substituted owners/heights, duplicate calls, or swapped execution order.
     phases = re.sub(r"//[^\n]*", "", phases)
     expected = (
@@ -1560,6 +1561,8 @@ def require_block_start_enactment_phases(state: str) -> None:
         "Self::apply_block_start_private_settlement_expiry(&mutsb,now_h).map_err(StateBlockStartError::Storage)?;",
         "crate::smartcontracts::isi::sccp::hook::begin_block(&mutsb).map_err(StateBlockStartError::Storage)?;",
         "Self::apply_block_start_parliament_enactments(&mutsb,now_h)?;",
+        "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mutsb)"
+        ".map_err(StateBlockStartError::Storage)?;",
         "sb.start_of_block_effects_applied=true;",
         "sb.capture_execution_output_capacity();",
         "letresult=after_start(&mutsb,continuation).map_err(StateBlockStartError::Stage)?;",

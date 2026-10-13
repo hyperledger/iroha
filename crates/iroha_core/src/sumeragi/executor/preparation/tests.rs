@@ -84,7 +84,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
             let PublicationError::Deferred(ref source) = failure else {
                 panic!("preparation erased original resource source: {failure:?}");
             };
-            let source = source.clone();
+            let observed_allocation = source.allocation_refusal().unwrap().clone();
             let Some(AllocationRefusal::Capacity { release, .. }) = source.allocation_refusal()
             else {
                 panic!("actual original pool capacity, not a fabricated local diagnostic");
@@ -97,7 +97,12 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
             assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
 
             scheduler.done(0, ExecDone::Prepared(Err(failure)));
-            assert_eq!(scheduler.preparation_refusal(), Some(&source));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&observed_allocation)
+            );
             assert_eq!(scheduler.applied(), 1);
             assert!(scheduler.next(0).is_none());
             assert!(scheduler.take_events().is_empty());
@@ -131,7 +136,12 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 worker.prepare(&body, &changed),
                 Err(PublicationError::Retryable(_))
             ));
-            assert_eq!(scheduler.preparation_refusal(), Some(&source));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&observed_allocation)
+            );
             assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
             drop(occupied);
             assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Ready(()));
@@ -141,7 +151,12 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 panic!("retry same queued prepare after actual original release");
             };
             assert!(Arc::ptr_eq(&original, &retry));
-            assert_eq!(scheduler.preparation_refusal(), Some(&source));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&observed_allocation)
+            );
             let prepared = worker.prepare(&retry.block, &retry.qc);
             assert_eq!(prepared.as_ref().unwrap(), &Some(qc.result));
             let staged = worker.context.staging.get(&qc.block_hash).unwrap();
@@ -205,7 +220,6 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
 #[test]
 fn preparation_classification_preserves_real_limit_and_does_not_invent_release_for_allocator() {
     use iroha_sumeragi::message::ByteAdmissionError;
-
     let budget = AllocationBudget::new(1);
     let original = budget.try_reserve_bytes(2).unwrap_err();
     let error = ResultPreimageError::Allocation(ChargedBufferError::Admission(original.clone()));
@@ -453,7 +467,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                             .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                             .expect("occupy the actual original execution pool"),
                     );
-                    worker.finish_execution_with_encoder(encode_result_preimage)
+                    worker.finish_execution_with_encoder(false, encode_result_preimage)
                 });
             assert!(matches!(initial, Err(PublicationError::Deferred(_))));
             let pending = worker
@@ -501,7 +515,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             let PublicationError::Deferred(source) = &failure else {
                 panic!("cold preparation erased its original refusal: {failure:?}");
             };
-            let source = source.clone();
+            let observed_allocation = source.allocation_refusal().unwrap().clone();
             let pending = worker.finishing.as_ref().unwrap();
             let allocation = match phase {
                 0 => match &pending.phase {
@@ -523,8 +537,8 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                 },
             };
             assert_eq!(
-                source,
-                PublicationDeferral::Execution(buffer_refusal(allocation))
+                source.allocation_refusal(),
+                buffer_refusal(allocation).allocation_refusal()
             );
             assert!(matches!(
                 source.allocation_refusal(),
@@ -537,7 +551,12 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             drop(unrelated.try_reserve_bytes(1).unwrap());
             assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
             scheduler.done(0, ExecDone::Prepared(Err(failure)));
-            assert_eq!(scheduler.preparation_refusal(), Some(&source));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&observed_allocation)
+            );
             assert!(scheduler.next(0).is_none());
             assert_eq!(std::ptr::from_ref(pending.overlay.as_ref()), overlay);
             assert_eq!(pending.witness.writes.as_ptr(), writes);
@@ -658,34 +677,31 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                     panic!("storage source erased: {failure:?}")
                 };
                 assert!(
-                    match (owner, source) {
+                    matches!(
+                        (owner, source),
                         (
                             0,
                             PublicationDeferral::StateStorage(StateStorageAdmissionError::World(
                                 mv::storage::AdmittedStorageError::Busy { .. },
                             )),
-                        )
-                        | (
+                        ) | (
                             1,
                             PublicationDeferral::BlockHashAdmission(BlockHashAdmissionError::Busy(
                                 _,
                             )),
-                        )
-                        | (
+                        ) | (
                             2,
                             PublicationDeferral::MembershipAdmission(
                                 MembershipAdmissionError::Busy(_),
                             ),
-                        ) => true,
-                        _ => false,
-                    },
+                        )
+                    ),
                     "the actual refusing owner is retained: {source:?}"
                 );
                 assert!(
                     source.allocation_refusal().is_none(),
                     "a lock is not allocation demand"
                 );
-                let source = source.clone();
                 let wait = source.release_wait().unwrap().clone();
                 let mut context = Context::from_waker(Waker::noop());
                 assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
@@ -693,7 +709,12 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                 drop(foreign.try_reserve_bytes(1).unwrap());
                 assert_eq!(registration.poll_wait(&wait, &mut context), Poll::Pending);
                 scheduler.done(0, ExecDone::Prepared(Err(failure)));
-                assert_eq!(scheduler.preparation_refusal(), Some(&source));
+                assert_eq!(
+                    scheduler
+                        .preparation_refusal()
+                        .and_then(PublicationDeferral::release_wait),
+                    Some(&wait)
+                );
                 assert!(scheduler.next(0).is_none());
                 assert!(worker.live.is_none());
                 assert!(worker.finishing.is_none());
@@ -702,7 +723,7 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                 assert!(!worker.results.contains_key(&qc.block_hash));
                 assert!(events.try_recv().is_err());
                 assert_eq!(worker.state.committed_height(), 1);
-                source
+                wait
             };
             let (acquired_tx, acquired_rx) = std::sync::mpsc::sync_channel(1);
             let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
@@ -741,8 +762,7 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                 released.is_ok(),
                 "cold preparation returned before the blocker deadline"
             );
-            let source = attempted.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
-            let wait = source.release_wait().unwrap().clone();
+            let wait = attempted.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
             assert_eq!(
                 registration.poll_wait(&wait, &mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
@@ -818,7 +838,7 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
                 original.clone(),
             )),
         ] {
-            let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
+            let Ok(PublicationError::Deferred(source)) = validation_failure(error) else {
                 panic!("retain exact physical pool demand")
             };
             assert_eq!(source.allocation_refusal(), Some(original));
@@ -845,8 +865,8 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
     let held = source.guard(mutex.lock().unwrap());
     let original = source.observe();
     let error = BlockValidationError::StateView(StateViewError::Busy(original.clone()));
-    let Some(PublicationError::Deferred(PublicationDeferral::StateViewBusy(retained))) =
-        validation_failure(&error)
+    let Ok(PublicationError::Deferred(PublicationDeferral::StateViewBusy(retained))) =
+        validation_failure(error)
     else {
         panic!("actual State reader lock must retain its own release source")
     };
@@ -887,7 +907,7 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
             requested_bytes: 8,
         }),
     ] {
-        let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
+        let Ok(PublicationError::Deferred(source)) = validation_failure(error) else {
             panic!("physical allocation is unfinished local work")
         };
         assert!(source.allocation_refusal().is_none());
@@ -931,15 +951,16 @@ fn validation_wrappers_keep_real_capacity_and_terminal_custody_distinct() {
             reason: "original write was consumed".into(),
         },
     ] {
+        let diagnostic = format!("{error:?}");
         assert!(
             matches!(
-                validation_failure(&error),
-                Some(PublicationError::RecoveryRequired(_))
+                validation_failure(error),
+                Ok(error) if error.is_recovery_required()
             ),
-            "terminal original custody: {error:?}"
+            "terminal original custody: {diagnostic}"
         );
     }
-    assert!(validation_failure(&BlockValidationError::HasCommittedTransactions).is_none());
+    assert!(validation_failure(BlockValidationError::HasCommittedTransactions).is_err());
 }
 
 #[test]
@@ -984,17 +1005,15 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         cache.set_checkout_refusal_for_test(Some(reason));
         let outcome = worker.execute(&body, hash, false);
         cache.set_checkout_refusal_for_test(None);
-        let Some(super::super::ExecOutcome::Failed(message)) = outcome else {
+        let Err(PublicationError::RecoveryRefusal(original)) = outcome else {
             panic!("an original local custody invariant cannot become a validity verdict")
         };
         let recovery_reason = reason.to_string();
-        assert_eq!(
-            message,
-            PublicationError::RecoveryRequired(recovery_reason.clone()).to_string()
-        );
+        assert_eq!(original.reason(), reason);
+        assert!(original.verification_refusal().is_none());
         assert_eq!(worker.recovery.as_deref(), Some(recovery_reason.as_str()));
         assert!(worker.quarantine_context.is_none());
-        assert!(worker.results.get(&hash).is_none());
+        assert!(!worker.results.contains_key(&hash));
         assert!(worker.live.is_none() && worker.finishing.is_none());
         assert!(worker.pending_commit.is_none());
         assert!(worker.context.staging.get(&hash).is_none());
@@ -1002,7 +1021,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         assert_eq!(worker.state.view().height(), original_height);
         assert_eq!(body.payload().as_slice().as_ptr(), original_payload);
         assert!(
-            matches!(worker.execute(&body, hash, false), Some(super::super::ExecOutcome::Failed(again)) if again == message)
+            matches!(worker.execute(&body, hash, false), Err(PublicationError::RecoveryRequired(again)) if again == recovery_reason)
         );
         assert!(
             worker.live.is_none() && worker.finishing.is_none(),
@@ -1013,38 +1032,110 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
             &error
         ));
         assert!(matches!(
-            validation_failure(&error),
-            Some(PublicationError::RecoveryRequired(_))
+            validation_failure(error),
+            Ok(PublicationError::RecoveryRefusal(original)) if original.reason() == reason
         ));
         assert!(matches!(
             super::super::classify_lane_step(
                 2,
-                &crate::sumeragi::lanes::step::LaneStepError::Deferred(reason.into())
+                crate::sumeragi::lanes::step::LaneStepError::Deferred(reason.into())
             ),
-            Err(PublicationError::RecoveryRequired(_))
+            Err(PublicationError::RecoveryRefusal(original)) if original.reason() == reason
+        ));
+    });
+}
+
+#[test]
+fn cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery() {
+    use crate::{state::StateReadOnly as _, sumeragi::test_chain::Signers};
+    use iroha_data_model::transaction::{
+        Executable, FeePaymentIntent, IvmBytecode, TransactionBuilder,
+    };
+    use std::{num::NonZeroU64, time::Duration};
+
+    publication_tests::with_worker(|chain, worker, _blocks, events| {
+        let body =
+            publication_tests::proposal_with_transaction(chain, worker, |chain, created_ms| {
+                let key = iroha_crypto::KeyPair::from_seed(
+                    vec![0xCE; 32],
+                    iroha_crypto::Algorithm::Ed25519,
+                );
+                let mut program = ivm::ProgramMetadata {
+                    max_cycles: 100,
+                    ..Default::default()
+                }
+                .encode();
+                program.extend_from_slice(&ivm::encoding::wide::encode_halt().to_le_bytes());
+                let mut builder = TransactionBuilder::new(
+                    chain.network_id(),
+                    chain.genesis_account().clone(),
+                    FeePaymentIntent::authority(Vec::new(), NonZeroU64::new(1_000_000)),
+                );
+                builder.set_creation_time(Duration::from_millis(created_ms));
+                builder
+                    .with_executable(Executable::Ivm(IvmBytecode::from_compiled(program)))
+                    .sign(key.private_key())
+            });
+        let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+        let Ok(Some(iroha_sumeragi::api::ExecOutcome::Valid { result, .. })) =
+            worker.execute(&body, hash, false)
+        else {
+            panic!("the genuine original execution must produce the certified result")
+        };
+        let qc = chain.commit_qc(body.header().height, hash, result, Signers::Quorum);
+        worker.discard(body.header().height, &[]);
+        assert!(worker.live.is_none());
+        let original_height = worker.state.view().height();
+        let original_payload = body.payload().as_slice().as_ptr();
+        let cache = worker.state.view().prepared_contract_cache();
+        let reason = ivm::error::ExecutionDeferral::LocalInvariantViolation;
+        cache.set_checkout_refusal_for_test(Some(reason));
+        let outcome = worker.prepare(&body, &qc);
+        cache.set_checkout_refusal_for_test(None);
+
+        let Err(PublicationError::RecoveryRefusal(original)) = outcome else {
+            panic!("cold preparation must move the original refusal past the recovery latch")
+        };
+        assert_eq!(original.reason(), reason);
+        let diagnostic = original.to_string();
+        assert_eq!(worker.recovery.as_deref(), Some(diagnostic.as_str()));
+        assert!(!worker.results.contains_key(&hash));
+        assert!(worker.live.is_none() && worker.finishing.is_none());
+        assert!(worker.pending_commit.is_none());
+        assert!(worker.quarantine_context.is_none());
+        assert_eq!(worker.state.view().height(), original_height);
+        assert_eq!(body.payload().as_slice().as_ptr(), original_payload);
+        assert!(events.try_recv().is_err());
+        assert!(matches!(
+            worker.prepare(&body, &qc),
+            Err(PublicationError::RecoveryRequired(returned)) if returned == diagnostic
         ));
     });
 }
 
 #[test]
 fn native_source_publication_change_retries_without_recovery_or_quarantine() {
-    for error in [
-        BlockValidationError::NativeSourceChanged {
+    let constructors: [fn() -> BlockValidationError; 2] = [
+        || BlockValidationError::NativeSourceChanged {
             authenticated_generation: 2,
             observed_generation: 4,
         },
-        BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::SourceChanged {
-            authenticated_generation: 2,
-            observed_generation: 4,
-        }),
-    ] {
+        || {
+            BlockValidationError::from(crate::sumeragi::lanes::merge::MergeError::SourceChanged {
+                authenticated_generation: 2,
+                observed_generation: 4,
+            })
+        },
+    ];
+    for construct in constructors {
+        let error = construct();
         assert!(!super::super::control::transaction_rejection(&error));
         assert!(matches!(
-            validation_failure(&error),
-            Some(PublicationError::Retryable(_))
+            validation_failure(error),
+            Ok(PublicationError::Retryable(_))
         ));
         assert!(matches!(
-            super::super::classify(2, &error),
+            super::super::classify(2, construct()),
             Err(PublicationError::Retryable(_))
         ));
     }
@@ -1056,11 +1147,11 @@ fn native_source_publication_change_retries_without_recovery_or_quarantine() {
             reason: "original custody lost".into(),
         },
     ] {
-        assert!(matches!(
-            validation_failure(&terminal),
-            Some(PublicationError::RecoveryRequired(_))
-        ));
         assert!(!super::super::control::transaction_rejection(&terminal));
+        assert!(matches!(
+            validation_failure(terminal),
+            Ok(PublicationError::RecoveryRequired(_))
+        ));
     }
 }
 
@@ -1102,7 +1193,7 @@ fn producer_payload_errors_keep_original_release_and_terminal_classification() {
             MembershipAdmissionError::Capacity(original.clone()),
         )),
     ] {
-        let Some(PublicationError::Deferred(classified)) = super::payload_failure(&error) else {
+        let Ok(PublicationError::Deferred(classified)) = super::payload_failure(error) else {
             panic!("producer must return its original release-bearing error");
         };
         assert_eq!(classified.allocation_refusal(), Some(&original));
@@ -1120,21 +1211,54 @@ fn producer_payload_errors_keep_original_release_and_terminal_classification() {
         )),
     ] {
         assert!(matches!(
-            super::payload_failure(&error),
-            Some(PublicationError::RecoveryRequired(_))
+            super::payload_failure(error),
+            Ok(error) if error.is_recovery_required()
         ));
     }
     assert!(matches!(
-        super::payload_failure(&PayloadError::StakingPreparation(
+        super::payload_failure(PayloadError::StakingPreparation(
             EvidencePreparationError::OriginalHistoryPending
         )),
-        Some(PublicationError::Retryable(_))
+        Ok(PublicationError::Retryable(_))
     ));
-    assert!(super::payload_failure(&PayloadError::EmptyBlock).is_none());
+    assert!(super::payload_failure(PayloadError::EmptyBlock).is_err());
     drop(occupied);
     assert!(registration.poll_wait(release, &mut context).is_ready());
     drop(registration);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn native_initializer_invariant_keeps_original_across_validation_and_producer_recovery() {
+    use iroha_plonk::verification_attempt::{NativeVerifierInitError, VerificationRefusal};
+    for through_producer in [false, true] {
+        let original = u32::try_from(u64::MAX)
+            .map(|_| ())
+            .map_err(|_| NativeVerifierInitError::Invariant("trusted carrier extent exceeds u32"))
+            .unwrap_err();
+        let original = crate::execution_attempt::ExecutionDeferred::from(
+            VerificationRefusal::initialization(original),
+        );
+        let error = if through_producer {
+            super::producer_deferral(PublicationDeferral::Execution(original))
+        } else {
+            super::validation_failure(BlockValidationError::ExecutionDeferred(original)).unwrap()
+        };
+        let PublicationError::RecoveryRefusal(original) = error else {
+            panic!("trusted invariant must halt while retaining its original initializer cause");
+        };
+        assert!(matches!(
+            original
+                .verification_refusal()
+                .unwrap()
+                .initialization_error(),
+            Some(NativeVerifierInitError::Invariant(
+                "trusted carrier extent exceeds u32"
+            ))
+        ));
+        assert!(original.allocation_refusal().is_none());
+        assert!(original.decode_refusal().is_none());
+    }
 }
 
 #[test]
@@ -1149,7 +1273,7 @@ fn sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories() {
         BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
             ForgeryStorageError::Storage(AdmittedStorageError::Allocation(original.clone())),
         ));
-    let Some(PublicationError::Deferred(source)) = validation_failure(&error) else {
+    let Ok(PublicationError::Deferred(source)) = validation_failure(error) else {
         panic!("capacity is original unfinished local work")
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
@@ -1171,8 +1295,8 @@ fn sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories() {
         }),
     ] {
         let original = StateStorageAdmissionError::SccpForgery(original);
-        let Some(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) =
-            validation_failure(&BlockValidationError::StateStorageAdmission(
+        let Ok(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) =
+            validation_failure(BlockValidationError::StateStorageAdmission(
                 original.clone(),
             ))
         else {
@@ -1201,17 +1325,15 @@ fn sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories() {
         )),
     ] {
         assert!(matches!(
-            validation_failure(&BlockValidationError::StateStorageAdmission(
-                original.into()
-            )),
-            Some(PublicationError::RecoveryRequired(_))
+            validation_failure(BlockValidationError::StateStorageAdmission(original.into())),
+            Ok(PublicationError::RecoveryRequired(_))
         ));
     }
     let error = ForgeryStorageError::Codec(norito::core::DecodeResourceError::AllocationFailed {
         bytes: 8,
     });
-    let Some(PublicationError::Deferred(source)) =
-        validation_failure(&BlockValidationError::StateStorageAdmission(error.into()))
+    let Ok(PublicationError::Deferred(source)) =
+        validation_failure(BlockValidationError::StateStorageAdmission(error.into()))
     else {
         panic!("allocator refusal is unfinished local work")
     };
@@ -1237,10 +1359,9 @@ fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
         E::DecodeResource(norito::core::DecodeResourceError::AllocationFailed { bytes: 29 }),
     ] {
         let storage = S::SccpEvidence(original.clone());
-        let result = validation_failure(&BlockValidationError::StateStorageAdmission(
-            storage.clone(),
-        ));
-        let Some(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) = result
+        let result =
+            validation_failure(BlockValidationError::StateStorageAdmission(storage.clone()));
+        let Ok(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) = result
         else {
             panic!("exact local refusal must remain deferred: {original:?}")
         };
@@ -1259,17 +1380,17 @@ fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
         E::Admission(AllocationRefusal::DemandOverflow),
     ] {
         assert!(matches!(
-            validation_failure(&BlockValidationError::StateStorageAdmission(
+            validation_failure(BlockValidationError::StateStorageAdmission(
                 S::SccpEvidence(original)
             )),
-            Some(PublicationError::RecoveryRequired(_))
+            Ok(PublicationError::RecoveryRequired(_))
         ));
     }
     assert!(matches!(
-        validation_failure(&BlockValidationError::StateStorageAdmission(
+        validation_failure(BlockValidationError::StateStorageAdmission(
             S::SccpEvidence(E::OriginalHistoryPending)
         )),
-        Some(PublicationError::Retryable(_))
+        Ok(PublicationError::Retryable(_))
     ));
     drop(occupied);
 }

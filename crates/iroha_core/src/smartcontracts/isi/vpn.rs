@@ -430,8 +430,7 @@ pub(crate) fn validate_static_vpn_quote(quote: &VpnSignedQuoteV1) -> Result<Acco
         );
     }
     let custody =
-        vpn_lease_custody_account_id(&body.network_id, &body.lease_id, &body.asset_definition)
-            .map_err(|error| format!("vpn quote custody derivation failed: {error}"))?;
+        vpn_lease_custody_account_id(&body.network_id, &body.lease_id, &body.asset_definition);
     ensure_canonical_quote_policy(body, &custody)?;
     // Only count the encoded envelope after every variable-width field has a
     // protocol bound. `encoded_len` streams into a sink and does not allocate a
@@ -531,13 +530,13 @@ pub fn vpn_lease_custody_account_id(
     network_id: &iroha_data_model::NetworkId,
     lease_id: &[u8; 32],
     asset_definition: &AssetDefinitionId,
-) -> Result<AccountId, Error> {
+) -> AccountId {
     let asset_definition = asset_definition.to_string();
     let public_key = derive_non_signing_ed25519_public_key(
         VPN_LEASE_CUSTODY_ACCOUNT_DOMAIN.as_bytes(),
         &[network_id.as_bytes(), lease_id, asset_definition.as_bytes()],
     );
-    Ok(AccountId::new(public_key))
+    AccountId::new(public_key)
 }
 fn transfer_numeric_asset_for_vpn(
     state_transaction: &mut StateTransaction<'_, '_>,
@@ -919,20 +918,16 @@ mod tests {
         let network_id = vpn_test_network_id(0x21);
         let asset_definition = xor_asset_definition_id();
         let lease_id = [0x11; 32];
-        let first = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-            .expect("custody account derivation succeeds");
-        let second = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-            .expect("custody account derivation is repeatable");
+        let first = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
+        let second = vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
         assert_eq!(first, second);
         let mut different_lease_id = lease_id;
         different_lease_id[0] ^= 0x01;
         let different =
-            vpn_lease_custody_account_id(&network_id, &different_lease_id, &asset_definition)
-                .expect("different custody account derivation succeeds");
+            vpn_lease_custody_account_id(&network_id, &different_lease_id, &asset_definition);
         assert_ne!(first, different);
         let different_network =
-            vpn_lease_custody_account_id(&vpn_test_network_id(0x22), &lease_id, &asset_definition)
-                .expect("different exact-network custody derivation succeeds");
+            vpn_lease_custody_account_id(&vpn_test_network_id(0x22), &lease_id, &asset_definition);
         assert_ne!(first, different_network);
         let mut public_seed_material = Vec::new();
         public_seed_material.extend_from_slice(VPN_LEASE_CUSTODY_ACCOUNT_DOMAIN.as_bytes());
@@ -991,8 +986,7 @@ mod tests {
         };
         let asset_definition = xor_asset_definition_id();
         let custody_account_id =
-            vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition)
-                .expect("derive fixture custody");
+            vpn_lease_custody_account_id(&network_id, &lease_id, &asset_definition);
         let address_plan = iroha_data_model::soranet::vpn::derive_vpn_address_plan_v1(address_slot);
         let quote_policy = iroha_data_model::soranet::vpn::VpnQuotePolicyV1 {
             exit_class: iroha_data_model::soranet::vpn::VpnExitClassV1::Standard,
@@ -1761,8 +1755,7 @@ mod tests {
             &non_xor_fee.signed_quote.body.network_id,
             &non_xor_fee.lease_id,
             &non_xor_asset,
-        )
-        .expect("fixture custody derivation should succeed");
+        );
         non_xor_fee.signed_quote.body.asset_definition = non_xor_asset.clone();
         non_xor_fee.signed_quote.body.policy.fee_asset_id = non_xor_asset.to_string();
         non_xor_fee.signed_quote.body.policy.escrow_account_id = non_xor_custody.clone();

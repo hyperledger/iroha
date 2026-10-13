@@ -259,23 +259,20 @@ impl ManagedStore {
         let lock = directory.open_lock("call.lock")?;
         lock.try_lock()
             .map_err(|_| Error::Busy(selected.name.clone()))?;
-        match directory.read_optional("active-journal", 64)? {
-            Some(bytes) => {
-                let id = std::str::from_utf8(&bytes).map_err(invalid)?;
-                journal_id(id)?;
-                if matches!(
-                    service
-                        .inspect(&directory.path().join(id))
-                        .map_err(invalid)?,
-                    ContractCallDisposition::Pending
-                ) {
-                    return Err(invalid(format!(
-                        "an original call is unresolved; resume its exact journal: {}",
-                        directory.path().join(id).display()
-                    )));
-                }
+        if let Some(bytes) = directory.read_optional("active-journal", 64)? {
+            let id = std::str::from_utf8(&bytes).map_err(invalid)?;
+            journal_id(id)?;
+            if matches!(
+                service
+                    .inspect(&directory.path().join(id))
+                    .map_err(invalid)?,
+                ContractCallDisposition::Pending
+            ) {
+                return Err(invalid(format!(
+                    "an original call is unresolved; resume its exact journal: {}",
+                    directory.path().join(id).display()
+                )));
             }
-            None => {}
         }
         let (intent, payload) = trusted_contract_intent(
             contract.artifact(),

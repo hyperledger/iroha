@@ -108,7 +108,7 @@ fn original_native_signer_roles_are_distinct_funded_and_exactly_scoped_in_execut
         Some(&prepared.peers[0].config_path),
     )
     .unwrap();
-    let genesis = RawGenesisTransaction::from_path(&root.join("genesis.json")).unwrap();
+    let genesis = RawGenesisTransaction::from_path(root.join("genesis.json")).unwrap();
     let signed =
         iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)
             .unwrap();

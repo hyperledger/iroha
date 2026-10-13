@@ -1,0 +1,51 @@
+{
+  "observation": "Collected after recovery; build compiler identity is also retained in original Meson command log. Not a pre-run source attestation.",
+  "observed_at_utc": "2026-10-13T04:43:22.953549+00:00",
+  "recovery_command": "python3.11 crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/recover_cross_verification.py --work-dir /tmp/parliament-faest-cross --output /tmp/parliament-faest-cross/recovery_report.json",
+  "recovery_exit": 0,
+  "upstream_archive_sha256": "3caa4ee6f915edda17f8800be3ab77c69c12766651e320a8a8f453fa015d5cbd",
+  "upstream_sources_sha256": {
+    "LICENSE": "5f07c9c790f30a355fef7a7fb100f74207725a8e302505bae3c8e119e99f51e6",
+    "faest_param.c.in": "639cd4367cb51a92507d87ff567fa13e954ca1692d5548c48723198ec818dc44",
+    "faest_param.h.in": "ea3ad5e32dfd321e963591add15c923d51a9a4ff02bbcc4583ffa968572173f1",
+    "meson.build": "70596e5c4dc8cdec882b6f1b2628bfc1c159a11738910b599a76f4eed3af5d28"
+  },
+  "versions": {
+    "clang": {
+      "command": [
+        "clang",
+        "--version"
+      ],
+      "output": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n"
+    },
+    "meson": {
+      "command": [
+        "/tmp/parliament-faest-cross/tools/bin/meson",
+        "--version"
+      ],
+      "output": "1.9.2\n"
+    },
+    "ninja": {
+      "command": [
+        "/tmp/parliament-faest-cross/tools/bin/ninja",
+        "--version"
+      ],
+      "output": "1.13.0.git.kitware.jobserver-pipe-1\n"
+    },
+    "python": {
+      "command": [
+        "python3.11",
+        "--version"
+      ],
+      "output": "Python 3.11.17\n"
+    },
+    "rustc": {
+      "command": [
+        "rustc",
+        "--version",
+        "--verbose"
+      ],
+      "output": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8\n"
+    }
+  }
+}

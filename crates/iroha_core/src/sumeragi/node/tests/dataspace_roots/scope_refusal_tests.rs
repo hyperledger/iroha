@@ -299,7 +299,6 @@ fn signed_private_registry_lookup_does_not_publish_refusal_as_absence() {
         isi::smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
         smart_contract::ContractArtifactId,
     };
-
     let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let parent = chain(4, 200);
     let parent = NetworkId::from_genesis_hash(parent.genesis.hash());
@@ -341,8 +340,8 @@ seiyaku OriginalRegistry { permission CanReadRegistry;
     let (_, chain) = certify_private_root(root);
     let view = chain.state().view();
     assert_eq!(
-        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact),
-        Ok(Some(bytes.clone()))
+        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact).unwrap(),
+        Some(bytes.clone())
     );
     let called = std::cell::Cell::new(false);
     let refused = norito::with_decode_limits_scope(
@@ -358,8 +357,8 @@ seiyaku OriginalRegistry { permission CanReadRegistry;
         "local refusal was returned as completed registry absence"
     );
     assert_eq!(
-        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact),
-        Ok(Some(bytes))
+        crate::smartcontracts::code::fetch_code_bytes(&view, &artifact).unwrap(),
+        Some(bytes)
     );
     assert_eq!(view.height(), 1);
     assert_eq!(chain.kura().blocks_count(), 1);
@@ -445,7 +444,7 @@ fn signed_private_account_permission_read_defers_without_constructing_a_json_tok
     let run = || {
         Executor::Initial.validate_query_with_world_parts(
             view.world(),
-            Some(chain.genesis().header()),
+            Some(&chain.genesis().header()),
             &ALICE_ID,
             &request,
             &view.execution_budget(),

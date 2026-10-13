@@ -261,7 +261,7 @@ fn assert_funded_prefix_keeps_quorum_checks_and_matches_portable_prefix(
     let mut bytes = table.as_slice().to_vec();
     bytes[10] ^= 1;
     table = AvailabilityFrame::from_untrusted(bytes).unwrap();
-    let changed = crate::block::reserve_block_for_tests().initialize(
+    let tampered_value = crate::block::reserve_block_for_tests().initialize(
         original.as_ref().clone().with_commit_certificate(Some(
             CommitCertificate::from_untrusted_parts(
                 certificate.consensus_header().to_vec(),
@@ -272,7 +272,7 @@ fn assert_funded_prefix_keeps_quorum_checks_and_matches_portable_prefix(
         )),
     );
     assert!(
-        funded.push_prepared(read(changed, &budget)).is_err(),
+        funded.push_prepared(read(tampered_value, &budget)).is_err(),
         "signed table remains verified"
     );
     assert_eq!(funded.prefix.tip.height(), 1);
@@ -483,7 +483,7 @@ fn assert_native_certificate_rejects_foreign_signature_before_borrowing_graph(
     let older = frame(chain, 9);
     let foreign_qc: Qc =
         norito::decode_canonical(older.commit_certificate().unwrap().commit_qc()).unwrap();
-    let changed = changed_qc(&original, |qc| qc.agg_sig = foreign_qc.agg_sig);
+    let tampered_value = changed_qc(&original, |qc| qc.agg_sig = foreign_qc.agg_sig);
     let parent = chain.committed(9);
     let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
         panic!("authenticated predecessor authorizes H10");
@@ -497,10 +497,10 @@ fn assert_native_certificate_rejects_foreign_signature_before_borrowing_graph(
     let outcome = reader
         .verification_context()
         .verify_certificate_with_scratch_admission(
-            read_frame(Clone::clone(&changed), 10, chain.root_scope()).unwrap(),
+            read_frame(Clone::clone(&tampered_value), 10, chain.root_scope()).unwrap(),
             &authority,
             Some(&config),
-            Some(read(Clone::clone(&changed), &budget)),
+            Some(read(Clone::clone(&tampered_value), &budget)),
             &mut crate::sumeragi::certified_chain::state_certificate::query_scratch_admission,
         );
     assert!(
@@ -585,9 +585,9 @@ fn native_boundary_quorums_bind_every_signed_field() {
             |qc| qc.agg_sig.0[0] ^= 1,
         ];
         for change in changes {
-            let mut changed = qc.clone();
-            change(&mut changed);
-            assert!(verifier.verify_qc(&changed).is_err());
+            let mut tampered_value = qc.clone();
+            change(&mut tampered_value);
+            assert!(verifier.verify_qc(&tampered_value).is_err());
         }
     }
     assert_eq!(chain.height(), 10);

@@ -1,6 +1,7 @@
 //! Genuine terminal records share only parsing ownership; fresh scopes and budgets still rule.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 
 fn limits(allocation: usize) -> norito::DecodeLimits {
     norito::DecodeLimits::new(
@@ -135,6 +136,21 @@ fn published_terminal_records_share_exact_owner_and_keep_current_foreign_and_act
 
 #[test]
 fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
+    struct Restore {
+        directory: Arc<PrivateDirectory>,
+        bytes: zeroize::Zeroizing<Vec<u8>>,
+    }
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            metadata::test_replace_component(
+                &self.directory,
+                None,
+                "closed.nrt",
+                Some(&self.bytes),
+            )
+            .unwrap();
+        }
+    }
     let _resources = crate::managed::native_test_guard();
     let (_fixture, history) = shared_snapshot_tests::history_with_bodies(2);
     let native = history.current_history().unwrap();
@@ -144,31 +160,23 @@ fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
         head: &history.bodies.last().unwrap().snapshots,
     };
     let directory = Arc::clone(&history.bodies[0].directory);
-    let original = directory
-        .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+    let original = metadata::test_read_component(&directory, None, "closed.nrt")
+        .unwrap()
         .unwrap();
-    struct Restore {
-        directory: Arc<PrivateDirectory>,
-        bytes: zeroize::Zeroizing<Vec<u8>>,
-    }
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            self.directory
-                .write_atomic("closed.nrt", &self.bytes, PublishMode::Replace)
-                .unwrap();
-        }
-    }
     let restore = Restore {
         directory,
-        bytes: original,
+        bytes: zeroize::Zeroizing::new(original),
     };
     EnrollmentReadPass::run(&snapshot, |pass| {
         let (shared, reused) = oldest.test_published_read(native, &published, Some(pass), false)?;
         assert!(reused);
         shared.close_published_epoch_error(Some(pass))?;
-        restore
-            .directory
-            .write_atomic("closed.nrt", b"changed closure", PublishMode::Replace)?;
+        metadata::test_replace_component(
+            &restore.directory,
+            None,
+            "closed.nrt",
+            Some(b"changed closure"),
+        )?;
         let result = shared
             .close_published_epoch_error(Some(pass))
             .and(Err::<(), _>(invalid("ordinary epoch-reference refusal")));
@@ -179,9 +187,12 @@ fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
                 .to_string()
                 .contains("ordinary epoch-reference refusal")
         );
-        restore
-            .directory
-            .write_atomic("closed.nrt", &restore.bytes, PublishMode::Replace)?;
+        metadata::test_replace_component(
+            &restore.directory,
+            None,
+            "closed.nrt",
+            Some(&restore.bytes),
+        )?;
         shared.close_published_epoch_error(Some(pass))?;
         Ok(())
     })

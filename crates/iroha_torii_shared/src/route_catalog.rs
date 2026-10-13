@@ -4298,6 +4298,9 @@ pub mod contracts_and_verification_keys {
     const fn app_account_read_sdk_get(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_account_read_get(id, path).with_projections(RouteProjections::SDK)
     }
+    const fn app_account_read_sdk_post(id: &'static str, path: &'static str) -> RouteDescriptor {
+        app_account_read_post(id, path).with_projections(RouteProjections::SDK)
+    }
     const fn app_account_compute_sdk_post(id: &'static str, path: &'static str) -> RouteDescriptor {
         app_account_compute_post(id, path).with_projections(RouteProjections::SDK)
     }
@@ -4416,6 +4419,7 @@ pub mod contracts_and_verification_keys {
         SORAFS_ORDERBOOK_EVENTS_WS_GET => app_unprojected_websocket_get("contracts.sorafs_orderbook_events_ws_get", "/v1/sorafs/orderbook/events/ws");
         SORAFS_RESERVE_POLICY_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_get", "/v1/sorafs/reserve/policy");
         SORAFS_RESERVE_POLICY_PROOF_GET => app_account_read_sdk_get("contracts.sorafs_reserve_policy_proof_get", "/v1/sorafs/reserve/policy/{height}");
+        AMX_DEBIT_APPROVAL_PROOF_POST => app_account_read_sdk_post("contracts.amx_debit_approval_proof_post", "/v1/amx/debit-approval/{height}");
         KAGEMUSHA_ENROLLMENT_POST => app_account_mutation_post("contracts.kagemusha_enrollment_post", "/v1/kagemusha/enrollment");
         KAGEMUSHA_LOAD_ISSUANCE_GET => app_account_read_sdk_get("contracts.kagemusha_load_issuance_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}");
         KAGEMUSHA_LOAD_FINALITY_GET => app_account_read_sdk_get("contracts.kagemusha_load_finality_get", "/v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality");
@@ -4643,6 +4647,20 @@ pub mod sccp {
         public_get("sccp.committee.read", "/v1/sccp/committees/{generation}");
     /// Read every route with its escrow, stranded balance and revisions.
     pub const REGISTRY: RouteDescriptor = public_get("sccp.registry.read", "/v1/sccp/registry");
+    /// Read effective forgery holds, quarantine and reconciliation accounting.
+    pub const FORGERY_HOLD: RouteDescriptor =
+        public_get("sccp.forgery_hold.read", "/v1/sccp/forgery-hold");
+    /// Read original standing panel, rounds and emergency hold state.
+    pub const FAST_PAUSE: RouteDescriptor = public_get("sccp.fast_pause", "/v1/sccp/fast-pause");
+    /// Read one original committed SCCP forgery report.
+    pub const EVIDENCE: RouteDescriptor =
+        public_get("sccp.evidence.read", "/v1/sccp/evidence/{evidence_id}");
+    /// Read a bounded page of original committed SCCP forgery reports.
+    pub const EVIDENCE_PAGE: RouteDescriptor =
+        public_get("sccp.evidence.list", "/v1/sccp/evidence");
+    /// Read a retained original Kura anchor witness for evidence construction.
+    pub const EVIDENCE_ANCHOR: RouteDescriptor =
+        public_get("sccp.evidence.anchor", "/v1/sccp/evidence/anchor/{height}");
     /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
@@ -4691,6 +4709,9 @@ pub mod sccp {
     /// Read the per-subject SCCP governance revisions.
     pub const GOVERNANCE: RouteDescriptor =
         public_get("sccp.governance.read", "/v1/sccp/governance");
+    /// Read SCCP governance readiness and the original committed observation.
+    pub const GOVERNANCE_READINESS: RouteDescriptor =
+        public_get("sccp.governance.readiness", "/v1/sccp/governance/readiness");
     /// Read every open SCCP governance proposal with its newest Parliament attempt.
     pub const GOVERNANCE_PROPOSALS: RouteDescriptor =
         public_get("sccp.governance.proposals", "/v1/sccp/governance/proposals");
@@ -4706,6 +4727,7 @@ pub mod sccp {
         COMMITTEE_ROTATIONS,
         COMMITTEE,
         GOVERNANCE,
+        GOVERNANCE_READINESS,
         GOVERNANCE_PROPOSALS,
         GOVERNANCE_PROPOSAL,
         HISTORY,
@@ -4714,6 +4736,11 @@ pub mod sccp {
         LIGHT_CLIENT_SETS,
         LIGHT_CLIENT_CHECKPOINTS,
         REGISTRY,
+        FORGERY_HOLD,
+        FAST_PAUSE,
+        EVIDENCE_ANCHOR,
+        EVIDENCE,
+        EVIDENCE_PAGE,
         MESSAGES_RECENT,
         MESSAGE,
         OUTBOUND_BY_NONCE,

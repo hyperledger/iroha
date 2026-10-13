@@ -11,6 +11,27 @@ pub(super) enum CanonicalAttemptErrorV1 {
     Encode(norito::core::BoundedEncodeError),
     Allocation(std::collections::TryReserveError),
 }
+impl std::fmt::Display for CanonicalAttemptErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejected(error) => write!(formatter, "canonical operation rejected: {error:?}"),
+            Self::Decode(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Encode(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Allocation(error) => std::fmt::Display::fmt(error, formatter),
+        }
+    }
+}
+impl std::error::Error for CanonicalAttemptErrorV1 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Rejected(_) => None,
+            Self::Decode(error) => Some(error),
+            Self::Encode(error) => Some(error),
+            Self::Allocation(error) => Some(error),
+        }
+    }
+}
+
 impl CanonicalAttemptErrorV1 {
     pub(super) fn retryable(&self) -> bool {
         match self {
@@ -24,11 +45,8 @@ impl CanonicalAttemptErrorV1 {
                 | norito::core::BoundedEncodeError::Serialization(norito::Error::AllocationFailed {
                     ..
                 }),
-            ) => true,
-            Self::Allocation(error) => {
-                let _original = error;
-                true
-            }
+            )
+            | Self::Allocation(_) => true,
             Self::Rejected(_) | Self::Encode(_) => false,
         }
     }
@@ -95,6 +113,28 @@ pub(super) fn copy(bytes: &[u8], limit: usize) -> Result<ScrubbedBytes, Canonica
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allocation_refusal_exposes_the_original_cause_without_changing_retry_classification() {
+        use std::error::Error as _;
+
+        let cause = Vec::<u8>::new().try_reserve_exact(usize::MAX).unwrap_err();
+        let expected = cause.to_string();
+        let error = CanonicalAttemptErrorV1::Allocation(cause);
+        assert!(error.retryable());
+        assert_eq!(error.service_error(), BrokerError::Unavailable);
+        assert_eq!(error.to_string(), expected);
+        let original = match &error {
+            CanonicalAttemptErrorV1::Allocation(original) => original,
+            _ => unreachable!("the original allocation cause is retained"),
+        };
+        let source = error
+            .source()
+            .unwrap()
+            .downcast_ref::<std::collections::TryReserveError>()
+            .unwrap();
+        assert!(std::ptr::eq(source, original));
+    }
 
     #[test]
     fn copied_reply_leaves_preserve_exact_bytes_and_fixed_caps_are_terminal() {

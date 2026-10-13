@@ -68,11 +68,21 @@ pub(crate) fn exempt_class_from(
     payload: &TransactionPayload,
     committed_time_ms: Option<u64>,
 ) -> Option<SccpExemptClassV1> {
+    if super::keepalive::valid_shape(payload) {
+        return payload
+            .creation_time_ms
+            .checked_add(1)
+            .filter(|time| super::keepalive::due_from(source, 0, *time) == Ok(true))
+            .map(|_| SccpExemptClassV1::Keepalive);
+    }
     if source.parameters().is_none() {
         return None;
     }
     let class = admission::exempt_shape(payload)?;
     let eligible = match class {
+        SccpExemptClassV1::Keepalive => {
+            unreachable!("shared carrier handled before SCCP-only exemptions")
+        }
         SccpExemptClassV1::ForgeryEvidence => true,
         SccpExemptClassV1::KeeperAdvance { .. } => single::<AdvanceSccpLightClientV1>(payload)
             .is_some_and(light_clients::keeper_advance_eligible),

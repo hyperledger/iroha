@@ -66,6 +66,7 @@ test("lane corpus keeps every lane state and exact unsigned range", () => {
   assert.ok(running.record.committee.every(({ peer, pop }) => peer.startsWith("ea0130") && Buffer.from(pop, "base64").length === 96));
   assert.equal(running.record.closing, null);
   assert.deepEqual([...running.record.params.key_allowed_algorithms], ["bls_normal"]);
+  assert.equal(running.record.params.due_work_max_lag_ms, 60_000);
   assert.deepEqual(running.record.da_layout, {
     encoding: { encoding: "reed_solomon16", details: null }, chunk_size_bytes: 262144,
     data_shards: 4, parity_shards: 2, max_payload_size_bytes: 16777216, max_chunk_count: 1024,
@@ -114,7 +115,11 @@ test("every lane field is required and unknown or retired fields fail closed", (
 });
 
 test("lane data availability admits compact final stripes and rejects malformed RS16 geometry", () => {
-  const changedLayout = (change) => mutateRecord((record) => change(record.da_layout));
+  const changedLayout = (change) => mutateRecord((record) => {
+    // Keep the block bound valid so these cases exercise the changed DA geometry.
+    record.params.max_block_bytes = 4194304;
+    change(record.da_layout);
+  });
   const compact = parseSumeragiLanesJson(changedLayout((layout) => {
     layout.max_payload_size_bytes = 4194305; layout.max_chunk_count = 30;
   }));
@@ -141,8 +146,12 @@ test("malformed lane scalars, keys, proofs and bodies never alias canonical valu
   for (const bad of ["11".repeat(31), "aa".repeat(32), "11".repeat(33), 17]) {
     assert.throws(() => parseSumeragiLanesJson(mutateRecord((record) => { record.incarnation = bad; })), String(bad));
   }
-  for (const field of ["block_cadence_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"]) {
+  for (const field of ["block_cadence_ms", "due_work_max_lag_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"]) {
     assert.throws(() => parseSumeragiLanesJson(mutateRecord((record) => { record.params[field] = 0; })), `zero ${field}`);
+  }
+  assert.equal(parseSumeragiLanesJson(mutateRecord((record) => { record.params.due_work_max_lag_ms = U64_MAX; }))[0].record.params.due_work_max_lag_ms, U64_MAX);
+  for (const bad of [-1, U64_MAX + 1n, "60000", true, null]) {
+    assert.throws(() => parseSumeragiLanesJson(mutateRecord((record) => { record.params.due_work_max_lag_ms = bad; })));
   }
   assert.throws(() => parseSumeragiLanesJson(mutateRecord((record) => { record.params.max_block_bytes = 2 ** 32; })));
   for (const algorithms of [["bls"], ["BLS_NORMAL"], "bls_normal", [1]]) {

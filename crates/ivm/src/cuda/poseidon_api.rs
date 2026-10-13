@@ -32,7 +32,7 @@ impl Input<'_> {
         }
     }
     fn word(self, index: usize) -> u64 {
-        if index % 4 != 0 {
+        if !index.is_multiple_of(4) {
             return 0;
         }
         let lane = index / 4;
@@ -374,10 +374,10 @@ mod tests {
                 Err(CudaFailure::Quarantined)
             );
             assert_eq!(output, [91, 93]);
-            assert_eq!(
+            assert!(matches!(
                 publish([0, 0], Some(complete), width, &mut output, || true),
                 Ok(())
-            );
+            ));
             assert_eq!(output, [7, 11]);
         }
     }
@@ -454,10 +454,9 @@ mod tests {
             let six = [[0; 6], [1, 2, 3, 4, 5, 6], [u64::MAX; 6]];
             for input in [Input::Two(&pairs), Input::Six(&six)] {
                 if !super::super::imp::ensure_cuda_kernel(input.kernel()) {
-                    assert!(
-                        !cfg!(feature = "cuda-hardware-tests"),
-                        "mandatory Poseidon native admission unavailable"
-                    );
+                    #[cfg(feature = "cuda-hardware-tests")]
+                    panic!("mandatory Poseidon native admission unavailable");
+                    #[cfg(not(feature = "cuda-hardware-tests"))]
                     return;
                 }
                 let artifact = crate::cuda_artifact::artifact(input.kernel())
@@ -473,11 +472,13 @@ mod tests {
                 let output = match result {
                     Ok(output) => output,
                     Err(error) => {
-                        assert!(
-                            !cfg!(feature = "cuda-hardware-tests"),
-                            "mandatory complete Poseidon dispatch refused: {error:?}"
-                        );
-                        return;
+                        #[cfg(feature = "cuda-hardware-tests")]
+                        panic!("mandatory complete Poseidon dispatch refused: {error:?}");
+                        #[cfg(not(feature = "cuda-hardware-tests"))]
+                        {
+                            let _ = error;
+                            return;
+                        }
                     }
                 };
                 assert!(valid_output(&output, input));

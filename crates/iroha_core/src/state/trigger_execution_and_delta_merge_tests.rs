@@ -148,13 +148,13 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
     let time_origin_ms = 1_000;
 
     let replacer_id: TriggerId = "a_time_sibling_replacer".parse().unwrap();
-    let replaced_id: TriggerId = "b_time_sibling_replaced".parse().unwrap();
+    let victim_trigger_id: TriggerId = "b_time_sibling_replaced".parse().unwrap();
     let replacement_executed: Name = "time_replacement_executed".parse().unwrap();
 
     let mut genesis_instructions = Vec::<InstructionBox>::new();
     {
         let replacement = Trigger::new(
-            replaced_id.clone(),
+            victim_trigger_id.clone(),
             Action::new(
                 vec![InstructionBox::from(SetKeyValue::account(
                     ALICE_ID.clone(),
@@ -171,7 +171,7 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
             replacer_id,
             Action::new(
                 vec![
-                    InstructionBox::from(Unregister::trigger(replaced_id.clone())),
+                    InstructionBox::from(Unregister::trigger(victim_trigger_id.clone())),
                     InstructionBox::from(Register::trigger(replacement)),
                 ],
                 Repeats::Exactly(1),
@@ -181,7 +181,7 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
             .expect("time-trigger sibling replacer action"),
         );
         let original_sibling = Trigger::new(
-            replaced_id.clone(),
+            victim_trigger_id.clone(),
             Action::new(
                 Vec::<InstructionBox>::new(),
                 Repeats::Exactly(1),
@@ -228,7 +228,7 @@ fn time_trigger_revalidates_a_sibling_replaced_after_matching() {
             .world
             .triggers()
             .time_triggers()
-            .get(&replaced_id)
+            .get(&victim_trigger_id)
             .expect("replacement sibling must remain registered");
         assert_eq!(replacement.repeats(), &Repeats::Exactly(1));
     }
@@ -665,15 +665,11 @@ fn periodic_time_trigger_drops_missed_ticks_while_retry_pending() {
         vec![true]
     );
     let events3 = chain.take_events().unwrap();
-    let completions3: Vec<_> = events3
-        .iter()
-        .filter_map(|event| match event {
-            EventBox::TriggerCompleted(event) if event.trigger_id() == &trigger_id => Some(event),
-            _ => None,
-        })
-        .collect();
+    let completed_during_retry = events3.iter().any(|event| {
+        matches!(event, EventBox::TriggerCompleted(event) if event.trigger_id() == &trigger_id)
+    });
     assert!(
-        completions3.is_empty(),
+        !completed_during_retry,
         "scheduled ticks must be suppressed while retry is pending"
     );
     {
@@ -919,19 +915,24 @@ fn generic_trigger_resolution_retains_original_allocation_refusal() {
     budget.set_limit_bytes(0);
     assert!(transaction.resolve_ivm_trigger_program(&blob_hash).is_err());
     let reason = transaction
-        .execution_deferral()
+        .borrow_execution_deferral()
         .expect("original local refusal");
     assert!(matches!(
         reason.allocation_refusal(),
         Some(AllocationRefusal::ExceedsLimit { limit_bytes: 0, .. })
     ));
+    let original_reason = reason.reason();
+    let original_allocation = reason.allocation_refusal().unwrap().clone();
+    drop(reason);
     assert_eq!(transaction.last_tx_gas_used, 0);
     budget.set_limit_bytes(original_limit);
     assert!(matches!(
         transaction.resolve_ivm_trigger_program(&blob_hash),
         Ok(Some(ResolvedIvmTriggerProgram::Generic(_)))
     ));
-    assert_eq!(transaction.execution_deferral(), Some(reason));
+    let retained = transaction.borrow_execution_deferral().unwrap();
+    assert_eq!(retained.reason(), original_reason);
+    assert_eq!(retained.allocation_refusal(), Some(&original_allocation));
 }
 
 #[test]
@@ -1962,7 +1963,7 @@ fn execute_data_triggers_dfs_uses_registered_trigger_authority() {
     let header = trigger_component_block(&state, 2).as_ref().header();
     let signed = signed_callback_boundary_source(
         &state,
-        header,
+        &header,
         vec![Mint::asset_quantity(1_u32, asset_id.clone()).into()],
     );
     let signed_hash = signed.hash();
@@ -2016,6 +2017,7 @@ fn execute_data_triggers_dfs_uses_registered_trigger_authority() {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[accepted],
         )
@@ -2159,7 +2161,7 @@ fn execute_data_triggers_dfs_skips_missing_trigger_after_bytecode_drop() {
     let beta_domain: DomainId = DomainId::try_new("beta", "universal").unwrap();
     let callback_source = signed_callback_boundary_source(
         &state,
-        header,
+        &header,
         vec![
             Register::domain(Domain::new(alpha_domain.clone())).into(),
             Register::domain(Domain::new(beta_domain.clone())).into(),

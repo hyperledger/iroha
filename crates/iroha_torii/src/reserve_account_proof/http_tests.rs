@@ -274,16 +274,16 @@ impl Fixture {
         )
         .unwrap();
         let view = self.chain.state().view();
-        let mut verified = None;
+        let mut authenticated = None;
         // This finite fixture uses only submitted native work. Production acquisition uses the native tip continuation.
         for height in 1..=self.chain.height() {
-            verified = Some(
+            authenticated = Some(
                 verifier
                     .verify(&iroha_core::sumeragi::finality::build_proof(&view, height).unwrap())
                     .unwrap(),
             );
         }
-        verified.unwrap()
+        authenticated.unwrap()
     }
 
     fn request(&self, path: &str, signer: Option<(&AccountId, &KeyPair)>) -> Request<Body> {
@@ -585,6 +585,7 @@ fn signed_reserve_account_sdk_loopback_verifies_native_absence_then_registration
         key_pair: f.manager_key.clone(),
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: format!("http://{}/", server.address).parse().unwrap(),
         torii_request_timeout: Duration::from_secs(10),
         transaction_ttl: Duration::from_secs(30),

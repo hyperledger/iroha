@@ -39,8 +39,9 @@ fn core_host_int_pointer_codec_preserves_signed_512_boundary() {
         vm.run().expect("decode full-width Int");
         let restored = vm.validate_tlv(vm.register(10)).expect("Int output");
         assert_eq!(
-            ivm::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, restored.payload)),
-            Ok(value)
+            (ivm::numeric_tlv::decode_int_bytes(&make_tlv(PointerType::Int, restored.payload)))
+                .expect("expected successful fixture result"),
+            value
         );
     }
 }

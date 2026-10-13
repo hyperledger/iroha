@@ -326,6 +326,9 @@ poll_interval_ms = 10000
 # The first-release catalog is fixed; no autoscale range can consume a participant lane.
 
 [nexus.staking]
+# SCCP validity plus evidence grace; pinned by the signed genesis Nexus policy.
+unbonding_delay_ms = 1814400000
+max_slash_bps = 10000
 public_validator_mode = "stake_elected"
 restricted_validator_mode = "admin_managed"
 min_validator_stake = "1"

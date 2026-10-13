@@ -5,7 +5,7 @@ use iroha_data_model::{
 };
 use norito::{json, json::Value};
 
-pub(crate) fn emit() {
+pub fn emit() {
     let source: Value = norito::json::from_str(include_str!(
         "../../../fixtures/account/multisig_wire_v1.json"
     ))

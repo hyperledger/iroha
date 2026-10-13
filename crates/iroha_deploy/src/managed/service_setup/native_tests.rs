@@ -8,6 +8,7 @@
 use super::tests::{fixture, options};
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::{
     managed::native_operation::{
         test_support::{
@@ -252,18 +253,10 @@ fn exact_managed_setup_replays_policy_restores_missing_grants_and_recovers_origi
         .unwrap(),
         &setup_checkpoint,
     );
-    let gateway_dir = gateway
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
-    let recorder_dir = recorder
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let gateway_dir =
+        metadata::ensure_operation(&gateway.inner.authority.directory, "setup").unwrap();
+    let recorder_dir =
+        metadata::ensure_operation(&recorder.inner.authority.directory, "setup").unwrap();
     let gateway_utc = now_ms().unwrap() + 1_200_000;
     let gateway_original = super::tests::retain_explicit_request(
         &gateway.inner,
@@ -672,7 +665,7 @@ fn exact_managed_setup_replays_policy_restores_missing_grants_and_recovers_origi
                 )
                 .is_err()
         );
-        let mut changed_label = label.to_vec();
+        let mut changed_label = label.clone();
         changed_label[0].push_str("-changed");
         let changed = super::tests::reputation(&recorder.inner.authority, &changed_label);
         assert!(
@@ -832,18 +825,10 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
         intent: recorder_intent,
         checkpoint,
     };
-    let gateway_dir = gateway
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
-    let recorder_dir = recorder
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let gateway_dir =
+        metadata::ensure_operation(&gateway.inner.authority.directory, "setup").unwrap();
+    let recorder_dir =
+        metadata::ensure_operation(&recorder.inner.authority.directory, "setup").unwrap();
     gateway.inner.validate_original(&gateway_original).unwrap();
     recorder
         .inner
@@ -873,9 +858,17 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
         "committed.nrt",
         "transaction/preparation.json",
     ];
-    let prefixes = [&gateway_original, &recorder_original].map(|selected| {
-        prefix_names.map(|name| std::fs::read(selected.directory().path().join(name)).unwrap())
-    });
+    let retained_bytes = |selected: &Selected<Original>, name: &str| {
+        if name == "transaction/preparation.json" {
+            std::fs::read(selected.directory().path().join(name)).unwrap()
+        } else {
+            metadata::test_read_attempt_component(selected.attempt(), name)
+                .unwrap()
+                .expect("retained request-only metadata frame")
+        }
+    };
+    let prefixes = [&gateway_original, &recorder_original]
+        .map(|selected| prefix_names.map(|name| retained_bytes(selected, name)));
     let utc = gateway_original
         .terms
         .requested_deadline_unix_ms
@@ -916,10 +909,7 @@ fn genuine_unprepared_service_intents_expire_without_http_or_wallet_even_after_r
         .zip(prefixes)
     {
         for (name, bytes) in prefix_names.into_iter().zip(before) {
-            assert_eq!(
-                std::fs::read(selected.directory().path().join(name)).unwrap(),
-                bytes
-            );
+            assert_eq!(retained_bytes(selected, name), bytes);
         }
         assert!(
             !selected

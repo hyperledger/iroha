@@ -44,6 +44,7 @@ use super::{eligibility::Current, original_read::OriginalRead};
 use crate::state::{NativeExecutionTip, StateReadOnly, StateView, WorldReadOnly};
 
 mod execution;
+pub mod keeper;
 mod restoration;
 pub(crate) use execution::{ForgeryExecutionError, execute_forgery};
 pub(crate) use restoration::SccpRestore;
@@ -345,15 +346,19 @@ fn mismatch_for_observation<'a>(
                 .as_ref()
                 .zip(evidence.anchor.as_ref())
                 .map(|(a, w)| (a, &w.path));
+            #[cfg(all(test, sumeragi_core_mutation = "HC317"))]
+            let parent_core_hash = *parent.iroha_hash().as_ref();
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC317")))]
+            let parent_core_hash = parent.core_hash().0;
             lookup_anchor(
                 parent.height(),
                 SccpAnchorV1 {
-                    core_hash: parent.core_hash().0,
+                    core_hash: parent_core_hash,
                     result: parent.result().0,
                 },
                 world.anchor_open(),
                 header.height(),
-                world.anchor_chunk(&chunk),
+                world.anchor_chunk(chunk),
                 witness,
             )
             .map_err(anchor_error)
@@ -459,7 +464,7 @@ pub(crate) fn prepare_committed<'a>(
 /// Perform the actual native pairing after the original node's rate/duplicate gate.
 /// Synchronous ingress has bounded one-pairing work; it does not invent a read timeout.
 pub(crate) fn verify_prechecked<'a>(
-    precheck: ForgeryPrecheck<'a>,
+    precheck: &ForgeryPrecheck<'a>,
     budget: &AllocationBudget,
 ) -> Result<VerifiedForgeryCandidate<'a>> {
     let header = SccpFinalityHeaderV1::parse(&precheck.evidence.header)
@@ -613,7 +618,7 @@ fn generation_for_claim<'a>(
 ) -> Result<&'a RetainedSccpGeneration> {
     let generation =
         world
-            .generation(&header.generation())
+            .generation(header.generation())
             .ok_or(if header.generation() <= current {
                 ForgeryVerificationError::EvidenceExpired
             } else {
@@ -627,7 +632,9 @@ fn generation_for_claim<'a>(
             "retained generation is inconsistent",
         ));
     }
-    if !generation.is_liable(current, liability_clock) {
+    if !cfg!(all(test, sumeragi_core_mutation = "HC316"))
+        && !generation.is_liable(current, liability_clock)
+    {
         return Err(ForgeryVerificationError::EvidenceExpired);
     }
     Ok(generation)
@@ -731,7 +738,7 @@ fn first_mismatch(
     if qc.block_hash != original.core_hash {
         return Ok(SccpForgeryRuleV1::E3);
     }
-    if result != original.result {
+    if result != original.result && !cfg!(all(test, sumeragi_core_mutation = "HC315")) {
         return Ok(SccpForgeryRuleV1::E4);
     }
     Err(ForgeryVerificationError::NotEvidence)

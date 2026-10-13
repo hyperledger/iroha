@@ -405,6 +405,168 @@ fn committee_selectors_include_genesis_but_never_cache_mutable_liability() {
     assert!(!Selection::Committee(NonZeroU64::new(1)).immutable());
 }
 
+#[test]
+fn hold_selectors_are_bounded_exact_pairs_and_mutable() {
+    assert_eq!(hold_query(&ForgeryHoldQuery::default()).unwrap().limit, 64);
+    for query in [
+        ForgeryHoldQuery {
+            limit: Some("65".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            limit: Some("00".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            revision: Some("1".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            after_network: Some("ethereum-mainnet".into()),
+            ..Default::default()
+        },
+        ForgeryHoldQuery {
+            after_revision: Some("1".into()),
+            ..Default::default()
+        },
+    ] {
+        assert!(hold_query(&query).is_err());
+    }
+    let query = hold_query(&ForgeryHoldQuery {
+        network: Some("ethereum-mainnet".into()),
+        revision: Some("2".into()),
+        after_network: Some("ethereum-mainnet".into()),
+        after_revision: Some("1".into()),
+        limit: Some("1".into()),
+    })
+    .unwrap();
+    assert_eq!(query.revision, Some(2));
+    assert_eq!(query.after.unwrap().revision, 1);
+    assert_eq!(Selection::ForgeryHold(query).route(), sccp::FORGERY_HOLD);
+    assert!(!Selection::ForgeryHold(query).immutable());
+}
+
+#[tokio::test]
+async fn hold_handler_preserves_original_source_and_request_deadline() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let invalid = handler_forgery_hold(
+        State(app.clone()),
+        NoritoStringQuery(ForgeryHoldQuery {
+            limit: Some("65".into()),
+            ..Default::default()
+        }),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let expired = handler_forgery_hold(
+        State(app.clone()),
+        NoritoStringQuery(ForgeryHoldQuery::default()),
+        Extension(RouteExecutionDeadline(Instant::now())),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(expired.status(), StatusCode::REQUEST_TIMEOUT);
+    let missing = handler_forgery_hold(
+        State(app),
+        NoritoStringQuery(ForgeryHoldQuery::default()),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    assert_eq!(missing.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        missing.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+}
+
+#[tokio::test]
+async fn pause_and_anchor_handlers_reject_unknown_queries_and_preserve_source_refusal() {
+    let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(
+        iroha_core::state::World::new(),
+        false,
+    );
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    for (query, expired, expected) in [
+        (Some("unknown=1"), false, StatusCode::BAD_REQUEST),
+        (None, true, StatusCode::REQUEST_TIMEOUT),
+        (None, false, StatusCode::SERVICE_UNAVAILABLE),
+    ] {
+        let deadline = if expired {
+            Instant::now()
+        } else {
+            Instant::now() + Duration::from_secs(30)
+        };
+        for response in [
+            handler_fast_pause(
+                State(app.clone()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+            handler_evidence_anchor(
+                State(app.clone()),
+                Path("1".into()),
+                RawQuery(query.map(str::to_owned)),
+                Extension(RouteExecutionDeadline(deadline)),
+                HeaderMap::new(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap(),
+        ] {
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::SERVICE_UNAVAILABLE {
+                assert_eq!(
+                    response.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+            }
+        }
+    }
+    for invalid in ["0", "01", "+1", "latest", "18446744073709551616"] {
+        let response = handler_evidence_anchor(
+            State(app.clone()),
+            Path(invalid.into()),
+            RawQuery(None),
+            Extension(RouteExecutionDeadline(
+                Instant::now() + Duration::from_secs(30),
+            )),
+            HeaderMap::new(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{invalid}");
+    }
+    for (selection, route) in [
+        (Selection::FastPause, sccp::FAST_PAUSE),
+        (
+            Selection::Anchor(NonZeroU64::new(1).unwrap()),
+            sccp::EVIDENCE_ANCHOR,
+        ),
+    ] {
+        assert_eq!(selection.route(), route);
+        assert!(!selection.immutable());
+    }
+}
+
 #[tokio::test]
 async fn committee_handlers_preserve_query_source_deadline_and_no_store_contract() {
     let app = crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(

@@ -21,6 +21,40 @@ fn permissioned_chain() -> CertifiedTestChain {
         .expect("actual signed genesis")
 }
 
+#[test]
+fn published_execution_result_binds_the_original_header_and_body_digest() {
+    with_worker(|chain, worker, _blocks, _events| {
+        use iroha_data_model::sumeragi_finality::{
+            RESULT_TAG,
+            certified_result::{RESULT_BODY_TAG, X_LEN},
+        };
+        use sha2::{Digest as _, Sha256};
+        let block = proposal(chain, worker);
+        let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
+        else {
+            panic!("the original ordinary proposal must execute before the result comparison")
+        };
+        let original = worker.live.as_ref().unwrap();
+        let PublicationPhase::Executed { preimage, .. } = &original.phase else {
+            panic!("the original completed execution retains its encoded result")
+        };
+        let (header, body) = preimage.as_slice().split_at(X_LEN);
+        let d_body: [u8; 32] = iroha_crypto::Hash::new_from_chunks(&[RESULT_BODY_TAG, body]).into();
+        let mut expected = Sha256::new();
+        expected.update(RESULT_TAG);
+        expected.update(header);
+        expected.update(d_body);
+        assert_eq!(
+            result,
+            Hash32(expected.finalize().into()),
+            "SC1 ordinary voting must bind the original finality header and body digest"
+        );
+        assert_eq!(original.result, result);
+        assert_eq!(original.header.height, 2);
+    });
+}
+
 pub(super) fn with_worker(
     test: impl FnOnce(
         &CertifiedTestChain,
@@ -44,12 +78,20 @@ pub(super) fn with_worker_from(
     ) + Send
     + 'static,
 ) {
-    with_worker_from_clock(
-        make_chain,
-        consensus_mode,
-        iroha_primitives::time::TimeSource::new_system(),
-        test,
-    );
+    crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-publication-test")
+        .spawn(move || {
+            let chain = make_chain();
+            with_worker_chain_and_clock(
+                &chain,
+                consensus_mode,
+                Arc::new(crate::sumeragi::lanes::merge::NoLanes),
+                chain.execution_time_source(),
+                test,
+            );
+        })
+        .expect("spawn publication worker fixture")
+        .join()
+        .expect("publication worker fixture");
 }
 
 /// Construct the actual Global executor with a caller-controlled local clock.
@@ -117,7 +159,7 @@ pub(super) fn with_worker_chain(
         chain,
         consensus_mode,
         lane_blocks,
-        iroha_primitives::time::TimeSource::new_system(),
+        chain.execution_time_source(),
         test,
     );
 }
@@ -224,8 +266,6 @@ fn with_worker_chain_erased(
     let mut worker = Worker {
         payload_build: None,
         signature_decode: None,
-        routing_refusal: None,
-        payload_refusal: None,
         context: &context,
         state: &context.state,
         applied: context.applied,
@@ -297,35 +337,36 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
                 error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                 "{error:?}"
             );
-            let payload::PayloadError::DecodeResource(refusal) =
+            let payload::PayloadError::DecodeResource(original) =
                 norito::with_decode_limits_scope(limits, || {
                     payload::decode(block.payload().as_slice())
                 })
                 .unwrap_err()
             else {
-                panic!("an enclosing decoder limit retains its local refusal");
+                panic!("actual source decode must defer")
             };
             assert_eq!(
-                refusal.reason(),
+                original.reason(),
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
             );
-            let original = refusal
+            assert!(original.allocation_refusal().is_none());
+            let decode_refusal = original
                 .decode_refusal()
                 .expect("payload decoding retains the original opaque refusal");
             assert_eq!(
-                original.kind(),
+                decode_refusal.kind(),
                 norito::core::DecodeLocalRefusalKind::EnclosingLimit
             );
-            // Separate decoding attempts have distinct opaque identities, but
-            // the same input and limits must refuse at the same resource bound.
+            // Separate decoding attempts retain distinct opaque identities, but the
+            // same source and limits must refuse at the same resource bound.
             assert_eq!(
-                original.resource_error(),
+                decode_refusal.resource_error(),
                 error.local_refusal().unwrap().resource_error()
             );
             let outcome =
                 norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false));
             assert!(
-                matches!(outcome, Some(ExecOutcome::Failed(_))),
+                matches!(outcome, Err(PublicationError::Deferred(_))),
                 "local payload decode refusal must defer, got {outcome:?}; negatively cached: {}",
                 worker.results.contains_key(&hash)
             );
@@ -382,7 +423,7 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
         drop(epoch);
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Valid(_))
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
         assert!(!worker.results.contains_key(&hash));
         assert!(worker.signature_decode.is_none());
@@ -470,40 +511,18 @@ fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry()
             else {
                 panic!("the original evidence pool must refuse its actual due-entry backing");
             };
-            let original_refusal: crate::execution_attempt::ExecutionDeferred =
-                original_allocation.clone().into();
             let returned = worker.build(2, 0, 1 << 20, 100);
             let Err(PublicationError::Deferred(returned)) = returned else {
                 panic!("original staking capacity must reach the driver as a typed deferral");
             };
             assert_eq!(returned.allocation_refusal(), Some(original_allocation));
-            assert_eq!(
-                returned,
-                PublicationDeferral::EvidencePreparation(
-                    original_error
-                        .downcast_ref::<EvidencePreparationError>()
-                        .unwrap()
-                        .clone()
-                )
+            assert!(
+                matches!(&returned, PublicationDeferral::EvidencePreparation(EvidencePreparationError::Admission(actual)) if actual == original_allocation)
             );
-            assert_eq!(
-                worker.routing_refusal.as_ref(),
-                Some(&original_refusal),
-                "the payload worker retains the same evidence-pool release owner"
-            );
-            assert!(matches!(
-                worker.payload_refusal.as_ref(),
-                Some(payload::PayloadError::StakingPreparation(refusal))
-                    if Some(refusal) == original_error.downcast_ref::<EvidencePreparationError>()
-            ));
-            let iroha_allocation::AllocationRefusal::Capacity { release, .. } = worker
-                .routing_refusal
-                .as_ref()
-                .unwrap()
-                .allocation_refusal()
-                .unwrap()
+            let iroha_allocation::AllocationRefusal::Capacity { release, .. } =
+                returned.allocation_refusal().unwrap()
             else {
-                panic!("the original occupied pool remains retryable");
+                panic!("the original occupied pool remains retryable")
             };
             let release = release.clone();
             let mut context = Context::from_waker(std::task::Waker::noop());
@@ -528,8 +547,7 @@ fn original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry()
             let Some(bytes) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("the exact original queued work retries after the original release");
             };
-            assert!(worker.routing_refusal.is_none());
-            assert!(worker.payload_refusal.is_none());
+
             let proposal = payload::decode(bytes.as_slice()).unwrap();
             assert_eq!(
                 proposal.external_entrypoints_slice()[0].hash(),
@@ -573,7 +591,7 @@ fn malformed_available_payload_remains_invalid_and_negatively_cached() {
         ));
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Invalid)
+            Ok(Some(ExecOutcome::Invalid))
         ));
         let (source, outcome) = worker
             .results
@@ -584,7 +602,7 @@ fn malformed_available_payload_remains_invalid_and_negatively_cached() {
         let limits = norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 64);
         assert!(matches!(
             norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false)),
-            Some(ExecOutcome::Invalid)
+            Ok(Some(ExecOutcome::Invalid))
         ));
         assert_eq!(worker.results.len(), 1);
         assert!(worker.live.is_none());
@@ -649,10 +667,12 @@ pub(super) fn proposal_with_transactions(
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: block_time,
         },
         &accepted,
     )
     .unwrap();
+    chain.set_execution_time(proposal.header().creation_time());
     let payload = payload::encode(&proposal).unwrap();
     chain.author_payload(
         iroha_sumeragi::message::BlockHeader {
@@ -685,7 +705,8 @@ fn execute_proposal(
 ) -> (AvailableBody, Qc) {
     let crypto = worker.context.crypto.as_ref().unwrap();
     let block_hash = block.hash(&**crypto);
-    let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+    let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+    else {
         panic!("original native validation must succeed")
     };
     let height = block.header().height;
@@ -715,10 +736,11 @@ fn original_overlay(worker: &Worker<'_>) -> usize {
 fn replay_completion_retirement_keeps_exact_source_and_original_pool_retry() {
     use iroha_sumeragi::availability::{AvailabilitySource, BodyRestoration};
 
-    // Keep this chain's retired MV generations alive while comparing exact pool usage.
-    // The global EBR collector may otherwise refund them between two retry observations;
-    // replay scratch still has to release its own original-pool charges immediately.
+    // Keep earlier State generations retired by this fixture from being collected
+    // during its exact replay accounting checks. Pin before the worker constructs
+    // the signed chain; reader-owned buffers must still return to the same baseline.
     let _retirement_pin = crossbeam_epoch::pin();
+
     with_worker(|chain, worker, blocks, events| {
         let (block, qc) = executed(chain, worker);
         let alternate = chain.commit_qc(2, qc.block_hash, qc.result, Signers::LastThree);
@@ -808,7 +830,7 @@ fn replay_completion_retirement_keeps_exact_source_and_original_pool_retry() {
         drop(occupied);
         worker.replay(&block, &qc).unwrap();
         assert_eq!(budget.reserved_bytes(), retained);
-        assert!(worker.routing_refusal.is_none());
+
         assert!(events.try_recv().is_err());
 
         // A certificate or serialized tip claim alone cannot recreate the
@@ -1239,7 +1261,7 @@ fn preparation_pins_original_even_against_discard_replacement_and_another_valid_
         let hash = competing.hash(&**worker.context.crypto.as_ref().unwrap());
         assert!(matches!(
             worker.execute(&competing, hash, false),
-            Some(ExecOutcome::Failed(_))
+            Err(PublicationError::Retryable(_))
         ));
         assert_eq!(original_overlay(worker), overlay);
         let alternate = chain.commit_qc(2, qc.block_hash, qc.result, Signers::LastThree);
@@ -1345,7 +1367,7 @@ fn consuming_publication_failure_blocks_every_reexecution_path() {
         assert!(worker.commit(&block, &qc).is_err());
         assert!(matches!(
             worker.execute(&block, qc.block_hash, false),
-            Some(ExecOutcome::Failed(_))
+            Err(PublicationError::RecoveryRequired(_))
         ));
         worker.discard(2, &[]);
         worker.reject(2, 0, qc.block_hash);
@@ -1391,7 +1413,7 @@ fn panic_after_actual_visibility_is_local_recovery_never_success_or_reexecution(
         assert!(worker.commit(&block, &qc).is_err());
         assert!(matches!(
             worker.execute(&block, qc.block_hash, false),
-            Some(ExecOutcome::Failed(_))
+            Err(PublicationError::RecoveryRequired(_))
         ));
         let (reply, response) = mpsc::sync_channel(1);
         worker.serve(Request::Commit(block, qc, reply));
@@ -1688,7 +1710,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
@@ -1719,7 +1741,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         for _ in 0..2 {
             assert!(matches!(
                 worker.execute(&block, block_hash, false),
-                Some(ExecOutcome::Failed(_))
+                Err(PublicationError::Deferred(_))
             ));
             let pending = worker.finishing.as_ref().unwrap();
             let FinishingPhase::ContextProof { inputs, refusal } = &pending.phase else {
@@ -1736,7 +1758,8 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original execution completes after real pool release")
         };
         assert!(worker.finishing.is_none());
@@ -1822,7 +1845,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         for _ in 0..2 {
             assert!(matches!(
                 worker.execute(&block, block_hash, false),
-                Some(ExecOutcome::Failed(_))
+                Err(PublicationError::Deferred(_))
             ));
             let pending = worker.finishing.as_ref().unwrap();
             assert_eq!(std::ptr::from_ref(pending.overlay.as_ref()), overlay);
@@ -1845,7 +1868,8 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("release permits encoding of the same original execution");
         };
         assert!(worker.finishing.is_none());
@@ -1900,7 +1924,7 @@ fn result_encoding_foreign_pool_requires_recovery_and_retains_original_execution
         let overlay = std::ptr::from_ref(pending.overlay.as_ref());
         assert!(matches!(
             worker.execute(&block, block_hash, false),
-            Some(ExecOutcome::Failed(_))
+            Err(PublicationError::RecoveryRequired(_))
         ));
         assert_eq!(
             std::ptr::from_ref(worker.finishing.as_ref().unwrap().overlay.as_ref()),
@@ -2258,7 +2282,7 @@ fn quarantine_requires_the_exact_control_free_transaction_rejection_hash() {
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Some(ExecOutcome::Invalid)
+            Ok(Some(ExecOutcome::Invalid))
         ));
         assert!(
             worker.quarantine_context.is_none(),
@@ -2299,7 +2323,7 @@ fn native_header_source_is_checked_against_the_pristine_committed_parent() {
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             assert!(matches!(
                 worker.execute(&block, hash, false),
-                Some(ExecOutcome::Invalid)
+                Ok(Some(ExecOutcome::Invalid))
             ));
             assert!(worker.live.is_none());
             assert!(worker.finishing.is_none());
@@ -2407,7 +2431,7 @@ fn native_invalid_payloads_are_rejected_at_ordinary_and_boundary_heights() {
                 for _ in 0..2 {
                     assert!(matches!(
                         worker.execute(&flagged, flagged_hash, false),
-                        Some(ExecOutcome::Invalid)
+                        Ok(Some(ExecOutcome::Invalid))
                     ));
                     let (source, verdict) = worker.results.get(&flagged_hash).unwrap();
                     assert_eq!(source, flagged.source());
@@ -2842,7 +2866,7 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -2899,7 +2923,8 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
         assert_eq!(budget.reserved_bytes(), held.unwrap());
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original result proof must complete after the caller scope retires")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3019,7 +3044,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -3109,7 +3134,8 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
 
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!(
                 "the unchanged original execution must finish after the caller decoder scope retires"
             )
@@ -3206,7 +3232,7 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
                     iroha_crypto::HashOf::new(original.witness.wire()),
                 ));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             assert!(
                 matches!(outcome, Err(PublicationError::RecoveryRequired(_))),
@@ -3235,7 +3261,8 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
             assert!(worker.live.is_none());
             let (overlay, committee, witness) = identities.unwrap();
             for _ in 0..2 {
-                let Some(ExecOutcome::Failed(reason)) = worker.execute(&block, block_hash, false)
+                let Err(PublicationError::RecoveryRequired(reason)) =
+                    worker.execute(&block, block_hash, false)
                 else {
                     panic!("unchanged corrupt execution stays in recovery")
                 };
@@ -3269,7 +3296,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
@@ -3302,7 +3329,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         for _ in 0..2 {
             assert!(matches!(
                 worker.execute(&block, block_hash, false),
-                Some(ExecOutcome::Failed(_))
+                Err(PublicationError::Deferred(_))
             ));
             let retained = worker.finishing.as_ref().unwrap();
             assert_eq!(std::ptr::from_ref(retained.overlay.as_ref()), overlay);
@@ -3348,7 +3375,9 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Some(ExecOutcome::Valid(digest)) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result: digest, .. })) =
+            worker.execute(&block, block_hash, false)
+        else {
             panic!("original execution finishes after actual pool capacity returns")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3481,7 +3510,12 @@ fn native_context_archive_failure_preserves_original_bytes_until_durable_acknowl
                     .as_ptr(),
                 pointer
             );
-            assert!(worker.execute(&block, qc.block_hash, false).is_none());
+            assert!(
+                worker
+                    .execute(&block, qc.block_hash, false)
+                    .unwrap()
+                    .is_none()
+            );
             assert_eq!(worker.build(3, 0, 1 << 20, 100).unwrap(), None);
             assert_eq!(worker.applied.0, 1);
             assert!(events.try_recv().is_err());
@@ -3585,7 +3619,7 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
             assert_eq!(foreign_budget.reserved_bytes(), 0);
             assert!(original.native_contexts.is_none());
             assert_eq!(archive_files(), original_archives);
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Ok(Some(_))));
         let retained = worker.live.as_ref().unwrap();
@@ -3699,13 +3733,34 @@ fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_r
             let Err(PublicationError::Deferred(returned)) = returned else {
                 panic!("original lane policy refusal must reach the driver as a typed deferral");
             };
-            assert_eq!(returned, PublicationDeferral::Execution(original.clone()));
             assert!(returned.release_wait().is_none());
+            let PublicationDeferral::Execution(returned) = returned else {
+                panic!("lane policy must retain an execution refusal")
+            };
+            assert_eq!(returned.reason(), original.reason());
+            assert_eq!(returned.allocation_refusal(), original.allocation_refusal());
+            let direct_cause = original
+                .decode_refusal()
+                .expect("actual direct policy observer");
+            let returned_cause = returned
+                .decode_refusal()
+                .expect("actual worker policy observer");
+            assert_eq!(returned_cause.kind(), direct_cause.kind());
             assert_eq!(
-                worker.routing_refusal.as_ref(),
-                Some(&original),
-                "the actual merge proposal must retain the original policy owner before diagnostics"
+                returned_cause.resource_error(),
+                direct_cause.resource_error()
             );
+            assert_ne!(
+                returned_cause, direct_cause,
+                "separate executions of the same policy reader have separate original observers"
+            );
+            assert_eq!(returned.phase(), original.phase());
+            let observed = returned_cause.clone();
+            let moved = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                returned.into_vm_error(),
+            )
+            .expect("the one worker owner moves through VM transport");
+            assert_eq!(moved.decode_refusal(), Some(&observed));
             assert!(worker.payload_build.is_none());
             assert!(worker.completed_payload.is_none());
             assert!(worker.live.is_none());
@@ -3737,7 +3792,7 @@ fn original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_r
                     .iter()
                     .any(|entry| entry.hash() == hash)
             );
-            assert!(worker.routing_refusal.is_none());
+
             assert_eq!(queue.queued_len(), 1);
             assert!(events.try_recv().is_err());
             assert_eq!(worker.state.view().height(), 1);
@@ -3795,30 +3850,35 @@ fn beacon_startup_retains_original_capacity_through_worker_channel_and_node() {
         let error = executor
             .attach_beacon(chain.instance(), None, None)
             .unwrap_err();
-        assert_eq!(
-            error, direct,
-            "the request channel preserves the complete refusal"
-        );
+        let PublicationError::Deferred(ref observed) = error else {
+            panic!("channel lost the original local refusal")
+        };
+        assert_allocation_publication_refusal(observed, original);
         let NodeError::ControlAttachment(PublicationError::Deferred(retained)) =
             NodeError::from(error)
         else {
             panic!("node startup must retain the original publication error");
         };
-        assert_eq!(retained, *original);
+        assert_allocation_publication_refusal(&retained, original);
         assert_eq!(retained.release_wait(), Some(&release));
         let again = executor
             .attach_beacon(chain.instance(), None, None)
             .unwrap_err();
-        assert_eq!(
-            again, direct,
-            "failed attachment did not replace or attach a producer"
-        );
+        let PublicationError::Deferred(ref observed) = again else {
+            panic!("failed attachment changed its outcome")
+        };
+        assert_allocation_publication_refusal(observed, original);
 
         assert_eq!(
             registration.poll_wait(&release, &mut context),
             Poll::Pending
         );
-        drop(pressure);
+        // The retained worker overlay intentionally defers this thread's pool
+        // wakes until writer custody is released. Model another physical owner
+        // returning this exact pressure reservation on its own thread instead.
+        std::thread::spawn(move || drop(pressure))
+            .join()
+            .expect("original external capacity owner releases");
         assert_eq!(
             registration.poll_wait(&release, &mut context),
             Poll::Ready(())
@@ -3859,7 +3919,7 @@ fn original_prepared_signature_owner_survives_refusal_validation_publication_app
                 worker.execute(&block, hash, false)
             });
         assert!(refused);
-        assert!(matches!(outcome, Some(ExecOutcome::Failed(_))));
+        assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
         assert!(worker.live.is_none());
         assert!(worker.finishing.is_none());
         assert!(!worker.results.contains_key(&hash));
@@ -3922,7 +3982,7 @@ fn explicit_signature_preparation_rejection_retires_only_its_original_source() {
                 worker.execute(&block, hash, false)
             });
         assert!(refused);
-        assert!(matches!(outcome, Some(ExecOutcome::Failed(_))));
+        assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
         let pointer = worker
             .signature_decode
             .as_ref()
@@ -3945,7 +4005,7 @@ fn explicit_signature_preparation_rejection_retires_only_its_original_source() {
         );
         worker.reject(block.header().height, block.header().origin_view, hash);
         assert!(worker.signature_decode.is_none());
-        assert!(worker.routing_refusal.is_none());
+
         assert!(worker.results.is_empty());
     });
 }
@@ -3962,7 +4022,7 @@ fn later_canonical_child_allocator_refusal_keeps_the_original_prepared_signature
                 worker.execute(&block, hash, false)
             });
         assert!(refused);
-        assert!(matches!(outcome, Some(ExecOutcome::Failed(_))));
+        assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
         assert!(!worker.results.contains_key(&hash));
         let pool = chain.state().ivm_execution_budget();
         let attempt = worker.signature_decode.as_mut().unwrap();
@@ -4024,33 +4084,36 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
     let (send_clock, receive_clock) = std::sync::mpsc::channel();
     with_worker_from(
         move || {
-            let world = World::new();
-            // The fixture keeps its original 16-KiB boundary. Its initial
-            // privacy profile and signed transaction cap must fit that bound,
-            // so actual genesis execution can certify a coherent policy.
-            let limits = PrivacyConsensusLimitsV1 {
-                max_proof_bytes_per_action: INCLUDABLE,
-                max_action_bytes: INCLUDABLE,
-                max_privacy_bytes_per_transaction: INCLUDABLE,
-                max_privacy_bytes_per_block: INCLUDABLE,
-                max_statement_and_encrypted_output_bytes_per_transaction: INCLUDABLE,
-                ..PrivacyConsensusLimitsV1::taira_default()
-            };
+            let mut world = World::new();
+            let mut limits = PrivacyConsensusLimitsV1::taira_default();
+            // This small ordinary-Log fixture needs one coherent committed policy:
+            // every contained privacy byte bound also fits its 16 KiB transaction cap.
+            limits.max_proof_bytes_per_action = INCLUDABLE;
+            limits.max_action_bytes = INCLUDABLE;
+            limits.max_privacy_bytes_per_transaction = INCLUDABLE;
+            limits.max_privacy_bytes_per_block = INCLUDABLE;
+            limits.max_statement_and_encrypted_output_bytes_per_transaction = INCLUDABLE;
             limits
                 .validate()
-                .expect("coherent small-cap privacy profile");
-            let mut privacy = world.privacy_consensus_policy.block();
-            privacy.get_mut().current_limits = limits;
-            privacy.commit();
+                .expect("coherent small fixture privacy limits");
+            world.privacy_consensus_policy =
+                mv::cell::Cell::new(iroha_data_model::privacy::PrivacyConsensusPolicyV1 {
+                    current_limits: limits,
+                    pending_tightening: None,
+                });
             let mut config = TestChainConfig::new(world, 1_000);
-            config.genesis_parameters.extend([
-                Parameter::Transaction(TransactionParameter::MaxTxBytes(
-                    std::num::NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
-                )),
-                Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+            config
+                .genesis_parameters
+                .push(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
                     std::num::NonZeroU32::new(MAX_BLOCK_BYTES).unwrap(),
-                )),
-            ]);
+                )));
+            // The first-release genesis relation requires the transaction cap
+            // itself to fit the committed payload after its reserve.
+            config.genesis_parameters.push(Parameter::Transaction(
+                TransactionParameter::MaxTxBytes(
+                    std::num::NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
+                ),
+            ));
             let prepared = CertifiedTestChain::prepare(config).expect("prepared signed genesis");
             send_clock
                 .send(prepared.clock.clone())
@@ -4381,7 +4444,7 @@ fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
                 assert!(!error.is_local_refusal());
                 identities = Some((std::ptr::from_ref(original.overlay.as_ref()), original.witness.writes.as_ptr(), iroha_crypto::HashOf::new(original.witness.wire())));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             budget.set_limit_bytes(original_limit);
             assert!(
@@ -4402,4 +4465,115 @@ fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
             drop(epoch);
         });
     }
+}
+
+/// Check the complete original allocation observation used by beacon startup.
+fn assert_allocation_publication_refusal(
+    actual: &PublicationDeferral,
+    expected: &PublicationDeferral,
+) {
+    let (PublicationDeferral::Execution(actual), PublicationDeferral::Execution(expected)) =
+        (actual, expected)
+    else {
+        panic!("startup must carry the original execution allocation refusal")
+    };
+    assert_eq!(actual.reason(), expected.reason());
+    assert_eq!(actual.phase(), expected.phase());
+    assert!(expected.allocation_refusal().is_some());
+    assert_eq!(actual.allocation_refusal(), expected.allocation_refusal());
+    assert_eq!(actual.decode_refusal(), expected.decode_refusal());
+    assert!(actual.verification_refusal().is_none());
+    assert!(expected.verification_refusal().is_none());
+}
+
+/// A genuine final allocator denial is not a finite-pool exhaustion or a verdict.
+#[test]
+fn original_worker_world_cut_physical_allocator_refusal_retains_tail_and_publication() {
+    use crate::state::world_projection::world_state_accumulator::world_state_cut::completion_observer;
+    with_worker(|chain, worker, blocks, events| {
+        let (block, qc) = executed(chain, worker);
+        let budget = worker.state.ivm_execution_budget();
+        let limit = budget.limit_bytes();
+        let height = worker.state.view().height();
+        let applied = worker.applied;
+        let overlay = original_overlay(worker);
+        let wire = block.payload().as_slice().as_ptr();
+        let source = std::ptr::from_ref(block.source());
+        assert_eq!(worker.prepare(&block, &qc).unwrap(), Some(qc.result));
+        blocks.append(&block, &qc).unwrap();
+        let layout = completion_observer::control_layout();
+        let (result, denied) = crate::test_allocations::refuse_one_layout_during(layout, || {
+            worker.commit(&block, &qc)
+        });
+        assert!(
+            denied,
+            "the actual publisher requested the final shell allocation"
+        );
+        let Err(PublicationError::Deferred(reason)) = result else {
+            panic!("actual physical refusal remains retryable publication")
+        };
+        assert!(reason.release_wait().is_none());
+        assert!(reason.allocation_refusal().is_none());
+        let original = reason.execution().expect("World-cut execution boundary");
+        assert_eq!(
+            original.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert_eq!(
+            original.allocator_refusal().unwrap().shared_error(),
+            Some(&iroha_allocation::PrepaidSharedError::Allocator {
+                requested_bytes: layout.size()
+            })
+        );
+        let completed = worker
+            .live
+            .as_ref()
+            .unwrap()
+            .overlay
+            .as_deref()
+            .unwrap()
+            .completed_world_cut_identity_for_test()
+            .expect("same completed native tail survives physical denial");
+        assert_eq!(original_overlay(worker), overlay);
+        assert_eq!(worker.applied, applied);
+        assert_eq!(worker.state.view().height(), height);
+        assert!(worker.recovery.is_none());
+        assert!(events.try_recv().is_err());
+        assert!(budget.same_pool(&worker.state.ivm_execution_budget()));
+        assert_eq!(block.payload().as_slice().as_ptr(), wire);
+        assert_eq!(std::ptr::from_ref(block.source()), source);
+        assert_eq!(
+            worker.state.publication_fences_available_for_test(),
+            (true, true)
+        );
+        // The original physical refusal owns no quota. Keeping it alive must not
+        // prevent the unchanged pending shell from retrying on the same pool.
+        assert_eq!(
+            worker
+                .live
+                .as_ref()
+                .unwrap()
+                .overlay
+                .as_deref()
+                .unwrap()
+                .completed_world_cut_identity_for_test(),
+            Some(completed)
+        );
+        worker
+            .commit(&block, &qc)
+            .expect("same original publication retries after physical allocator recovery");
+        assert_eq!(budget.limit_bytes(), limit);
+        assert_eq!(worker.applied, (block.header().height, qc.block_hash));
+        assert_eq!(worker.state.view().height(), height + 1);
+        assert!(worker.live.as_ref().unwrap().overlay.is_none());
+        assert!(worker.recovery.is_none());
+        let count = std::iter::from_fn(|| events.try_recv().ok()).count();
+        assert!(count > 0, "the actual publisher emits its retained events");
+        worker.commit(&block, &qc).unwrap();
+        assert!(
+            events.try_recv().is_err(),
+            "publication emits events exactly once"
+        );
+        assert!(reason.execution().unwrap().allocator_refusal().is_some());
+    });
 }

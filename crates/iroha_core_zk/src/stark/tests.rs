@@ -554,7 +554,9 @@ fn generic_binding_verifying_key_rejects_domain_above_exact_root_cap() {
     let error = validate_stark_fri_canonical_verifying_key_payload(&payload, circuit_id, "test")
         .expect_err("oversized generic Binding verifier key must fail admission");
     assert!(
-        error.contains("exact trace-root reconstruction limit"),
+        error
+            .to_string()
+            .contains("exact trace-root reconstruction limit"),
         "unexpected generic Binding verifier-key error: {error}"
     );
 }
@@ -576,7 +578,11 @@ fn ivm_binding_verifying_key_is_unavailable_without_complete_relation() {
     };
     let error = validate_stark_fri_canonical_verifying_key_payload(&payload, &circuit_id, "test")
         .expect_err("binding-only IVM verifier key must fail admission");
-    assert!(error.contains("complete native STARK verification"));
+    assert!(
+        error
+            .to_string()
+            .contains("complete native STARK verification")
+    );
 }
 /// The length predicate of the envelope bound, which the verifier calls before it decodes
 /// a byte: the bound is inclusive, and a caller can lower it but not raise it above
@@ -628,15 +634,20 @@ fn stark_verifier_accepts_an_envelope_of_exactly_its_bound_and_refuses_one_byte_
     .expect("valid STARK envelope");
     assert!(bytes.len() > 1 && bytes.len() < MAX_ENVELOPE_BYTES);
     let mut limits = StarkVerifierLimits::default();
-    assert!(verify_stark_fri_envelope_with_limits(&bytes, &limits));
+    assert!(
+        verify_stark_fri_envelope_with_limits(&bytes, &limits)
+            .expect("semantic verification fixture must complete")
+    );
     limits.max_envelope_bytes = bytes.len();
     assert!(
-        verify_stark_fri_envelope_with_limits(&bytes, &limits),
+        verify_stark_fri_envelope_with_limits(&bytes, &limits)
+            .expect("semantic verification fixture must complete"),
         "an envelope of exactly the bound is decoded and verifies"
     );
     limits.max_envelope_bytes = bytes.len() - 1;
     assert!(
-        !verify_stark_fri_envelope_with_limits(&bytes, &limits),
+        !verify_stark_fri_envelope_with_limits(&bytes, &limits)
+            .expect("semantic verification fixture must complete"),
         "the same envelope, one byte above the bound, is refused"
     );
 }
@@ -742,7 +753,9 @@ fn synthesized_envelope_verifies_six_lane_digest() {
         test_digest(0x11),
     )
     .expect("ok");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
 }
 #[test]
 fn binding_air_rejects_fixed_coefficient_cancellation_rows() {
@@ -802,7 +815,7 @@ fn binding_air_rejects_fixed_coefficient_cancellation_rows() {
     )
     .expect("explicit-row prover constructs the forged cancellation envelope");
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete"),
         "generic binding AIR verifier must reject every sampled forged row"
     );
 }
@@ -875,11 +888,13 @@ fn binding_air_rejects_unsampled_row_via_exact_trace_root() {
                 &public_digest,
                 &forged_rows,
                 &composition_values,
-            ),
+            )
+            .expect("semantic verification fixture must complete"),
             "all commitments, FRI folds, and sampled explicit rows remain valid"
         );
         assert!(
-            !verify_stark_fri_envelope(&bytes),
+            !verify_stark_fri_envelope(&bytes)
+                .expect("semantic verification fixture must complete"),
             "generic Binding must reject the unsampled row through exact trace-root equality"
         );
         return;
@@ -1081,11 +1096,13 @@ fn binding_air_rejects_sparse_composition_layer_substitution_via_exact_zero_root
                     &public_digest,
                     &rows,
                     &sparse_composition,
-                ),
+                )
+                .expect("semantic verification fixture must complete"),
                 "sampled FRI replay alone accepts the unqueried first-layer substitution"
             );
             assert!(
-                !verify_stark_fri_envelope(&bytes),
+                !verify_stark_fri_envelope(&bytes)
+                    .expect("semantic verification fixture must complete"),
                 "generic Binding must require the exact all-zero base-composition commitment"
             );
             return;
@@ -1113,7 +1130,11 @@ fn generic_binding_provers_reject_domain_above_exact_root_cap() {
         public_digest,
     )
     .expect_err("canonical generic Binding prover must reject an oversized domain");
-    assert!(error.contains("exact trace-root reconstruction limit"));
+    assert!(
+        error
+            .to_string()
+            .contains("exact trace-root reconstruction limit")
+    );
     let error = prove_stark_fri_zero_composition_air_envelope_bytes(
         params,
         "IROHA-TEST-BINDING-AIR-PROVER-ROOT-CAP".to_owned(),
@@ -1122,7 +1143,11 @@ fn generic_binding_provers_reject_domain_above_exact_root_cap() {
         Vec::new(),
     )
     .expect_err("explicit-row generic Binding prover must reject an oversized domain");
-    assert!(error.contains("exact trace-root reconstruction limit"));
+    assert!(
+        error
+            .to_string()
+            .contains("exact trace-root reconstruction limit")
+    );
 }
 #[test]
 fn generic_binding_verifier_rejects_domain_above_exact_root_cap() {
@@ -1159,9 +1184,10 @@ fn generic_binding_verifier_rejects_domain_above_exact_root_cap() {
             &rows,
             &composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
     assert!(
-        !verify_stark_fri_envelope(&bytes),
+        !verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete"),
         "generic Binding verification must reject before oversized root reconstruction"
     );
 }
@@ -1195,7 +1221,7 @@ fn public_generic_air_provers_reject_bfv_full_bootstrap_circuit_aliases() {
         )
         .expect_err("generic AIR prover must reject BFV full-bootstrap circuit aliases");
         assert!(
-            err.contains("BFV full-bootstrap"),
+            err.to_string().contains("BFV full-bootstrap"),
             "unexpected generic AIR rejection for {circuit_id}: {err}"
         );
         let err = prove_stark_fri_zero_composition_air_envelope_bytes(
@@ -1207,7 +1233,7 @@ fn public_generic_air_provers_reject_bfv_full_bootstrap_circuit_aliases() {
         )
         .expect_err("zero-composition AIR prover must reject BFV full-bootstrap circuit aliases");
         assert!(
-            err.contains("BFV full-bootstrap"),
+            err.to_string().contains("BFV full-bootstrap"),
             "unexpected zero-composition AIR rejection for {circuit_id}: {err}"
         );
         let err = prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes(
@@ -1220,7 +1246,7 @@ fn public_generic_air_provers_reject_bfv_full_bootstrap_circuit_aliases() {
         )
         .expect_err("explicit row/composition AIR prover must reject BFV aliases");
         assert!(
-            err.contains("BFV full-bootstrap"),
+            err.to_string().contains("BFV full-bootstrap"),
             "unexpected explicit AIR rejection for {circuit_id}: {err}"
         );
         let err =
@@ -1235,7 +1261,7 @@ fn public_generic_air_provers_reject_bfv_full_bootstrap_circuit_aliases() {
             )
             .expect_err("explicit-base AIR prover must reject BFV aliases");
         assert!(
-            err.contains("BFV full-bootstrap"),
+            err.to_string().contains("BFV full-bootstrap"),
             "unexpected explicit-base AIR rejection for {circuit_id}: {err}"
         );
     }
@@ -1268,7 +1294,7 @@ fn public_generic_air_provers_reject_zk_ace_circuit_aliases() {
             )
             .expect_err("generic AIR prover must reject ZK-ACE circuit aliases");
             assert!(
-                err.contains("ZK-ACE"),
+                err.to_string().contains("ZK-ACE"),
                 "unexpected generic AIR rejection for {circuit_id}: {err}"
             );
             let err = prove_stark_fri_zero_composition_air_envelope_bytes(
@@ -1280,7 +1306,7 @@ fn public_generic_air_provers_reject_zk_ace_circuit_aliases() {
             )
             .expect_err("zero-composition AIR prover must reject ZK-ACE circuit aliases");
             assert!(
-                err.contains("ZK-ACE"),
+                err.to_string().contains("ZK-ACE"),
                 "unexpected zero-composition AIR rejection for {circuit_id}: {err}"
             );
         }
@@ -1314,7 +1340,7 @@ fn public_generic_air_provers_reject_ivm_execution_circuit_aliases() {
         )
         .expect_err("generic AIR prover must reject IVM execution circuit aliases");
         assert!(
-            err.contains("IVM execution"),
+            err.to_string().contains("IVM execution"),
             "unexpected generic AIR rejection for {circuit_id}: {err}"
         );
         let err = prove_stark_fri_zero_composition_air_envelope_bytes(
@@ -1326,7 +1352,7 @@ fn public_generic_air_provers_reject_ivm_execution_circuit_aliases() {
         )
         .expect_err("zero-composition AIR prover must reject IVM execution circuit aliases");
         assert!(
-            err.contains("IVM execution"),
+            err.to_string().contains("IVM execution"),
             "unexpected zero-composition AIR rejection for {circuit_id}: {err}"
         );
     }
@@ -1355,7 +1381,7 @@ fn generic_binding_air_reserves_governance_vote_role_aliases() {
             let err = validate_generic_stark_air_circuit_id(&circuit_id)
                 .expect_err("governance vote roles must be reserved from generic AIR");
             assert!(
-                err.contains("governance vote role"),
+                err.to_string().contains("governance vote role"),
                 "unexpected governance role rejection for {circuit_id}: {err}"
             );
             let air = StarkAirProofV1 {
@@ -1408,7 +1434,8 @@ fn generic_air_circuit_classifier_reserves_every_soracloud_fhe_relation_alias() 
             let err = validate_generic_stark_air_circuit_id(&circuit_id)
                 .expect_err("Soracloud FHE relation must be reserved from generic AIR");
             assert!(
-                err.contains("Soracloud") || err.contains("BFV full-bootstrap"),
+                err.to_string().contains("Soracloud")
+                    || err.to_string().contains("BFV full-bootstrap"),
                 "unexpected Soracloud relation rejection for {circuit_id}: {err}"
             );
         }
@@ -1525,9 +1552,10 @@ fn synthesized_field_values_envelope_has_replayable_query_shape() {
         nonzero_values,
     )
     .expect_err("public AIR prover must reject non-zero final FRI values");
-    assert_eq!(
-        public_err, "STARK final FRI value must be zero",
-        "non-zero final FRI values must fail during proof construction"
+    assert!(
+        matches!(public_err, StarkProofProductionError::Input(ref message)
+            if message == "STARK final FRI value must be zero"),
+        "non-zero final FRI values must fail during proof construction: {public_err}"
     );
 }
 #[test]
@@ -1683,7 +1711,9 @@ fn synthesized_envelope_verifies_six_lane_profile() {
         test_digest(0x22),
     )
     .expect("ok");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
 }
 #[test]
 fn stark_fri_rejects_noncanonical_transcript_labels() {
@@ -1706,7 +1736,9 @@ fn stark_fri_rejects_noncanonical_transcript_labels() {
         test_digest(u64::from(digest_byte)),
     )
     .expect("valid labeled STARK envelope");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let mut envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode labeled STARK envelope");
     let air = envelope.proof.air.as_ref().expect("AIR section");
@@ -1735,7 +1767,7 @@ fn stark_fri_rejects_noncanonical_transcript_labels() {
         )
         .expect_err("noncanonical STARK transcript labels must be rejected by proof construction");
         assert!(
-            err.contains("transcript label"),
+            err.to_string().contains("transcript label"),
             "{hash_label} {label_case} error should mention transcript labels, got: {err}"
         );
         assert_eq!(
@@ -1753,7 +1785,8 @@ fn stark_fri_rejects_noncanonical_transcript_labels() {
         let tampered =
             norito::to_bytes(&envelope).expect("encode noncanonical-label STARK envelope");
         assert!(
-            !verify_stark_fri_envelope(&tampered),
+            !verify_stark_fri_envelope(&tampered)
+                .expect("semantic verification fixture must complete"),
             "{hash_label} verifier must reject {label_case} transcript labels"
         );
     }
@@ -1780,7 +1813,9 @@ fn stark_fri_rejects_noncanonical_circuit_ids() {
         digest,
     )
     .expect("valid circuit-id STARK envelope");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let mut envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode circuit-id STARK envelope");
     let invalid_circuit_ids = [
@@ -1812,14 +1847,15 @@ fn stark_fri_rejects_noncanonical_circuit_ids() {
         )
         .expect_err("noncanonical STARK circuit ids must be rejected by proof construction");
         assert!(
-            err.contains("circuit_id"),
+            err.to_string().contains("circuit_id"),
             "{hash_label} {id_case} error should mention circuit_id, got: {err}"
         );
         envelope.proof.air.as_mut().expect("AIR section").circuit_id = invalid_circuit_id;
         let tampered =
             norito::to_bytes(&envelope).expect("encode noncanonical-circuit STARK envelope");
         assert!(
-            !verify_stark_fri_envelope(&tampered),
+            !verify_stark_fri_envelope(&tampered)
+                .expect("semantic verification fixture must complete"),
             "{hash_label} verifier must reject {id_case} circuit ids"
         );
     }
@@ -1846,7 +1882,9 @@ fn stark_fri_rejects_noncanonical_domain_tags() {
         digest,
     )
     .expect("valid domain-tag STARK envelope");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let mut envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode domain-tag STARK envelope");
     let invalid_domain_tags = [
@@ -1868,14 +1906,15 @@ fn stark_fri_rejects_noncanonical_domain_tags() {
         )
         .expect_err("noncanonical STARK domain tags must be rejected by proof construction");
         assert!(
-            err.contains("domain tag"),
+            err.to_string().contains("domain tag"),
             "{hash_label} {tag_case} error should mention domain tag, got: {err}"
         );
         envelope.params.domain_tag = invalid_domain_tag;
         let tampered =
             norito::to_bytes(&envelope).expect("encode noncanonical-domain STARK envelope");
         assert!(
-            !verify_stark_fri_envelope(&tampered),
+            !verify_stark_fri_envelope(&tampered)
+                .expect("semantic verification fixture must complete"),
             "{hash_label} verifier must reject {tag_case} domain tags"
         );
     }
@@ -1893,7 +1932,9 @@ fn synthesized_envelope_without_air_is_rejected() {
     };
     let bytes =
         synthesize_stark_fri_envelope_bytes(params, "IROHA-TEST-STARK".to_owned()).expect("ok");
-    assert!(!verify_stark_fri_envelope(&bytes));
+    assert!(
+        !verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
 }
 #[test]
 fn air_envelope_verifies_and_rejects_tampered_opening() {
@@ -1913,13 +1954,17 @@ fn air_envelope_verifies_and_rejects_tampered_opening() {
         test_digest(0x42),
     )
     .expect("air proof");
-    assert!(verify_stark_fri_envelope(&bytes));
+    assert!(
+        verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let mut envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode air envelope");
     let air = envelope.proof.air.as_mut().expect("air section");
     air.openings[0].row[1] ^= 1;
     let tampered = norito::to_bytes(&envelope).expect("encode tampered air envelope");
-    assert!(!verify_stark_fri_envelope(&tampered));
+    assert!(
+        !verify_stark_fri_envelope(&tampered).expect("semantic verification fixture must complete")
+    );
 }
 #[test]
 fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
@@ -1962,8 +2007,11 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &rows,
             &composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
-    assert!(!verify_stark_fri_envelope(&bytes));
+    assert!(
+        !verify_stark_fri_envelope(&bytes).expect("semantic verification fixture must complete")
+    );
     let mut auxiliary_envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode zero-composition AIR envelope");
     attach_valid_auxiliary_composition_values(&mut auxiliary_envelope);
@@ -1976,7 +2024,8 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &public_digest,
             &rows,
             &composition_values,
-        ),
+        )
+        .expect("semantic verification fixture must complete"),
         "caller-owned explicit AIR must reject auxiliary generic composition commitments"
     );
     let mut drifted_rows = rows.clone();
@@ -1989,6 +2038,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &drifted_rows,
             &composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
     let mut drifted_composition_values = composition_values.clone();
     drifted_composition_values[0] = 1;
@@ -2000,6 +2050,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &rows,
             &drifted_composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
     assert!(
         !verify_stark_fri_air_envelope_from_rows_and_composition_values(
@@ -2009,6 +2060,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &rows,
             &composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
     let wrong_public_digest = test_digest(0x56);
     assert!(
@@ -2019,6 +2071,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &rows,
             &composition_values,
         )
+        .expect("semantic verification fixture must complete")
     );
     let envelope: StarkVerifyEnvelopeV1 =
         norito::decode_from_bytes(&bytes).expect("decode zero-composition AIR envelope");
@@ -2105,7 +2158,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
                 &rows,
                 &composition_values,
                 &indices,
-            ),
+            ).expect("semantic verification fixture must complete"),
             "explicit base-index AIR verifier must honor caller query limits"
         );
     for (opening_number, (opening, index)) in
@@ -2168,7 +2221,7 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
     );
     let mut noncanonical_composition = vec![0; domain];
     noncanonical_composition[0] = MOD_P_U64;
-    assert_eq!(
+    assert!(matches!(
         prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes(
             params.clone(),
             "IROHA-TEST-ZERO-COMPOSITION-AIR".to_owned(),
@@ -2178,8 +2231,8 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             noncanonical_composition.clone(),
         )
         .expect_err("non-canonical composition values must be rejected"),
-        "STARK AIR composition contains non-canonical field element"
-    );
+        StarkProofProductionError::Input(message) if message == "STARK AIR composition contains non-canonical field element"
+    ));
     assert!(
         stark_merkle_root_from_field_values_v1(&params, &noncanonical_composition).is_none(),
         "explicit AIR composition roots must reject non-canonical field elements"
@@ -2191,12 +2244,13 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &public_digest,
             &rows,
             &noncanonical_composition,
-        ),
+        )
+        .expect("semantic verification fixture must complete"),
         "explicit AIR verification must reject non-canonical caller composition values"
     );
     let mut noncanonical_rows = rows;
     noncanonical_rows[domain - 1][1] = MOD_P_U64;
-    assert_eq!(
+    assert!(matches!(
         prove_stark_fri_air_envelope_from_rows_and_composition_values_bytes(
             params.clone(),
             "IROHA-TEST-ZERO-COMPOSITION-AIR".to_owned(),
@@ -2206,8 +2260,8 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             composition_values.clone(),
         )
         .expect_err("non-canonical AIR rows must be rejected"),
-        "STARK AIR row contains non-canonical field element"
-    );
+        StarkProofProductionError::Input(message) if message == "STARK AIR row contains non-canonical field element"
+    ));
     assert!(
         stark_air_trace_root_from_rows_v1(&params, &noncanonical_rows).is_none(),
         "explicit AIR trace roots must reject non-canonical row field elements"
@@ -2219,7 +2273,8 @@ fn explicit_composition_air_envelope_binds_caller_rows_to_fri_queries() {
             &public_digest,
             &noncanonical_rows,
             &composition_values,
-        ),
+        )
+        .expect("semantic verification fixture must complete"),
         "explicit AIR verification must reject non-canonical caller rows"
     );
 }
@@ -2242,7 +2297,8 @@ fn air_prover_rejects_more_queries_than_domain() {
     )
     .expect_err("pigeonhole-small AIR query schedule must not emit proof bytes");
     assert!(
-        err.contains("STARK query count exceeds domain size"),
+        err.to_string()
+            .contains("STARK query count exceeds domain size"),
         "unexpected impossible-query rejection: {err}"
     );
 }
@@ -2348,6 +2404,7 @@ fn air_envelope_skips_repeated_transcript_query_indices() {
                 &rows,
                 &composition_values_u64,
             )
+            .expect("semantic verification fixture must complete")
         );
         let mut duplicate_opening: StarkVerifyEnvelopeV1 =
             norito::decode_from_bytes(&bytes).expect("decode duplicate-free AIR envelope");
@@ -2374,7 +2431,8 @@ fn air_envelope_skips_repeated_transcript_query_indices() {
                 &public_digest,
                 &rows,
                 &composition_values_u64,
-            ),
+            )
+            .expect("semantic verification fixture must complete"),
             "duplicate raw query/opening replay must not satisfy skipped transcript samples"
         );
         return;
@@ -2383,3 +2441,69 @@ fn air_envelope_skips_repeated_transcript_query_indices() {
 }
 // Full-bootstrap fixtures and remaining rejection profiles stay in this lexical module.
 include!("bfv_full_bootstrap_tests.rs");
+
+#[test]
+fn composition_producer_retains_input_and_original_self_verifier_refusal() {
+    let params = StarkFriParamsV1 {
+        version: 1,
+        n_log2: 4,
+        blowup_log2: 2,
+        fold_arity: 2,
+        queries: 2,
+        merkle_arity: 2,
+        domain_tag: "iroha:test:composition-original-owner".to_owned(),
+    };
+    let invalid = prove_stark_fri_composition_envelope_bytes(
+        params.clone(),
+        "IROHA-TEST-STARK".to_owned(),
+        MOD_P_U64,
+        0,
+        vec![],
+    )
+    .expect_err("non-canonical input must reject before proving");
+    assert!(matches!(invalid, StarkProofProductionError::Input(message)
+        if message == "invalid STARK constant"));
+    let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let refused = norito::with_decode_limits_scope(zero, || {
+        prove_stark_fri_composition_envelope_bytes(
+            params.clone(),
+            "IROHA-TEST-STARK".to_owned(),
+            7,
+            0,
+            vec![],
+        )
+    })
+    .expect_err("the actual self-verifier must retain its enclosing reader refusal");
+    let StarkProofProductionError::Deferred(original) = refused else {
+        panic!("lost original self-verifier owner: {refused}");
+    };
+    assert_eq!(
+        original.kind(),
+        iroha_plonk::verification_attempt::VerificationRefusalKind::Decode(
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        )
+    );
+    let borrowed = original
+        .decode_refusal()
+        .expect("original self-verifier reader refusal")
+        .clone();
+    let moved = original
+        .into_decode_refusal()
+        .expect("single original codec owner");
+    assert_eq!(moved, borrowed);
+    let bytes = prove_stark_fri_composition_envelope_bytes(
+        params,
+        "IROHA-TEST-STARK".to_owned(),
+        7,
+        0,
+        vec![],
+    )
+    .expect("fresh producer retries after the enclosing scope retires");
+    let envelope: StarkVerifyEnvelopeV1 = norito::decode_from_bytes(&bytes).unwrap();
+    assert!(envelope.proof.air.is_some());
+    assert!(envelope.proof.commits.comp_root.is_some());
+    assert_eq!(
+        envelope.proof.comp_values.as_ref().unwrap().len(),
+        envelope.proof.queries.len()
+    );
+}

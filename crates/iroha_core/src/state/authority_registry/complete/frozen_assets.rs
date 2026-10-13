@@ -150,7 +150,7 @@ mod direct_home_admission_tests {
     #[test]
     fn same_frozen_original_retries_after_original_pool_admission_refusal() {
         let _pin = crossbeam_epoch::pin();
-        let mut world = *fixture::fixture(false);
+        let mut world = fixture::fixture(false);
         let id = fixture::definition("coin");
         world
             .set_asset_definition_dataspace_for_testing(id.clone(), DataSpaceId::new(7))

@@ -206,17 +206,17 @@ fn assert_canonical_snapshot_generation(store_dir: &Path) {
         ],
         "first-release snapshots expose only the atomic pointer and immutable generations"
     );
-    let generation_dir = current_generation_dir(store_dir);
+    let snapshot_directory = current_generation_dir(store_dir);
     let generation_name = current_generation_name(store_dir);
-    let payload = std::fs::read(generation_dir.join(SNAPSHOT_FILE_NAME))
+    let payload = std::fs::read(snapshot_directory.join(SNAPSHOT_FILE_NAME))
         .expect("read selected snapshot payload");
     assert_eq!(generation_name, hex::encode(Sha256::digest(&payload)));
     assert_eq!(
-        std::fs::read(generation_dir.join(SNAPSHOT_DIGEST_FILE_NAME))
+        std::fs::read(snapshot_directory.join(SNAPSHOT_DIGEST_FILE_NAME))
             .expect("read selected snapshot digest"),
         format!("{generation_name}\n").as_bytes()
     );
-    let mut artifact_names = std::fs::read_dir(&generation_dir)
+    let mut artifact_names = std::fs::read_dir(&snapshot_directory)
         .expect("read selected generation")
         .map(|entry| {
             entry

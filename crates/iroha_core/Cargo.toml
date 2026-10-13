@@ -184,7 +184,7 @@ ivm_abi = { workspace = true }
 fastpq_prover = { path = "../fastpq_prover" }
 fastpq_isi = { path = "../fastpq_isi" }
 mv = { workspace = true }
-concread = { workspace = true, features = ["ebr", "maps", "foldhash"] }
+concread = { workspace = true, features = ["ebr", "maps"] }
 iroha_schema = { workspace = true }
 sorafs_manifest = { path = "../sorafs_manifest", features = ["pqc"] }
 settlement_router = { path = "../settlement_router" }
@@ -228,6 +228,9 @@ indexmap = "2.12.0"
 rustix = { version = "1.1.4", features = ["fs", "process"] }
 
 [dev-dependencies]
+# Actual native verification cancellation and scratch-budget ownership controls.
+iroha_plonk = { workspace = true }
+iroha_pasta = { workspace = true }
 mv = { workspace = true, features = ["test"] }
 iroha_core_privacy = { workspace = true, default-features = false, features = ["test-utils"] }
 iroha_core_timed_ovn = { workspace = true, features = ["test-utils"] }
@@ -253,7 +256,7 @@ iroha_sumeragi = { workspace = true, features = ["sim"] }
 [[bench]]
 name = "validation"
 harness = false
-required-features = ["bench"]
+required-features = ["bench", "iroha-core-tests"]
 
 [[bench]]
 name = "kura"

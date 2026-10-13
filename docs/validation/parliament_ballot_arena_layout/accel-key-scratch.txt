@@ -1,0 +1,181 @@
+
+/tmp/parliament-resource-contract/resource-accel:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+000000010000f3d0 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E>:
+10000f3d0:     	sub	sp, sp, #0xb0
+10000f3d4:     	stp	x22, x21, [sp, #0x80]
+10000f3d8:     	stp	x20, x19, [sp, #0x90]
+10000f3dc:     	stp	x29, x30, [sp, #0xa0]
+10000f3e0:     	add	x29, sp, #0xa0
+10000f3e4:     	mov	x20, x0
+10000f3e8:     	mov	x19, x8
+10000f3ec:     	ldrb	w21, [x0, #0x20]
+10000f3f0:     	ldrb	w22, [x0, #0x21]
+10000f3f4:     	bl	0x100006794 <__RNvCsdBezzDwma51_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+10000f3f8:     	mov	w0, #0xfa00             ; =64000
+10000f3fc:     	mov	w1, #0x8                ; =8
+10000f400:     	bl	0x100001388 <__RNvCsdBezzDwma51_7___rustc12___rust_alloc>
+10000f404:     	cbz	x0, 0x10000f608 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x238>
+10000f408:     	add	x8, x0, #0x22
+10000f40c:     	mov	w9, #0x63f              ; =1599
+10000f410:     	ldp	q0, q1, [x20]
+10000f414:     	stur	q0, [x8, #-0x22]
+10000f418:     	stur	q1, [x8, #-0x12]
+10000f41c:     	sturb	w21, [x8, #-0x2]
+10000f420:     	sturb	w22, [x8, #-0x1]
+10000f424:     	add	x8, x8, #0x28
+10000f428:     	subs	x9, x9, #0x1
+10000f42c:     	b.ne	0x10000f410 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x40>
+10000f430:     	ldp	q0, q1, [x20]
+10000f434:     	stur	q0, [x8, #-0x22]
+10000f438:     	stur	q1, [x8, #-0x12]
+10000f43c:     	sturb	w21, [x8, #-0x2]
+10000f440:     	sturb	w22, [x8, #-0x1]
+10000f444:     	ldur	w9, [x20, #0x22]
+10000f448:     	str	w9, [x8]
+10000f44c:     	ldurh	w9, [x20, #0x26]
+10000f450:     	strh	w9, [x8, #0x4]
+10000f454:     	mov	w8, #0x640              ; =1600
+10000f458:     	stp	x8, x0, [sp, #0x8]
+10000f45c:     	str	x8, [sp, #0x18]
+10000f460:     	bl	0x100006794 <__RNvCsdBezzDwma51_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+10000f464:     	mov	w0, #0xfa00             ; =64000
+10000f468:     	mov	w1, #0x8                ; =8
+10000f46c:     	bl	0x100001388 <__RNvCsdBezzDwma51_7___rustc12___rust_alloc>
+10000f470:     	cbz	x0, 0x10000f614 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x244>
+10000f474:     	add	x8, x0, #0x22
+10000f478:     	mov	w9, #0x63f              ; =1599
+10000f47c:     	ldp	q0, q1, [x20]
+10000f480:     	stur	q0, [x8, #-0x22]
+10000f484:     	stur	q1, [x8, #-0x12]
+10000f488:     	sturb	w21, [x8, #-0x2]
+10000f48c:     	sturb	w22, [x8, #-0x1]
+10000f490:     	add	x8, x8, #0x28
+10000f494:     	subs	x9, x9, #0x1
+10000f498:     	b.ne	0x10000f47c <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0xac>
+10000f49c:     	ldp	q0, q1, [x20]
+10000f4a0:     	stur	q0, [x8, #-0x22]
+10000f4a4:     	stur	q1, [x8, #-0x12]
+10000f4a8:     	sturb	w21, [x8, #-0x2]
+10000f4ac:     	sturb	w22, [x8, #-0x1]
+10000f4b0:     	ldur	w9, [x20, #0x22]
+10000f4b4:     	str	w9, [x8]
+10000f4b8:     	ldurh	w9, [x20, #0x26]
+10000f4bc:     	strh	w9, [x8, #0x4]
+10000f4c0:     	mov	w8, #0x640              ; =1600
+10000f4c4:     	stp	x8, x0, [sp, #0x20]
+10000f4c8:     	str	x8, [sp, #0x30]
+10000f4cc:     	bl	0x100006794 <__RNvCsdBezzDwma51_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+10000f4d0:     	mov	w0, #0x3200             ; =12800
+10000f4d4:     	mov	w1, #0x8                ; =8
+10000f4d8:     	bl	0x100001388 <__RNvCsdBezzDwma51_7___rustc12___rust_alloc>
+10000f4dc:     	cbz	x0, 0x10000f624 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x254>
+10000f4e0:     	add	x8, x0, #0x22
+10000f4e4:     	mov	w9, #0x13f              ; =319
+10000f4e8:     	ldp	q0, q1, [x20]
+10000f4ec:     	stur	q0, [x8, #-0x22]
+10000f4f0:     	stur	q1, [x8, #-0x12]
+10000f4f4:     	sturb	w21, [x8, #-0x2]
+10000f4f8:     	sturb	w22, [x8, #-0x1]
+10000f4fc:     	add	x8, x8, #0x28
+10000f500:     	subs	x9, x9, #0x1
+10000f504:     	b.ne	0x10000f4e8 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x118>
+10000f508:     	ldp	q0, q1, [x20]
+10000f50c:     	stur	q0, [x8, #-0x22]
+10000f510:     	stur	q1, [x8, #-0x12]
+10000f514:     	sturb	w21, [x8, #-0x2]
+10000f518:     	sturb	w22, [x8, #-0x1]
+10000f51c:     	ldur	w9, [x20, #0x22]
+10000f520:     	str	w9, [x8]
+10000f524:     	ldurh	w9, [x20, #0x26]
+10000f528:     	strh	w9, [x8, #0x4]
+10000f52c:     	mov	w8, #0x140              ; =320
+10000f530:     	stp	x8, x0, [sp, #0x38]
+10000f534:     	str	x8, [sp, #0x48]
+10000f538:     	bl	0x100006794 <__RNvCsdBezzDwma51_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+10000f53c:     	mov	w0, #0x3200             ; =12800
+10000f540:     	mov	w1, #0x8                ; =8
+10000f544:     	bl	0x100001388 <__RNvCsdBezzDwma51_7___rustc12___rust_alloc>
+10000f548:     	cbz	x0, 0x10000f634 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x264>
+10000f54c:     	mov	x8, #-0x31d8            ; =-12760
+10000f550:     	mov	w9, #0x31d8             ; =12760
+10000f554:     	add	x10, x0, x8
+10000f558:     	add	x10, x10, x9
+10000f55c:     	ldp	q0, q1, [x20]
+10000f560:     	stp	q0, q1, [x10]
+10000f564:     	strb	w21, [x10, #0x20]
+10000f568:     	strb	w22, [x10, #0x21]
+10000f56c:     	adds	x8, x8, #0x28
+10000f570:     	b.ne	0x10000f554 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x184>
+10000f574:     	mov	w9, #0x31d8             ; =12760
+10000f578:     	add	x8, x0, x8
+10000f57c:     	add	x9, x8, x9
+10000f580:     	ldr	x10, [x20, #0x20]
+10000f584:     	str	x10, [x8, #0x31f8]
+10000f588:     	ldp	q0, q1, [x20]
+10000f58c:     	stp	q0, q1, [x9]
+10000f590:     	mov	w8, #0x140              ; =320
+10000f594:     	stp	x8, x0, [sp, #0x50]
+10000f598:     	str	x8, [sp, #0x60]
+10000f59c:     	sub	x8, x29, #0x38
+10000f5a0:     	bl	0x100013b7c <__ZN29iroha_parliament_ballot_proof15keccak_relation13linear_source17he5f72509f7b16f8eE>
+10000f5a4:     	ldur	q0, [sp, #0x8]
+10000f5a8:     	str	q0, [x19]
+10000f5ac:     	ldr	x8, [sp, #0x18]
+10000f5b0:     	str	x8, [x19, #0x10]
+10000f5b4:     	ldr	q0, [sp, #0x20]
+10000f5b8:     	stur	q0, [x19, #0x18]
+10000f5bc:     	ldr	x8, [sp, #0x30]
+10000f5c0:     	str	x8, [x19, #0x28]
+10000f5c4:     	ldur	q0, [sp, #0x38]
+10000f5c8:     	str	q0, [x19, #0x30]
+10000f5cc:     	ldr	x8, [sp, #0x48]
+10000f5d0:     	str	x8, [x19, #0x40]
+10000f5d4:     	ldr	x8, [sp, #0x60]
+10000f5d8:     	str	x8, [x19, #0x58]
+10000f5dc:     	ldr	q0, [sp, #0x50]
+10000f5e0:     	stur	q0, [x19, #0x48]
+10000f5e4:     	ldur	q0, [x29, #-0x38]
+10000f5e8:     	ldur	x8, [x29, #-0x28]
+10000f5ec:     	str	x8, [x19, #0x70]
+10000f5f0:     	str	q0, [x19, #0x60]
+10000f5f4:     	ldp	x29, x30, [sp, #0xa0]
+10000f5f8:     	ldp	x20, x19, [sp, #0x90]
+10000f5fc:     	ldp	x22, x21, [sp, #0x80]
+10000f600:     	add	sp, sp, #0xb0
+10000f604:     	ret
+10000f608:     	mov	w0, #0x8                ; =8
+10000f60c:     	mov	w1, #0xfa00             ; =64000
+10000f610:     	bl	0x1000589d4 <__ZN5alloc7raw_vec12handle_error17h2d2c5c9552d6042aE>
+10000f614:     	mov	w0, #0x8                ; =8
+10000f618:     	mov	w1, #0xfa00             ; =64000
+10000f61c:     	bl	0x1000589d4 <__ZN5alloc7raw_vec12handle_error17h2d2c5c9552d6042aE>
+10000f620:     	b	0x10000f640 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x270>
+10000f624:     	mov	w0, #0x8                ; =8
+10000f628:     	mov	w1, #0x3200             ; =12800
+10000f62c:     	bl	0x1000589d4 <__ZN5alloc7raw_vec12handle_error17h2d2c5c9552d6042aE>
+10000f630:     	b	0x10000f640 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x270>
+10000f634:     	mov	w0, #0x8                ; =8
+10000f638:     	mov	w1, #0x3200             ; =12800
+10000f63c:     	bl	0x1000589d4 <__ZN5alloc7raw_vec12handle_error17h2d2c5c9552d6042aE>
+10000f640:     	brk	#0x1
+10000f644:     	mov	x19, x0
+10000f648:     	add	x0, sp, #0x50
+10000f64c:     	bl	0x1000126b4 <__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h7ed6945657e5319aE>
+10000f650:     	b	0x10000f658 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x288>
+10000f654:     	mov	x19, x0
+10000f658:     	add	x0, sp, #0x38
+10000f65c:     	bl	0x1000126b4 <__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h7ed6945657e5319aE>
+10000f660:     	b	0x10000f668 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x298>
+10000f664:     	mov	x19, x0
+10000f668:     	add	x0, sp, #0x20
+10000f66c:     	bl	0x1000126b4 <__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h7ed6945657e5319aE>
+10000f670:     	b	0x10000f678 <__ZN29iroha_parliament_ballot_proof15keccak_relation16Scratch$LT$V$GT$3new17ha9ee621bf644cbf8E+0x2a8>
+10000f674:     	mov	x19, x0
+10000f678:     	add	x0, sp, #0x8
+10000f67c:     	bl	0x1000126b4 <__ZN4core3ptr152drop_in_place$LT$zeroize..Zeroizing$LT$alloc..vec..Vec$LT$iroha_zkp_vole..quicksilver..plain..PlainValue$LT$iroha_zkp_vole..field..Gf256$GT$$GT$$GT$$GT$17h7ed6945657e5319aE>
+10000f680:     	mov	x0, x19
+10000f684:     	bl	0x100059020 <dyld_stub_binder+0x100059020>
+10000f688:     	bl	0x100058dec <__ZN4core9panicking16panic_in_cleanup17h611124c659c60d5fE>

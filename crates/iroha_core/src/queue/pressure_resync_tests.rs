@@ -167,12 +167,7 @@ async fn backpressure_state_ignores_oldest_queue_age_without_capacity_pressure()
     assert!(!pressure.borrow_and_update().is_saturated());
     assert_eq!(
         budget.reserved_bytes(),
-        occupied
-            - iroha_allocation::shared::Shared::<
-                CheckedTransaction<'static>,
-                resident_owner::QueueResidentCharge,
-            >::layout()
-            .size(),
+        occupied - QueuedTransaction::allocation_layout().size(),
         "only the actual last original shell refunds while its Queue ledger stays alive"
     );
 }

@@ -1858,6 +1858,44 @@ def test_a_directory_scope_scans_every_production_source_below_it(tmp_path: Path
         assert len(found) == 1 and fragment in found[0], found
 
 
+def test_committed_fraud_policy_catalog_keeps_fixed_engine_bounds() -> None:
+    catalogs = {catalog["id"]: catalog for catalog in CONTRACT["catalogs"]}
+    policy = catalogs["fraud_admission_policy_v1"]
+    assert policy["source"] == "committed"
+    assert policy["path"] == "crates/iroha_data_model/src/fraud/admission_policy.rs"
+    assert policy["struct"] == "FraudAdmissionPolicyV1"
+    fields = CHECKER["catalog_fields"](
+        (ROOT / policy["path"]).read_text(encoding="utf-8"), policy, "fraud policy"
+    )
+    assert fields == [
+        "version", "enabled", "required_minimum_band", "missing_assessment_permitted",
+        "attesters.engine_id", "attesters.public_key",
+    ]
+    assert policy["fields"] == {}, "policy values are not configurable resource ceilings"
+    for identifier, symbol, limit in (
+        ("work_budget.fraud_max_attesters", "MAX_FRAUD_ATTESTERS_V1", 256),
+        ("transaction.fraud_max_engine_id_bytes", "MAX_FRAUD_ENGINE_ID_BYTES_V1", 128),
+    ):
+        item = bound(CONTRACT, identifier)
+        assert (item["value"], item["source"], item["class"], item["fixed"]) == (
+            limit, "constant", "consensus", True,
+        )
+        assert item["owner"]["path"] == policy["path"]
+        assert item["owner"]["symbol"] == symbol
+        assert item["enforcement"] and item["tests"]
+    digest = catalogs["execution_policy_digest_v1"]
+    source = (ROOT / digest["path"]).read_text(encoding="utf-8")
+    assert [field for field in CHECKER["catalog_fields"](source, digest, "execution")
+            if field.startswith("fraud.")] == ["fraud.policy"]
+
+    missing = copy.deepcopy(CONTRACT)
+    missing["catalogs"] = [item for item in missing["catalogs"]
+                           if item["id"] != "fraud_admission_policy_v1"]
+    found = []
+    CHECKER["check_catalogs"](ROOT, missing, TASKS, found)
+    assert "catalogs: `fraud_admission_policy_v1` is checked against the source" in found
+
+
 def test_node_local_validity_limits_are_checked_against_the_typed_catalogs() -> None:
     """The contract's node-local list is a view of the node-configuration catalogs the code owns.
 
@@ -1918,10 +1956,11 @@ def test_node_local_validity_limits_are_checked_against_the_typed_catalogs() -> 
     assert len(catalogs["execution_policy_digest_v1"]["fields"]) == 15
     assert len(catalogs["zk_consensus_policy_hash"]["fields"]) == 45
     assert len(catalogs["nexus_consensus_policy_v1"]["fields"]) == 10
-    # The execution-policy digest binds 164 fields: ten committee sizes come from a loop.
+    # The execution-policy digest binds 161 fields: fraud is one exact typed policy,
+    # and ten committee sizes come from a loop.
     execution_source = (ROOT / catalogs["execution_policy_digest_v1"]["path"]).read_text(encoding="utf-8")
     execution_fields = CHECKER["catalog_fields"](execution_source, catalogs["execution_policy_digest_v1"], "t")
-    assert len(execution_fields) == 164
+    assert len(execution_fields) == 161
     assert "governance.fma_committee_size" in execution_fields
     # The Nexus digest is not a catalog of identities only: it is the third catalog.
     assert catalogs["execution_policy_digest_v1"]["digests"] == {
@@ -2272,6 +2311,7 @@ def test_catalog_field_reader(tmp_path: Path) -> None:
         "catalogs: `execution_policy_digest_v1` is checked against the source",
         "catalogs: `execution_output_policy_v1` is checked against the source",
         "catalogs: `fastpq_source_policy_v1` is checked against the source",
+        "catalogs: `fraud_admission_policy_v1` is checked against the source",
     ]
     assert [(catalog["id"], field) for catalog, field in unlisted] == [
         ("zk_consensus_policy_hash", "pipa_r.max_proof_bytes"),
@@ -2692,22 +2732,24 @@ def test_text_that_cites_a_bound_cites_one_that_exists() -> None:
 
 
 def test_lane_route_statements_state_that_there_is_no_rescue_above_the_global_budget() -> None:
-    """The includable bound holds for the route at admission; it is not a promise of inclusion."""
+    """Coherent admission fits the full global budget; selection still needs remaining space."""
     agreement = CONTRACT["stage_decisions"]["agreement"]
     assert "nothing admitted is unincludable" not in agreement
     assert "transaction_cap_fits_block_payload at both applicable successor heights" in agreement
     assert "the full global selection budget can carry" in agreement
-    assert "smaller native lane budget or a partially consumed global proposal budget" in agreement
+    assert "partially consumed global proposal budget can defer a valid queued input" in agreement
+    assert "Global rescue still checks its available selection budget" in agreement
     assert "Raw authoring selector tests exercise incoherent inputs before policy validation" in agreement
+    assert "only its lane's proposer can carry it" not in agreement
+    assert "stays queued until it expires" not in agreement
     system = (ROOT / "crates/iroha_data_model/src/parameter/system.rs").read_text(encoding="utf-8")
     payload = (ROOT / "crates/iroha_core/src/sumeragi/payload.rs").read_text(encoding="utf-8")
     assert "rescues it when the lane stalls" not in system
     assert "never left waiting" not in system
     assert "The bound is not a promise of inclusion." in system
-    assert "raw authoring parameters before coherence validation" in system
-    assert "only its lane's proposer can carry it" in system
-    assert "it stays queued until it expires" in system
-    assert "not evidence of an admissible committed policy" in system
+    assert "Complete committed candidates enforce `max_tx_bytes + reserve <= max_block_bytes`" in system
+    assert "resource_coherence::validate_successor_resource_limits" in system
+    assert "successor heights. This selector also handles raw authoring inputs before validation." in system
     assert "with the\n/// global chain as its rescue" not in payload
     assert "The raw selector verdict does not establish an admissible committed policy." in payload
     lanes = (ROOT / "specs/sumeragi_lanes.md").read_text(encoding="utf-8")
@@ -2725,6 +2767,7 @@ def test_lane_route_statements_state_that_there_is_no_rescue_above_the_global_bu
         test["name"] for test in proposer["tests"]
     }
     assert "if next > max_bytes {" in {site["contains"] for site in proposer["enforcement"]}
+    assert "let next = bytes.saturating_add(transaction.encoded_len());\n        if next > max_bytes {" in payload
 
 
 def test_committed_coherence_and_global_packing_guards_cannot_disappear() -> None:
@@ -5857,7 +5900,10 @@ def test_every_receiver_of_a_cap_in_the_path_crates_is_read() -> None:
                     literals += 1
                     assert any(first <= start < last for first, last in pinned), (where, text)
     assert calls > 1000 and receivers > 1000 and broken > 250, (calls, receivers, broken)
-    assert names >= 100 and literals > 40, (names, literals)
+    # Consolidating production min/max callers leaves 98 named receiver operands.
+    # Every occurrence is still checked above, and the required source sites below
+    # independently prevent coverage from disappearing behind a census change.
+    assert names >= 98 and literals > 40, (names, literals)
     # Every integer constant that stands in such a receiver is classified.
     listed = {
         (item["owner"]["path"], item["owner"]["symbol"])

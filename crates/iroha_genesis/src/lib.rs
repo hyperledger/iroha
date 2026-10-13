@@ -1558,8 +1558,9 @@ impl RawGenesisTransaction {
             .find_map(|transaction| transaction.parameters.as_ref())
             .cloned()
             .unwrap_or_default();
-        iroha_data_model::parameter::system::validate_max_clock_drift_ms(
-            parameters.sumeragi().max_clock_drift_ms(),
+        parameters.sumeragi().validate_clock_policy()?;
+        iroha_data_model::sumeragi_amx::amx_max_time_window_ms(
+            parameters.sumeragi().block_cadence_ms().get(),
         )?;
         iroha_data_model::parameter::system::resource_coherence::validate_transaction_block_limits(
             parameters.transaction().max_tx_bytes(),
@@ -1772,7 +1773,6 @@ impl RawGenesisTransaction {
     /// This deliberately refuses to rewrite a transaction that also carries parameters, IVM
     /// triggers, or topology. Callers can therefore perform a narrow transaction-boundary migration
     /// without silently moving any other genesis semantics.
-    #[cfg(test)]
     pub fn replace_instruction_only_transaction(
         &mut self,
         index: usize,
@@ -1836,6 +1836,30 @@ impl RawGenesisTransaction {
         self.transactions.splice(index..=index, replacements);
         Ok(())
     }
+    /// Move one complete instruction-only draft batch after all other genesis work.
+    ///
+    /// This is used for initialization that captures registrations appended during
+    /// signing preparation. Every instruction and every other batch keeps its order.
+    /// # Errors
+    /// Refuses an absent batch or one containing parameters, triggers, or topology.
+    pub fn move_instruction_only_transaction_to_end(&mut self, index: usize) -> Result<()> {
+        let original = self
+            .transactions
+            .get(index)
+            .ok_or_else(|| eyre!("raw genesis transaction {index} is absent"))?;
+        if original.parameters.is_some()
+            || !original.ivm_triggers.is_empty()
+            || !original.topology.is_empty()
+        {
+            return Err(eyre!(
+                "only an instruction-only genesis transaction may move"
+            ));
+        }
+        let batch = self.transactions.remove(index);
+        self.transactions.push(batch);
+        Ok(())
+    }
+
     /// Partition one explicitly selected instruction-only draft batch at authored boundaries.
     ///
     /// Every nonzero length describes one contiguous output batch. Their sum must
@@ -2965,6 +2989,54 @@ impl TryFrom<GenesisIvmAction> for Action {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn moving_initializer_preserves_other_batches_and_refuses_structured_fields() -> Result<()> {
+        let mut manifest =
+            GenesisBuilder::new_without_executor(ChainId::from("move-initializer"), ".")
+                .with_sumeragi_context_parameters(SumeragiGenesisContextParameters::recommended())
+                .append_parameter(Parameter::Sumeragi(
+                    iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
+                        std::num::NonZeroU64::new(3600).unwrap(),
+                    ),
+                ))
+                .next_transaction()
+                .append_instruction(Log::new(
+                    iroha_data_model::level::Level::INFO,
+                    "initializer".into(),
+                ))
+                .next_transaction()
+                .append_instruction(Log::new(
+                    iroha_data_model::level::Level::INFO,
+                    "bootstrap".into(),
+                ))
+                .build_raw()?;
+        let original = manifest.transactions.clone();
+        assert!(
+            manifest
+                .move_instruction_only_transaction_to_end(0)
+                .is_err()
+        );
+        assert!(
+            manifest
+                .move_instruction_only_transaction_to_end(99)
+                .is_err()
+        );
+        assert_eq!(manifest.transactions.encode(), original.encode());
+        manifest.move_instruction_only_transaction_to_end(1)?;
+        assert_eq!(
+            manifest.transactions.encode(),
+            vec![
+                original[0].clone(),
+                original[2].clone(),
+                original[1].clone()
+            ]
+            .encode()
+        );
+        manifest.move_instruction_only_transaction_to_end(2)?;
+        assert_eq!(manifest.transactions[2].encode(), original[1].encode());
+        Ok(())
+    }
+
+    #[test]
     fn instruction_transaction_append_preserves_every_original_manifest_field() -> Result<()> {
         init_instruction_registry();
         let mut original = GenesisBuilder::new_without_executor(
@@ -3129,6 +3201,11 @@ mod tests {
                 .parameters
                 .get_or_insert_default()
                 .sumeragi
+                .due_work_max_lag_ms = std::num::NonZeroU64::new(124_000).unwrap();
+            manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .sumeragi
                 .max_clock_drift_ms = value;
             let result = manifest.effective_parameters();
             if value <= MAX_CLOCK_DRIFT_BOUND_MS {
@@ -3137,12 +3214,40 @@ mod tests {
                 let error = result.unwrap_err();
                 assert_eq!(
                     error
-                        .downcast_ref::<iroha_data_model::parameter::system::ClockDriftAboveBound>(
+                        .downcast_ref::<iroha_data_model::parameter::system::DueWorkClockPolicyError>(
                         ),
-                    Some(&iroha_data_model::parameter::system::ClockDriftAboveBound {
+                    Some(&iroha_data_model::parameter::system::DueWorkClockPolicyError::Drift(iroha_data_model::parameter::system::ClockDriftAboveBound {
                         actual_ms: value
-                    })
+                    }))
                 );
+                assert!(manifest.with_consensus_meta().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn effective_genesis_due_work_policy_checks_combined_margin_and_amx_window() {
+        for (cadence, lag, accepted) in [
+            (1_000, 6_000, true),
+            (1_000, 5_999, false),
+            (u64::MAX, u64::MAX, false),
+            (u64::MAX / 7_201 + 1, u64::MAX, false),
+        ] {
+            let mut manifest =
+                GenesisBuilder::new_without_executor(ChainId::from("due-work-clock-policy"), ".")
+                    .build_raw_for_test();
+            let params = &mut manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .sumeragi;
+            params.block_cadence_ms = std::num::NonZeroU64::new(cadence).unwrap();
+            params.due_work_max_lag_ms = std::num::NonZeroU64::new(lag).unwrap();
+            assert_eq!(
+                manifest.effective_parameters().is_ok(),
+                accepted,
+                "cadence={cadence}, lag={lag}"
+            );
+            if !accepted {
                 assert!(manifest.with_consensus_meta().is_err());
             }
         }

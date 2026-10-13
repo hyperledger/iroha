@@ -4336,7 +4336,7 @@ fn execution_policy_canonical_set<'a, T: Encode + 'a>(
 // The pipeline execution limits hashed here are the committed `pipeline_validity_policy_v1`
 // parameter or its protocol default; pipeline fee fields are also a validated
 // committed projection (State passes its effective settings).
-// TODO(F.4): the other fields are still read from node configuration ([crypto], [gov], oracle, fraud, content, settlement router and the Nexus policy digest).
+// TODO(F.4): the other fields are still read from node configuration ([crypto], [gov], oracle, content, settlement router and the Nexus policy digest).
 // Move each family into a typed committed parameter, as `zk_validity_policy_v1` and
 // `pipeline_validity_policy_v1` did (census entries `cfg.*` of
 // specs/zk_runtime_validity_census.json), then remove this digest from genesis metadata.
@@ -4554,33 +4554,9 @@ pub fn execution_policy_digest_v1(
         "oracle.twitter_binding.min_update_spacing_ms",
         &twitter.min_update_spacing_ms,
     );
-    // Fraud transport and timeout settings only obtain assessments. Consensus binds the
-    // deterministic metadata gate, its grace semantics, and the attester trust set.
-    policy.push("fraud.enabled", &fraud_monitoring.enabled);
-    policy.push(
-        "fraud.required_minimum_band",
-        &fraud_monitoring
-            .required_minimum_band
-            .map(|band| match band {
-                FraudRiskBand::Low => 1_u8,
-                FraudRiskBand::Medium => 2,
-                FraudRiskBand::High => 3,
-                FraudRiskBand::Critical => 4,
-            }),
-    );
-    policy.push(
-        "fraud.missing_assessment_permitted",
-        &(!fraud_monitoring.missing_assessment_grace.is_zero()),
-    );
-    let fraud_attesters = fraud_monitoring
-        .attesters
-        .iter()
-        .map(|attester| (attester.engine_id.clone(), attester.public_key.clone()))
-        .collect::<Vec<_>>();
-    policy.push(
-        "fraud.attesters",
-        &execution_policy_canonical_set(fraud_attesters.iter()),
-    );
+    // The exact validated Model policy is the sole fraud encoding. Endpoints and
+    // request deadlines never enter this commitment.
+    policy.push("fraud.policy", &fraud_monitoring.policy);
     // Governance fields that drive admission, tallying, slashing, on-chain policy and triggers.
     policy.push(
         "governance.vk_ballot",
@@ -11155,105 +11131,27 @@ pub struct Norito {
     /// Maximum allowed Norito archive length in bytes (0 = unlimited).
     pub max_archive_len: u64,
 }
-/// Severity bands reported by the fraud-monitoring service.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FraudRiskBand {
-    /// Lowest severity rating produced by the external assessor.
-    Low,
-    /// Medium severity rating indicating elevated but tolerable risk.
-    Medium,
-    /// High severity rating signalling transactions that should be halted.
-    High,
-    /// Critical severity threshold reserved for outright blocking decisions.
-    Critical,
-}
-impl FraudRiskBand {
-    /// Return the canonical lowercase string representation expected by config files.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Critical => "critical",
-        }
-    }
-}
-impl core::fmt::Display for FraudRiskBand {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-impl core::str::FromStr for FraudRiskBand {
-    type Err = ();
-    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
-        match s {
-            "low" => Ok(Self::Low),
-            "medium" => Ok(Self::Medium),
-            "high" => Ok(Self::High),
-            "critical" => Ok(Self::Critical),
-            _ => Err(()),
-        }
-    }
-}
-impl From<super::user::FraudRiskBand> for FraudRiskBand {
-    fn from(value: super::user::FraudRiskBand) -> Self {
-        match value {
-            super::user::FraudRiskBand::Low => Self::Low,
-            super::user::FraudRiskBand::Medium => Self::Medium,
-            super::user::FraudRiskBand::High => Self::High,
-            super::user::FraudRiskBand::Critical => Self::Critical,
-        }
-    }
-}
-/// Registered assessment attester (engine id + public key).
-#[derive(Debug, Clone)]
-pub struct FraudAttester {
-    /// Deterministic identifier of the scoring engine / attester.
-    pub engine_id: String,
-    /// Public key used to verify assessment signatures.
-    pub public_key: PublicKey,
-}
-impl FraudAttester {
-    /// Create a trimmed engine identifier for metrics/logging.
-    #[must_use]
-    pub fn engine_label(&self) -> &str {
-        let trimmed = self.engine_id.trim();
-        if trimmed.is_empty() {
-            "unknown"
-        } else {
-            trimmed
-        }
-    }
-}
-/// Strongly typed fraud-monitoring configuration used by the host.
+/// Effective admission projection plus local assessment transport.
+///
+/// The node constructor supplies transport only. Core rebuilds semantic fields
+/// exclusively from the validated committed parameter of each predecessor.
 #[derive(Debug, Clone)]
 pub struct FraudMonitoring {
-    /// Master switch controlling whether fraud assessments gate admission.
-    pub enabled: bool,
-    /// Ordered list of HTTP endpoints queried for fraud assessments.
+    /// Exact validated Model policy supplied by committed State; never parsed from node configuration.
+    pub policy: iroha_data_model::fraud::FraudAdmissionPolicyV1,
+    /// Ordered local HTTP endpoints for obtaining assessment material.
     pub service_endpoints: Vec<Url>,
-    /// Timeout applied to the initial TCP connection attempt.
+    /// Local initial connection deadline.
     pub connect_timeout: Duration,
-    /// Timeout applied to the full HTTP request, including body transfer.
+    /// Local full request deadline.
     pub request_timeout: Duration,
-    /// Grace period after which missing assessments trigger warnings or fallback.
-    pub missing_assessment_grace: Duration,
-    /// Minimum severity band required for admission; `None` disables gating.
-    pub required_minimum_band: Option<FraudRiskBand>,
-    /// Registered assessment attesters whose signatures must validate assessments.
-    pub attesters: Vec<FraudAttester>,
 }
 impl FraudMonitoring {
-    #[allow(clippy::too_many_arguments)]
-    /// Construct a [`FraudMonitoring`] instance from validated user parameters.
+    /// Construct local transport settings; committed State supplies admission rules.
     pub fn new(
-        enabled: bool,
         service_endpoints: Vec<Url>,
         connect_timeout: Duration,
         request_timeout: Duration,
-        missing_assessment_grace_secs: u64,
-        required_minimum_band: Option<FraudRiskBand>,
-        attesters: Vec<FraudAttester>,
     ) -> Self {
         let mut deduped = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -11273,57 +11171,22 @@ impl FraudMonitoring {
         } else {
             request_timeout
         };
-        let missing_assessment_grace = Duration::from_secs(missing_assessment_grace_secs);
-        let mut attesters: Vec<FraudAttester> = attesters
-            .into_iter()
-            .filter_map(|mut attester| {
-                let trimmed = attester.engine_id.trim();
-                if trimmed.is_empty() {
-                    return None;
-                }
-                let mut normalized = trimmed.to_ascii_lowercase();
-                if normalized.is_empty() {
-                    normalized = trimmed.to_string();
-                }
-                attester.engine_id = normalized;
-                Some(attester)
-            })
-            .collect();
-        attesters.sort_by(|a, b| a.engine_id.cmp(&b.engine_id));
-        attesters.dedup_by(|a, b| a.engine_id == b.engine_id);
+
         Self {
-            enabled,
             service_endpoints: deduped,
             connect_timeout,
             request_timeout,
-            missing_assessment_grace,
-            required_minimum_band,
-            attesters,
+            ..Self::default()
         }
-    }
-    /// Return the registered attester for the provided engine identifier.
-    #[must_use]
-    pub fn attester(&self, engine_id: &str) -> Option<&FraudAttester> {
-        let key = engine_id.trim();
-        if key.is_empty() {
-            return None;
-        }
-        self.attesters
-            .iter()
-            .find(|attester| attester.engine_id == key)
     }
 }
+
 impl_default!(FraudMonitoring => {
         Self {
-            enabled: defaults::fraud_monitoring::ENABLED,
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default(),
             service_endpoints: Vec::new(),
             connect_timeout: defaults::fraud_monitoring::CONNECT_TIMEOUT,
             request_timeout: defaults::fraud_monitoring::REQUEST_TIMEOUT,
-            missing_assessment_grace: Duration::from_secs(
-                defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-            ),
-            required_minimum_band: None,
-            attesters: Vec::new(),
         }
 });
 include!("actual/tests.rs");

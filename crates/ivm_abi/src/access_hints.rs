@@ -315,9 +315,11 @@ mod tests {
             "state:expect",
             "state:anyone",
         ] {
-            assert_eq!(
-                validate_dynamic_access_hint_v1(&hint(valid, "int", "page", 1)),
-                Ok(()),
+            assert!(
+                matches!(
+                    validate_dynamic_access_hint_v1(&hint(valid, "int", "page", 1)),
+                    Ok(())
+                ),
                 "contextual method or policy name {valid} remains a valid state identifier"
             );
         }

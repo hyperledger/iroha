@@ -98,7 +98,7 @@ fn poseidon_rejects_private_tuples_without_a_declassification_path() {
     vm.set_register(11, 0xfedc_ba98_7654_3210);
     vm.registers.set_tag(10, true);
     vm.registers.set_tag(11, true);
-    assert_eq!(vm.run(), Err(ivm::VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(ivm::VMError::PrivacyViolation)));
     assert_eq!(vm.register(9), 0);
     assert!(!vm.registers.tag(9));
     let inputs = [3, 5, 8, 13, 21, 34];
@@ -110,7 +110,7 @@ fn poseidon_rejects_private_tuples_without_a_declassification_path() {
         vm.set_register(10 + offset, value);
         vm.registers.set_tag(10 + offset, true);
     }
-    assert_eq!(vm.run(), Err(ivm::VMError::PrivacyViolation));
+    assert!(matches!(vm.run(), Err(ivm::VMError::PrivacyViolation)));
     assert_eq!(vm.register(9), 0);
     assert!(!vm.registers.tag(9));
 }

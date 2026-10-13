@@ -19,14 +19,14 @@ const OUTCOME_ERROR: &str = "error";
 const KIND_WORKER: &str = "worker";
 /// Result payload emitted by a DA spool action.
 #[derive(Debug)]
-pub(crate) enum DaSpoolActionOutput {
+pub enum DaSpoolActionOutput {
     /// The action has no handler-visible output.
     None,
     /// The action appended to the durable receipt log.
     ReceiptOutcome(ReceiptInsertOutcome),
 }
 /// One synchronous persistence action executed by the DA spool worker.
-pub(crate) struct DaSpoolAction {
+pub struct DaSpoolAction {
     kind: &'static str,
     run: Box<dyn FnOnce() -> Result<DaSpoolActionOutput, String> + Send + 'static>,
 }
@@ -44,7 +44,7 @@ impl DaSpoolAction {
     fn execute(self) -> DaSpoolActionReport {
         let kind = self.kind;
         let run = self.run;
-        match catch_unwind_suppressed(move || (run)()) {
+        match catch_unwind_suppressed(run) {
             Ok(Ok(output)) => DaSpoolActionReport {
                 kind,
                 outcome: DaSpoolActionOutcome::Ok,
@@ -70,17 +70,15 @@ impl DaSpoolAction {
     }
 }
 fn panic_payload_message(payload: &(dyn Any + Send)) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_owned()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "non-string panic payload".to_owned()
-    }
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-string panic payload".to_owned())
 }
 /// A handler-visible report for one spool action.
 #[derive(Debug)]
-pub(crate) struct DaSpoolActionReport {
+pub struct DaSpoolActionReport {
     kind: &'static str,
     outcome: DaSpoolActionOutcome,
     error: Option<String>,
@@ -119,7 +117,7 @@ impl DaSpoolActionOutcome {
 }
 /// A batch of DA persistence actions that should complete before the ingest response is returned.
 #[derive(Default)]
-pub(crate) struct DaSpoolBatch {
+pub struct DaSpoolBatch {
     actions: Vec<DaSpoolAction>,
     commit_actions: Vec<DaSpoolAction>,
 }
@@ -162,7 +160,7 @@ impl DaSpoolBatch {
 }
 /// Handler-visible result of a DA spool batch.
 #[derive(Debug)]
-pub(crate) struct DaSpoolBatchReport {
+pub struct DaSpoolBatchReport {
     action_reports: Vec<DaSpoolActionReport>,
     write_duration: Duration,
 }
@@ -202,7 +200,7 @@ struct DaSpoolJob {
     ack: oneshot::Sender<DaSpoolBatchReport>,
 }
 /// Bounded async worker that batches DA spool writes onto blocking threads.
-pub(crate) struct DaSpooler {
+pub struct DaSpooler {
     tx: mpsc::Sender<DaSpoolJob>,
     depth: Arc<AtomicUsize>,
     telemetry: MaybeTelemetry,

@@ -746,7 +746,6 @@ impl PendingStreamTokenGatewayCheckV1 {
             {
                 return Err(Error::Authority.into());
             }
-            drop(cut);
             drop(view);
             Ok((
                 generation,

@@ -42,9 +42,11 @@ fn startup_configuration_defers_all_root_creation_to_retained_attempt() {
     let temp = tempfile::tempdir().expect("temporary directory");
     let root = temp.path().join("cold").join("nested");
     let da_root = temp.path().join("da");
-    let mut backend = TieredStateBackend::default();
     // A baseline from another root must not authorize incremental-only snapshots.
-    backend.snapshot_baseline_ready = true;
+    let mut backend = TieredStateBackend {
+        snapshot_baseline_ready: true,
+        ..TieredStateBackend::default()
+    };
     assert!(backend.reconfigure_without_storage_effects(
         true,
         3,

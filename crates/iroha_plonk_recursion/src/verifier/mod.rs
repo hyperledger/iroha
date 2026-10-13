@@ -465,12 +465,6 @@ impl<C: PastaCurve> VerifierChip<C> {
         Ok((UintChip::new(&mut self.glue, &mut self.range), duplex))
     }
 
-    /// BLS12-381 arithmetic sharing this verifier's existing glue and range
-    /// lanes and their row cursors. This grants arithmetic access only; the
-    /// caller must constrain its complete signature and source relation.
-    pub fn bls381(&mut self) -> iroha_plonk_gadgets::bls12_381::field::Bls381Chip<'_, C::Base> {
-        iroha_plonk_gadgets::bls12_381::field::Bls381Chip::new(&mut self.glue, &mut self.range)
-    }
     /// Assigns a witness key with finite curve commitments. The consuming
     /// relation must authorize the digest returned by [`Self::verify`].
     ///

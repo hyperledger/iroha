@@ -60,7 +60,7 @@ fn stage(target: &TransactionsStorage, replace: bool, tag: u8) -> DetachedTransa
         target.block()
     };
     block.insert_block(
-        HashSet::from([key(tag)]),
+        BTreeSet::from([key(tag)]),
         NonZeroUsize::new(if replace { 1 } else { 2 }).unwrap(),
     );
     block.prepare_commit().unwrap().detach()
@@ -69,7 +69,10 @@ fn targets() -> [Arc<TransactionsStorage>; 2] {
     std::array::from_fn(|i| {
         let target = Arc::new(TransactionsStorage::new());
         let mut block = target.block();
-        block.insert_block(HashSet::from([key(i as u8)]), NonZeroUsize::new(1).unwrap());
+        block.insert_block(
+            BTreeSet::from([key(u8::try_from(i).expect("fixture value fits u8"))]),
+            NonZeroUsize::new(1).unwrap(),
+        );
         block.commit().unwrap();
         target
     })
@@ -279,7 +282,7 @@ fn detached_membership_slots_late_changed_retains_actual_acquisition_and_install
         .second
         .try_prepare(|_, target| {
             let mut replacement = target.block_and_revert();
-            replacement.insert_block(HashSet::from([key(11)]), NonZeroUsize::new(1).unwrap());
+            replacement.insert_block(BTreeSet::from([key(11)]), NonZeroUsize::new(1).unwrap());
             competitor_retirement = Some(replacement.prepare_commit().unwrap().publish());
             // This observes the next actual acquisition, after the unrelated commit.
             second_wait = Some(register(target, &second_probe, release_registration_0));
@@ -292,7 +295,7 @@ fn detached_membership_slots_late_changed_retains_actual_acquisition_and_install
         "the stale final guard stays in the slot"
     );
     let original = pair.second.recover_original();
-    assert_eq!(original.staged_membership().1, &HashSet::from([key(9)]));
+    assert_eq!(original.staged_membership().1, &BTreeSet::from([key(9)]));
     assert!(targets[1].write_lock.try_lock().is_some());
     assert_eq!(second_probe.wakes.load(Ordering::SeqCst), 0);
     assert_eq!(second_probe.installations.load(Ordering::SeqCst), 0);

@@ -64,7 +64,7 @@ use governance_ballot_tools::{
     governance_selector_v1_schema, iroha_gov_ballots_plain_tool,
     iroha_gov_ballots_zk_v1_ballot_proof_tool, iroha_gov_ballots_zk_v1_tool,
 };
-pub(crate) use protocol::{
+pub use protocol::{
     ValidatedRequest as ValidatedProtocolRequest, ValidationErrorKind, decorate_modern_response,
     validate_request as validate_protocol_request,
 };
@@ -73,7 +73,7 @@ use registry::semantics::{
     WorldBoundary, authority_for_route, mutation_nature_for_operation, sensitivity_for,
     world_boundary_for_tool,
 };
-pub(crate) use response::{
+pub use response::{
     BoundedJsonArray, bounded_modern_jsonrpc_http_response, jsonrpc_response_too_large,
 };
 use response::{
@@ -83,7 +83,7 @@ use response::{
 const JSONRPC_VERSION: &str = "2.0";
 const JSONRPC_PARSE_ERROR: i64 = -32700;
 const JSONRPC_INVALID_REQUEST: i64 = -32600;
-pub(crate) const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
+pub const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSONRPC_INVALID_PARAMS: i64 = -32602;
 const JSONRPC_INTERNAL_ERROR: i64 = -32603;
 const MCP_TOOL_EXECUTION_ERROR: i64 = -32001;
@@ -101,16 +101,15 @@ const MCP_CANCELLATION_NONCE_META_KEY: &str = "iroha/cancellationNonce";
 const MAX_MCP_PROJECTION_KEYS: usize = 64;
 const MAX_MCP_PROJECTION_KEY_CHARS: usize = 128;
 /// First-release ceiling for the explicitly advertised `tools/call_batch` extension.
-pub(crate) const MAX_JSONRPC_BATCH_DISPATCHES: usize = 64;
+pub const MAX_JSONRPC_BATCH_DISPATCHES: usize = 64;
 const MAX_MCP_LONG_POLL_DISPATCHES: usize = 8;
 /// Reserve most dispatch slots for bounded tools instead of ten-minute transaction waits.
-pub(crate) fn long_poll_dispatch_capacity(max_inflight_dispatches: usize) -> usize {
+pub fn long_poll_dispatch_capacity(max_inflight_dispatches: usize) -> usize {
     if max_inflight_dispatches < 2 {
         return 0;
     }
     (max_inflight_dispatches / 4)
-        .max(1)
-        .min(MAX_MCP_LONG_POLL_DISPATCHES)
+        .clamp(1, MAX_MCP_LONG_POLL_DISPATCHES)
         .min(max_inflight_dispatches - 1)
 }
 fn is_long_poll_tool(name: &str) -> bool {
@@ -122,9 +121,9 @@ fn is_long_poll_tool(name: &str) -> bool {
     )
 }
 /// Absolute deadline for collecting one MCP request or nested-route response body.
-pub(crate) const MCP_BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
+pub const MCP_BODY_READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// Listener deadline covering the longest supported tool wait plus body collection and margin.
-pub(crate) const MCP_ROUTE_EXECUTION_TIMEOUT: Duration = Duration::from_secs(10 * 60 + 15);
+pub const MCP_ROUTE_EXECUTION_TIMEOUT: Duration = Duration::from_secs(10 * 60 + 15);
 const MCP_TOOL_NOT_ALLOWED: &str = "tool_not_allowed";
 const MCP_TOOL_NOT_FOUND: &str = "tool_not_found";
 const MCP_TOOL_UNAVAILABLE: &str = "tool_unavailable";
@@ -183,7 +182,7 @@ struct McpInflightEntry {
 
 /// Process-local registry for best-effort cancellation of exact authenticated MCP calls.
 #[derive(Default)]
-pub(crate) struct McpInflightRegistry {
+pub struct McpInflightRegistry {
     entries: Mutex<HashMap<McpInflightKey, McpInflightEntry>>,
 }
 
@@ -274,7 +273,7 @@ impl Drop for McpInflightRegistration {
 }
 
 /// Result of executing one request-bearing MCP JSON-RPC message.
-pub(crate) enum JsonRpcRequestOutcome {
+pub enum JsonRpcRequestOutcome {
     /// A JSON-RPC response must be returned to the caller.
     Response(Value),
     /// The exact authenticated request was cancelled; no JSON-RPC response is emitted.
@@ -294,9 +293,9 @@ const CANONICAL_PADDED_BASE64_PATTERN: &str =
     "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$";
 const CANONICAL_ACCOUNT_HEADER_PATTERN: &str = "^(?:0x(?:[0-9a-f]{2})+|[!-~]+@[!-~]+)$";
 const CANONICAL_SIGNATURE_MAX_ENCODED_BYTES: usize =
-    ((crate::app_auth::CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 + 2) / 3) * 4;
+    crate::app_auth::CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1.div_ceil(3) * 4;
 const CANONICAL_WITNESS_MAX_ENCODED_BYTES: usize =
-    ((crate::app_auth::CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1 + 2) / 3) * 4;
+    crate::app_auth::CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1.div_ceil(3) * 4;
 // Canonical public keys allow the longest 28-byte algorithm prefix, a colon,
 // two at-most-two-byte multihash varints, and the bounded hex payload.
 const OPERATOR_PUBLIC_KEY_MAX_LITERAL_BYTES: usize =
@@ -309,14 +308,14 @@ const CANONICAL_TRANSACTION_HASH_HEX_BYTES: usize = iroha_crypto::Hash::LENGTH *
 const QUERY_PROJECTION_SHARD_CATALOG_FIELDS: &[&str] = &["asset_definition_id", "limit", "offset"];
 /// Metadata and exact execution backing used for MCP dispatch.
 #[derive(Debug, Clone)]
-pub(crate) struct ToolSpec {
+pub struct ToolSpec {
     pub(crate) name: String,
     pub(crate) description: String,
     backing: ToolBacking,
     pub(crate) input_schema: Value,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ToolEffect {
+pub enum ToolEffect {
     Read,
     BuildInstruction,
     Write,
@@ -374,7 +373,7 @@ enum ToolBacking {
 }
 /// Unforgeable-over-HTTP marker for a route request dispatched internally by MCP.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct InternalMcpDispatch;
+pub struct InternalMcpDispatch;
 #[derive(Debug, Clone, Copy)]
 struct MusubiV1ToolDefinition {
     name: &'static str,
@@ -988,7 +987,7 @@ static VALIDATED_MCP_ROUTE_CATALOG: LazyLock<()> = LazyLock::new(|| {
     }
 });
 /// Build the MCP tool registry from OpenAPI operations.
-pub(crate) fn build_tool_specs(cfg: &iroha_config::parameters::actual::ToriiMcp) -> Vec<ToolSpec> {
+pub fn build_tool_specs(cfg: &iroha_config::parameters::actual::ToriiMcp) -> Vec<ToolSpec> {
     LazyLock::force(&VALIDATED_MCP_ROUTE_CATALOG);
     let mut tools = Vec::new();
     let spec = openapi::compiled_spec();
@@ -1579,7 +1578,7 @@ fn is_audited_manual_read_tool_name(name: &str) -> bool {
             | "iroha.queries.submit"
     )
 }
-pub(crate) fn jsonrpc_invalid_request(message: &str) -> Value {
+pub fn jsonrpc_invalid_request(message: &str) -> Value {
     jsonrpc_error_response(None, JSONRPC_INVALID_REQUEST, message, None)
 }
 /// Return the number of rate-limit tokens represented by one parsed MCP request.
@@ -1587,7 +1586,7 @@ pub(crate) fn jsonrpc_invalid_request(message: &str) -> Value {
 /// The explicitly advertised `tools/call_batch` extension is charged for every
 /// requested tool dispatch. Other values cost one token, including malformed
 /// values, so the extension cannot amplify work relative to the caller's budget.
-pub(crate) fn jsonrpc_dispatch_cost(payload: &Value) -> usize {
+pub fn jsonrpc_dispatch_cost(payload: &Value) -> usize {
     payload
         .as_object()
         .filter(|request| request.get("method").and_then(Value::as_str) == Some("tools/call_batch"))
@@ -1599,7 +1598,7 @@ pub(crate) fn jsonrpc_dispatch_cost(payload: &Value) -> usize {
 }
 /// Return a typed JSON-RPC payload for a request body that stalled while being
 /// collected.
-pub(crate) fn jsonrpc_request_timeout() -> Value {
+pub fn jsonrpc_request_timeout() -> Value {
     let timeout_ms = u64::try_from(MCP_BODY_READ_TIMEOUT.as_millis()).unwrap_or(u64::MAX);
     jsonrpc_error_response(
         None,
@@ -1611,13 +1610,13 @@ pub(crate) fn jsonrpc_request_timeout() -> Value {
         })),
     )
 }
-pub(crate) fn jsonrpc_request_timeout_for_headers(_headers: &HeaderMap) -> Value {
+pub fn jsonrpc_request_timeout_for_headers(_headers: &HeaderMap) -> Value {
     let mut response = jsonrpc_request_timeout();
     remap_modern_application_error(&mut response);
     response
 }
 /// Return a typed JSON-RPC payload for a request-body transport failure.
-pub(crate) fn jsonrpc_request_body_read_failed() -> Value {
+pub fn jsonrpc_request_body_read_failed() -> Value {
     jsonrpc_error_response(
         None,
         JSONRPC_INVALID_REQUEST,
@@ -1625,7 +1624,7 @@ pub(crate) fn jsonrpc_request_body_read_failed() -> Value {
         Some(norito::json!({ "error_code": "request_body_read_failed" })),
     )
 }
-pub(crate) fn jsonrpc_rate_limited() -> Value {
+pub fn jsonrpc_rate_limited() -> Value {
     jsonrpc_error_response(
         None,
         MCP_RATE_LIMITED,
@@ -1635,7 +1634,7 @@ pub(crate) fn jsonrpc_rate_limited() -> Value {
         })),
     )
 }
-pub(crate) fn jsonrpc_rate_limited_for_headers(_headers: &HeaderMap) -> Value {
+pub fn jsonrpc_rate_limited_for_headers(_headers: &HeaderMap) -> Value {
     let mut response = jsonrpc_rate_limited();
     remap_modern_application_error(&mut response);
     response
@@ -1645,7 +1644,7 @@ pub(crate) fn jsonrpc_rate_limited_for_headers(_headers: &HeaderMap) -> Value {
 /// Non-browser clients normally omit Origin and remain supported. When Origin
 /// is present, exactly one value must match Torii's explicit CORS allowlist;
 /// CORS response headers alone do not prevent DNS-rebinding requests.
-pub(crate) fn origin_is_allowed(headers: &HeaderMap, allowed_origins: &[HeaderValue]) -> bool {
+pub fn origin_is_allowed(headers: &HeaderMap, allowed_origins: &[HeaderValue]) -> bool {
     let mut origins = headers.get_all(header::ORIGIN).iter();
     let Some(origin) = origins.next() else {
         return true;
@@ -1655,7 +1654,7 @@ pub(crate) fn origin_is_allowed(headers: &HeaderMap, allowed_origins: &[HeaderVa
     }
     allowed_origins.iter().any(|allowed| allowed == origin)
 }
-pub(crate) fn jsonrpc_origin_forbidden() -> Value {
+pub fn jsonrpc_origin_forbidden() -> Value {
     jsonrpc_error_response(
         None,
         JSONRPC_INVALID_REQUEST,
@@ -1665,10 +1664,7 @@ pub(crate) fn jsonrpc_origin_forbidden() -> Value {
 }
 /// Wrap one handler-owned MCP transport failure without losing JSON-RPC framing
 /// at Torii's global typed-error boundary.
-pub(crate) fn jsonrpc_transport_error_response(
-    kind: ReviewedMcpJsonRpcError,
-    payload: Value,
-) -> Response {
+pub fn jsonrpc_transport_error_response(kind: ReviewedMcpJsonRpcError, payload: Value) -> Response {
     let mut response = private_no_store_response((kind.status(), crate::utils::JsonBody(payload)));
     response.headers_mut().insert(
         HeaderName::from_static(crate::MCP_NATIVE_ERROR_HEADER),
@@ -1687,7 +1683,7 @@ pub(crate) fn jsonrpc_transport_error_response(
 
 /// Apply the stateless protocol's early-error envelope rules before returning
 /// one handler-owned transport failure.
-pub(crate) fn jsonrpc_transport_error_response_for_headers(
+pub fn jsonrpc_transport_error_response_for_headers(
     _headers: &HeaderMap,
     kind: ReviewedMcpJsonRpcError,
     mut payload: Value,
@@ -1704,7 +1700,7 @@ fn adapt_transport_error(payload: &mut Value) {
         payload.remove("id");
     }
 }
-pub(crate) fn protocol_version_is_supported(headers: &HeaderMap) -> bool {
+pub fn protocol_version_is_supported(headers: &HeaderMap) -> bool {
     let mut versions = headers.get_all(HEADER_MCP_PROTOCOL_VERSION).iter();
     let Some(version) = versions.next() else {
         return false;
@@ -1834,7 +1830,7 @@ fn cancellation_registration_error(
 }
 
 /// Execute a validated tool call, including cancellation registration.
-pub(crate) async fn handle_tool_call_request(
+pub async fn handle_tool_call_request(
     app: SharedAppState,
     inbound_headers: &HeaderMap,
     request: Value,
@@ -1921,7 +1917,7 @@ pub(crate) async fn handle_tool_call_request(
     }
 }
 /// Dispatch one validated stateless MCP request.
-pub(crate) async fn handle_validated_jsonrpc_request(
+pub async fn handle_validated_jsonrpc_request(
     app: SharedAppState,
     inbound_headers: &HeaderMap,
     request: Value,
@@ -2110,14 +2106,14 @@ fn remap_modern_error_code(response: &mut Value) {
 }
 
 /// Return the top-level JSON-RPC error code, if the value is an error response.
-pub(crate) fn jsonrpc_response_error_code(response: &Value) -> Option<i64> {
+pub fn jsonrpc_response_error_code(response: &Value) -> Option<i64> {
     response
         .get("error")
         .and_then(|error| error.get("code"))
         .and_then(Value::as_i64)
 }
 /// Return true when a payload is a syntactically valid JSON-RPC notification.
-pub(crate) fn is_jsonrpc_notification(request: &Value) -> bool {
+pub fn is_jsonrpc_notification(request: &Value) -> bool {
     let Some(req_obj) = request.as_object() else {
         return false;
     };
@@ -2128,7 +2124,7 @@ pub(crate) fn is_jsonrpc_notification(request: &Value) -> bool {
 }
 
 /// Return true for the standard best-effort cancellation notification.
-pub(crate) fn is_cancelled_notification(request: &Value) -> bool {
+pub fn is_cancelled_notification(request: &Value) -> bool {
     is_jsonrpc_notification(request)
         && request
             .as_object()
@@ -2141,7 +2137,7 @@ pub(crate) fn is_cancelled_notification(request: &Value) -> bool {
 ///
 /// Malformed, unknown, completed, anonymous, and cross-principal notifications are deliberately
 /// indistinguishable to the caller. Notifications never receive a JSON-RPC response.
-pub(crate) fn handle_cancelled_notification(
+pub fn handle_cancelled_notification(
     app: &SharedAppState,
     headers: &HeaderMap,
     notification: &Value,
@@ -3519,19 +3515,23 @@ async fn handle_tools_call_batch(
                 }
                 continue;
             };
-            if let Some(result) = response.remove("result") {
-                norito::json!({ "result": result })
-            } else if let Some(error) = response.remove("error") {
-                norito::json!({ "error": error })
-            } else {
-                norito::json!({
-                    "error": {
-                        "code": JSONRPC_INTERNAL_ERROR,
-                        "message": "batch item returned malformed response",
-                        "data": { "error_code": "internal_error" }
-                    }
-                })
-            }
+            response.remove("result").map_or_else(
+                || {
+                    response.remove("error").map_or_else(
+                        || {
+                            norito::json!({
+                                "error": {
+                                    "code": JSONRPC_INTERNAL_ERROR,
+                                    "message": "batch item returned malformed response",
+                                    "data": { "error_code": "internal_error" }
+                                }
+                            })
+                        },
+                        |error| norito::json!({ "error": error }),
+                    )
+                },
+                |result| norito::json!({ "result": result }),
+            )
         } else {
             norito::json!({
                 "error": {
@@ -3834,13 +3834,12 @@ fn governance_openapi_validation(
             field: "id",
             label: "tally id",
         }),
-        ("POST", "/v1/zk/vote/tally")
-        | ("POST", "/v1/gov/ballots/zk-v1")
-        | ("POST", "/v1/gov/ballots/zk-v1/ballot-proof") => {
-            Some(GovernanceOpenapiValidation::SelectorBody {
-                field: "election_id",
-            })
-        }
+        (
+            "POST",
+            "/v1/zk/vote/tally" | "/v1/gov/ballots/zk-v1" | "/v1/gov/ballots/zk-v1/ballot-proof",
+        ) => Some(GovernanceOpenapiValidation::SelectorBody {
+            field: "election_id",
+        }),
         ("POST", "/v1/gov/ballots/plain") => Some(GovernanceOpenapiValidation::SelectorBody {
             field: "referendum_id",
         }),
@@ -5585,7 +5584,7 @@ fn vpn_canonical_auth_headers(arguments: &Map) -> Result<Value, String> {
             let account = account.ok_or_else(|| {
                 "signature authentication requires `canonical_auth.account`".to_owned()
             })?;
-            let account = vpn_canonical_auth_account_header_value(&account)?;
+            let account = vpn_canonical_auth_account_header_value(account)?;
             let timestamp_ms = timestamp_ms.to_string();
             crate::app_auth::validate_canonical_request_auth_wire_values(
                 Some(&account),
@@ -7913,7 +7912,7 @@ async fn dispatch_route_with_borrowed_headers(
         .map_err(|err| format!("dispatch failed: {err}"))?;
     response_to_value(response, app.mcp.max_request_bytes)
         .await
-        .map_err(|error| error.to_owned())
+        .map_err(std::borrow::ToOwned::to_owned)
 }
 fn dispatched_remote_ip(inbound_headers: &HeaderMap) -> Option<IpAddr> {
     inbound_headers
@@ -7991,14 +7990,14 @@ fn fill_path_template(path_template: &str, path_args: Option<&Value>) -> Result<
         .ok_or_else(|| "MCP route template length overflow".to_owned())?;
     out.try_reserve_exact(initial_capacity)
         .map_err(|_| "failed to reserve MCP route template".to_owned())?;
-    let mut chars = path_template.chars().peekable();
+    let mut chars = path_template.chars();
     while let Some(ch) = chars.next() {
         if ch != '{' {
             out.push(ch);
             continue;
         }
         let mut key = String::new();
-        while let Some(next) = chars.next() {
+        for next in chars.by_ref() {
             if next == '}' {
                 break;
             }
@@ -8388,7 +8387,7 @@ fn remove_operator_auth_headers(headers: &mut HeaderMap) {
 /// Native MCP cache hints live inside complete results and are keyed by the
 /// request method, result-affecting params, and authorization scope. They do
 /// not make the shared JSON-RPC POST URL safe for ordinary HTTP caching.
-pub(crate) fn private_no_store_response(response: impl IntoResponse) -> Response {
+pub fn private_no_store_response(response: impl IntoResponse) -> Response {
     let mut response = response.into_response();
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -8420,7 +8419,7 @@ fn is_reserved_extra_header(lowered: &str) -> bool {
         || lowered.starts_with("x-iroha-internal-")
 }
 /// Return true when an HTTP body error was caused by the configured byte cap.
-pub(crate) fn body_error_is_length_limit(error: &(dyn std::error::Error + 'static)) -> bool {
+pub fn body_error_is_length_limit(error: &(dyn std::error::Error + 'static)) -> bool {
     let mut current = Some(error);
     while let Some(error) = current {
         if error.is::<http_body_util::LengthLimitError>() {
@@ -10548,7 +10547,7 @@ fn iroha_transactions_submit_and_wait_tool() -> ToolSpec {
     )
 }
 /// Build the HTTP status + JSON-RPC error payload for oversized requests.
-pub(crate) fn oversized_payload_response(max_request_bytes: usize) -> (StatusCode, Value) {
+pub fn oversized_payload_response(max_request_bytes: usize) -> (StatusCode, Value) {
     (
         StatusCode::PAYLOAD_TOO_LARGE,
         jsonrpc_error_response(
@@ -10562,7 +10561,7 @@ pub(crate) fn oversized_payload_response(max_request_bytes: usize) -> (StatusCod
         ),
     )
 }
-pub(crate) fn invalid_json_payload(err: &json::Error) -> Value {
+pub fn invalid_json_payload(err: &json::Error) -> Value {
     let mut msg = String::from("invalid json payload: ");
     let _ = write!(msg, "{err}");
     jsonrpc_error_response(None, JSONRPC_PARSE_ERROR, &msg, None)

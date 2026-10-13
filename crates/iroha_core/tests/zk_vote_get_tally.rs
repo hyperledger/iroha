@@ -75,13 +75,13 @@ fn zk_vote_get_tally_roundtrip_from_snapshot() {
             .expect("valid election snapshot");
     }
     // Rejected malformed replacement must preserve the exact valid state snapshot.
-    assert_eq!(
+    assert!(matches!(
         host.set_zk_elections_snapshot(std::collections::BTreeMap::from([(
             election_id.clone(),
             (2, true, Vec::new()),
         )])),
-        Err(ivm::VMError::NoritoInvalid),
-    );
+        Err(ivm::VMError::NoritoInvalid)
+    ));
     // Build request TLV and call syscall
     let req = zk_verify::VoteGetTallyRequest { election_id };
     let payload = norito::to_bytes(&req).expect("encode req");

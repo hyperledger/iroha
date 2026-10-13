@@ -30,14 +30,17 @@ pub fn guardrails_from_config(cfg: &Zk) -> ZkVerifyGuardrails {
 ///
 /// This helper exists to prevent accidentally accepting proofs for a backend that is
 /// compiled in but disabled at runtime.
+///
+/// # Errors
+/// Returns the original local refusal if verification cannot finish; no verdict
+/// or timing report is manufactured for that attempt.
 #[inline]
-#[must_use]
 pub fn verify_backend_with_timing_checked(
     backend: &str,
     proof: &ProofBox,
     vk: Option<&VerifyingKeyBox>,
     cfg: &Zk,
-) -> VerifyReport {
+) -> Result<VerifyReport, crate::zk::VerificationRefusal> {
     verify_backend_with_timing_guardrails(backend, proof, vk, guardrails_from_config(cfg))
 }
 
@@ -77,7 +80,8 @@ mod tests {
         let mut cfg = default_zk_config();
         cfg.pipa_r.enabled = false;
         let proof = ProofBox::new("pipa-r/pasta".into(), vec![0xAA; 8]);
-        let report = verify_backend_with_timing_checked("pipa-r/pasta", &proof, None, &cfg);
+        let report = verify_backend_with_timing_checked("pipa-r/pasta", &proof, None, &cfg)
+            .expect("completed disabled-backend verdict");
         assert!(!report.ok);
         assert_eq!(report.elapsed, Duration::ZERO);
     }
@@ -87,8 +91,44 @@ mod tests {
         let cfg = default_zk_config();
 
         let proof = ProofBox::new("halo2/ipa".into(), vec![0xAA; 8]);
-        let report = verify_backend_with_timing_checked("halo2/ipa", &proof, None, &cfg);
+        let report = verify_backend_with_timing_checked("halo2/ipa", &proof, None, &cfg)
+            .expect("completed retired-backend verdict");
         assert!(!report.ok);
         assert_eq!(report.elapsed, Duration::ZERO);
+    }
+    #[test]
+    fn checked_verification_preserves_original_scope_without_a_report() {
+        let cfg = default_zk_config();
+        let fixture = crate::zk::test_utils::native_confidential_fixture_envelope();
+        let backend = crate::zk::ZK_BACKEND_NATIVE_PIPA_R;
+        let proof = fixture.proof_box(backend);
+        let key = fixture.vk_box(backend).unwrap();
+        let bytes = proof.bytes.clone();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let failure = norito::with_decode_limits_scope(limits, || {
+            verify_backend_with_timing_checked(backend, &proof, Some(&key), &cfg)
+        })
+        .unwrap_err();
+        let captured = failure.decode_refusal().unwrap().clone();
+        norito::with_decode_limits_scope(limits, || {
+            assert_eq!(failure.decode_refusal(), Some(&captured))
+        });
+        assert!(
+            verify_backend_with_timing_checked(backend, &proof, Some(&key), &cfg)
+                .unwrap()
+                .ok
+        );
+        assert_eq!(proof.bytes, bytes);
+        let malformed = ProofBox::new(backend.into(), vec![0, 1, 2]);
+        assert!(
+            !norito::with_decode_limits_scope(limits, || verify_backend_with_timing_checked(
+                backend,
+                &malformed,
+                Some(&key),
+                &cfg
+            ))
+            .unwrap()
+            .ok
+        );
     }
 }

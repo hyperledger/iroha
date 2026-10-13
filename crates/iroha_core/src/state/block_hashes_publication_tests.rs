@@ -303,7 +303,7 @@ fn late_hash_refusal_releases_prepared_membership_before_exact_retry() {
     let entrypoint = HashOf::from_untyped_unchecked(Hash::new(b"publication membership"));
     let mut block = membership.block();
     block.insert_block(
-        std::collections::HashSet::from([entrypoint]),
+        std::collections::BTreeSet::from([entrypoint]),
         NonZeroUsize::new(1).unwrap(),
     );
     let journal = block.prepare_commit().unwrap().detach();

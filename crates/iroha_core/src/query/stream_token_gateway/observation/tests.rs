@@ -149,12 +149,12 @@ impl Fixture {
         ));
     }
 
-    fn deliver_reputation(&mut self, record: StreamTokenGatewayAdmissionRecordV1) {
+    fn deliver_reputation(&mut self, record: &StreamTokenGatewayAdmissionRecordV1) {
         use crate::smartcontracts::isi::sorafs_reputation::stream_token_delivery;
         use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
         let (source, state) = {
             let view = self.chain.state().view();
-            stream_token_delivery::read(view.world(), &self.policy.network_id, &record).unwrap()
+            stream_token_delivery::read(view.world(), &self.policy.network_id, record).unwrap()
         };
         if matches!(
             state.disposition,
@@ -356,8 +356,12 @@ impl Fixture {
         assert!(self.commit(2, vec![action.into()]));
         self.record(self.current().unwrap().head.head.high_water_sequence)
     }
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the native acknowledgement instruction owns the supplied record"
+    )]
     fn acknowledge(&mut self, record: Record) {
-        self.deliver_reputation(record);
+        self.deliver_reputation(&record);
         let action = self.instruction(Action::Acknowledge(record));
         assert!(self.commit(2, vec![action.into()]));
     }

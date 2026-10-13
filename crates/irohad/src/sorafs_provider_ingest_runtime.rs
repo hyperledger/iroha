@@ -2611,16 +2611,14 @@ async fn bounded_blocking_readiness_probe<F>(
 where
     F: FnOnce() -> RuntimeDependencyProbeV1 + Send + 'static,
 {
-    match tokio::time::timeout(
+    tokio::time::timeout(
         deadline,
         crate::panic_recovery::spawn_blocking_recoverable(probe),
     )
     .await
-    {
-        Ok(joined) => crate::panic_recovery::recover_joined(joined)
-            .unwrap_or(RuntimeDependencyProbeV1::Panicked),
-        Err(_) => RuntimeDependencyProbeV1::TimedOut,
-    }
+    .map_or(RuntimeDependencyProbeV1::TimedOut, |joined| {
+        crate::panic_recovery::recover_joined(joined).unwrap_or(RuntimeDependencyProbeV1::Panicked)
+    })
 }
 fn source_readiness_probe(
     result: std::result::Result<(), ProviderIngestSourceFetchErrorV1>,
@@ -3522,7 +3520,7 @@ impl ProviderIngestWorkerV1 {
                 return ProviderIngestWorkerControlV1::Stop;
             }
         }
-        self.reconcile_or_shutdown(shutdown_signal).await
+        Box::pin(self.reconcile_or_shutdown(shutdown_signal)).await
     }
     async fn run(mut self, shutdown_signal: ShutdownSignal) {
         let _liveness = ProviderIngestWorkerLivenessGuardV1::new(
@@ -3535,7 +3533,7 @@ impl ProviderIngestWorkerV1 {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if self.tick(&shutdown_signal).await == ProviderIngestWorkerControlV1::Stop {
+                    if Box::pin(self.tick(&shutdown_signal)).await == ProviderIngestWorkerControlV1::Stop {
                         break;
                     }
                 }

@@ -113,7 +113,11 @@ fn soracloud_response_bounds_match_empty_response_shapes() {
 }
 #[test]
 fn soracloud_response_bounds_match_maximal_host_response_shapes() {
-    let payload_bytes = vec![0xA5; SORACLOUD_HOST_VARIABLE_RESPONSE_MAX_BYTES];
+    let payload_bytes = vec![
+        0xA5;
+        usize::try_from(SORACLOUD_HOST_VARIABLE_RESPONSE_MAX_BYTES)
+            .expect("response bound fits host usize")
+    ];
     assert_soracloud_response_bound_matches(
         SoracloudHostOperationV1::ReadConfig,
         SoracloudHostResponsePayloadV1::ReadConfig(SoracloudReadConfigResponseV1 {
@@ -251,7 +255,7 @@ fn soracloud_response_frame_gas_boundary_precedes_state_observation() -> Result<
         let result = vm.run_with_host(&mut host);
         assert_eq!(host.metering_query_count(), 1);
         if reserve < response_gas {
-            assert_eq!(result, Err(VMError::OutOfGas));
+            assert!(matches!(result, Err(VMError::OutOfGas)));
             assert_eq!(vm.register(10), request_ptr);
             assert_eq!(host.metering_allocation_count(), 0);
             assert!(

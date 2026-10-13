@@ -79,6 +79,9 @@ pub mod executor;
 pub mod fastpq;
 /// Unified settlement fee evidence structures.
 pub mod fees;
+/// Committed execution-limit policy: the chain parameter that decides overlay, IVM,
+/// quarantine, query and AMX limits of the transaction pipeline.
+pub mod fraud_admission_policy;
 /// Gas metering for non-VM ISI execution.
 pub mod gas;
 /// Gossip protocols for transactions and peers.
@@ -106,8 +109,6 @@ pub mod peers_gossiper;
 /// Pipeline helpers (access-set derivation, scheduler glue)
 pub mod pipeline;
 mod pipeline_gas_policy;
-/// Committed execution-limit policy: the chain parameter that decides overlay, IVM,
-/// quarantine, query and AMX limits of the transaction pipeline.
 pub mod pipeline_validity_policy;
 mod resource_coherence;
 /// Internal privacy owner paths used by Core and Sumeragi-owned tests.

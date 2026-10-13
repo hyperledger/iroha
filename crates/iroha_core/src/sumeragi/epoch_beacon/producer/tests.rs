@@ -538,10 +538,8 @@ fn all_seats_drive_real_shares_once_and_followers_use_only_transported_pulse() {
     )
     .unwrap_err();
     assert_eq!(
-        error,
-        crate::execution_attempt::ExecutionAttemptError::Rejected(
-            "restored beacon history adds or omits certified native pulse work".to_owned()
-        )
+        crate::execution_attempt::expect_completed_rejection(error),
+        "restored beacon history adds or omits certified native pulse work".to_owned()
     );
 }
 

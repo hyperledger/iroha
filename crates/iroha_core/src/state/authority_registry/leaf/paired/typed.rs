@@ -69,10 +69,12 @@ impl<'budget, K: Encode + NoritoSchema, V: Encode + NoritoSchema>
         let Some((table, (key_schema, value_schema))) = selection.selection.table(table) else {
             unreachable!("selected table remains registered")
         };
-        let maximum = limits.max_rows.min(MAX_NORITO_TREE_ENTRIES as u64);
+        let maximum = usize::try_from(limits.max_rows)
+            .unwrap_or(usize::MAX)
+            .min(MAX_NORITO_TREE_ENTRIES);
         Ok(Self {
             table,
-            encoded: StagedRows::new(maximum as usize, budget)?,
+            encoded: StagedRows::new(maximum, budget)?,
             selection,
             key_schema,
             value_schema,

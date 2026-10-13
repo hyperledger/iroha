@@ -64,8 +64,9 @@ pub const LANE_RESULT_TAG: &[u8] = b"iroha/sumeragi/lane/result/v1";
 /// Missing or completed malformed parameters retain their existing absent-policy outcome.
 ///
 /// # Errors
-/// Returns the original resource refusal when decoding the committed policy cannot
-/// finish; completed invalid policies return `Ok(None)`.
+///
+/// Returns the original resource deferral if decoding the committed lane
+/// policy cannot complete.
 pub fn lane_policy(
     world: &impl WorldReadOnly,
 ) -> Result<Option<SumeragiLanePolicy>, crate::execution_attempt::ExecutionDeferred> {
@@ -76,10 +77,13 @@ pub fn lane_policy(
     else {
         return Ok(None);
     };
-    let policy: SumeragiLanePolicy = match norito::json::from_str(custom.payload().get()) {
+    let decoded = norito::core::classify_decode_attempt(|| {
+        norito::json::from_str(custom.payload().get()).map_err(norito::json::Error::into_core_error)
+    });
+    let policy: SumeragiLanePolicy = match decoded {
         Ok(policy) => policy,
         Err(error) => {
-            return match crate::execution_attempt::json_decode_attempt_error(error, |_| ()) {
+            return match crate::execution_attempt::canonical_decode_attempt_error(error, |_| ()) {
                 crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
                     if cfg!(all(test, sumeragi_core_mutation = "HC39")) {
                         return Ok(None);
@@ -171,10 +175,10 @@ pub fn lane_genesis_result(record: &SumeragiLaneRecord) -> Hash32 {
 /// A pinned member whose key is not BLS-normal, an empty or oversized committee, or chain
 /// parameters that fail §9.4 validation.
 pub fn lane_height_config(record: &SumeragiLaneRecord) -> Result<HeightConfig, LaneError> {
-    iroha_data_model::parameter::system::validate_max_clock_drift_ms(
-        record.params.max_clock_drift_ms,
-    )
-    .map_err(|error| LaneError::Schedule(ScheduleError::Epoch(error.to_string())))?;
+    record
+        .params
+        .validate_clock_policy()
+        .map_err(|error| LaneError::Schedule(ScheduleError::Epoch(error.to_string())))?;
     record
         .da_layout
         .validate()
@@ -247,34 +251,34 @@ impl LaneBatch {
     /// # Errors
     /// Non-canonical bytes, or an incomplete local attempt under the inherited decode budget.
     pub fn from_payload(payload: &[u8]) -> Result<Self, AdmissionAttemptError> {
-        let decoded = if cfg!(all(test, sumeragi_core_mutation = "HC31")) {
-            <Self as norito::codec::DecodeAll>::decode_all(&mut &payload[..])
-        } else {
-            norito::codec::decode_adaptive::<Self>(payload)
-        };
-        let classify_error = |error: norito::Error| {
-            if !cfg!(all(test, sumeragi_core_mutation = "HC29"))
-                && let Some(
-                    refusal @ (norito::core::DecodeResourceError::TotalElementsExceeded { .. }
-                    | norito::core::DecodeResourceError::TotalAllocationExceeded {
-                        ..
-                    }
-                    | norito::core::DecodeResourceError::AllocationFailed { .. }),
-                ) = error.decode_resource_error()
-            {
-                return AdmissionAttemptError::Deferred(refusal);
+        norito::core::classify_decode_attempt(|| {
+            let batch = if cfg!(all(test, sumeragi_core_mutation = "HC31")) {
+                <Self as norito::codec::DecodeAll>::decode_all(&mut &payload[..])
+            } else {
+                norito::codec::decode_adaptive::<Self>(payload)
+            }?;
+            if cfg!(all(test, sumeragi_core_mutation = "HC31")) {
+                if batch.encode() != payload {
+                    return Err(norito::Error::Message("non-canonical batch".into()));
+                }
+            } else {
+                norito::codec::verify_exact_payload(&batch, payload)?;
             }
-            AdmissionAttemptError::Rejected(AdmissionError::Encoding(error.to_string()))
-        };
-        let batch = decoded.map_err(&classify_error)?;
-        if cfg!(all(test, sumeragi_core_mutation = "HC31")) {
-            if batch.encode() != payload {
-                return Err(AdmissionError::Encoding("non-canonical batch".into()).into());
+            Ok(batch)
+        })
+        .map_err(|error| {
+            if cfg!(all(test, sumeragi_core_mutation = "HC29")) {
+                return AdmissionAttemptError::Rejected(AdmissionError::Encoding(
+                    error.to_string(),
+                ));
             }
-        } else {
-            norito::codec::verify_exact_payload(&batch, payload).map_err(classify_error)?;
-        }
-        Ok(batch)
+            match error.into_local_refusal() {
+                Ok(original) => AdmissionAttemptError::Deferred(original),
+                Err(error) => {
+                    AdmissionAttemptError::Rejected(AdmissionError::Encoding(error.to_string()))
+                }
+            }
+        })
     }
 }
 
@@ -365,17 +369,17 @@ pub enum Admission {
 ///
 /// This has no wire codec. Cumulative decode budgets and physical allocator refusals
 /// retain their exact native category and counters without allocating a diagnostic.
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+#[derive(Debug, Error)]
 pub enum AdmissionAttemptError {
     /// Admission completed and found that the lane block is invalid.
     #[error(transparent)]
     Rejected(#[from] AdmissionError),
     /// The original authenticated payload must be retried locally.
     #[error("lane decode attempt deferred: {0:?}")]
-    Deferred(norito::core::DecodeResourceError),
-    /// The original global-anchor history read must be retried with its allocation owner.
-    #[error("lane anchor read deferred: {0}")]
-    AnchorDeferred(crate::execution_attempt::ExecutionDeferred),
+    Deferred(norito::core::DecodeLocalRefusal),
+    /// Original anchor history or execution admission must retry with its allocation owner.
+    #[error("lane resource admission deferred: {0}")]
+    ResourceDeferred(crate::execution_attempt::ExecutionDeferred),
 }
 
 /// Why a lane block is not admissible (`Invalid`).
@@ -514,7 +518,7 @@ fn admit_decoded(
                     }
                     .into()
                 } else {
-                    AdmissionAttemptError::AnchorDeferred(reason)
+                    AdmissionAttemptError::ResourceDeferred(reason)
                 }
             }
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
@@ -633,10 +637,19 @@ mod tests {
     fn lane_height_config_clock_drift_bound_rejects_unbounded_original_records() {
         use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
         let mut record = record(None);
+        record.params.due_work_max_lag_ms = std::num::NonZeroU64::new(124_000).unwrap();
         for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
             record.params.max_clock_drift_ms = value;
             assert!(lane_height_config(&record).is_ok());
         }
+        record.params.max_clock_drift_ms = 1_000;
+        record.params.due_work_max_lag_ms = std::num::NonZeroU64::new(5_999).unwrap();
+        assert!(
+            lane_height_config(&record)
+                .unwrap_err()
+                .to_string()
+                .contains("due_work_max_lag_ms")
+        );
         for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
             record.params.max_clock_drift_ms = value;
             assert!(
@@ -765,7 +778,9 @@ mod tests {
             ));
             let attempt =
                 norito::with_decode_limits_scope(limits, || LaneBatch::from_payload(&bytes));
-            assert_eq!(attempt, Err(AdmissionAttemptError::Deferred(category)));
+            assert!(
+                matches!(attempt, Err(AdmissionAttemptError::Deferred(original)) if original.resource_error() == category)
+            );
             assert_eq!(LaneBatch::from_payload(&bytes).unwrap(), control);
             let (record, chain) = (record(None), LaneChainView::default());
             let config = lane_height_config(&record).unwrap();
@@ -776,14 +791,14 @@ mod tests {
                 Err(AdmissionAttemptError::Deferred(_))
             ));
         }
-        // Declared structural/depth limits and malformed bytes remain terminal.
+        // Caller-owned structural/depth limits are local; malformed source remains terminal.
         for limits in [
             norito::DecodeLimits::new(0, 1 << 25, usize::MAX, usize::MAX, 32),
             norito::DecodeLimits::new(96, 1 << 25, usize::MAX, usize::MAX, 0),
         ] {
             assert!(matches!(
                 norito::with_decode_limits_scope(limits, || LaneBatch::from_payload(&bytes)),
-                Err(AdmissionAttemptError::Rejected(AdmissionError::Encoding(_)))
+                Err(AdmissionAttemptError::Deferred(_))
             ));
         }
         assert!(matches!(
@@ -876,8 +891,8 @@ mod tests {
         assert_eq!(Admission::Valid(result.clone()), again);
         // An anchor this node has not applied: pending, not a verdict.
         assert_eq!(
-            admit(&payload(11, vec![tx(1)]), &chain),
-            Ok(Admission::Pending)
+            (admit(&payload(11, vec![tx(1)]), &chain)).expect("completed fixture operation"),
+            Admission::Pending
         );
         // A wrong anchor hash, a regressing anchor, an inactive anchor.
         let wrong = LaneBatch {
@@ -912,14 +927,18 @@ mod tests {
         ));
         // Duplicates within the block and against unmerged lane blocks.
         let repeated = tx(1);
-        assert_eq!(
+        assert!(matches!(
             admit(&payload(8, vec![repeated.clone(), repeated]), &chain),
-            Err(AdmissionError::Duplicate(1).into())
-        );
-        assert_eq!(
+            Err(AdmissionAttemptError::Rejected(AdmissionError::Duplicate(
+                1
+            )))
+        ));
+        assert!(matches!(
             admit(&payload(8, vec![unmerged_tx.clone()]), &chain),
-            Err(AdmissionError::Duplicate(0).into())
-        );
+            Err(AdmissionAttemptError::Rejected(AdmissionError::Duplicate(
+                0
+            )))
+        ));
         // Once the earlier carrier (anchor 7) is stale for the new block (7 + A < 10), the
         // transaction may be carried again.
         let open = SumeragiLaneRecord {

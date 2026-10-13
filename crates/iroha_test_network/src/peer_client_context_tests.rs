@@ -14,6 +14,7 @@ fn context_owner_fixture() -> (tempfile::TempDir, NetworkPeer) {
                 ),
             ),
             chain_discriminant: defaults::common::chain_discriminant(),
+            api_token: None,
             policy: PeerClientPolicy {
                 status_timeout: Duration::from_secs(37),
                 request_timeout: Duration::from_secs(3),

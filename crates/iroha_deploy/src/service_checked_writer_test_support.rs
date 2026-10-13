@@ -56,7 +56,7 @@ impl JsonWriteSink for Probe {
 }
 
 /// Compare original bytes and every output-prefix/actual entry refusal at inherited depth.
-pub(crate) fn audit(
+pub fn audit(
     expected: &str,
     write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
 ) {

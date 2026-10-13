@@ -19,13 +19,6 @@ import "@contracts/sccp-verify"
 import "sccp-test-helpers"
 import "sccp-test-vectors.gen"
 
-/// Hashes of the `^KeyChunk` lists of the committees `n4` and `n31`, as
-/// `fixtures/sccp/ton_stateinit_v1.json` records them (`initial_data.keys` of
-/// its two vectors) and the Rust `ton_cell` builder reproduces them.
-// TODO: WP-TON (builder): render these two hashes into
-// `sccp-test-vectors.gen.tolk` from the fixture instead of pinning them here.
-const KEYS_N4_CELL_HASH = 0xe2cb5ace57ca6670cfa6680b2d16c9dbda5185e4b1d344f11c0df5a22a6ddf46
-const KEYS_N31_CELL_HASH = 0x09f03ec9d28f430aeb0f7a8bf8374b53046f3aca9e1fcb1234deff670f2c44d8
 /// Rows of the fixtures this suite walks.
 const PINNED_CONTROL_LEAVES = 12
 const PINNED_TREE_ROOTS = 17
@@ -267,8 +260,8 @@ get fun `test key chunks of the fixture committees are the canonical lists`() {
     }
     expect(c).toEqual(4);
     // the cells are the ones the StateInit golden and the Rust builder pin
-    expect(sccpBuildKeys(committeeKeys(vecCommitteeN4())).hash()).toEqual(KEYS_N4_CELL_HASH);
-    expect(sccpBuildKeys(committeeKeys(vecCommitteeN31())).hash()).toEqual(KEYS_N31_CELL_HASH);
+    expect(sccpBuildKeys(committeeKeys(vecCommitteeN4())).hash()).toEqual(VEC_KEYS_N4_CELL_HASH);
+    expect(sccpBuildKeys(committeeKeys(vecCommitteeN31())).hash()).toEqual(VEC_KEYS_N31_CELL_HASH);
     expect(sccpBuildKeys(committeeKeys(vecCommitteeN31())).depth()).toEqual(
         SCCP_MAX_KEY_CHUNKS - 1,
     );

@@ -246,6 +246,10 @@ pub fn validate_private_settlement_committee_authority_v1(
 }
 
 /// Produce one purpose-separated BLS vote after caller-side Prepare checks.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the complete phase body is transferred into the signed vote"
+)]
 pub(crate) fn sign_private_settlement_phase_vote_v1(
     body: PrivateSettlementPhaseBodyV1,
     signer: &iroha_crypto::KeyPair,
@@ -321,6 +325,10 @@ pub(crate) fn private_settlement_phase_body_v1(
 
 #[cfg(test)]
 /// Aggregate valid votes into an exact-three-of-four phase certificate.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the returned certificate owns the validated phase body"
+)]
 pub(crate) fn aggregate_private_settlement_phase_votes_v1(
     body: PrivateSettlementPhaseBodyV1,
     authority_catalog_index: u8,

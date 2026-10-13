@@ -416,13 +416,13 @@ impl PreparedAggregateDurable {
             read_head,
             intent_record: None,
             head_record: None,
-            intent_progress: Default::default(),
-            checkpoint_progress: Default::default(),
-            head_progress: Default::default(),
+            intent_progress: seat_export::FileProgress::default(),
+            checkpoint_progress: seat_export::FileProgress::default(),
+            head_progress: seat_export::FileProgress::default(),
             checkpoint_source: None,
             terminal: false,
             directory_synced: false,
-            loaded: std::array::from_fn(|_| Default::default()),
+            loaded: std::array::from_fn(|_| Loaded::default()),
             sources: std::array::from_fn(|_| None),
             destination: Destination {
                 intent: intent_slot,
@@ -452,7 +452,7 @@ impl PreparedAggregateDurable {
         if binding.extraction_intent_hash != [0; 32]
             || binding.accepted_head_hash == [0; 32]
             || binding.accepted_checkpoint_hash == [0; 32]
-            || source_hashes.iter().any(|hash| *hash == [0; 32])
+            || source_hashes.contains(&[0; 32])
             || stream_generations[0] != 2
         {
             return Err(AttemptError::Binding);
@@ -620,10 +620,10 @@ impl PreparedAggregateDurable {
                     .map_err(|_| AttemptError::Binding)?;
             layouts[slot] =
                 Layout::array::<u8>(length).map_err(|_| AllocationRefusal::DemandOverflow)?;
-            if let Some(source) = &self.sources[slot] {
-                if source.capacity() != length || !source.belongs_to(&self.budget) {
-                    return Err(AttemptError::Binding);
-                }
+            if let Some(source) = &self.sources[slot]
+                && (source.capacity() != length || !source.belongs_to(&self.budget))
+            {
+                return Err(AttemptError::Binding);
             }
         }
         if self.sources.iter().all(Option::is_none) {
@@ -747,7 +747,7 @@ impl PreparedAggregateDurable {
         &mut self,
         directory: &Directory,
     ) -> std::result::Result<(), AttemptError> {
-        self.sync_restored_with(directory, |file| file.sync_all())
+        self.sync_restored_with(directory, std::fs::File::sync_all)
     }
     fn sync_restored_with(
         &mut self,
@@ -822,34 +822,17 @@ impl PreparedAggregateDurable {
     /// Exact already-open original raw source descriptors; preparation refusal retains all.
     #[cfg(test)]
     pub(super) fn source_descriptor_ids(&self) -> [Option<std::os::fd::RawFd>; 9] {
-        use std::os::fd::AsRawFd as _;
         std::array::from_fn(|slot| {
             self.loaded[slot + 2]
                 .descriptor
                 .as_ref()
-                .map(|file| file.as_raw_fd())
+                .map(rustix::fd::AsRawFd::as_raw_fd)
         })
     }
     /// No raw extent may become an initialized private owner during aggregate reservation refusal.
     #[cfg(test)]
     pub(super) fn sources_unadmitted(&self) -> bool {
         self.sources.iter().all(Option::is_none)
-    }
-
-    pub(super) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
-        self.budget.same_pool(budget)
-            && self.intent.belongs_to(budget)
-            && self.head.belongs_to(budget)
-            && self.read_intent.belongs_to(budget)
-            && self.read_head.belongs_to(budget)
-            && self.destination.intent.belongs_to(budget)
-            && self.destination.head.belongs_to(budget)
-            && self.workspace.belongs_to(budget)
-            && self
-                .sources
-                .iter()
-                .flatten()
-                .all(|source| source.belongs_to(budget))
     }
 }
 
@@ -907,7 +890,11 @@ mod raw_field_adapter_tests {
     }
 
     fn hash(seed: u8) -> [u8; 32] {
-        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+        std::array::from_fn(|i| {
+            u8::try_from(i)
+                .expect("fixture index fits u8")
+                .wrapping_add(seed)
+        })
     }
 
     #[test]

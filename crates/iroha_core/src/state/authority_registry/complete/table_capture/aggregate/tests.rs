@@ -201,7 +201,7 @@ fn empty_catalog_uses_zero_backing_and_catalog_errors_precede_pool_refusal() {
         matches!(capture_tables_once(&state, FIELDS, &normal_readers(), policy(limits())),
         Err(TableCaptureError::Admission(AllocationRefusal::ExceedsLimit { requested_bytes, limit_bytes: 0 })) if requested_bytes == backing_bytes())
     );
-    assert_eq!(
+    assert!(matches!(
         capture_tables_once(
             &state,
             FIELDS,
@@ -214,20 +214,20 @@ fn empty_catalog_uses_zero_backing_and_catalog_errors_precede_pool_refusal() {
         .err()
         .unwrap(),
         TableCaptureError::MaterializerLimit
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         capture_tables_once(&state, FIELDS, &[], policy(limits()))
             .err()
             .unwrap(),
         TableCaptureError::MissingMaterializer("world.accounts")
-    );
+    ));
     let over_count = [normal_readers()[0]; super::super::MAX_TABLE_MATERIALIZERS + 1];
-    assert_eq!(
+    assert!(matches!(
         capture_tables_once(&state, FIELDS, &over_count, policy(limits()))
             .err()
             .unwrap(),
         TableCaptureError::MaterializerLimit
-    );
+    ));
     assert_eq!(CALLS.get(), 0);
     let mut publication = state.state_view_publication();
     let guard = publication.begin();
@@ -271,8 +271,8 @@ fn occupied_original_pool_preserves_exact_refusal_wake_and_retry() {
         panic!("occupied original pool");
     };
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     let mut future = release.wait_for_release(&mut registration);
     assert_eq!(Pin::new(&mut future).poll(&mut context), Poll::Pending);
     let unrelated = AllocationBudget::new(backing_bytes());
@@ -354,7 +354,21 @@ fn partial_child_failure_identity_mismatch_and_both_generation_retries_release_a
             policy(limits()),
         );
         match expected {
-            Some(error) => assert_eq!(result.err().unwrap(), error),
+            Some(error) => assert!(match (&result.err().unwrap(), &error) {
+                (TableCaptureError::Leaf(actual), TableCaptureError::Leaf(expected)) =>
+                    actual == expected,
+                (
+                    TableCaptureError::IdentityMismatch {
+                        expected: actual_expected,
+                        actual: actual_actual,
+                    },
+                    TableCaptureError::IdentityMismatch {
+                        expected: expected_expected,
+                        actual: expected_actual,
+                    },
+                ) => actual_expected == expected_expected && actual_actual == expected_actual,
+                _ => false,
+            }),
             None => assert!(result.unwrap().is_none()),
         }
         assert_eq!(CALLS.get(), 2);
@@ -376,7 +390,7 @@ fn aggregate_row_failure_and_reader_unwind_release_completed_nodes_and_outer_bac
     let state = state();
     let budget = state.ivm_execution_budget();
     let before = budget.reserved_bytes();
-    assert_eq!(
+    assert!(matches!(
         capture_tables_once(
             &state,
             FIELDS,
@@ -389,7 +403,7 @@ fn aggregate_row_failure_and_reader_unwind_release_completed_nodes_and_outer_bac
         .err()
         .unwrap(),
         TableCaptureError::AggregateRowLimit
-    );
+    ));
     assert_eq!(CALLS.get(), 2);
     assert_eq!(budget.reserved_bytes(), before);
     CALLS.set(0);
@@ -412,10 +426,10 @@ fn aggregate_row_failure_and_reader_unwind_release_completed_nodes_and_outer_bac
 
 #[test]
 fn allocator_error_mapping_remains_operational_without_fabricating_a_release_owner() {
-    assert_eq!(
+    assert!(matches!(
         TableCaptureError::from(ChargedBufferError::Allocator {
             requested_bytes: backing_bytes()
         }),
         TableCaptureError::Allocation
-    );
+    ));
 }

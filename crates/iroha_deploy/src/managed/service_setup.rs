@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        require_deadline, require_empty,
+        require_deadline,
     },
     service_authority::{CheckpointImportScope, NetworkPurpose, ProviderPurpose, ServiceAuthority},
 };
@@ -175,7 +175,7 @@ impl ManagedInitialReputationPolicy {
         })
     }
     /// Retain a full revision-one recorder policy and its complete original gateway list.
-    /// All three policy recorder roles bind to the generated ReputationRecorder account.
+    /// All three policy recorder roles bind to the generated `ReputationRecorder` account.
     /// # Errors
     /// Rejects substituted roles/gateway, changed retained intent, unavailable original finality
     /// or unsafe journal custody. Native Set owns authorization and identical-policy replay.
@@ -501,7 +501,7 @@ impl Setup {
     ) -> Result<ManagedInitialServiceSetupProgress> {
         self.authority.validate_profile()?;
         self.validate_intent(&intent)?;
-        let directory = self.authority.directory.ensure_child("setup")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "setup")?;
         let original = self.select_intent(&directory, intent, options.deadline)?;
         journal::explicit(
             &directory,
@@ -519,12 +519,17 @@ impl Setup {
         intent: Intent,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(&intent)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(&intent)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let verifier = self.authority.observe_finality(deadline)?;
         let original = Original {
             intent,
@@ -571,18 +576,20 @@ impl Setup {
                 "service setup differs from original authorized policies",
             ));
         }
-        let directory = self.authority.directory.ensure_child("setup")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "setup")?;
         let original = self.select_intent(&directory, intent, deadline)?;
         let account = self.wallet()?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 original
                     .request(attempt.terms(), deadline)
@@ -666,7 +673,7 @@ impl Setup {
             .map_err(|_| invalid("invalid original service setup checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("service setup checkpoint is not the selected Global root"))?;
         Ok(())
@@ -747,7 +754,7 @@ impl Setup {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             // Historical successful execution is sufficient for this report. Do not turn a
@@ -802,7 +809,7 @@ impl Setup {
         verify_custody()?;
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = request.resume(&account, &path)?;
@@ -822,7 +829,7 @@ impl Setup {
         let finalized = if report.status == OperationStatus::Applied {
             if let Ok(observed) = self.authority.observe_finality(deadline) {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,

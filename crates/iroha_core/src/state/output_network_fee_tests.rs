@@ -107,7 +107,8 @@ fn plain_and_batch_business_rejection_charge_the_same_actual_direct_basis() {
 fn fee_only_settlement_does_not_charge_completed_work_again_at_the_block_limit() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
     let body = failing_body();
-    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+        .expect("gas quote must complete for this fixture");
     assert!(gas > 0);
     for exact in [false, true] {
         let (state, asset) = priced_fixture(None);
@@ -198,7 +199,8 @@ fn actual_data_callback_failure_rolls_back_business_but_preserves_root_fee_basis
         setup.commit_world_overlay_for_testing().unwrap();
     }
     let body = vec![write("data_callback_event")];
-    let direct_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+    let direct_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+        .expect("gas quote must complete for this fixture");
     let source = carrier(&state, vec![input(&state, body, payment(&asset, 2), false)]);
     let (mut block, _recording) = recorded_network_block(&state, &source);
     let fragments = block.committed_fragment_count();
@@ -648,9 +650,8 @@ fn local_vm_refusal_publishes_no_network_result_or_fee_and_same_source_can_retry
         {
             let (mut block, _recording) = recorded_network_block(&state, &source);
             let fragments = block.committed_fragment_count();
-            assert_eq!(
-                execute(&mut block, &source),
-                Err(ExecutionOutputAttemptError::Deferred(reason.into()))
+            assert!(
+                matches!(&(execute(&mut block, &source)), Err(ExecutionOutputAttemptError::Deferred(owner)) if owner.reason() == reason && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
             );
             assert_eq!(block.gas_used_in_block, 0);
             assert_eq!(block.committed_fragment_count(), fragments);
@@ -726,7 +727,8 @@ fn fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(sccp: bool) {
     } else {
         failing_body()
     };
-    let gas = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas);
+    let gas = crate::gas::meter_instructions(&body, &state.zk_snapshot().gas)
+        .expect("gas quote must complete for this fixture");
     assert!(gas > 0);
     let charge = if sccp { 2_u32 } else { 3 };
     let source = carrier(
@@ -743,16 +745,17 @@ fn fee_decoder_refusal_preserves_original_attempt_and_fresh_retry(sccp: bool) {
         let (calls, deferred) = probe.observe();
         assert_eq!(calls, 1, "the original fee-only decoder must actually run");
         let original = deferred.expect("the real fee decoder must retain its original refusal");
-        assert_eq!(original.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+        assert_eq!(original.0, ExecutionDeferral::ActiveMemoryCapacity);
         assert!(
-            original.allocation_refusal().is_none(),
+            !original.2,
             "a cumulative decoder limit has no physical release owner"
         );
-        assert_eq!(
-            outcome,
-            Err(ExecutionOutputAttemptError::Deferred(original)),
-            "the original fee-tail deferral must not become a completed Network rejection"
-        );
+        let Err(ExecutionOutputAttemptError::Deferred(returned)) = outcome else {
+            panic!("the original fee-tail deferral must not become a completed Network rejection");
+        };
+        assert_eq!(returned.reason(), original.0);
+        assert_eq!(returned.decode_refusal(), original.1.as_ref());
+        assert_eq!(returned.allocation_refusal().is_some(), original.2);
         assert_eq!(source.hash(), source_hash);
         assert!(block.retained_execution_outputs_for_test().is_err());
         assert!(matches!(

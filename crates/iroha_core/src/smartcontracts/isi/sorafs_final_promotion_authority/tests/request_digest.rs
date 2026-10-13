@@ -49,7 +49,7 @@ fn public_request_digest_matches_each_native_custody_and_operation_transition() 
     let row = snapshot(&f, Some([32; 32])).operation.unwrap();
     assert_eq!(row.request_digest, reserved);
     let expires = row.reservation.expires_at_unix_ms;
-    let expired = execute_request(
+    let expired_request = execute_request(
         &mut f,
         &operator,
         expires,
@@ -60,8 +60,8 @@ fn public_request_digest_matches_each_native_custody_and_operation_transition() 
     );
     let row = snapshot(&f, Some([32; 32])).operation.unwrap();
     assert_eq!(row.outcome, FinalPromotionOperationOutcomeV1::Expired);
-    assert_eq!(row.request_digest, expired);
-    assert_ne!(expired, reserved);
+    assert_eq!(row.request_digest, expired_request);
+    assert_ne!(expired_request, reserved);
 
     let revoked = execute_request(
         &mut f,

@@ -43,8 +43,8 @@ fn intent(
             1,
         ),
         key,
-        StorageTicketId::new([sequence as u8 + 1; 32]),
-        ManifestDigest::new([sequence as u8 + 65; 32]),
+        StorageTicketId::new([u8::try_from(sequence).expect("fixture value fits u8") + 1; 32]),
+        ManifestDigest::new([u8::try_from(sequence).expect("fixture value fits u8") + 65; 32]),
         alias.map(str::to_owned),
     )
 }
@@ -169,9 +169,10 @@ fn retail_policy_commit_accepts_fresh_pair_and_preserves_identical_bytes() {
         world
             .smart_contract_state
             .insert(activation_path.clone(), activation.clone());
-        world
-            .smart_contract_state
-            .insert("unrelated/state".parse().unwrap(), vec![height as u8]);
+        world.smart_contract_state.insert(
+            "unrelated/state".parse().unwrap(),
+            vec![u8::try_from(height).expect("fixture value fits u8")],
+        );
         // This fixture tests the publication invariant only. It does not
         // authenticate native activation, its owner, or a finalized block.
         PreparedWorldCommit::prepare(&state, world, height, &nexus, &activations, None, None)

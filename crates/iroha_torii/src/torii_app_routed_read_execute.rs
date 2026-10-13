@@ -1,3 +1,12 @@
+/// Exact endpoint, path, query and body forwarded together to every selected route.
+#[cfg(feature = "app_api")]
+struct ToriiReadPayload {
+    endpoint: ToriiReadEndpointV1,
+    path_args: Vec<String>,
+    query_string: Option<String>,
+    body: Vec<u8>,
+}
+
 // Routed-read execution under one shared fanout reservation. Source-bounded
 // local producer seams remain intentionally incremental and inventoried.
 #[cfg(feature = "app_api")]
@@ -154,6 +163,10 @@ async fn resolve_torii_proof_record_for_supported_routes(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn merged_trusted_internal_read_response<T>(
     payloads: Vec<ToriiBoundedNoritoPayload<T>>,
     format: ResponseFormat,
@@ -559,10 +572,12 @@ async fn execute_torii_read_fanout_for_resolved_routes(
     routes: Vec<RoutingDecision>,
     route_scope: ToriiFanoutRouteScopeV1,
     merge: ToriiReadFanoutMergeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
@@ -571,10 +586,12 @@ async fn execute_torii_read_fanout_for_resolved_routes(
         routes,
         route_scope,
         merge,
-        endpoint,
-        path_args,
-        query_string,
-        body,
+        crate::ToriiReadPayload {
+            endpoint,
+            path_args,
+            query_string,
+            body,
+        },
         response_format,
         proxy_memory,
     )
@@ -652,10 +669,12 @@ async fn execute_torii_read_for_supported_resolved_routes(
     routes: Vec<RoutingDecision>,
     route_scope: ToriiFanoutRouteScopeV1,
     merge: ToriiReadFanoutMergeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
@@ -694,10 +713,12 @@ async fn execute_torii_read_for_supported_resolved_routes(
                 routes,
                 route_scope,
                 merge,
-                endpoint,
-                path_args,
-                query_string,
-                body,
+                crate::ToriiReadPayload {
+                    endpoint,
+                    path_args,
+                    query_string,
+                    body,
+                },
                 response_format,
                 proxy_memory,
             ),
@@ -711,10 +732,12 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
     routes: Vec<RoutingDecision>,
     route_scope: ToriiFanoutRouteScopeV1,
     merge: ToriiReadFanoutMergeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
@@ -752,10 +775,12 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
                 app,
                 routes,
                 route_scope,
-                endpoint,
-                path_args,
-                query_string,
-                body,
+                crate::ToriiReadPayload {
+                    endpoint,
+                    path_args,
+                    query_string,
+                    body,
+                },
                 proxy_memory,
             )
             .await
@@ -883,7 +908,7 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
             })
         }
         ToriiReadFanoutMergeV1::Account => {
-            let Some(canonical_account_id) = path_args.get(0).cloned() else {
+            let Some(canonical_account_id) = path_args.first().cloned() else {
                 return torii_proxy_error_response(
                     StatusCode::BAD_REQUEST,
                     "invalid_proxy_request",
@@ -905,10 +930,12 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
                 app,
                 routes,
                 route_scope,
-                endpoint,
-                path_args,
-                query_string,
-                body,
+                crate::ToriiReadPayload {
+                    endpoint,
+                    path_args,
+                    query_string,
+                    body,
+                },
                 proxy_memory,
             )
             .await
@@ -926,10 +953,12 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
                 app,
                 routes,
                 route_scope,
-                endpoint,
-                path_args,
-                query_string,
-                body,
+                crate::ToriiReadPayload {
+                    endpoint,
+                    path_args,
+                    query_string,
+                    body,
+                },
                 proxy_memory,
             )
             .await
@@ -947,10 +976,12 @@ async fn execute_torii_read_fanout_for_resolved_routes_admitted(
                 app,
                 routes,
                 route_scope,
-                endpoint,
-                path_args,
-                query_string,
-                body,
+                crate::ToriiReadPayload {
+                    endpoint,
+                    path_args,
+                    query_string,
+                    body,
+                },
                 proxy_memory,
             )
             .await
@@ -980,10 +1011,12 @@ async fn execute_torii_read_fanout_proxy_request(
         routes,
         request.route_scope,
         request.merge,
-        request.endpoint,
-        request.path_args,
-        request.query_string,
-        request.body,
+        crate::ToriiReadPayload {
+            endpoint: request.endpoint,
+            path_args: request.path_args,
+            query_string: request.query_string,
+            body: request.body,
+        },
         request.response_format,
         proxy_memory,
     )
@@ -994,10 +1027,12 @@ async fn execute_torii_read_fanout_via_nexus(
     app: &SharedAppState,
     route_scope: ToriiFanoutRouteScopeV1,
     merge: ToriiReadFanoutMergeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
 ) -> Response {
     let routes = match torii_fanout_scope_routes(app.as_ref(), &route_scope) {
@@ -1009,10 +1044,12 @@ async fn execute_torii_read_fanout_via_nexus(
         routes,
         route_scope,
         merge,
-        endpoint,
-        path_args,
-        query_string,
-        body,
+        crate::ToriiReadPayload {
+            endpoint,
+            path_args,
+            query_string,
+            body,
+        },
         response_format,
     )
     .await
@@ -1023,10 +1060,12 @@ async fn execute_torii_read_via_nexus_for_supported_routes(
     routes: Vec<RoutingDecision>,
     route_scope: ToriiFanoutRouteScopeV1,
     merge: ToriiReadFanoutMergeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
 ) -> Response {
     if routes.len() <= 1 {
@@ -1035,10 +1074,12 @@ async fn execute_torii_read_via_nexus_for_supported_routes(
             routes,
             route_scope,
             merge,
-            endpoint,
-            path_args,
-            query_string,
-            body,
+            crate::ToriiReadPayload {
+                endpoint,
+                path_args,
+                query_string,
+                body,
+            },
             response_format,
             None,
         )
@@ -1078,10 +1119,12 @@ async fn execute_torii_public_pipeline_status_fanout(
         app,
         ToriiFanoutRouteScopeV1::AllDataspaces,
         ToriiReadFanoutMergeV1::Singleton,
-        ToriiReadEndpointV1::PipelineTransactionStatusGet,
-        Vec::new(),
-        query_string,
-        Vec::new(),
+        crate::ToriiReadPayload {
+            endpoint: ToriiReadEndpointV1::PipelineTransactionStatusGet,
+            path_args: Vec::new(),
+            query_string,
+            body: Vec::new(),
+        },
         ToriiProxyResponseFormatV1::Json,
     )
     .await
@@ -1101,10 +1144,12 @@ async fn execute_torii_visible_fanout_singleton_read(
             caller_account_id: caller.map(ToString::to_string),
         },
         ToriiReadFanoutMergeV1::Singleton,
-        endpoint,
-        path_args,
-        query_string,
-        body,
+        crate::ToriiReadPayload {
+            endpoint,
+            path_args,
+            query_string,
+            body,
+        },
         ToriiProxyResponseFormatV1::Json,
     )
     .await
@@ -1124,10 +1169,12 @@ async fn execute_torii_singleton_read_for_routes(
             app,
             route_scope,
             ToriiReadFanoutMergeV1::Singleton,
-            endpoint,
-            path_args,
-            query_string,
-            body,
+            crate::ToriiReadPayload {
+                endpoint,
+                path_args,
+                query_string,
+                body,
+            },
             ToriiProxyResponseFormatV1::Json,
         )
         .await
@@ -1137,10 +1184,12 @@ async fn execute_torii_singleton_read_for_routes(
             routes,
             route_scope,
             ToriiReadFanoutMergeV1::Singleton,
-            endpoint,
-            path_args,
-            query_string,
-            body,
+            crate::ToriiReadPayload {
+                endpoint,
+                path_args,
+                query_string,
+                body,
+            },
             ToriiProxyResponseFormatV1::Json,
             None,
         )
@@ -1160,10 +1209,12 @@ async fn execute_torii_account_read_for_routes_scoped(
             app,
             route_scope,
             ToriiReadFanoutMergeV1::Account,
-            ToriiReadEndpointV1::AccountGet,
-            vec![canonical_account_id],
-            None,
-            Vec::new(),
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::AccountGet,
+                path_args: vec![canonical_account_id],
+                query_string: None,
+                body: Vec::new(),
+            },
             torii_proxy_response_format(format),
         )
         .await
@@ -1173,10 +1224,12 @@ async fn execute_torii_account_read_for_routes_scoped(
             routes,
             route_scope,
             ToriiReadFanoutMergeV1::Account,
-            ToriiReadEndpointV1::AccountGet,
-            vec![canonical_account_id],
-            None,
-            Vec::new(),
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::AccountGet,
+                path_args: vec![canonical_account_id],
+                query_string: None,
+                body: Vec::new(),
+            },
             torii_proxy_response_format(format),
             None,
         )
@@ -1196,10 +1249,12 @@ async fn execute_torii_visible_fanout_portfolio_read(
             caller_account_id: caller.map(ToString::to_string),
         },
         ToriiReadFanoutMergeV1::Portfolio,
-        ToriiReadEndpointV1::AccountsPortfolio,
-        vec![uaid_literal],
-        query_string,
-        Vec::new(),
+        crate::ToriiReadPayload {
+            endpoint: ToriiReadEndpointV1::AccountsPortfolio,
+            path_args: vec![uaid_literal],
+            query_string,
+            body: Vec::new(),
+        },
         ToriiProxyResponseFormatV1::Json,
     )
     .await
@@ -1217,10 +1272,12 @@ async fn execute_torii_visible_fanout_dataspace_summary_read(
             caller_account_id: caller.map(ToString::to_string),
         },
         ToriiReadFanoutMergeV1::DataspaceSummary,
-        ToriiReadEndpointV1::NexusDataspacesAccountSummary,
-        vec![account_literal],
-        query_string,
-        Vec::new(),
+        crate::ToriiReadPayload {
+            endpoint: ToriiReadEndpointV1::NexusDataspacesAccountSummary,
+            path_args: vec![account_literal],
+            query_string,
+            body: Vec::new(),
+        },
         ToriiProxyResponseFormatV1::Json,
     )
     .await
@@ -1238,10 +1295,12 @@ async fn execute_torii_visible_fanout_space_directory_bindings_read(
             caller_account_id: caller.map(ToString::to_string),
         },
         ToriiReadFanoutMergeV1::SpaceDirectoryBindings,
-        ToriiReadEndpointV1::SpaceDirectoryBindingsGet,
-        vec![uaid_literal],
-        query_string,
-        Vec::new(),
+        crate::ToriiReadPayload {
+            endpoint: ToriiReadEndpointV1::SpaceDirectoryBindingsGet,
+            path_args: vec![uaid_literal],
+            query_string,
+            body: Vec::new(),
+        },
         ToriiProxyResponseFormatV1::Json,
     )
     .await

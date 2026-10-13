@@ -1,0 +1,24 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-backend
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo clippy --release --locked -p iroha_zkp_vole --example faest_cross_verify -- -D warnings
+    Checking typenum v1.20.0
+    Checking cfg-if v1.0.4
+    Checking zeroize v1.8.2
+    Checking libc v0.2.186
+    Checking thiserror v2.0.18
+    Checking cpufeatures v0.2.17
+    Checking keccak v0.1.6
+    Checking generic-array v0.14.7
+    Checking crypto-common v0.1.7
+    Checking inout v0.1.4
+    Checking block-buffer v0.10.4
+    Checking cipher v0.4.4
+    Checking digest v0.10.7
+    Checking sha3 v0.10.9
+    Checking aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+    Checking iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+    Finished `release` profile [optimized] target(s) in 2.58s

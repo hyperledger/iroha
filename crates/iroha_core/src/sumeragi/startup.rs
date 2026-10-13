@@ -230,7 +230,7 @@ fn finish_genesis(
         .map_err(|error| StartupError::Local(error.to_string()))?;
     let shell = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
         .map_err(|error| StartupError::Deferred(error.into()))?;
-    let committed = valid
+    let finalized_block = valid
         .with_commit_certificate(certificate.clone())
         .commit_unchecked(shell)
         .unpack(|_| {});
@@ -243,7 +243,7 @@ fn finish_genesis(
         None => {
             state
                 .kura()
-                .store_block(committed.shared().clone())
+                .store_block(finalized_block.shared().clone())
                 .map_err(|error| StartupError::Local(error.to_string()))?;
         }
     }
@@ -255,7 +255,7 @@ fn finish_genesis(
         .map_err(|error| StartupError::Local(error.to_string()))?;
     overlay
         .authorize_sumeragi_output_publication(
-            &committed,
+            &finalized_block,
             &witness,
             &certificate,
             super::executor::NativeExecutionAuthorization::from_genesis(
@@ -269,10 +269,14 @@ fn finish_genesis(
                         root_scope,
                         height: GENESIS_HEIGHT,
                         creation_time_ms: u64::try_from(
-                            committed.as_ref().header().creation_time().as_millis(),
+                            finalized_block
+                                .as_ref()
+                                .header()
+                                .creation_time()
+                                .as_millis(),
                         )
                         .expect("block creation time fits u64"),
-                        iroha_hash: committed.as_ref().hash(),
+                        iroha_hash: finalized_block.as_ref().hash(),
                         core_hash: block_hash.0,
                         result: result.0,
                     },
@@ -288,7 +292,7 @@ fn finish_genesis(
             }
         })?;
     overlay
-        .apply_without_execution_with_sumeragi_commit(&committed, &certificate, committee)
+        .apply_without_execution_with_sumeragi_commit(&finalized_block, &certificate, committee)
         .map_err(|error| StartupError::Local(error.to_string()))?;
     overlay
         .commit()

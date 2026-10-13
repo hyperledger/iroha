@@ -122,8 +122,9 @@ impl From<super::epoch_election::BoundaryCaptureError> for ScheduleError {
 /// window only in the genesis block; after genesis, a chain parameter change must leave chain
 /// parameters that pass [`ChainParamsRecord::validate`]. (In genesis the parameters are checked
 /// together when the genesis schedule is installed, so their order does not matter.) The change
-/// takes effect at `h + 2` through the schedule, except `MaxClockDriftMs`: this application
-/// State parameter is read from the committed parent, so a change at `h` first governs
+/// takes effect at `h + 2` through the schedule, except `MaxClockDriftMs` and
+/// `DueWorkMaxLagMs`: these application State parameters are read from the committed parent,
+/// so a change at `h` first governs
 /// height `h + 1`. Its independent CT4 bound is also checked during genesis. While SCCP exists, an epoch-length
 /// change must also preserve its one-hour floor, including after genesis initialization.
 ///
@@ -153,11 +154,10 @@ pub fn validate_parameter_change(
     if change.is_genesis_only() {
         return Err(ScheduleError::GenesisOnly);
     }
-    if matches!(change, SumeragiParameter::MaxClockDriftMs(_)) {
-        return Ok(());
-    }
     let mut candidate = current.clone();
     match *change {
+        SumeragiParameter::MaxClockDriftMs(value) => candidate.max_clock_drift_ms = value,
+        SumeragiParameter::DueWorkMaxLagMs(value) => candidate.due_work_max_lag_ms = value,
         SumeragiParameter::PayloadRetryIntervalMs(value) => {
             candidate.payload_retry_interval_ms = value
         }
@@ -165,8 +165,11 @@ pub fn validate_parameter_change(
         SumeragiParameter::ApplyBudgetMs(value) => candidate.apply_budget_ms = value,
         SumeragiParameter::MaxBlockBytes(value) => candidate.max_block_bytes = value,
         SumeragiParameter::EpochLengthBlocks(value) => candidate.epoch_length_blocks = value,
-        SumeragiParameter::MaxClockDriftMs(_) | SumeragiParameter::DemotionWindow(_) => {}
+        SumeragiParameter::DemotionWindow(_) => {}
     }
+    candidate
+        .validate_clock_policy()
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     ChainParamsRecord::from_parameters(&candidate)
         .validate()
         .map_err(ScheduleError::Params)

@@ -634,6 +634,10 @@ fn transaction_submission_receipt_fields(
 /// Context inside which commands run
 trait RunContext {
     fn config(&self) -> &Config;
+    /// SCCP values retained from the same original client configuration file.
+    fn sccp_config(&self) -> Result<iroha_sccp_wallet::config::SccpClientConfig> {
+        eyre::bail!("this context has no original SCCP client configuration")
+    }
     /// Whether [`Self::config`] is a real client configuration rather than the offline sentinel
     /// used by configuration-free helpers; only a real configuration may reach the network.
     fn has_client_config(&self) -> bool {
@@ -2097,6 +2101,7 @@ fn client_config_with_defaults(
         basic_auth: None,
         api_token: None,
         torii_api_url,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
         transaction_ttl: iroha::config::DEFAULT_TRANSACTION_TIME_TO_LIVE,
         transaction_status_timeout: iroha::config::DEFAULT_TRANSACTION_STATUS_TIMEOUT,
@@ -2127,6 +2132,10 @@ fn config_to_json(
         (
             "torii_api_url",
             json_utils::json_value(&config.torii_api_url)?,
+        ),
+        (
+            "http_transport_policy",
+            json_utils::json_value(&config.http_transport_policy.as_str())?,
         ),
         (
             "torii_request_timeout",
@@ -9461,9 +9470,9 @@ mod cli_integration_harness_tests {
         let out: Vec<AssetDefinition> = builder.execute_all().expect("exec ok");
         // Expect silver (rank=1), gold (rank=2), then bronze (no rank)
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].id().name().as_ref(), "silver");
-        assert_eq!(out[1].id().name().as_ref(), "gold");
-        assert_eq!(out[2].id().name().as_ref(), "bronze");
+        assert_eq!(out[0].name(), "silver");
+        assert_eq!(out[1].name(), "gold");
+        assert_eq!(out[2].name(), "bronze");
     }
     #[test]
     fn metadata_sorting_asset_defs_desc_end_to_end() {
@@ -9478,9 +9487,9 @@ mod cli_integration_harness_tests {
         let out: Vec<AssetDefinition> = builder.execute_all().expect("exec ok");
         // Descending: gold (2), silver (1), bronze (None)
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].id().name().as_ref(), "gold");
-        assert_eq!(out[1].id().name().as_ref(), "silver");
-        assert_eq!(out[2].id().name().as_ref(), "bronze");
+        assert_eq!(out[0].name(), "gold");
+        assert_eq!(out[1].name(), "silver");
+        assert_eq!(out[2].name(), "bronze");
     }
     #[test]
     fn pagination_and_fetch_size_domains() {

@@ -30,6 +30,10 @@ impl Fixture {
         fixture
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the resulting Check instruction owns its complete protocol subject"
+    )]
     fn check_instruction(&self, subject: Subject) -> MutateSorafsStreamTokenGateway {
         let block = self.chain.committed(self.chain.height());
         self.instruction(Action::Check(Check {
@@ -45,6 +49,10 @@ impl Fixture {
         }))
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the committed Check instruction takes ownership of its protocol subject"
+    )]
     fn check_subject(&mut self, subject: Subject) -> bool {
         let instruction = self.check_instruction(subject);
         self.commit(3, vec![instruction.into()])
@@ -191,7 +199,7 @@ fn native_gateway_check_separates_original_admission_acknowledgement_serving_and
         !fixture.commit(2, vec![premature.into()]),
         "live native delivery must commit before acknowledgement"
     );
-    fixture.deliver_reputation(pending.record);
+    fixture.deliver_reputation(&pending.record);
     let ack = fixture.instruction(Action::Acknowledge(pending.record));
     assert!(fixture.commit(2, vec![ack.into()]));
     let acknowledged = fixture.result(1);
@@ -248,7 +256,7 @@ fn native_gateway_check_separates_original_admission_acknowledgement_serving_and
 fn native_gateway_check_serving_binds_original_attempt_and_exclusive_deadline() {
     let mut fixture = Fixture::checked();
     let (original, pending) = fixture.admit_checked("exact-attempt");
-    fixture.deliver_reputation(pending.record);
+    fixture.deliver_reputation(&pending.record);
     let ack = fixture.instruction(Action::Acknowledge(pending.record));
     assert!(fixture.commit(2, vec![ack.into()]));
     let result = fixture.result(1);
@@ -319,7 +327,7 @@ fn native_gateway_check_pending_commits_complete_capped_prefix_and_rejects_stale
     let mut forged = complete.clone();
     forged.records[0].serving_attempt_id[0] ^= 1;
     assert!(!fixture.check_subject(fixture.pending_subject(2, &forged)));
-    fixture.deliver_reputation(first.record);
+    fixture.deliver_reputation(&first.record);
     let ack = fixture.instruction(Action::Acknowledge(first.record));
     assert!(fixture.commit(2, vec![ack.into()]));
     assert!(!fixture.check_subject(fixture.pending_subject(2, &complete)));
@@ -344,7 +352,7 @@ fn native_gateway_check_rotation_disables_serving_without_discarding_recovery() 
     fixture.policy = next;
     assert!(!fixture.commit(3, vec![stale.into()]));
     assert!(fixture.check_subject(Subject::Qualification));
-    fixture.deliver_reputation(pending.record);
+    fixture.deliver_reputation(&pending.record);
     let ack = fixture.instruction(Action::Acknowledge(pending.record));
     assert!(fixture.commit(2, vec![ack.into()]));
     let result = fixture.result(1);
@@ -461,7 +469,7 @@ fn native_gateway_check_memory_rows_do_not_replace_durable_floor_verification() 
 fn native_gateway_check_missing_lifecycle_ack_or_pending_row_fails_closed() {
     let mut fixture = Fixture::checked();
     let (original, pending) = fixture.admit_checked("corrupt-read");
-    fixture.deliver_reputation(pending.record);
+    fixture.deliver_reputation(&pending.record);
     let ack = fixture.instruction(Action::Acknowledge(pending.record));
     assert!(fixture.commit(2, vec![ack.into()]));
     let result = fixture.result(1);

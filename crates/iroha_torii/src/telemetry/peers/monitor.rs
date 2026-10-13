@@ -449,7 +449,6 @@ pub fn run(
                                     PeerPollingWorkerExit::Status
                                 }
                             });
-                            loop {
                                 tokio::select! {
                                     biased;
                                     () = monitor_shutdown.receive() => {
@@ -462,7 +461,7 @@ pub fn run(
                                         return MonitorWorkerExit::Polling(exit);
                                     }
                                     result = workers.join_next() => match result {
-                                        Some(Ok(PeerPollingWorkerExit::Status)) => break,
+                                        Some(Ok(PeerPollingWorkerExit::Status)) => {},
                                         Some(Ok(PeerPollingWorkerExit::PeerList)) if monitor_shutdown.is_sent() => {
                                             let failed = drain_peer_polling_workers(&mut workers).await;
                                             let exit = if failed {
@@ -506,7 +505,7 @@ pub fn run(
                                         }
                                     },
                                 }
-                            }
+
                             let sibling_failed = abort_peer_polling_workers(&mut workers).await;
                             if sibling_failed {
                                 return MonitorWorkerExit::Polling(
@@ -1139,7 +1138,7 @@ impl<const N: usize> LatencyWindow<N> {
         let mut values_ms = self
             .buff
             .iter()
-            .map(|sample| sample.as_millis())
+            .map(std::time::Duration::as_millis)
             .collect::<Vec<_>>();
         if values_ms.is_empty() {
             return None;
@@ -1149,22 +1148,19 @@ impl<const N: usize> LatencyWindow<N> {
             return Some(Duration::from_millis(single));
         }
         values_ms.sort_unstable();
-        let clamped = percentile.min(100) as f64;
-        let rank = (clamped / 100.0) * ((values_ms.len() - 1) as f64);
-        let lower = rank.floor() as usize;
-        let upper = rank.ceil() as usize;
-        let selected = if lower == upper {
-            values_ms[lower] as f64
-        } else {
-            let weight = rank - (lower as f64);
-            let low = values_ms[lower] as f64;
-            let high = values_ms[upper] as f64;
-            low + ((high - low) * weight)
-        };
-        if !selected.is_finite() || selected < 0.0 {
-            return None;
-        }
-        Some(Duration::from_millis(selected.round() as u64))
+        let scaled_rank =
+            u128::try_from(values_ms.len() - 1).ok()? * u128::from(percentile.min(100));
+        let lower = usize::try_from(scaled_rank / 100).ok()?;
+        let remainder = scaled_rank % 100;
+        let upper = lower + usize::from(remainder != 0);
+        let low = values_ms[lower];
+        let difference = values_ms[upper] - low;
+        // Positive interpolation rounds half milliseconds upward without losing wide values.
+        let increment = difference.checked_mul(remainder)?.checked_add(50)? / 100;
+        let selected = low.checked_add(increment)?;
+        Some(Duration::from_millis(
+            u64::try_from(selected).unwrap_or(u64::MAX),
+        ))
     }
 }
 #[derive(Default)]
@@ -1687,6 +1683,26 @@ mod tests {
             Some(39)
         );
     }
+    #[test]
+    fn latency_percentile_preserves_wide_milliseconds_and_rounding() {
+        let base = 1_u64 << 53;
+        let mut window = LatencyWindow::<2>::new();
+        window.observe(Duration::from_millis(base));
+        window.observe(Duration::from_millis(base + 1));
+        assert_eq!(window.percentile(0), Some(Duration::from_millis(base)));
+        assert_eq!(window.percentile(50), Some(Duration::from_millis(base + 1)));
+        assert_eq!(
+            window.percentile(100),
+            Some(Duration::from_millis(base + 1))
+        );
+        assert_eq!(window.percentile(255), window.percentile(100));
+        window.observe(Duration::from_secs(u64::MAX));
+        assert_eq!(
+            window.percentile(100),
+            Some(Duration::from_millis(u64::MAX))
+        );
+    }
+
     #[test]
     fn latency_window_keeps_latest_samples_only() {
         let mut window = LatencyWindow::<3>::new();

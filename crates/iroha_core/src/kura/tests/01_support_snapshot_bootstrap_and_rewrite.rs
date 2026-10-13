@@ -535,7 +535,7 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
             .unwrap();
     for height in 1..=3 {
         let authority = verified.authenticated_execution(height).unwrap();
-        let original = &originals[usize::try_from(height).unwrap() - 1];
+        let original = &originals[usize::try_from(height).expect("fixture value fits usize") - 1];
         assert_eq!(
             authority.block().commit_certificate(),
             original.commit_certificate()
@@ -543,7 +543,8 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
         let (retained, bytes) = reopened
             .read_authenticated_execution_wire(
                 &authority,
-                original_wires[usize::try_from(height).unwrap() - 1].len() as u64,
+                original_wires[usize::try_from(height).expect("fixture value fits usize") - 1].len()
+                    as u64,
                 &history_budget,
             )
             .unwrap()
@@ -554,7 +555,7 @@ fn native_storage_original_frames_and_certificates_survive_strict_restart() {
         ));
         assert_eq!(
             bytes.as_slice(),
-            original_wires[usize::try_from(height).unwrap() - 1]
+            original_wires[usize::try_from(height).expect("fixture value fits usize") - 1]
         );
     }
     assert!(!reopened.store_root().join("merge_ledger").exists());

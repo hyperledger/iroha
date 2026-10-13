@@ -206,9 +206,9 @@ impl MusubiSearchProjectionV1 {
                     .map_err(|_| MusubiSearchError::InconsistentFinalizedEvent)?;
                 let package = event.package.clone();
                 if let Some(existing) = self.documents.get(&package) {
+                    let same_revision = event.revision == existing.metadata_revision;
                     if event.revision < existing.metadata_revision
-                        || (event.revision == existing.metadata_revision
-                            && event.metadata != existing.metadata)
+                        || (same_revision && event.metadata != existing.metadata)
                     {
                         return Err(MusubiSearchError::InconsistentFinalizedEvent);
                     }

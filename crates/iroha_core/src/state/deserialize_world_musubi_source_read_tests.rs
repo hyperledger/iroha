@@ -189,7 +189,8 @@ fn concurrent_state_publication_never_admits_mixed_table_and_revision_cut() {
                 let mut native_revision = state.world.musubi_resolver_index_revision.block();
                 let row = availability.get_mut(&archive).unwrap();
                 row.index_revision = revision;
-                row.finalized_block_hash[0] = revision as u8;
+                row.finalized_block_hash[0] =
+                    u8::try_from(revision).expect("fixture value fits u8");
                 let storage = *row;
                 let row = resolver.get_mut(&release).unwrap();
                 row.index_revision = revision;

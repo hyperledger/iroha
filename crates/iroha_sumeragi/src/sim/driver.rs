@@ -491,6 +491,8 @@ const TX_POISON: u8 = 0x01;
 /// predicate K2 of `specs/sccp.md` in the real application), so its block is subject to
 /// the stale-due-work guard CT5 (§4.5).
 const TX_DUE: u8 = 0x02;
+/// Transaction flag: an immutable creation time follows the fixed header.
+const TX_CREATION: u8 = 0x04;
 
 /// Block-time record tag of the simulator's application (§4.5): a payload stamped by a builder
 /// of a world with a [`super::scenario::ClockGuard`] starts with `0x43 ‖ be64(t_ms)`.
@@ -498,7 +500,8 @@ const TIME_TAG: u8 = 0x43;
 /// Length of the block-time record.
 pub const TIME_RECORD: usize = 1 + 8;
 
-/// Encode a transaction: `0x54 ‖ be64(id) ‖ flags ‖ be16(pad) ‖ pad bytes`; bit 0 means poison.
+/// Encode a timeless transaction: `0x54 ‖ be64(id) ‖ flags ‖ be16(pad) ‖ pad bytes`;
+/// bit 0 means poison. Timeless transactions impose no creation-time floor.
 pub fn encode_tx(id: u64, poison: bool, pad: u16) -> Vec<u8> {
     encode_tx_with_due(id, poison, false, pad)
 }
@@ -512,6 +515,27 @@ pub fn encode_tx_with_due(id: u64, poison: bool, due: bool, pad: u16) -> Vec<u8>
     out.extend_from_slice(&pad.to_be_bytes());
     out.extend(std::iter::repeat_n(0xab, usize::from(pad)));
     out
+}
+
+/// Bind one complete transaction to its original creation time. Flag bit 2 adds
+/// `be64(creation_ms)` immediately after the fixed header and before the padding.
+/// An identical binding is idempotent; rebinding, malformed input, and a creation time
+/// without a representable strictly later block time are refused.
+pub fn bind_tx_creation(tx: &[u8], creation_ms: u64) -> Option<Vec<u8>> {
+    creation_ms.checked_add(1)?;
+    let (record, tail) = parse_transaction(tx)?;
+    if !tail.is_empty() {
+        return None;
+    }
+    if let Some(original) = record.creation_ms {
+        return (original == creation_ms).then(|| tx.to_vec());
+    }
+    let mut out = Vec::with_capacity(tx.len().checked_add(8)?);
+    out.extend_from_slice(&tx[..TX_HEADER]);
+    out[9] |= TX_CREATION;
+    out.extend_from_slice(&creation_ms.to_be_bytes());
+    out.extend_from_slice(&tx[TX_HEADER..]);
+    Some(out)
 }
 
 /// The block-time record of a block time `t_ms` (§4.5); a builder puts it first.
@@ -542,23 +566,64 @@ fn transactions(payload: &[u8]) -> &[u8] {
     }
 }
 
+/// A parsed simulator transaction. Absence of creation metadata is explicitly timeless.
+struct TransactionRecord {
+    id: u64,
+    flags: u8,
+    creation_ms: Option<u64>,
+}
+
+/// Parse one complete transaction and return the remaining payload without guessing layouts.
+fn parse_transaction(bytes: &[u8]) -> Option<(TransactionRecord, &[u8])> {
+    let header = bytes.get(..TX_HEADER)?;
+    let flags = header[9];
+    if header[0] != TX_TAG || flags & !(TX_POISON | TX_DUE | TX_CREATION) != 0 {
+        return None;
+    }
+    let id = u64::from_be_bytes(header[1..9].try_into().ok()?);
+    let pad = usize::from(u16::from_be_bytes([header[10], header[11]]));
+    let (creation_ms, body_start) = if flags & TX_CREATION != 0 {
+        let creation = u64::from_be_bytes(bytes.get(TX_HEADER..TX_HEADER + 8)?.try_into().ok()?);
+        creation.checked_add(1)?;
+        (Some(creation), TX_HEADER + 8)
+    } else {
+        (None, TX_HEADER)
+    };
+    let tail = bytes.get(body_start + pad..)?;
+    Some((
+        TransactionRecord {
+            id,
+            flags,
+            creation_ms,
+        },
+        tail,
+    ))
+}
+
+/// The maximum original transaction creation time plus one, or zero for an empty or
+/// timeless payload. Parse every record, allowing only one optional leading block time;
+/// malformed payloads and overflowing creation floors are refused.
+pub fn payload_creation_floor(payload: &[u8]) -> Option<u64> {
+    let mut rest = transactions(payload);
+    let mut floor = 0;
+    while !rest.is_empty() {
+        let (record, tail) = parse_transaction(rest)?;
+        if let Some(creation) = record.creation_ms {
+            floor = floor.max(creation.checked_add(1)?);
+        }
+        rest = tail;
+    }
+    Some(floor)
+}
+
 /// Decode the transactions of a payload as `(id, poison)`; a leading block-time record is
 /// skipped and trailing garbage is ignored.
 pub fn decode_txs(payload: &[u8]) -> Vec<(u64, bool)> {
     let mut out = Vec::new();
     let mut rest = transactions(payload);
-    while rest.len() >= TX_HEADER && rest[0] == TX_TAG {
-        let Ok(id) = <[u8; 8]>::try_from(&rest[1..9]) else {
-            break;
-        };
-        let poison = rest[9] & TX_POISON != 0;
-        let pad = usize::from(u16::from_be_bytes([rest[10], rest[11]]));
-        let len = TX_HEADER + pad;
-        if rest.len() < len {
-            break;
-        }
-        out.push((u64::from_be_bytes(id), poison));
-        rest = &rest[len..];
+    while let Some((record, tail)) = parse_transaction(rest) {
+        out.push((record.id, record.flags & TX_POISON != 0));
+        rest = tail;
     }
     out
 }
@@ -571,14 +636,10 @@ pub fn payload_due(payload: &[u8]) -> bool {
 /// Whether a transaction of the payload carries `flag`.
 fn any_tx_flag(payload: &[u8], flag: u8) -> bool {
     let mut rest = transactions(payload);
-    while rest.len() >= TX_HEADER && rest[0] == TX_TAG {
-        if rest[9] & flag != 0 {
+    while let Some((record, tail)) = parse_transaction(rest) {
+        if record.flags & flag != 0 {
             return true;
         }
-        let len = TX_HEADER + usize::from(u16::from_be_bytes([rest[10], rest[11]]));
-        let Some(tail) = rest.get(len..) else {
-            break;
-        };
         rest = tail;
     }
     false
@@ -604,18 +665,18 @@ pub fn reference_exec(parent_result: &Hash32, payload: &[u8]) -> ExecOutcome {
     }
     let mut input = parent_result.0.to_vec();
     input.extend_from_slice(payload);
-    ExecOutcome::Valid(Hash32(sha256(&input)))
+    crate::testing::valid_execution(Hash32(sha256(&input)))
 }
 
 /// A divergent executor's result (F21): a different commitment for the same input, or
 /// `Invalid` for about half of the blocks (by block hash).
 pub fn divergent_exec(parent_result: &Hash32, payload: &[u8], block_hash: &Hash32) -> ExecOutcome {
     match reference_exec(parent_result, payload) {
-        ExecOutcome::Valid(_) if block_hash.0[0] % 2 == 1 => ExecOutcome::Invalid,
-        ExecOutcome::Valid(r) => {
+        ExecOutcome::Valid { .. } if block_hash.0[0] % 2 == 1 => ExecOutcome::Invalid,
+        ExecOutcome::Valid { result: r, .. } => {
             let mut input = r.0.to_vec();
             input.push(0xd1);
-            ExecOutcome::Valid(Hash32(sha256(&input)))
+            crate::testing::valid_execution(Hash32(sha256(&input)))
         }
         other => other,
     }
@@ -838,12 +899,109 @@ mod tests {
         valid.extend(encode_tx_with_due(6, false, true, 0));
         assert!(matches!(
             reference_exec(&Hash32::ZERO, &valid),
-            ExecOutcome::Valid(_)
+            ExecOutcome::Valid { .. }
         ));
         assert_ne!(
             reference_exec(&Hash32::ZERO, &valid[TIME_RECORD..]),
             reference_exec(&Hash32::ZERO, &valid)
         );
+    }
+
+    #[test]
+    fn transaction_creation_binding_is_exact_and_immutable() {
+        let original = encode_tx_with_due(7, true, true, 3);
+        let bound = bind_tx_creation(&original, 123).expect("one complete transaction");
+        let mut expected = original[..TX_HEADER].to_vec();
+        expected[9] = TX_POISON | TX_DUE | TX_CREATION;
+        expected.extend(123_u64.to_be_bytes());
+        expected.extend([0xab; 3]);
+        assert_eq!(bound, expected);
+        assert_eq!(bind_tx_creation(&bound, 123), Some(bound.clone()));
+        assert_eq!(bind_tx_creation(&bound, 124), None);
+        assert_eq!(bind_tx_creation(&original, u64::MAX), None);
+        assert_eq!(decode_txs(&bound), vec![(7, true)]);
+        assert!(payload_due(&bound));
+        assert_eq!(payload_creation_floor(&bound), Some(124));
+
+        let mut multiple = original.clone();
+        multiple.extend(encode_tx(8, false, 0));
+        assert_eq!(bind_tx_creation(&multiple, 123), None);
+        let mut stamped = encode_time(456).to_vec();
+        stamped.extend(&original);
+        assert_eq!(bind_tx_creation(&stamped, 123), None);
+        for end in 0..original.len() {
+            assert_eq!(bind_tx_creation(&original[..end], 123), None);
+        }
+    }
+
+    #[test]
+    fn payload_creation_floor_uses_only_encoded_original_metadata() {
+        let timeless = encode_tx(1, false, 0);
+        let zero = bind_tx_creation(&encode_tx(2, false, 0), 0).unwrap();
+        let later = bind_tx_creation(&encode_tx_with_due(3, false, true, 2), 99).unwrap();
+        let earlier = bind_tx_creation(&encode_tx(4, false, 1), 44).unwrap();
+        assert_eq!(payload_creation_floor(&[]), Some(0));
+        assert_eq!(payload_creation_floor(&timeless), Some(0));
+        assert_eq!(payload_creation_floor(&zero), Some(1));
+        assert_eq!(payload_creation_floor(&encode_time(u64::MAX)), Some(0));
+
+        let records = [timeless, zero, later, earlier].concat();
+        let mut stamped = encode_time(10_000).to_vec();
+        stamped.extend(&records);
+        for payload in [&records, &stamped] {
+            assert_eq!(payload_creation_floor(payload), Some(100));
+            assert_eq!(
+                decode_txs(payload),
+                vec![(1, false), (2, false), (3, false), (4, false)]
+            );
+            assert!(payload_due(payload));
+        }
+        let latest = bind_tx_creation(&encode_tx(5, false, 0), u64::MAX - 1).unwrap();
+        assert_eq!(payload_creation_floor(&latest), Some(u64::MAX));
+        let first = bind_tx_creation(&encode_tx(6, false, 0), 100).unwrap();
+        let second = bind_tx_creation(&encode_tx(6, false, 0), 101).unwrap();
+        assert_eq!(decode_txs(&first), decode_txs(&second));
+        assert_ne!(
+            reference_exec(&Hash32::ZERO, &first),
+            reference_exec(&Hash32::ZERO, &second),
+            "execution commits the original creation metadata"
+        );
+    }
+
+    #[test]
+    fn creation_parser_refuses_malformed_records_without_scanning_past_them() {
+        let bound = bind_tx_creation(&encode_tx_with_due(9, false, true, 2), 123).unwrap();
+        for end in 1..bound.len() {
+            let truncated = &bound[..end];
+            assert_eq!(payload_creation_floor(truncated), None, "prefix {end}");
+            assert!(decode_txs(truncated).is_empty(), "prefix {end}");
+            assert!(!payload_due(truncated), "prefix {end}");
+        }
+        let mut overflow = bound.clone();
+        overflow[TX_HEADER..TX_HEADER + 8].copy_from_slice(&u64::MAX.to_be_bytes());
+        let mut unknown_flag = bound.clone();
+        unknown_flag[9] |= 0x08;
+        for malformed in [overflow, unknown_flag] {
+            assert_eq!(payload_creation_floor(&malformed), None);
+            assert_eq!(bind_tx_creation(&malformed, 123), None);
+            assert!(decode_txs(&malformed).is_empty());
+            assert!(!payload_due(&malformed));
+        }
+        for end in 1..TIME_RECORD {
+            assert_eq!(payload_creation_floor(&encode_time(4)[..end]), None);
+        }
+        let mut trailing_time = bound.clone();
+        trailing_time.extend(encode_time(4));
+        let mut repeated_time = encode_time(4).to_vec();
+        repeated_time.extend(encode_time(5));
+        let mut garbage = bound;
+        garbage.push(0xff);
+        for malformed in [trailing_time, repeated_time, garbage] {
+            assert_eq!(payload_creation_floor(&malformed), None);
+        }
+        let mut malformed_then_due = vec![0xff];
+        malformed_then_due.extend(encode_tx_with_due(10, false, true, 0));
+        assert!(!payload_due(&malformed_then_due));
     }
 
     #[test]
@@ -867,7 +1025,7 @@ mod tests {
         );
         assert!(matches!(
             reference_exec(&Hash32::ZERO, &[]),
-            ExecOutcome::Valid(_)
+            ExecOutcome::Valid { .. }
         ));
     }
 }

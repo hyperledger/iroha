@@ -195,22 +195,24 @@ mod tests {
             parent_network_id: network,
             dataspace_id: ds,
         };
-        let mut nexus = Nexus::default();
-        nexus.lane_catalog = LaneCatalog::new(
-            nonzero!(1_u32),
-            vec![LaneConfig {
-                dataspace_id: ds,
-                ..LaneConfig::default()
-            }],
-        )
-        .unwrap();
-        nexus.dataspace_catalog = DataSpaceCatalog::new(vec![DataSpaceMetadata {
-            id: ds,
-            alias: "private".into(),
-            description: None,
-            fault_tolerance: 1,
-        }])
-        .unwrap();
+        let mut nexus = Nexus {
+            lane_catalog: LaneCatalog::new(
+                nonzero!(1_u32),
+                vec![LaneConfig {
+                    dataspace_id: ds,
+                    ..LaneConfig::default()
+                }],
+            )
+            .unwrap(),
+            dataspace_catalog: DataSpaceCatalog::new(vec![DataSpaceMetadata {
+                id: ds,
+                alias: "private".into(),
+                description: None,
+                fault_tolerance: 1,
+            }])
+            .unwrap(),
+            ..Default::default()
+        };
         nexus.routing_policy.default_dataspace = ds;
         let world = crate::state::World::new();
         for target in [ds, DataSpaceId::UNIVERSAL, DataSpaceId::new(23)] {
@@ -255,10 +257,12 @@ mod tests {
             if target == ds {
                 assert_eq!(bootstrap.unwrap().decision().dataspace_id, ds);
             } else {
-                assert_eq!(
+                assert!(matches!(
                     bootstrap,
-                    Err(PhysicalPolicyRouteRejection::DataspaceMismatch.into())
-                );
+                    Err(crate::execution_attempt::ExecutionAttemptError::Rejected(
+                        PhysicalPolicyRouteRejection::DataspaceMismatch
+                    ))
+                ));
             }
         }
     }

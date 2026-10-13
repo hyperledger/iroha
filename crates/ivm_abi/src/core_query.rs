@@ -613,7 +613,10 @@ mod tests {
         ];
         for (tag, wire) in expected {
             assert_eq!(tag.as_u64(), wire);
-            assert_eq!(CoreQueryEntityTagV1::try_from(wire), Ok(tag));
+            assert_eq!(
+                (CoreQueryEntityTagV1::try_from(wire)).expect("expected successful fixture result"),
+                tag
+            );
             assert_eq!(bare(&tag), bare(&wire));
         }
         for invalid in [0, 6, u64::MAX] {

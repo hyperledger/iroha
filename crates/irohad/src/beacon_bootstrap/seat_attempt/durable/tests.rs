@@ -195,7 +195,11 @@ fn visible_complete_original_head_is_synced_before_restored_claim_and_publicatio
     assert!(restored.durable.loaded.iter().all(|owner| owner.synced));
     assert!(restored.durable.restored_directory_synced);
     assert!(restored.claim.directory().is_some());
-    assert!(restored.publications[..2].iter().all(|p| p.complete()));
+    assert!(
+        restored.publications[..2]
+            .iter()
+            .all(super::super::publication::PhasePublication::complete)
+    );
     assert_eq!(
         restored.claim_and_fifo_identity().unwrap(),
         original_identity
@@ -422,7 +426,7 @@ fn genuine_later_source_sync_refusal_keeps_all_original_descriptors_bytes_and_un
         "head cannot precede its original sources"
     );
     assert!(matches!(
-        restored.durable.retain_restored_later(2, intent, head),
+        restored.durable.retain_restored_later(2, &intent, &head),
         Err(AttemptError::Binding)
     ));
     assert!(restored.claim.directory().is_none());

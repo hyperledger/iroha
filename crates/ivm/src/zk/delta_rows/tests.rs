@@ -204,25 +204,18 @@ fn foreign_scope_pending_overlap_and_overflow_do_not_change_credit() {
     let original = AllocationBudget::new(LIMIT);
     let foreign = AllocationBudget::new(LIMIT);
     let mut log = DeltaTraceLog::new(Some(&original));
-    assert_eq!(
-        log.prepare_batch(1, 256, 0, None),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(log.prepare_batch(1, 256, 0, None), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );
     foreign.with_deferred_refund_notifications(|scope| {
-        assert_eq!(
-            log.prepare_batch(1, 256, 0, Some(scope)),
-            Err(VMError::ExecutionDeferred(
+        assert!(matches!(log.prepare_batch(1, 256, 0, Some(scope)), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 crate::error::ExecutionDeferral::TraceOwnerUnavailable
-            ))
-        );
-        assert_eq!(
-            log.reset(Some(scope)),
-            Err(VMError::ExecutionDeferred(
+            )));
+        assert!(matches!(log.reset(Some(scope)), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 crate::error::ExecutionDeferral::TraceOwnerUnavailable
-            ))
-        );
+            )));
     });
     assert!(matches!(
         prepare(&mut log, usize::MAX, 256, 256, &original),
@@ -233,9 +226,8 @@ fn foreign_scope_pending_overlap_and_overflow_do_not_change_credit() {
     assert_eq!(original.reserved_bytes(), 0);
     prepare(&mut log, 2, 0, 0, &original).unwrap();
     let before = original.reserved_bytes();
-    assert_eq!(
-        prepare(&mut log, 1, 0, 0, &original),
-        Err(VMError::ExecutionDeferred(
+    assert!(
+        matches!(prepare(&mut log, 1, 0, 0, &original), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
             crate::error::ExecutionDeferral::TraceOwnerUnavailable
         ))
     );

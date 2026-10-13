@@ -22,7 +22,7 @@ use std::{
 
 /// Select a finite wall-clock unlock; eligibility still requires certified replacement
 /// and the complete authenticated evidence/slashing horizon.
-pub(super) fn finite_release_deadline() -> Result<u64> {
+pub fn finite_release_deadline() -> Result<u64> {
     let now = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
     now.checked_add(60_000)
         .ok_or_else(|| eyre!("disposable release timestamp overflow"))
@@ -187,7 +187,7 @@ fn validate_treasury_bond_observation(
 }
 
 /// Retained real stake and the exact obligation committed by its pending request.
-pub(super) struct WithdrawalLifecycle {
+pub struct WithdrawalLifecycle {
     owner: Operator,
     escrow: AssetId,
     destination: AssetId,
@@ -423,7 +423,7 @@ impl WithdrawalLifecycle {
     ) -> Result<()> {
         let after_replacement = self.observe(self.unbond_intent()).await?;
         ensure!(
-            after_replacement.prepared.observed_height >= TARGET_LAST + 1
+            after_replacement.prepared.observed_height > TARGET_LAST
                 && after_replacement.prepared.observed_height
                     < self.pending.liability_release_height,
             "replacement must precede the independently retained evidence horizon"
@@ -535,7 +535,7 @@ impl WithdrawalLifecycle {
 }
 
 /// Quote and sign a fresh transaction; callers authenticate its exact execution output.
-pub(super) async fn submit_signed(
+pub async fn submit_signed(
     client: &Client,
     instruction: InstructionBox,
     applied: bool,
@@ -796,7 +796,7 @@ fn assert_reward_reservation(
 }
 
 /// Schedule a full-bond withdrawal and preserve its authenticated committee liability.
-pub(super) async fn schedule_retained_withdrawal(
+pub async fn schedule_retained_withdrawal(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
     owner: &Operator,

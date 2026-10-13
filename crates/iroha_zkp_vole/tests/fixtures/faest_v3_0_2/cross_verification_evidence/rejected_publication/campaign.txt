@@ -1,0 +1,30 @@
+faest_128s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_128s rust: all verifiers accepted; 16 negatives rejected by each
+faest_128f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_128f rust: all verifiers accepted; 16 negatives rejected by each
+faest_192s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_192s rust: all verifiers accepted; 16 negatives rejected by each
+faest_192f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_192f rust: all verifiers accepted; 16 negatives rejected by each
+faest_256s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_256s rust: all verifiers accepted; 16 negatives rejected by each
+faest_256f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_256f rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_128s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_128s rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_128f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_128f rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_192s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_192s rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_192f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_192f rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_256s upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_256s rust: all verifiers accepted; 16 negatives rejected by each
+faest_em_256f upstream: all verifiers accepted; 16 negatives rejected by each
+faest_em_256f rust: all verifiers accepted; 16 negatives rejected by each
+Traceback (most recent call last):
+  File "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verify_upstream.py", line 258, in <module>
+    main()
+  File "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verify_upstream.py", line 237, in main
+    raise RuntimeError("Rust or driver source changed during campaign")
+RuntimeError: Rust or driver source changed during campaign

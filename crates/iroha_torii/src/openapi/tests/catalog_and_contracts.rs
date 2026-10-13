@@ -38,11 +38,8 @@ fn static_authority_is_the_complete_catalog_projection_with_exact_effects() {
             let methods = item.as_object().expect("static OpenAPI path item");
             ["get", "post", "put", "patch", "delete"]
                 .into_iter()
-                .filter_map(move |method| {
-                    methods
-                        .contains_key(method)
-                        .then(|| (path.clone(), method.to_owned()))
-                })
+                .filter(|&method| methods.contains_key(method))
+                .map(|method| (path.clone(), method.to_owned()))
         })
         .collect();
     assert_eq!(
@@ -499,10 +496,10 @@ fn openapi_operations_equal_the_enabled_catalog_projection() {
         .iter()
         .flat_map(|(path, item)| {
             let item = item.as_object().expect("OpenAPI path item");
-            operation_methods.into_iter().filter_map(move |method| {
-                item.contains_key(method)
-                    .then(|| (path.clone(), method.to_owned()))
-            })
+            operation_methods
+                .into_iter()
+                .filter(|&method| item.contains_key(method))
+                .map(|method| (path.clone(), method.to_owned()))
         })
         .collect();
     let missing: Vec<_> = expected.difference(&actual).cloned().collect();

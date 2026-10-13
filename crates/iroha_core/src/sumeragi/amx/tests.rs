@@ -111,6 +111,7 @@ fn transaction(deadline: u64, nonce: u8) -> AmxTransactionV1 {
             })
             .collect(),
         deadline,
+        expires_at_ms: 1_000_000,
         nonce: [nonce; 32],
     }
 }
@@ -119,7 +120,9 @@ fn yes(tx: &AmxTransactionV1, participant: DataSpaceId) -> AmxRecordV1 {
     AmxRecordV1::Prepared(AmxPreparedV1 {
         tx: tx.id().unwrap(),
         participant,
-        vote: AmxVoteV1::Yes([participant.as_u64() as u8; 32]),
+        vote: AmxVoteV1::Yes(
+            [u8::try_from(participant.as_u64()).expect("fixture value fits u8"); 32],
+        ),
     })
 }
 
@@ -250,8 +253,8 @@ fn sumeragi_amx_deadline_step_aborts_in_the_first_block_after_the_deadline() {
     }
     let expiring = transaction(5, 2);
     let pending = transaction(9, 3);
-    seeded.begin(2, &expiring).unwrap();
-    seeded.begin(2, &pending).unwrap();
+    seeded.begin(2, 2 * 4000, 1_000, &expiring).unwrap();
+    seeded.begin(2, 2 * 4000, 1_000, &pending).unwrap();
     let state = blank_state();
     for (height, expected) in [(5, vec![]), (6, vec![expiring.id().unwrap()])] {
         let mut block = state.block(header(height));
@@ -522,7 +525,7 @@ fn amx_relay_decode_refusal_keeps_original_undecided_record_and_retries_proof() 
             )
             .unwrap();
     }
-    seeded.begin(1, &tx).unwrap();
+    seeded.begin(1, 1 * 4000, 1_000, &tx).unwrap();
     let state = blank_state();
     let mut block = state.block(header(2));
     *block.world.sumeragi_amx.get_mut() = seeded.clone();
@@ -653,7 +656,7 @@ fn amx_deadline_record_refusal_keeps_original_pending_state_and_typed_retry() {
     let second = transaction(5, 22);
     let pending = transaction(9, 23);
     for tx in [&first, &second, &pending] {
-        seeded.begin(2, tx).unwrap();
+        seeded.begin(2, 2 * 4000, 1_000, tx).unwrap();
     }
     let state = blank_state();
     let mut block = state.block(header(6));

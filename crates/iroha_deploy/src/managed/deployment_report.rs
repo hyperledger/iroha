@@ -61,20 +61,22 @@ impl ManagedParentReport {
             ManagedParentObservation::Unavailable { .. } => {
                 "Parent attachment observation is unavailable".into()
             }
-            ManagedParentObservation::Observed { status } => match status.parent_confirmed {
-                Some(confirmed) => format!(
-                    "Historical parent receipt: child block #{} in parent block #{}",
-                    confirmed.child.height, confirmed.parent_height
-                ),
-                None => {
+            ManagedParentObservation::Observed { status } => status.parent_confirmed.map_or_else(
+                || {
                     let phase = if status.stage == ManagedAttachmentPhase::Attached {
                         "awaiting verified receipt"
                     } else {
                         status.stage.as_str()
                     };
                     format!("Parent attachment: {phase}; no verified parent receipt")
-                }
-            },
+                },
+                |confirmed| {
+                    format!(
+                        "Historical parent receipt: child block #{} in parent block #{}",
+                        confirmed.child.height, confirmed.parent_height
+                    )
+                },
+            ),
         }
     }
 }

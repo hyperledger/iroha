@@ -559,40 +559,39 @@ mod tests {
         let mut vm = IVM::new(100);
         vm.load_code(&wide::encode_halt().to_le_bytes()).unwrap();
         let image_bytes = usize::try_from(vm.memory.stack_top()).unwrap();
-        assert_eq!(
-            DiagnosticMemoryAccessRecorder::try_new_with_initial_image(
+        assert!(
+            matches!((&(DiagnosticMemoryAccessRecorder::try_new_with_initial_image(
                 4,
                 image_bytes,
                 &budget_for_initial_image(4, image_bytes - 1),
             )
-            .err(),
-            Some(VMError::ExecutionDeferred(
+            .err()), &(VMError::ExecutionDeferred(
                 ExecutionDeferral::ActiveMemoryCapacity
-            )),
+            ))), (Some(VMError::ExecutionDeferred(__actual_value)), VMError::ExecutionDeferred(__expected_value)) if __actual_value == __expected_value)
         );
-        assert_eq!(
+        assert!(matches!(
             DiagnosticMemoryAccessRecorder::try_new_with_initial_image(
                 4,
                 usize::MAX,
                 &budget_for_initial_image(4, 0),
             )
             .err(),
-            Some(VMError::MemoryOutOfBounds),
-        );
+            Some(VMError::MemoryOutOfBounds)
+        ));
         let budget = budget_for_initial_image(4, image_bytes - 1);
         let accesses =
             DiagnosticMemoryAccessRecorder::try_new_with_initial_image(4, image_bytes - 1, &budget)
                 .unwrap();
         let step_budget = AllocationBudget::new(std::mem::size_of::<DiagnosticStepRecord>());
         let mut steps = DiagnosticStepRecorder::try_new(1, &step_budget).unwrap();
-        assert_eq!(
+        assert!(matches!(
             vm.run_with_host_diagnostic_steps_and_memory(
                 &mut DefaultHost::default(),
                 &mut steps,
                 &accesses,
             ),
-            Err(VMError::HostUnavailable),
-        );
+            Err(VMError::HostUnavailable)
+        ));
         assert!(steps.records().is_empty());
         assert!(accesses.is_empty());
         accesses.with_initial_image(|image| assert!(image.is_none()));
@@ -656,9 +655,8 @@ mod tests {
         memory
             .install_diagnostic_access_recorder(recorder.shared())
             .unwrap();
-        assert_eq!(
-            memory.store_bytes(Memory::OUTPUT_START, &[0xaa, 0xbb]),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(memory.store_bytes(Memory::OUTPUT_START, &[0xaa, 0xbb]), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
@@ -674,9 +672,8 @@ mod tests {
         assert_eq!(memory.output_used_len(), 1);
         recorder.with_records(|rows| assert_eq!(rows[0].after, 0xcc));
         let mut input_cursor = 0;
-        assert_eq!(
-            memory.input_write_aligned(&mut input_cursor, &[0xdd], 8),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(memory.input_write_aligned(&mut input_cursor, &[0xdd], 8), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
@@ -695,9 +692,8 @@ mod tests {
             .install_diagnostic_access_recorder(recorder.shared())
             .unwrap();
         let mut output = [0xa5];
-        assert_eq!(
-            memory.load_bytes(Memory::HEAP_START, &mut output),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(memory.load_bytes(Memory::HEAP_START, &mut output), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
@@ -735,7 +731,10 @@ mod tests {
         recorder.with_records(|rows| {
             assert_eq!(rows[0].privacy_tag, DiagnosticMemoryPrivacyTag::Private)
         });
-        assert_eq!(recorder.begin_run(true), Err(VMError::HostUnavailable));
+        assert!(matches!(
+            recorder.begin_run(true),
+            Err(VMError::HostUnavailable)
+        ));
     }
 
     #[test]
@@ -804,21 +803,18 @@ mod tests {
         vm.memory
             .install_diagnostic_access_recorder(recorder.shared())
             .unwrap();
-        assert_eq!(
-            vm.memory.clear_program_heap(),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(vm.memory.clear_program_heap(), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
-        assert_eq!(
-            vm.memory.clear_output(),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(vm.memory.clear_output(), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
-        assert_eq!(
-            vm.load_code(&[9, 8]),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(vm.load_code(&[9, 8]), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 ExecutionDeferral::ActiveMemoryCapacity
             ))
         );
@@ -965,16 +961,13 @@ mod tests {
         let access_budget = budget_for_rows(3);
         let accesses = DiagnosticMemoryAccessRecorder::try_new(3, &access_budget).unwrap();
 
-        assert_eq!(
-            vm.run_with_host_diagnostic_steps_and_memory(
-                &mut DefaultHost::default(),
-                &mut steps,
-                &accesses,
-            ),
-            Err(VMError::ExecutionDeferred(
-                ExecutionDeferral::ActiveMemoryCapacity
-            ))
-        );
+        assert!(matches!(vm.run_with_host_diagnostic_steps_and_memory(
+            &mut DefaultHost::default(),
+            &mut steps,
+            &accesses,
+        ), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
+            ExecutionDeferral::ActiveMemoryCapacity
+        )));
         assert!(accesses.is_empty());
         assert_eq!(steps.records().len(), 1);
         assert_eq!(steps.records()[0].before, steps.records()[0].after);
@@ -991,10 +984,10 @@ mod tests {
             .install_diagnostic_access_recorder(recorder.shared())
             .unwrap();
 
-        assert_eq!(
+        assert!(matches!(
             memory.diagnostic_record_prepared_fetch(0, u32::from_le_bytes([9, 2, 3, 4])),
             Err(VMError::DecodeError)
-        );
+        ));
         assert!(recorder.is_empty());
         memory
             .diagnostic_record_prepared_fetch(0, u32::from_le_bytes([1, 2, 3, 4]))
@@ -1095,10 +1088,10 @@ mod tests {
                 (vm.memory.code_len() - 3, first_word),
                 (u64::MAX - 2, first_word),
             ] {
-                assert_eq!(
+                assert!(matches!(
                     vm.memory.diagnostic_record_prepared_fetch(pc, word),
                     Err(VMError::DecodeError)
-                );
+                ));
                 assert!(accesses.is_empty());
                 assert!(vm.memory.try_read_log_snapshot().unwrap().is_empty());
             }
@@ -1134,7 +1127,7 @@ mod tests {
                 &recorders.memory_accesses,
             )
             .unwrap();
-            assert_eq!(vm.public_call_result_word(0), Ok(0));
+            assert!(matches!(vm.public_call_result_word(0), Ok(0)));
             assert_eq!(recorders.steps.records()[0].before.pc, first_pc);
             recorders.memory_accesses.with_records(|rows| {
                 let fetched = rows
@@ -1174,7 +1167,10 @@ mod tests {
             .install_diagnostic_access_recorder(recorder.shared())
             .unwrap();
 
-        assert_eq!(decoder::decode(&memory, 0), Ok(word));
+        assert_eq!(
+            (decoder::decode(&memory, 0)).expect("expected successful fixture result"),
+            word
+        );
         assert_eq!(
             memory
                 .try_read_log_snapshot()

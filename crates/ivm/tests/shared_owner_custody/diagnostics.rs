@@ -46,18 +46,22 @@ fn actual_trap_and_local_refusal_capture_make_no_heap_request_at_exhausted_origi
         let refusal = original.try_reserve_bytes(1).unwrap_err();
         original.set_limit_bytes(128 * 1024 * 1024);
         let expected = if local {
-            VMError::AllocationDeferred(refusal)
+            VMError::AllocationDeferred(refusal.clone())
         } else {
             VMError::UnknownSyscall(0x7fff)
         };
         let mut host = ExhaustAtTrap {
             original: original.clone(),
-            error: Some(expected.clone()),
+            error: Some(expected),
         };
         let _observe = ObserveLog;
         let result = vm.run_with_host(&mut host);
         let requests = stop_log_requests();
-        assert_eq!(result, Err(expected));
+        match result {
+            Err(VMError::AllocationDeferred(actual)) if local => assert_eq!(actual, refusal),
+            Err(VMError::UnknownSyscall(0x7fff)) if !local => {}
+            other => panic!("actual trap changed: {other:?}"),
+        }
         assert_eq!(requests, 0, "trap capture and local unwind cannot allocate");
         if local {
             assert!(vm.last_diagnostic().is_none());

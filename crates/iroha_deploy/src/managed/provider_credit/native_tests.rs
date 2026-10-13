@@ -5,6 +5,7 @@
 //! process startup, capacity, provider admission or service eligibility.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::{
         test_support::{
@@ -345,11 +346,8 @@ fn generated_native_initial_credit_preserves_funding_and_original_carrier_during
     } = funded(&prepared);
     let options = options(&intent.policy);
     let retained = original(&coordinator, &intent, &checkpoint);
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("install")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "install").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -631,11 +629,8 @@ fn native_concurrent_initial_credit_cannot_replace_original_absence_guard() {
     } = funded(&prepared);
     let options = options(&intent.policy);
     let retained = original(&coordinator, &intent, &checkpoint);
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("install")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "install").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -836,11 +831,8 @@ fn genuinely_expired_unprepared_initial_credit_retains_original_without_http() {
         checkpoint,
     };
     coordinator.validate_original(&retained).unwrap();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("install")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "install").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -857,8 +849,16 @@ fn genuinely_expired_unprepared_initial_credit_retains_original_without_http() {
         "committed.nrt",
         "transaction/preparation.json",
     ];
-    let request_only_bytes =
-        retained_names.map(|name| std::fs::read(retained.directory().path().join(name)).unwrap());
+    let retained_bytes = |name: &str| {
+        if name == "transaction/preparation.json" {
+            std::fs::read(retained.directory().path().join(name)).unwrap()
+        } else {
+            metadata::test_read_attempt_component(retained.attempt(), name)
+                .unwrap()
+                .expect("retained request-only metadata frame")
+        }
+    };
+    let request_only_bytes = retained_names.map(&retained_bytes);
     let wait_until = Instant::now() + Duration::from_secs(2);
     while now_ms().unwrap() < retained.terms.signing_deadline_unix_ms {
         assert!(
@@ -877,8 +877,7 @@ fn genuinely_expired_unprepared_initial_credit_retains_original_without_http() {
         .unwrap();
         assert_eq!(result.transaction_status, OperationStatus::Expired);
         assert_eq!(
-            retained_names
-                .map(|name| { std::fs::read(retained.directory().path().join(name)).unwrap() }),
+            retained_names.map(&retained_bytes),
             request_only_bytes,
             "expired recovery preserves the exact committed request-only epoch"
         );

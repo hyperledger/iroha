@@ -193,10 +193,10 @@ fn checkpoint_restore_persistence_failure_is_reported_without_panicking() {
 
     fs::remove_dir_all(&store_dir).expect("remove state store directory");
     fs::write(&store_dir, b"block parent directory creation").expect("install blocker file");
-    assert_eq!(
+    assert!(matches!(
         host.restore(snapshot.as_ref()),
         Err(ivm::VMError::NoritoInvalid)
-    );
+    ));
     assert_eq!(host.wsv.sc_get("counter"), Some(b"1".to_vec()));
     assert_eq!(host.caller, original_caller);
     let _ = fs::remove_dir_all(&tmp_dir);

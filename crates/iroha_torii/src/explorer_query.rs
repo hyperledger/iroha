@@ -437,7 +437,7 @@ impl ScanQuery {
     }
 }
 
-pub(super) async fn get(
+pub async fn get(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,
@@ -450,7 +450,7 @@ pub(super) async fn get(
     execute(&app, &headers, remote.ip(), &uri, caller, query).await
 }
 
-pub(super) async fn post(
+pub async fn post(
     State(app): State<SharedAppState>,
     method: Method,
     uri: Uri,
@@ -620,13 +620,23 @@ async fn execute(
         }
         "explorer_transactions" => {
             routing::handle_v1_explorer_transactions_admitted(
-                state, telemetry, visibility, native, None, block, asset, admission,
+                state,
+                telemetry,
+                visibility,
+                native,
+                (None, block, asset),
+                admission,
             )
             .await?
         }
         "explorer_transactions_latest" => {
             routing::handle_v1_explorer_transactions_latest_admitted(
-                state, telemetry, visibility, native, None, block, asset, admission,
+                state,
+                telemetry,
+                visibility,
+                native,
+                (None, block, asset),
+                admission,
             )
             .await?
         }

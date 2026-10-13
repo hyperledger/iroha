@@ -38,7 +38,7 @@ pub fn build_native_stream_token_runtime_v1(
     let invalid = || SignerStreamTokenErrorV1::Operation(SignerOperationErrorV1::InvalidOperation);
     let pins = StreamTokenSignerPinsV1::from_config(
         storage,
-        &state.view().chain_id().to_string(),
+        state.view().chain_id().as_ref(),
         *state.network_id_ref().as_bytes(),
     )
     .map_err(|_| invalid())?

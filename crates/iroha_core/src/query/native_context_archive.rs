@@ -558,9 +558,8 @@ fn open_directory(store_root: &Path, create: bool) -> io::Result<(File, File)> {
 }
 #[cfg(unix)]
 fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
-    use std::os::unix::fs::MetadataExt as _;
-
     use rustix::fs::{AtFlags, Mode, OFlags};
+    use std::os::unix::fs::MetadataExt as _;
     if create {
         match rustix::fs::mkdirat(
             &root,
@@ -581,8 +580,8 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
     let entry = rustix::fs::statat(&root, "native-contexts", AtFlags::SYMLINK_NOFOLLOW)?;
     let actual = directory.metadata()?;
     if !actual.is_dir()
-        || entry.st_dev as u64 != actual.dev()
-        || entry.st_ino as u64 != actual.ino()
+        || crate::kura::unix_device_identity(entry.st_dev) != actual.dev()
+        || entry.st_ino != actual.ino()
     {
         return Err(io::Error::other(
             "native context directory identity changed",
@@ -698,7 +697,9 @@ fn verify_named_file(directory: &File, name: &str, file: &File) -> io::Result<()
     use std::os::unix::fs::MetadataExt as _;
     let named = rustix::fs::statat(directory, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)?;
     let opened = file.metadata()?;
-    if named.st_dev as u64 != opened.dev() || named.st_ino as u64 != opened.ino() {
+    if crate::kura::unix_device_identity(named.st_dev) != opened.dev()
+        || named.st_ino != opened.ino()
+    {
         return Err(io::Error::other("native context record identity changed"));
     }
     Ok(())

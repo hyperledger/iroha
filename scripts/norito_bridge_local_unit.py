@@ -28,6 +28,7 @@ SCHEMA = "iroha.norito-bridge-local-unit-artifact.v1"
 RECORD_SCHEMA = "iroha.norito-bridge-local-unit-producer.v1"
 SCOPE = "local-unit"
 PURPOSE = "macos-swift-debug-unit-tests"
+SOURCE_SCOPE = "verified-compiler-native-runtime-manifest-inputs"
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 TARGETS = {"arm64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"}
 HEADER_INPUTS = {
@@ -141,16 +142,42 @@ def native_policy(root: Path):
             "forbidden": list(apple.EXPECTED_FORBIDDEN_SYMBOLS)}
 
 
+def check_source_record(record: dict):
+    """Validate distinct broad diagnostics and the prospective consumed guard.
+
+    This structural check does not authenticate the selected inventory: admission
+    independently rederives it from complete actual compiler dep-info below.
+    """
+    require(record.get("source_scope") == SOURCE_SCOPE, "source custody scope is absent or differs")
+    before, after = record.get("source_before"), record.get("source_after")
+    require(isinstance(before, dict) and before and isinstance(after, dict) and after,
+            "broad source observations are absent")
+    identity_changes = record.get("source_identity_changes")
+    require(isinstance(identity_changes, list) and all(isinstance(name, str) for name in identity_changes)
+            and identity_changes == sorted(set(identity_changes)), "broad source identity diagnostic differs")
+    require(record.get("source_changes") == sorted(set(source_changes(before, after)) | set(identity_changes)),
+            "broad source diagnostic is absent or relabelled")
+    selected = record.get("consumed_source")
+    require(isinstance(selected, dict) and selected and all(before.get(name) == after.get(name) == sha
+            for name, sha in selected.items()), "consumed source guard failed")
+    first, last = record.get("consumed_identities_before"), record.get("consumed_identities_after")
+    require(isinstance(first, dict) and first.keys() == selected.keys() and first == last
+            and all(isinstance(value, list) and len(value) == 5
+                    and all(type(item) is int for item in value) for value in first.values()),
+            "consumed source identity guard failed")
+    require(not set(identity_changes).intersection(selected), "consumed identity drift was relabelled")
+    return selected
+
+
 def check_record_semantics(emitter: dict, capture: dict, component: dict,
                            emitter_path: Path, emitter_sha: str, target: str):
     """Validate actual record relationships; never promote a compiler fingerprint."""
     require(type(emitter.get("natural_exit")) is int and emitter["natural_exit"] == 0
             and type(emitter.get("finished_unix")) in {int, float} and emitter["finished_unix"] > 0,
             "emitter did not complete successfully")
-    for key in ["capture_errors", "source_changes", "dep_info_errors", "collector_toolchain_changes"]:
+    for key in ["capture_errors", "dep_info_errors", "collector_toolchain_changes"]:
         require(key in emitter and emitter[key] == [], "emitter custody failed: " + key)
-    source = emitter.get("source_after")
-    require(isinstance(source, dict) and source and source == emitter.get("source_before"), "emitter source guard failed")
+    source = check_source_record(emitter)
     require(emitter.get("collector_toolchain_after") == emitter.get("collector_toolchain_before")
             and emitter.get("collector_toolchain_after"), "emitter tool guard failed")
     require(isinstance(emitter.get("dep_info"), list) and emitter["dep_info"], "actual compiler dep-info is absent")
@@ -172,19 +199,9 @@ def check_record_semantics(emitter: dict, capture: dict, component: dict,
     require(capture.get("archive_original") in actual.get("filenames", [])
             and str(capture["archive_original"]).endswith("/libconnect_norito_bridge.a"), "static archive is not the JSON-emitted archive")
     require(capture.get("snapshot_method") == "clonefile-cow", "static capture did not retain an independent COW original")
-    captured_source = capture.get("source_before")
-    require(capture.get("source_changes") == [] and isinstance(captured_source, dict)
-            and captured_source and captured_source == capture.get("source_after")
-            and captured_source.keys() == source.keys(), "static capture source guard differs")
-    static_delta = source_changes(source, captured_source)
-    if static_delta:
-        require(capture.get("upstream_sealed_source_delta") == static_delta,
-                "static endpoint broad source delta is absent or relabelled")
-        require(isinstance(capture.get("documentary_scope_review"), str)
-                and isinstance(capture.get("documentary_scope_review_sha256"), str)
-                and SHA.fullmatch(capture["documentary_scope_review_sha256"])
-                and isinstance(capture.get("original_broad_collector_refusal"), str),
-                "static endpoint original refusal/review data is absent")
+    require(check_source_record(capture) == source
+            and capture["consumed_identities_before"] == emitter["consumed_identities_before"],
+            "static capture consumed source guard differs")
     require(capture.get("finished_unix") and capture["finished_unix"] >= emitter["finished_unix"], "static capture predates emitter closure")
     require(capture.get("native_companion_sha256") == item.get("sha256"), "static archive companion differs")
     require(component.get("emitter_path") == str(emitter_path) and component.get("emitter_sha256") == emitter_sha,
@@ -193,8 +210,9 @@ def check_record_semantics(emitter: dict, capture: dict, component: dict,
             "original ABI component did not pass exact ABI29")
     require(component.get("artifact_path") == item.get("snapshot")
             and component.get("artifact_sha256") == item.get("sha256"), "native component tested a different library")
-    require(component.get("source_before") == source and component.get("source_after") == source,
-            "native component source guard differs")
+    require(check_source_record(component) == source
+            and component["consumed_identities_before"] == emitter["consumed_identities_before"],
+            "native component consumed source guard differs")
     require(component.get("toolchain_before") == component.get("toolchain_after")
             and component.get("toolchain_after"), "native component tool guard differs")
     require(component.get("finished_unix") and component.get("export_count", 0) > 0,
@@ -221,13 +239,29 @@ def source_changes(expected: dict, current: dict):
     return sorted(name for name in expected.keys() | current.keys() if expected.get(name) != current.get(name))
 
 
+def verify_record_source_projections(metadata, root, emitter, capture, component):
+    """Rederive every phase's selected inventory from verified emitted dependencies."""
+    originals = emitter["source_before"]
+    for record in (emitter, capture, component):
+        for boundary in ("source_before", "source_after"):
+            selected = source_custody.consumed_source_projection(metadata, root, originals,
+                                                                record[boundary], emitter["dep_info"])
+            require(selected == record["consumed_source"], "recorded consumed projection differs from actual inputs")
+
+
 def verify_native_inputs(root: Path, base: Path, emitter: dict):
     current = recapture_native(root, base, emitter)
-    changes = source_changes(emitter["source_after"], current)
+    changes = source_changes(emitter["source_before"], current)
     metadata = load(base / "metadata.json", emitter["metadata_sha256"])
-    consumed = source_custody.consumed_source_projection(metadata, root, emitter["source_after"],
+    consumed = source_custody.consumed_source_projection(metadata, root, emitter["source_before"],
                                                        current, emitter["dep_info"])
-    return consumed, {"captured_input_count": len(emitter["source_after"]),
+    require(consumed == emitter["consumed_source"], "current consumed projection differs")
+    for name, expected in emitter["consumed_identities_before"].items():
+        path = Path(name.split(":", 1)[1]) if name.startswith(("registry:", "git:")) else root / name
+        value = regular(path)
+        require([value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns] == expected,
+                "current consumed source identity changed: " + name)
+    return consumed, {"captured_input_count": len(emitter["source_before"]),
                       "current_input_count": len(current), "broad_changed_paths": changes,
                       "scope": "broad original retained; current admission uses complete compiler/runtime/manifest custody"}
 
@@ -272,14 +306,10 @@ def admit(root: Path, pins: dict):
     require(len(e["dep_info"]) == count, "actual Cargo compiler artifacts lack complete dep-info receipts")
     output_root = Path(c["archive_original"]).parent.parent
     require(output_root.is_relative_to(root / "target"), "actual output root is outside the worktree warm lane")
-    source_custody.verify_dep_info(messages, e["dep_info"], root, e["source_after"],
+    source_custody.verify_dep_info(messages, e["dep_info"], root, e["source_before"],
                                   output_root, ep.parent / "dep-info", digest)
     metadata = load(ep.parent / "metadata.json", e["metadata_sha256"])
-    source_custody.consumed_source_projection(metadata, root, e["source_after"],
-                                             c["source_before"], e["dep_info"])
-    if c["source_before"] != e["source_after"]:
-        load(Path(c["documentary_scope_review"]), c["documentary_scope_review_sha256"])
-        load(Path(c["original_broad_collector_refusal"]))
+    verify_record_source_projections(metadata, root, e, c, abi)
     current, broad_diagnostic = verify_native_inputs(root, ep.parent, e)
     return {"pins": pins, "emitter": e, "capture": c, "component": abi,
             "native_source": current, "native_broad_diagnostic": broad_diagnostic,

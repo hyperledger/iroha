@@ -237,10 +237,10 @@ mod tests {
                     completions: Vec::new(),
                 })],
                 committed_fragment_count,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &ExecutionOutputLimits {
                     max_outputs: 16,
                     max_output_bytes: 1024 * 1024,

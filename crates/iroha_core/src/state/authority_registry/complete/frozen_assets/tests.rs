@@ -67,7 +67,7 @@ fn definition(domain: Option<DomainId>) -> AssetDefinition {
     .build(&ALICE_ID)
 }
 fn initial() -> World {
-    let mut world = *fixture::fixture(true);
+    let mut world = fixture::fixture(true);
     world.asset_definitions.insert(
         fixture::definition("spare"),
         AssetDefinition::numeric(
@@ -477,7 +477,7 @@ macro_rules! defect {
 fn all_five_balance_index_defects_reject_either_original_image_before_allocation() {
     for previous in [false, true] {
         for case in 0..15 {
-            let state = state(*fixture::fixture(true));
+            let state = state(fixture::fixture(true));
             if previous {
                 defect!(state.world, tip, case, false);
             }
@@ -564,7 +564,7 @@ macro_rules! source_defect {
 fn matching_image_definition_domain_and_restricted_source_errors_remain_exact() {
     for previous in [false, true] {
         for case in 0..3 {
-            let state = state(*fixture::fixture(true));
+            let state = state(fixture::fixture(true));
             if previous {
                 source_defect!(state.world, tip, case, false);
             }

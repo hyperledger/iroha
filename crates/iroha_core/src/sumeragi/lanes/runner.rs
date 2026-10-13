@@ -417,7 +417,7 @@ impl Inner {
         }
         // Failed store openings never enter `running` or executor recovery. Reconcile the
         // registry itself so their original funded buffers and disk locks retire as well.
-        if cfg!(all(test, sumeragi_core_mutation = "HC281")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC349")) {
             let running = self.running.lock();
             self.inputs.stores.release_retired(&lanes);
             drop(running);

@@ -1,5 +1,9 @@
 // Direct overlay fixtures retain the same consensus header in the journal and immutable query cache.
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the query cache takes ownership of the authenticated fixture header"
+)]
 fn cache_moderation_fixture_header(state: &State, header: BlockHeader) {
     assert_eq!(state.view().latest_block_hash(), Some(header.hash()));
     let now = header.creation_time_ms;
@@ -9,6 +13,10 @@ fn cache_moderation_fixture_header(state: &State, header: BlockHeader) {
         Some(now)
     );
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the fixture transfers its header into the authenticated query cache"
+)]
 fn retain_moderation_fixture_header(state: &mut State, header: BlockHeader) {
     state.push_block_hash_for_testing(header.hash());
     cache_moderation_fixture_header(state, header);

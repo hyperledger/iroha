@@ -3828,14 +3828,10 @@ pub mod connect {
 /// External fraud-risk monitoring defaults.
 pub mod fraud_monitoring {
     use std::time::Duration;
-    /// Enable outbound fraud-monitoring requests.
-    pub const ENABLED: bool = false;
     /// HTTP connect timeout for fraud-monitoring requests.
     pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
     /// Request timeout for fraud-monitoring calls.
     pub const REQUEST_TIMEOUT: Duration = Duration::from_millis(1_500);
-    /// Maximum grace period to tolerate missing fraud assessments (seconds).
-    pub const MISSING_ASSESSMENT_GRACE_SECS: u64 = 0;
 }
 /// Telemetry export defaults.
 pub mod telemetry {

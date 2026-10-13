@@ -40,27 +40,27 @@ impl SelectedStage {
     pub(super) fn select(
         stage: Stage,
         original: &original::Original,
-        state: &VerifiedReserveAccountStateV1,
+        account_state: &VerifiedReserveAccountStateV1,
         verifier: &FinalityVerifier,
         minimum_height: u64,
     ) -> Result<Self> {
         let tip = verifier
             .verified_tip()
             .map_err(|_| invalid("funding child requires selected certified state"))?;
-        let partition = state
+        let partition = account_state
             .current()
             .ok_or_else(|| invalid("funding child requires its native reserve partition"))?;
         encode(partition, provider_economics::MAX_PARTITION_BYTES)?;
-        if state.height() < minimum_height
-            || state.network_id() != original.network_id
+        if account_state.height() < minimum_height
+            || account_state.network_id() != original.network_id
             || verifier.checkpoint().network_id() != original.network_id
-            || state.height() != tip.height()
-            || state.context_id() != tip.context_id()
-            || state.block_time_ms() != tip.header().creation_time_ms
-            || state.policy().policy != original.policy
-            || state.pricing() != &original.pricing
-            || state.credit().is_some()
-            || state.capacity().is_some()
+            || account_state.height() != tip.height()
+            || account_state.context_id() != tip.context_id()
+            || account_state.block_time_ms() != tip.header().creation_time_ms
+            || account_state.policy().policy != original.policy
+            || account_state.pricing() != &original.pricing
+            || account_state.credit().is_some()
+            || account_state.capacity().is_some()
         {
             return Err(invalid(
                 "funding child native predecessor changed or predates its carrier",

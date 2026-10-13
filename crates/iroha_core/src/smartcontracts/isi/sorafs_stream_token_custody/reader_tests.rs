@@ -553,7 +553,7 @@ fn independent_custody_projection_proves_absence_then_exact_native_configuration
     let absent =
         StreamTokenCustodyProofV1::decode_frame(&publish(&absent_tip, provider, &budget).unwrap())
             .unwrap();
-    let verified = verifier
+    let authenticated = verifier
         .verify(&crate::sumeragi::finality::build_proof(&state.view(), 2).unwrap())
         .unwrap();
     assert!(
@@ -564,7 +564,7 @@ fn independent_custody_projection_proves_absence_then_exact_native_configuration
                 &owner,
                 &policy.binding,
                 State::native_world_schema_hash_v1().unwrap(),
-                &verified
+                &authenticated
             )
             .unwrap()
             .current()
@@ -592,7 +592,7 @@ fn independent_custody_projection_proves_absence_then_exact_native_configuration
     let current =
         StreamTokenCustodyProofV1::decode_frame(&publish(&current_tip, provider, &budget).unwrap())
             .unwrap();
-    let verified = verifier
+    let authenticated = verifier
         .verify(&crate::sumeragi::finality::build_proof(&state.view(), 3).unwrap())
         .unwrap();
     let current = current
@@ -602,7 +602,7 @@ fn independent_custody_projection_proves_absence_then_exact_native_configuration
             &owner,
             &policy.binding,
             State::native_world_schema_hash_v1().unwrap(),
-            &verified,
+            &authenticated,
         )
         .unwrap();
     let current = current.current().unwrap();

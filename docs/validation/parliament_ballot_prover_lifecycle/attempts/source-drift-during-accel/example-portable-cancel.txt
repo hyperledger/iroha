@@ -1,0 +1,1 @@
+{"fixture_only":true,"profile_qualified":false,"backend":"portable","row":"candidate","role":"registration","mode":"cancel","outcome":"proved_and_discarded","released_proof_bytes":0,"elapsed_ms":397.948708,"cancellation_after_completion":"TooLate","stack_request_bytes":8388608,"whole_secret_erasure_qualified":false}

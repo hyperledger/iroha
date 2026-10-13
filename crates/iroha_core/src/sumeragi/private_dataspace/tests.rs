@@ -408,7 +408,7 @@ fn private_profile_resource_refusal_retains_instruction_attempt_and_invalid_does
                 .contains("local instruction read did not complete")
         );
         let retained = transaction
-            .execution_deferral()
+            .borrow_execution_deferral()
             .expect("original typed refusal retained");
         assert_eq!(retained.reason(), expected);
         assert!(
@@ -425,6 +425,6 @@ fn private_profile_resource_refusal_retains_instruction_attempt_and_invalid_does
         &mut transaction,
     );
     assert!(error.to_string().contains("invalid original"));
-    assert!(transaction.execution_deferral().is_none());
+    assert!(transaction.borrow_execution_deferral().is_none());
     assert!(transaction.world.private_dataspaces().records().is_empty());
 }

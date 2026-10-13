@@ -51,7 +51,7 @@ where
 }
 
 /// Send one WebSocket message under an absolute operation deadline.
-pub(crate) async fn send_message_with_timeout<S>(
+pub async fn send_message_with_timeout<S>(
     sink: &mut S,
     timeout: Duration,
     message: Message,

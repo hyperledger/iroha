@@ -49,7 +49,7 @@ fn private_input_index_rejects_high_bits_without_usize_truncation() {
     vm.set_register(11, PrivateInputKindV1::Int.tag());
     vm.load_program(&private_input_program())
         .expect("load private-input program");
-    assert_eq!(vm.run(), Err(VMError::PermissionDenied));
+    assert!(matches!(vm.run(), Err(VMError::PermissionDenied)));
 }
 #[test]
 fn wrong_requested_kind_fails_before_private_heap_allocation() {
@@ -59,7 +59,7 @@ fn wrong_requested_kind_fails_before_private_heap_allocation() {
     vm.set_register(11, PrivateInputKindV1::Decimal.tag());
     vm.load_program(&private_input_program())
         .expect("load private-input program");
-    assert_eq!(vm.run(), Err(VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(
         vm.alloc_heap(1).expect("probe untouched heap"),
         Memory::HEAP_START
@@ -80,7 +80,7 @@ fn malformed_bounded_record_is_metered_and_fails_before_allocation() {
     vm.set_register(11, PrivateInputKindV1::Int.tag());
     vm.load_program(&private_input_program())
         .expect("load private-input program");
-    assert_eq!(vm.run(), Err(VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(
         vm.alloc_heap(1).expect("probe untouched heap"),
         Memory::HEAP_START
@@ -94,7 +94,7 @@ fn unaffordable_private_input_does_not_decode_or_allocate() {
     vm.set_register(11, PrivateInputKindV1::Int.tag());
     vm.load_program(&private_input_program())
         .expect("load private-input program");
-    assert_eq!(vm.run(), Err(VMError::OutOfGas));
+    assert!(matches!(vm.run(), Err(VMError::OutOfGas)));
     assert_eq!(
         vm.alloc_heap(1).expect("probe untouched heap"),
         Memory::HEAP_START

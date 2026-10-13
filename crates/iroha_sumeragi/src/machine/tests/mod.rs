@@ -348,7 +348,7 @@ impl H {
                             queue.push_back(Event::Executed {
                                 block_hash: bh,
                                 req: *req,
-                                outcome: ExecOutcome::Valid(result_of(block)),
+                                outcome: crate::testing::valid_execution(result_of(block)),
                             });
                         } else {
                             self.pending_exec.push((bh, *req, block.clone()));
@@ -593,7 +593,7 @@ impl H {
             all.extend(self.fire(Event::Executed {
                 block_hash: bh,
                 req,
-                outcome: ExecOutcome::Valid(result_of(&block)),
+                outcome: crate::testing::valid_execution(result_of(&block)),
             }));
         }
         all

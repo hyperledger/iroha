@@ -1430,7 +1430,10 @@ mod tests {
 
     #[test]
     fn owned_vector_growth_rejects_unrepresentable_capacity_before_reserving() {
-        assert_eq!(owned_vec_growth::<u64>(0), Ok((4, 32)));
+        assert_eq!(
+            (owned_vec_growth::<u64>(0)).expect("expected successful fixture result"),
+            (4, 32)
+        );
         assert_eq!(
             owned_vec_growth::<u64>(usize::MAX),
             Err(OwnedVecGrowthError::CapacityOverflow)

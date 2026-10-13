@@ -142,7 +142,7 @@ fn parity<T>(
     let expected = seed().unwrap();
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let names = directory.entries(2).unwrap();
     let bytes = directory.read("operation.lock", 4096).unwrap();
     assert!(
@@ -302,7 +302,7 @@ fn native_boundary<T>(
     let expected = seed().unwrap();
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let bytes = directory.read("operation.lock", 4096).unwrap();
     assert!(borrowed().is_err());
     #[cfg(unix)]
@@ -353,10 +353,10 @@ fn native_boundary<T>(
         mark.set(true);
         match directory_for_hook.open_existing_lock("operation.lock") {
             Ok(lock) => assert!(lock.try_lock().is_err()),
-            Err(error) => {
-                assert!(cfg!(windows));
-                assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-            }
+            #[cfg(windows)]
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            #[cfg(not(windows))]
+            Err(error) => panic!("retained operation lock must open: {error}"),
         }
         generation_for_hook
             .write_atomic("peer3.toml", &changed, PublishMode::Replace)
@@ -370,7 +370,7 @@ fn native_boundary<T>(
         .unwrap();
     let retry = seed().unwrap();
     assert_eq!(retry.directory.identity().unwrap(), identity);
-    assert_eq!(FileIdentity::of(&retry._lock).unwrap(), lock_identity);
+    assert_eq!(FileIdentity::of(&retry.lock).unwrap(), lock_identity);
     retry.validate_profile().unwrap();
     drop(retry);
     drop(borrowed().unwrap());
@@ -615,7 +615,7 @@ fn check_admission<T>(
         admit(&fixture.run(
             Mode::Advance,
             Some(&authorization),
-            Instant::now() - Duration::from_secs(1)
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap()
         ))
         .err()
         .unwrap(),

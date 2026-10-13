@@ -72,7 +72,7 @@ fn wsv_host_json_decode_rejects_retired_blob_carrier() {
     let prog = common::assemble_syscalls(&[syscalls::SYSCALL_JSON_DECODE as u8]);
     vm.set_register(10, p_blob);
     vm.load_program(&prog).expect("load program");
-    assert_eq!(vm.run(), Err(VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(vm.register(10), p_blob);
 }
 #[test]
@@ -153,7 +153,7 @@ fn wsv_host_schema_unknown_and_malformed_inputs_fail_closed() {
     vm.set_register(10, p_schema);
     vm.set_register(11, p_json);
     vm.load_program(&enc_prog).expect("load program");
-    assert_eq!(vm.run(), Err(VMError::NoritoInvalid));
+    assert!(matches!(vm.run(), Err(VMError::NoritoInvalid)));
     assert_eq!(vm.register(10), p_schema);
     assert_eq!(vm.register(11), p_json);
     let encoded = norito::to_bytes(&expected).expect("encode adversarial generic JSON");
@@ -173,7 +173,7 @@ fn wsv_host_schema_unknown_and_malformed_inputs_fail_closed() {
         vm.set_register(10, p_schema);
         vm.set_register(11, p_blob_in);
         vm.load_program(&dec_prog).expect("load program");
-        assert_eq!(vm.run(), Err(VMError::NoritoInvalid));
+        assert!(matches!(vm.run(), Err(VMError::NoritoInvalid)));
         assert_eq!(vm.register(10), p_schema);
         assert_eq!(vm.register(11), p_blob_in);
     }

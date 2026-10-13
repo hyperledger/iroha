@@ -135,6 +135,7 @@ pub mod prover;
 #[cfg(test)]
 mod test_circuits;
 pub mod transcript;
+pub mod verification_attempt;
 pub mod verifier;
 
 pub use check::{CheckFailure, CheckMode, CheckReport};
@@ -173,3 +174,8 @@ mod cancellation_integration_tests;
 
 #[cfg(test)]
 mod captured_goldens;
+
+/// Canonical local verification attempt owners, shared by native consumers and the VM.
+pub use verification_attempt::{
+    NativeVerifierInitError, VerificationAttemptError, VerificationRefusal, VerificationRefusalKind,
+};

@@ -21,13 +21,13 @@ pub(crate) trait OriginalRead<'a>: EligibilityRead + Copy {
     /// Original consecutive degraded-finality count.
     fn degraded_run(self) -> u32;
     /// Exact retained generation, including its version-local lifecycle scalars.
-    fn generation(self, number: &u64) -> Option<&'a RetainedSccpGeneration>;
+    fn generation(self, number: u64) -> Option<&'a RetainedSccpGeneration>;
     /// All original generations in canonical key order, without allocation.
     fn generations(self) -> impl Iterator<Item = (&'a u64, &'a RetainedSccpGeneration)>;
     /// Original open anchor chunk.
     fn anchor_open(self) -> &'a [SccpAnchorV1];
     /// Original closed anchor chunk commitment.
-    fn anchor_chunk(self, number: &u64) -> Option<&'a [u8; 32]>;
+    fn anchor_chunk(self, number: u64) -> Option<&'a [u8; 32]>;
 }
 
 impl<'a, W: WorldReadOnly + ?Sized> OriginalRead<'a> for Current<'a, W> {
@@ -40,8 +40,8 @@ impl<'a, W: WorldReadOnly + ?Sized> OriginalRead<'a> for Current<'a, W> {
     fn degraded_run(self) -> u32 {
         *store::degraded_run::get(self.0)
     }
-    fn generation(self, number: &u64) -> Option<&'a RetainedSccpGeneration> {
-        store::committee_generations::get(self.0, number)
+    fn generation(self, number: u64) -> Option<&'a RetainedSccpGeneration> {
+        store::committee_generations::get(self.0, &number)
     }
     fn generations(self) -> impl Iterator<Item = (&'a u64, &'a RetainedSccpGeneration)> {
         store::committee_generations::iter(self.0)
@@ -49,8 +49,8 @@ impl<'a, W: WorldReadOnly + ?Sized> OriginalRead<'a> for Current<'a, W> {
     fn anchor_open(self) -> &'a [SccpAnchorV1] {
         store::anchor_open::get(self.0).as_slice()
     }
-    fn anchor_chunk(self, number: &u64) -> Option<&'a [u8; 32]> {
-        store::anchor_chunks::get(self.0, number)
+    fn anchor_chunk(self, number: u64) -> Option<&'a [u8; 32]> {
+        store::anchor_chunks::get(self.0, &number)
     }
 }
 
@@ -64,8 +64,8 @@ impl<'a> OriginalRead<'a> for TransactionParent<'a, '_, '_> {
     fn degraded_run(self) -> u32 {
         *self.0.sccp_degraded_run.get_before_block()
     }
-    fn generation(self, number: &u64) -> Option<&'a RetainedSccpGeneration> {
-        self.0.sccp_committee_generations.get_before_block(number)
+    fn generation(self, number: u64) -> Option<&'a RetainedSccpGeneration> {
+        self.0.sccp_committee_generations.get_before_block(&number)
     }
     fn generations(self) -> impl Iterator<Item = (&'a u64, &'a RetainedSccpGeneration)> {
         self.0.sccp_committee_generations.iter_before_block()
@@ -73,8 +73,8 @@ impl<'a> OriginalRead<'a> for TransactionParent<'a, '_, '_> {
     fn anchor_open(self) -> &'a [SccpAnchorV1] {
         self.0.sccp_anchor_open.get_before_block().as_slice()
     }
-    fn anchor_chunk(self, number: &u64) -> Option<&'a [u8; 32]> {
-        self.0.sccp_anchor_chunks.get_before_block(number)
+    fn anchor_chunk(self, number: u64) -> Option<&'a [u8; 32]> {
+        self.0.sccp_anchor_chunks.get_before_block(&number)
     }
 }
 

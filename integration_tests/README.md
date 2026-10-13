@@ -12,6 +12,7 @@ This crate hosts cross-component tests for Iroha.
   - `consensus_and_da`
   - `sumeragi`
   - `sumeragi_lanes`
+  - `sccp_lanes`
   - `sumeragi_npos_committee_transition`
   - `nexus_and_streaming`
 - Sumeragi on real peers: `cargo test -p integration_tests --test sumeragi` and
@@ -19,6 +20,7 @@ This crate hosts cross-component tests for Iroha.
   behavior are covered by the deterministic simulator
   (`cargo test -p iroha_sumeragi --features sim`, `specs/sumeragi.md` §13).
 - Target a harness directly with `cargo test -p integration_tests --test <harness>`.
+- Native SCCP genesis and finality: `cargo test -p integration_tests --test sccp_lanes -- --nocapture` requires four production validator processes, genuine NPoS registrations before SCCP initialization, an ordinary committed transaction and the same certified SCCP result on every peer, each authenticated against signed genesis with an exact quorum. It also rejects a privileged SCCP proposal while the qualified Parliament ballot is unavailable. No `parliament-test-signers` feature is used; this smoke test does not qualify an external value corridor. After success it exports only public signed genesis, the initial generation and an original live certificate to `target/sccp-continuation/live-fourpeer-sccp.json` for independent destination checkpoint replay.
 - Native payment receipt and customer credit: `cargo test -p integration_tests --test core_api native_payment_receipt:: -- --nocapture` joins actual Core execution and nonzero fees to independently genesis-pinned SDK verification and the durable bank inbox/outbox. It covers distinct carriers for one payer-owned intent, insufficient funds, rejection of the duplicate as a successful receipt, recovery after certified replay, and credit recovery at the final block without successor traffic. A separately finalized full return uses one receiver-owned identity across gateways and restart, charges once, and preserves the original successful receipt. Its four fixture validators certify execution in process; it does not qualify a deployed four-peer network.
 - Real native payment recovery: `cargo test -p integration_tests --test core_api native_payment_network:: -- --nocapture` requires four live validator processes, a funded payer and a nonzero fee. It restarts all validators and the payment/inbox owners, reauthenticates the final payment from independent genesis pins, retries from a second gateway journal and checks one monetary effect and one customer credit without producing a successor block. A skipped network startup fails this acceptance scenario.
 - The explicit KAGEMUSHA network setup exporter is
@@ -98,6 +100,57 @@ This crate hosts cross-component tests for Iroha.
 - `scripts/run_full_tests.sh` now reuses the workspace-built `iroha3d`, `iroha`, and `kagami` binaries when they are available and isolates the integration-test permit directory by default.
 - For WSL or memory-constrained VMs, first size WSL memory/swap/host disk headroom appropriately; use `scripts/run_full_tests.sh --wsl-safe --target-dir /tmp/iroha-wsl-tests` only when you still need a conservative local run. This mode runs non-integration workspace tests one package at a time, sets `CARGO_INCREMENTAL=0`, serializes network tests, writes resource snapshots to `<target-dir>/run_full_tests_resources.log`, and refuses to start the next Cargo step when `MemAvailable` is below `4096` MiB unless overridden with `--min-available-mib`.
 - For faster local full runs, `scripts/run_full_tests.sh --fast` routes all cargo calls through `scripts/cargo_fast.sh`; add `--fast-zero-debug` and `--no-incremental` when you want the more aggressive local-throughput mode.
+
+### Autonomous two-bank AMX acceptance
+
+The ignored `core_api` tests in `native_amx_network` require twelve actual
+validators: one Global root and two independently signed bank roots. They use
+distinct USD/EUR asset definitions, debit keys, and funded relay keys. Setup
+submits explicit owner consent and one final Begin; the supervised daemon owns
+all Prepare, Prepared, Expire and Settle carriers. Exact successful carriers,
+Global decisions, paid fees and bank principal/escrow balances are verified from
+independent signed-genesis pins. The fixture deliberately selects Nexus-only fees:
+Global genesis commits empty PipelineGas asset/rate lists with a positive Nexus
+base fee, while bank genesis commits a positive Nexus per-gas rate. Every carrier
+signs the same finite Nexus-only cap. At the quiescent tips, the tests authenticate
+every charged receipt, every seeded fee-account balance and the total burned supply
+against the complete certified World cut. Genesis explicitly grants the test reader
+the existing full-ledger read permission; HTTP/query responses alone are not evidence.
+The tests currently require network qualification;
+source presence and component tests do not establish this result.
+
+Build the same-source daemon first. Run with an isolated permit directory and
+three available network slots; the tests fail immediately when the permit
+prerequisite is absent. They never change process-global environment settings or
+skip failed startup:
+
+```sh
+scripts/cargo_fast.sh --stable-local-metadata --incremental -- build -p irohad --bin iroha3d
+amx_run=$(mktemp -d)
+mkdir "$amx_run/permits" "$amx_run/networks"
+env -u IROHA_TEST_SERIALIZE_NETWORKS \
+  IROHA_TEST_NETWORK_PARALLELISM=3 \
+  IROHA_TEST_NETWORK_PERMIT_DIR="$amx_run/permits" \
+  TEST_NETWORK_TMP_DIR="$amx_run/networks" IROHA_TEST_NETWORK_KEEP_DIRS=1 \
+  TEST_NETWORK_BIN_IROHAD="$PWD/target/debug/iroha3d" \
+  IROHA_TEST_SKIP_BUILD=1 IROHA_TEST_REQUIRE_NETWORK=1 \
+  scripts/cargo_fast.sh --stable-local-metadata --incremental -- \
+  test -p integration_tests --test core_api native_amx_network:: \
+  -- --ignored --test-threads=1 --nocapture
+```
+
+The isolated network directory preserves peer logs and prevents this run's
+temporary-directory pruning from touching another test's files.
+
+The healthy case restarts all twelve validators and the relay journals at the
+final quiescent tips, rechecks the exact settlement carriers and requires no
+successor blocks. The silent-bank case stops all four bank B validators after
+owner consent while leaving its delivery route configured. It verifies bank A's Yes on Global before
+expiry, restarts the Global service before the signed time boundary, and requires
+the original Abort to come from its actual paid Expire carrier below the height
+deadline despite B's unavailable transport. It verifies the original escrow refund,
+then restarts bank B and requires delivery of that same decision. No unrelated
+transaction or empty block advances either test. Epoch handoff network qualification remains separate.
 
 ## Fixtures
 
@@ -358,3 +411,16 @@ Use the same-source Parliament daemon and ordinary CLI artifacts described above
 sequencer and reputation deployment adapters remain separate qualification.
 Source and unit-test presence do not establish successful network qualification;
 the lifecycle and governed revocation tests must both run successfully.
+
+### Paid linked full return at the final block
+
+The ignored `native_payment_network::full_return::paid_full_return_preserves_original_and_recovers_both_at_final_tip_without_new_effect` case uses four real validators. The payer's 250,000-unit original succeeds at H2; the receiver's linked full reverse succeeds at H3 with its own fee. All four processes restart at H3. Fresh signed-genesis verifiers recover both original successful inputs, a new return gateway recovers the same reverse without creating a signed carrier, and the two durable inbox identities remain once-only. Complete account snapshots establish the returned receiver principal is absent; query errors do not mean zero. The fee supply must be exactly genesis 300 minus two independently verified one-unit burns.
+
+Use the same-source immutable daemon/core_api candidate, an isolated permit/network directory, `IROHA_TEST_NETWORK_KEEP_DIRS=1`, and `--exact --ignored --test-threads=1 --nocapture`. Workflow and inbox custody is under each retained `network.env_dir()/linked-return-workflows` directory so failures preserve the original recovery records. This test submits only the original payment and its linked reverse; it does not create successor traffic for recovery.
+
+The ignored four-validator payment rejection control is
+`native_payment_network::rejected_payment::included_rejected_payment_never_credits_customer_across_restart_and_explicit_gateway_retry`.
+Use the same immutable daemon, isolated permit directory and `IROHA_TEST_NETWORK_KEEP_DIRS=1` as the native-payment cases,
+then run `cargo test -p integration_tests --test core_api native_payment_network::rejected_payment:: -- --ignored --nocapture --test-threads=1`.
+It authenticates an included insufficient-principal rejection at H2, restarts all validators and recovers at that final tip without credit or new work.
+A missing-journal resume refuses to sign without explicit authorization. A deliberately requested fresh-gateway submit is a separate paid H3 rejected attempt: the test explicitly distinguishes read-only recovery from retry authorization and does not promise exactly-once rejection fees.

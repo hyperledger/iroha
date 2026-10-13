@@ -9,6 +9,10 @@ mod backend;
 #[cfg(test)]
 mod captured;
 mod relation;
+use crate::native_pipa_r::NativeVerificationError;
+use crate::{VerificationAttemptError, VerificationRefusal};
+pub(crate) use backend::NativeProverError;
+use iroha_plonk::verification_attempt::NativeVerifierInitError;
 pub(crate) use relation::Kind;
 use relation::{Input, NativeCircuit, Opening, Output};
 
@@ -578,18 +582,30 @@ impl Kind {
         }
     }
 }
-pub(crate) fn key_bytes(kind: Kind) -> Result<&'static [u8], String> {
+pub(crate) fn key_bytes(kind: Kind) -> Result<&'static [u8], NativeVerifierInitError> {
     Ok(kind.verifier()?.key_bytes())
 }
-pub(crate) fn proof_length(kind: Kind) -> Result<usize, String> {
+pub(crate) fn proof_length(kind: Kind) -> Result<usize, NativeVerifierInitError> {
     Ok(kind.verifier()?.proof_length())
 }
-pub(crate) fn verify(kind: Kind, public: &[[u8; 32]], proof: &[u8]) -> Result<(), String> {
-    kind.verifier()?.verify(public, proof)
+pub(crate) fn verify(
+    kind: Kind,
+    public: &[[u8; 32]],
+    proof: &[u8],
+) -> Result<(), VerificationAttemptError<NativeVerificationError>> {
+    let verifier = kind.verifier().map_err(|error| {
+        VerificationAttemptError::Deferred(VerificationRefusal::initialization(error))
+    })?;
+    verifier.verify(public, proof).map_err(|error| {
+        iroha_plonk::verification_attempt::native_verification_error(
+            error,
+            NativeVerificationError::Proof,
+        )
+    })
 }
 pub(super) fn verifying_key(
     kind: Kind,
-) -> Result<iroha_data_model::proof::VerifyingKeyBox, String> {
+) -> Result<iroha_data_model::proof::VerifyingKeyBox, NativeVerifierInitError> {
     Ok(iroha_data_model::proof::VerifyingKeyBox::new(
         crate::native_pipa_r::BACKEND.to_owned(),
         key_bytes(kind)?.to_vec(),
@@ -598,14 +614,23 @@ pub(super) fn verifying_key(
 pub(super) fn validate_key(
     kind: Kind,
     key: &iroha_data_model::proof::VerifyingKeyBox,
-) -> Result<(), String> {
+) -> Result<(), VerificationAttemptError<NativeVerificationError>> {
     if key.backend != crate::native_pipa_r::BACKEND
         || (key.bytes.is_empty() || key.bytes.len() > crate::native_pipa_r::MAX_KEY_BYTES)
     {
-        return Err("invalid native confidential key backend or length".into());
+        return Err(NativeVerificationError::Invalid(
+            "invalid native confidential key backend or length",
+        )
+        .into());
     }
-    if key.bytes != key_bytes(kind)? {
-        return Err("foreign native confidential compiled key".into());
+    if key.bytes
+        != key_bytes(kind).map_err(|error| {
+            VerificationAttemptError::Deferred(VerificationRefusal::initialization(error))
+        })?
+    {
+        return Err(
+            NativeVerificationError::Invalid("foreign native confidential compiled key").into(),
+        );
     }
     Ok(())
 }
@@ -613,39 +638,41 @@ fn prove<const MODE: u8>(
     kind: Kind,
     circuit: NativeCircuit<MODE, 16>,
     columns: Vec<Vec<Fp>>,
-) -> Result<iroha_data_model::zk::NativePipaRProofV1, String> {
+) -> Result<iroha_data_model::zk::NativePipaRProofV1, NativeProverError> {
     // Host builders supply the application order as singleton values. The
     // native relation has exactly one public column in that same order.
     if columns.len() != kind.rows() || columns.iter().any(|column| column.len() != 1) {
-        return Err("invalid confidential public statement shape".into());
+        return Err(NativeProverError::Input(
+            "invalid confidential public statement shape".into(),
+        ));
     }
     let public = columns.into_iter().flatten().collect();
     let opening = circuit
         .opening
-        .ok_or_else(|| "missing confidential witness".to_owned())?;
+        .ok_or_else(|| NativeProverError::Input("missing confidential witness".to_owned()))?;
     kind.prover()?.prove(opening, public)
 }
 pub(super) fn prove_transfer(
     witness: ConfidentialTransferWitnessV2,
     public: Vec<Vec<Fp>>,
-) -> Result<iroha_data_model::zk::NativePipaRProofV1, String> {
-    let circuit = transfer::<16>(&witness)?;
+) -> Result<iroha_data_model::zk::NativePipaRProofV1, NativeProverError> {
+    let circuit = transfer::<16>(&witness).map_err(NativeProverError::Input)?;
     drop(witness);
     prove(Kind::Transfer, circuit, public)
 }
 pub(super) fn prove_full(
     witness: ConfidentialUnshieldWitnessV2,
     public: Vec<Vec<Fp>>,
-) -> Result<iroha_data_model::zk::NativePipaRProofV1, String> {
-    let circuit = full::<16>(&witness)?;
+) -> Result<iroha_data_model::zk::NativePipaRProofV1, NativeProverError> {
+    let circuit = full::<16>(&witness).map_err(NativeProverError::Input)?;
     drop(witness);
     prove(Kind::Full, circuit, public)
 }
 pub(super) fn prove_change(
     witness: ConfidentialUnshieldWitnessV3,
     public: Vec<Vec<Fp>>,
-) -> Result<iroha_data_model::zk::NativePipaRProofV1, String> {
-    let circuit = change::<16>(&witness)?;
+) -> Result<iroha_data_model::zk::NativePipaRProofV1, NativeProverError> {
+    let circuit = change::<16>(&witness).map_err(NativeProverError::Input)?;
     drop(witness);
     prove(Kind::Change, circuit, public)
 }

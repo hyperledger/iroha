@@ -50,7 +50,7 @@ pub(super) fn handle<I>(
     store: &LiveQueryStoreHandle,
     authority: &AccountId,
     gas_budget: Option<u64>,
-    mut stats: QueryExecutionStats,
+    mut execution_stats: QueryExecutionStats,
 ) -> Result<QueryOutput, Error>
 where
     I: Iterator,
@@ -95,7 +95,7 @@ where
     // server-owned frame ceiling before publishing it; the wire encoder enforces that same ceiling.
     // This deliberately conservative charge shares the source budget, including empty/short pages.
     let budget = Some(ordinary.execution_budget());
-    stats.record_precomputed_bytes(ordinary.max_response_bytes(), budget)?;
+    execution_stats.record_precomputed_bytes(ordinary.max_response_bytes(), budget)?;
     let page_bytes = ordinary
         .max_page_items()
         .checked_mul(ordinary.max_source_item_bytes())
@@ -120,7 +120,7 @@ where
             Error::GasBudgetExceeded => Error::CapacityLimit,
             error => error,
         })?;
-        stats.record_preflighted_item(bytes, budget)?;
+        execution_stats.record_preflighted_item(bytes, budget)?;
         retained_bytes = retained_bytes
             .checked_add(bytes)
             .ok_or(Error::CapacityLimit)?;
@@ -333,7 +333,7 @@ mod tests {
         let state = state(&expected, handle.clone());
         let view = state.view();
         for (limit, has_more, items) in [(None, true, 4), (Some(1), false, 2)] {
-            let (QueryResponse::Iterable(output), stats) =
+            let (QueryResponse::Iterable(output), execution_stats) =
                 request(ordinary(65536, 1, 4096), params(limit))
                     .execute_ephemeral_with_stats(&handle, &view, &ALICE_ID, None)
                     .expect("ephemeral account adapter")
@@ -343,7 +343,7 @@ mod tests {
             assert_eq!(ids(&output), &expected[..1]);
             assert_eq!(output.has_more, has_more);
             assert!(output.continue_cursor.is_none());
-            assert_eq!(stats.processed_items(), items);
+            assert_eq!(execution_stats.processed_items(), items);
         }
         let mut offset = params(None);
         offset.pagination.offset = 1;

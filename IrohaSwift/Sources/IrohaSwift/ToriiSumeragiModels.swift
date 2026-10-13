@@ -268,6 +268,8 @@ public struct ToriiSumeragiParameters: Decodable, Sendable, Equatable {
     ]
     public let blockCadenceMs: UInt64
     public let maxClockDriftMs: UInt64
+    /// Positive committed first-Prepare freshness allowance for due work.
+    public let dueWorkMaxLagMs: UInt64
     public let keyActivationLeadBlocks: UInt64
     public let keyOverlapGraceBlocks: UInt64
     public let keyExpiryGraceBlocks: UInt64
@@ -281,6 +283,7 @@ public struct ToriiSumeragiParameters: Decodable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case blockCadenceMs = "block_cadence_ms"
         case maxClockDriftMs = "max_clock_drift_ms"
+        case dueWorkMaxLagMs = "due_work_max_lag_ms"
         case keyActivationLeadBlocks = "key_activation_lead_blocks"
         case keyOverlapGraceBlocks = "key_overlap_grace_blocks"
         case keyExpiryGraceBlocks = "key_expiry_grace_blocks"
@@ -293,10 +296,11 @@ public struct ToriiSumeragiParameters: Decodable, Sendable, Equatable {
         case demotionWindow = "demotion_window"
     }
     public init(from decoder: Decoder) throws {
-        try requireNativeStatusFields(decoder, ["block_cadence_ms", "max_clock_drift_ms", "key_activation_lead_blocks", "key_overlap_grace_blocks", "key_expiry_grace_blocks", "key_allowed_algorithms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"])
+        try requireNativeStatusFields(decoder, ["block_cadence_ms", "max_clock_drift_ms", "due_work_max_lag_ms", "key_activation_lead_blocks", "key_overlap_grace_blocks", "key_expiry_grace_blocks", "key_allowed_algorithms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"])
         let c = try decoder.container(keyedBy: CodingKeys.self)
         blockCadenceMs = try c.decode(UInt64.self, forKey: .blockCadenceMs)
         maxClockDriftMs = try c.decode(UInt64.self, forKey: .maxClockDriftMs)
+        dueWorkMaxLagMs = try c.decode(UInt64.self, forKey: .dueWorkMaxLagMs)
         keyActivationLeadBlocks = try c.decode(UInt64.self, forKey: .keyActivationLeadBlocks)
         keyOverlapGraceBlocks = try c.decode(UInt64.self, forKey: .keyOverlapGraceBlocks)
         keyExpiryGraceBlocks = try c.decode(UInt64.self, forKey: .keyExpiryGraceBlocks)
@@ -307,9 +311,9 @@ public struct ToriiSumeragiParameters: Decodable, Sendable, Equatable {
         maxBlockBytes = try c.decode(UInt32.self, forKey: .maxBlockBytes)
         epochLengthBlocks = try c.decode(UInt64.self, forKey: .epochLengthBlocks)
         demotionWindow = try c.decode(UInt64.self, forKey: .demotionWindow)
-        guard [blockCadenceMs, payloadRetryIntervalMs, execBudgetMs, applyBudgetMs, epochLengthBlocks, demotionWindow].allSatisfy({ $0 > 0 }),
+        guard [blockCadenceMs, dueWorkMaxLagMs, payloadRetryIntervalMs, execBudgetMs, applyBudgetMs, epochLengthBlocks, demotionWindow].allSatisfy({ $0 > 0 }),
               maxBlockBytes > 0 else {
-            throw nativeLaneFailure(decoder, "lane chain parameters require nonzero cadence, budgets, block bytes, epoch and demotion window")
+            throw nativeLaneFailure(decoder, "lane chain parameters require nonzero cadence, due-work lag, budgets, block bytes, epoch and demotion window")
         }
         guard keyAllowedAlgorithms.allSatisfy({ Self.admittedKeyAlgorithms.contains($0) }) else {
             throw nativeLaneFailure(decoder, "key_allowed_algorithms contains an unknown algorithm")

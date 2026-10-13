@@ -364,7 +364,7 @@ fn gateway_storage_admission_ack_and_release_commit_real_overlay_rows() {
             execution: &execution,
         },
         &rows,
-        record.clone(),
+        &record,
         reputation_delivery,
     )
     .unwrap();
@@ -402,7 +402,7 @@ fn gateway_storage_admission_ack_and_release_commit_real_overlay_rows() {
             execution: &execution,
         },
         &rows,
-        record.clone(),
+        &record,
     )
     .unwrap();
     apply_delta(&mut tx, &acked, &execution, [0x22; 32], &delta).unwrap();
@@ -518,7 +518,7 @@ fn gateway_storage_immutable_history_and_lifecycle_cannot_be_removed() {
             execution: &execution,
         },
         &rows,
-        record.clone(),
+        &record,
         reputation_delivery,
     )
     .unwrap();
@@ -599,7 +599,7 @@ fn gateway_storage_rotation_preserves_original_policy_and_live_obligations() {
             execution: &execution,
         },
         &rows,
-        record,
+        &record,
         reputation_delivery,
     )
     .unwrap();
@@ -821,7 +821,7 @@ fn gateway_storage_acknowledgement_is_atomic_immutable_and_policy_authenticated(
             execution: &execution,
         },
         &rows,
-        record,
+        &record,
         reputation_delivery,
     )
     .unwrap();
@@ -854,7 +854,7 @@ fn gateway_storage_acknowledgement_is_atomic_immutable_and_policy_authenticated(
             execution: &replay_execution,
         },
         &rows,
-        record,
+        &record,
         original.reputation_delivery.clone(),
     )
     .unwrap();

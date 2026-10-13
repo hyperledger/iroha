@@ -447,6 +447,10 @@ mod tests {
         NativeLaneStateProof::from_witness(witness, &budget).unwrap()
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the returned execution commitment owns its optional finalized beacon pulse"
+    )]
     fn result_for_test(
         witness: &ExecWitness,
         executed: &SignedBlock,
@@ -852,11 +856,13 @@ mod tests {
         };
         next.leader_seed = [0x32; 32];
         next.validate_successor(&current).unwrap();
-        let mut policy = SumeragiNposParameters::default();
-        policy.max_validators = 31;
-        policy.epoch_length_blocks = std::num::NonZeroU64::new(6).unwrap();
-        policy.evidence_horizon_blocks = 6;
-        policy.slashing_delay_blocks = 6;
+        let policy = SumeragiNposParameters {
+            max_validators: 31,
+            epoch_length_blocks: std::num::NonZeroU64::new(6).unwrap(),
+            evidence_horizon_blocks: 6,
+            slashing_delay_blocks: 6,
+            ..Default::default()
+        };
         let anchor =
             iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"bounded boundary anchor"));
         let preparation = ValidatorCommitteePreparationV1 {
@@ -950,7 +956,7 @@ mod tests {
         // field is fixed scalar/array storage. There are no dynamic payload allocations to fund.
         match unsafe { RetainedPayload::try_new(value, ledger, budget) } {
             Ok(owner) => owner,
-            Err(_) => panic!("empty exact-source ledger"),
+            Err((_, _, error)) => panic!("empty exact-source ledger: {error:?}"),
         }
     }
 

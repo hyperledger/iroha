@@ -56,5 +56,5 @@ fn empty_nominal_products_roundtrip_through_durable_state_lists() {
             }
         }"#,
     );
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }

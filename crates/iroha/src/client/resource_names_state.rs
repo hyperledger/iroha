@@ -406,6 +406,7 @@ mod tests {
             transaction_status_timeout: std::time::Duration::from_secs(10),
             sorafs_alias_cache: default_alias_policy(),
             sorafs_anonymity_policy: AnonymityPolicy::GuardPq,
+            http_transport_policy: crate::config::HttpTransportPolicy::Ordinary,
             sorafs_rollout_phase: RolloutPhase::Canary,
         };
         let mut client = Client::builder(config).build().unwrap();

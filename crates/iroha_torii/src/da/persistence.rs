@@ -73,7 +73,6 @@ static DA_INGEST_SERVER_ASSIGNMENT_LOCK: OnceLock<NonPoisoningMutex<()>> = OnceL
     Clone, Debug, PartialEq, Eq, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,
 )]
 /// Durable server-owned choices for one signed DA ingest request.
-
 pub(super) struct DaIngestServerAssignmentV1 {
     /// Assignment layout version.
     pub(super) version: u16,
@@ -134,8 +133,7 @@ impl DaIngestServerAssignmentV1 {
         queued_at_secs: u64,
         transformed_metadata: ExtraMetadata,
         proof_scheme: DaProofScheme,
-        enforced_retention: RetentionPolicy,
-        retention_mismatch: bool,
+        (enforced_retention, retention_mismatch): (RetentionPolicy, bool),
         manifest_bytes: Vec<u8>,
         signer: &KeyPair,
     ) -> std::io::Result<Self> {
@@ -249,12 +247,14 @@ fn validate_da_ingest_server_assignment(
             "DA ingest server assignment contains a non-canonical manifest encoding",
         ));
     }
+    let payload_hash_matches = manifest.blob_hash == assignment.payload_hash;
+    let retention_matches = manifest.retention_policy == assignment.enforced_retention;
     if manifest.client_blob_id != assignment.client_blob_id
         || manifest.lane_id != assignment.lane_id
         || manifest.epoch != assignment.epoch
-        || manifest.blob_hash != assignment.payload_hash
+        || !payload_hash_matches
         || manifest.total_size != assignment.total_size
-        || manifest.retention_policy != assignment.enforced_retention
+        || !retention_matches
     {
         return Err(std::io::Error::new(
             ErrorKind::InvalidData,
@@ -1828,7 +1828,7 @@ fn promote_replay_cursor_temp(tmp_path: &Path, file_path: &Path) -> eyre::Result
                 )
             });
         }
-    };
+    }
     if let Some(parent) = file_path.parent() {
         if !parent.as_os_str().is_empty() {
             sync_dir(parent).wrap_err_with(|| {
@@ -2227,19 +2227,19 @@ impl DaReceiptLog {
         create_spool_dir_no_follow(&dir)
             .wrap_err_with(|| format!("failed to create DA receipt directory {}", dir.display()))?;
         archive_receipts_outside_allow_set(&dir, &retain)?;
-        cursor_store.retain_lane_epochs(|lane_epoch| retain(lane_epoch))?;
+        cursor_store.retain_lane_epochs(&retain)?;
         let index = Self::load_existing(
             &dir,
             &signer_public_key,
             cursor_store.max_lane_epochs(),
             &retain,
         )?;
-        let mut known_lane_epochs = BTreeMap::new();
+        let mut known_lane_epochs = BTreeSet::new();
         for (lane_epoch, _) in cursor_store.highest_sequences() {
-            known_lane_epochs.insert(lane_epoch, ());
+            known_lane_epochs.insert(lane_epoch);
         }
         for lane_epoch in index.keys().copied() {
-            if !known_lane_epochs.contains_key(&lane_epoch)
+            if !known_lane_epochs.contains(&lane_epoch)
                 && known_lane_epochs.len() >= cursor_store.max_lane_epochs().get()
             {
                 return Err(eyre!(
@@ -2247,7 +2247,7 @@ impl DaReceiptLog {
                     cursor_store.max_lane_epochs()
                 ));
             }
-            known_lane_epochs.insert(lane_epoch, ());
+            known_lane_epochs.insert(lane_epoch);
         }
         for (lane_epoch, head) in &index {
             cursor_store
@@ -2293,8 +2293,7 @@ impl DaReceiptLog {
             .into_iter()
             .filter(|lane_epoch| !retain(*lane_epoch))
             .collect::<Vec<_>>();
-        self.cursor_store
-            .retain_lane_epochs(|lane_epoch| retain(lane_epoch))?;
+        self.cursor_store.retain_lane_epochs(&retain)?;
         guard.retain(|lane_epoch, _| retain(*lane_epoch));
         Ok(retired)
     }
@@ -2841,10 +2840,12 @@ fn validate_receipt_manifest_artifact_if_present(
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
         Err(err) => return Err(err.into()),
     };
+    let fingerprint_matches =
+        manifest.storage_ticket.as_bytes() == receipt_key.fingerprint.as_bytes();
     if manifest.lane_id != receipt_key.lane_id
         || manifest.epoch != receipt_key.epoch
         || manifest.storage_ticket != receipt_key.storage_ticket
-        || manifest.storage_ticket.as_bytes() != receipt_key.fingerprint.as_bytes()
+        || !fingerprint_matches
     {
         return Err(eyre!(
             "receipt filename tuple does not match ticket-indexed DA manifest artifact"
@@ -4979,7 +4980,6 @@ pub(super) fn persist_da_commitment_record(
 #[norito_schema(name = "iroha_torii::da::persistence::DaCommitmentScheduleEntry")]
 #[derive(Clone, Debug, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize)]
 /// On-disk schedule entry combining commitment record and PDP commitment bytes.
-
 pub(super) struct DaCommitmentScheduleEntry {
     /// Entry layout version for future migrations.
     pub(super) version: u16,

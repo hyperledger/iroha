@@ -7,7 +7,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, require_deadline, require_empty, verify_carrier,
+        now_ms, read_optional, require_deadline, verify_carrier,
     },
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
@@ -74,7 +74,7 @@ pub struct ManagedReserveTopUpIntent {
     pub amount: XorQuantity,
 }
 
-/// Historical successful execution of one exact original native RequestTopUp.
+/// Historical successful execution of one exact original native `RequestTopUp`.
 ///
 /// Only this coordinator can construct the binding after independently authenticating its
 /// original signed wallet envelope and execution carrier. It has no public decoder or constructor.
@@ -101,7 +101,7 @@ impl ManagedHistoricalReserveTopUp {
     pub fn network_id(&self) -> NetworkId {
         self.network_id
     }
-    /// Provider derived from the exact successful RequestTopUp.
+    /// Provider derived from the exact successful `RequestTopUp`.
     #[must_use]
     pub fn provider_id(&self) -> ProviderId {
         self.provider_id
@@ -203,7 +203,7 @@ impl ManagedReserveTopUpRequest {
     ) -> Result<ManagedReserveTopUpProgress> {
         self.authority.validate_profile()?;
         self.validate_intent(intent)?;
-        let directory = self.authority.directory.ensure_child("request")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "request")?;
         let original = self.select_intent(&directory, intent, options.deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open funding wallet"))?;
@@ -217,12 +217,17 @@ impl ManagedReserveTopUpRequest {
         intent: &ManagedReserveTopUpIntent,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(intent)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(intent)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(&directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(&intent.policy, deadline)?;
         if current.current() != Some(&intent.partition) {
             return Err(invalid(
@@ -283,19 +288,21 @@ impl ManagedReserveTopUpRequest {
             return Err(invalid("funding policy differs from startup authorization"));
         }
         self.validate_intent(intent)?;
-        let directory = self.authority.directory.ensure_child("request")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "request")?;
         let original = self.select_intent(&directory, intent, deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open funding wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_reserve_top_up_preparation_in_parent(
@@ -384,7 +391,7 @@ impl ManagedReserveTopUpRequest {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;
@@ -423,18 +430,19 @@ impl ManagedReserveTopUpRequest {
                         std::ffi::OsStr::new("transaction"),
                         &intent.request(attempt.terms(), deadline),
                     )
-                    .map_err(|_error| {
+                    .map_err(|error| {
                         #[cfg(test)]
                         {
                             use std::io::Write as _;
                             let mut output = std::io::stderr().lock();
-                            for (index, cause) in _error.chain().enumerate() {
+                            for (index, cause) in error.chain().enumerate() {
                                 let _ = writeln!(
                                     output,
                                     "retained funding wallet inspection: purpose=FundingRequest; cause[{index}]={cause}",
                                 );
                             }
                         }
+                        drop(error);
                         invalid("retained funding attempt history changed")
                     })
             })
@@ -463,8 +471,7 @@ impl ManagedReserveTopUpRequest {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(historical) =
-                self.retained_historical(&directory, &original, transaction)?
+            && let Some(historical) = self.retained_historical(directory, &original, transaction)?
         {
             let current = if observe_current {
                 self.observe(&original.policy, deadline)
@@ -542,7 +549,7 @@ impl ManagedReserveTopUpRequest {
         }
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -574,7 +581,7 @@ impl ManagedReserveTopUpRequest {
             && let Some(observed) = &observed
         {
             self.authority.advance_carrier(
-                &directory,
+                directory,
                 &original.checkpoint,
                 &transaction,
                 &report,
@@ -584,7 +591,7 @@ impl ManagedReserveTopUpRequest {
         }
         // A public status/finality report never mints historical authority. Reopen the retained
         // independently authenticated carrier and bind its exact single signed instruction.
-        let historical = self.retained_historical(&directory, &original, &transaction)?;
+        let historical = self.retained_historical(directory, &original, &transaction)?;
         let current = super::native_operation::optional_current(
             observe_current,
             observed.as_ref(),
@@ -649,7 +656,7 @@ impl ManagedReserveTopUpRequest {
             .map_err(|_| invalid("invalid original reserve top-up checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())
@@ -684,7 +691,7 @@ impl ManagedReserveTopUpRequest {
         block
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("top-up carrier differs from selected Global root"))?;
         let finalized = verify_carrier(verifier, transaction)?;

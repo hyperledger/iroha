@@ -50,7 +50,7 @@ impl LaneBlockSource for OriginalFrames {
         Ok(self
             .0
             .read()
-            .get(height.checked_sub(1).unwrap() as usize)
+            .get(usize::try_from(height.checked_sub(1).unwrap()).expect("fixture value fits usize"))
             .cloned())
     }
     fn wait_for(
@@ -210,7 +210,7 @@ fn anchored_chain_with_config(
                 height,
                 view: 0,
                 block_hash: hash,
-                result: Hash32([height as u8; 32]),
+                result: Hash32([u8::try_from(height).expect("fixture value fits u8"); 32]),
                 signers: Bitmap::from_indices(4, [0, 1, 2]).unwrap(),
                 agg_sig: AggregateSignature([0; SIGNATURE_LEN]),
             };
@@ -971,7 +971,7 @@ fn native_lane_observer_proposes_only_original_authenticated_reports_after_local
     original_pool.set_limit_bytes(1 << 30);
     assert_eq!(
         evidence::pending_evidence_admissions(&state, carrier, generation),
-        [proof.clone()]
+        std::slice::from_ref(&proof)
     );
     assert_eq!(original_pool.reserved_bytes(), original_base);
     assert_eq!(budget.reserved_bytes(), retained);

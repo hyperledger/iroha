@@ -25,8 +25,8 @@ use iroha_data_model::{
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
         light_client::{
-            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
-            SccpLcProfileActivationV1, SccpLightClientV1,
+            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcProfileActivationV1,
+            SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::{SCCP_MESSAGES_MAX_PER_BLOCK_V1, SccpParametersV1},
@@ -44,6 +44,13 @@ fn storage_refusal(
     Error::InvariantViolation("SCCP original map allocation did not complete".into())
 }
 macro_rules! insert_map {
+    ($state:ident, sccp_light_client_sets, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_light_client_sets
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
     ($state:ident, sccp_committee_generations, $key:ident, $value:ident) => {
         $state
             .world
@@ -63,6 +70,19 @@ macro_rules! insert_map {
     };
 }
 macro_rules! remove_map {
+    ($state:ident, sccp_light_client_sets, $key:ident) => {
+        match $state
+            .world
+            .sccp_light_client_sets
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
     ($state:ident, sccp_committee_generations, $key:ident) => {
         match $state
             .world
@@ -348,7 +368,8 @@ storage_map! {
 }
 storage_map! {
     /// Authenticated source consensus sets by `(network, set_id)` (§4.13.1).
-    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => SccpLcConsensusSetV1
+    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => crate::smartcontracts::isi::sccp::light_client_set::RetainedSccpLcSet,
+    valid(key, record) => key.1 == record.set_id
 }
 storage_map! {
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).

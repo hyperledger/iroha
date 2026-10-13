@@ -171,7 +171,7 @@ fn full_alias_bytes_options_dataspaces_and_controller_members_are_funded() {
         without_allocations(|| equal(&discarded, &*ALICE_ID, &mut Work(2 + 34))),
         Ok(false)
     );
-    let mut world = World::default();
+    let mut world = World::new();
     world.accounts = Storage::from_iter([(discarded.clone(), details(None))]);
     world.account_aliases = Storage::from_iter([(alias("merchant"), discarded.clone())]);
     world.account_aliases_by_account =

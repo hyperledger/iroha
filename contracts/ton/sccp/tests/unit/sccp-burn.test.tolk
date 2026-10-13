@@ -18,7 +18,9 @@ import "@contracts/sccp-addresses"
 import "@contracts/sccp-cells"
 import "@contracts/sccp-constants"
 import "@contracts/sccp-errors"
+import "@contracts/sccp-fees"
 import "@contracts/sccp-messages"
+import "@contracts/sccp-recovery"
 import "@contracts/sccp-storage"
 import "@contracts/sccp-verify"
 import "@wrappers/SccpTairaXorMinter.gen"
@@ -134,6 +136,10 @@ get fun `test maximal recipient and payload`() {
     );
     expect(len).toEqual(1138);
     expect(jettonBalanceOf(env, alice)).toEqual(0);
+    val state = env.minter.getSccpState();
+    expect(state.totalSupply).toEqual(0);
+    expect(state.outboundNonce).toEqual(1);
+    expect(state.opCount).toEqual(2);
 }
 
 get fun `test the TON to Taira payload vector of the fixture is what a burn emits`() {
@@ -190,7 +196,7 @@ get fun `test the TON to Taira payload vector of the fixture is what a burn emit
         messageProofCell(0, [], minted, ownBlockRef(x)),
         finalizeValue(env, 0),
     );
-    expect(mint).toHaveSuccessfulTx<SccpConsumed>({ to: env.minter.address });
+    expect(mint).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(jettonBalanceOf(env, owner)).toEqual(VEC_OUTBOUND_AMOUNT);
     // the source nonce of the row (storage injection)
     var st = minterStorage(env);
@@ -258,7 +264,9 @@ get fun `test plain burns and foreign custom payloads are rejected by the wallet
         beginCell().storeUint(0x53434254, 32).storeRef(snakeOfLength(4)).storeUint(1, 1).endCell(),
         { value: burnValue(env, alice), bounce: true },
     );
-    expect(trailing).toHaveFailedTx<AskToBurn>({ to: wallet.address, exitCode: 9 });
+    expect(
+        trailing,
+    ).toHaveFailedTx<AskToBurn>({ to: wallet.address, exitCode: SccpErrors.BadSnake as int });
     val zero = sendBurn(env, alice, 0, snakeOfLength(4), burnValue(env, alice));
     expect(
         zero,
@@ -282,7 +290,7 @@ get fun `test plain burns and foreign custom payloads are rejected by the wallet
     expect(jettonBalanceOf(env, alice)).toEqual(100);
 }
 
-get fun `test minter rejections bounce and restore the wallet balance`() {
+get fun `test malformed recipients are refused before the wallet debits or forwards`() {
     val env = setupEnv();
     val alice = testing.treasury("alice").address;
     finalizeOk(env, 0, 100, alice);
@@ -290,6 +298,7 @@ get fun `test minter rejections bounce and restore the wallet balance`() {
     testing.registerLibrary(snakeOfLength(4));
     val recipients: array<[cell, int]> = [
         [snakeOfLength(1025), SccpErrors.BadRecipient as int],
+        [snakeOfLength(12700), SccpErrors.BadRecipient as int],
         // no recipient byte at all
         [beginCell().endCell(), SccpErrors.BadSnake as int],
         [beginCell().storeUint(1, 4).endCell(), SccpErrors.BadSnake as int],
@@ -303,16 +312,118 @@ get fun `test minter rejections bounce and restore the wallet balance`() {
     while (i < recipients.size()) {
         val [recipient, code] = recipients.get(i);
         val res = sendBurn(env, alice, 30, recipient, burnValue(env, alice));
-        expect(res).toHaveFailedTx<BurnNotificationForMinter>({ to: env
+        expect(res).toHaveFailedTx<AskToBurn>({ to: walletOf(env, alice).address, exitCode: code });
+        expect(
+            res.findTransaction<BurnNotificationForMinter>({ to: env.minter.address }) == null,
+        ).toBeTrue();
+        expect(jettonBalanceOf(env, alice)).toEqual(100);
+        // The minter independently enforces the same rule, even with its
+        // authenticated sender forged by the emulator. No bounce is requested
+        // because this direct notification never debited the wallet.
+        val forged = net.send(
+            walletOf(env, alice).address,
+            createMessage({
+                bounce: BounceMode.NoBounce,
+                dest: env.minter.address,
+                value: grams("1"),
+                body: BurnNotificationForMinter {
+                    queryId: 0,
+                    jettonAmount: 30,
+                    burnInitiator: alice,
+                    sendExcessesTo: alice,
+                    sccp: SccpBurnToTaira { recipient }.toCell(),
+                },
+            }),
+        );
+        expect(forged).toHaveFailedTx<BurnNotificationForMinter>({ to: env
                 .minter
                 .address, exitCode: code });
-        expect(res).toHaveBouncedTx({ to: walletOf(env, alice).address });
-        expect(jettonBalanceOf(env, alice)).toEqual(100);
         i += 1;
     }
     val state = env.minter.getSccpState();
     expect(state.outboundNonce).toEqual(0);
     expect(state.totalSupply).toEqual(100);
+    expect(state.opCount).toEqual(1);
+}
+
+get fun `test burn wrappers must be exact ordinary cells at both boundaries`() {
+    val env = setupEnv();
+    val alice = testing.treasury("alice").address;
+    finalizeOk(env, 0, 100, alice);
+    val wallet = walletOf(env, alice);
+    val canonical = SccpBurnToTaira { recipient: snakeOfLength(4) }.toCell();
+    testing.registerLibrary(canonical);
+    val wrappers: array<[cell, int]> = [
+        [canonical.toLibraryReference(), SccpErrors.BadSnake as int],
+        [
+            SccpBurnToTaira { recipient: snakeOfLength(5) }.toCell().toLibraryReference(),
+            SccpErrors.BadSnake as int,
+        ],
+        [beginCell().storeUint(0x53434254, 32).endCell(), SccpErrors.BadSnake as int],
+        [
+            beginCell()
+                .storeUint(0x53434254, 32)
+                .storeRef(snakeOfLength(4))
+                .storeRef(snakeOfLength(4))
+                .endCell(),
+            SccpErrors.BadSnake as int,
+        ],
+        [
+            beginCell()
+                .storeUint(0x53434254, 32)
+                .storeUint(0, 1)
+                .storeRef(snakeOfLength(4))
+                .endCell(),
+            SccpErrors.BadSnake as int,
+        ],
+        [
+            beginCell().storeUint(0x12345678, 32).storeRef(snakeOfLength(4)).endCell(),
+            SccpErrors.BadBurnPayload as int,
+        ],
+    ];
+    var i = 0;
+    repeat (wrappers.size()) {
+        val [wrapper, code] = wrappers.get(i);
+        val sent = wallet.sendAskToBurn(
+            alice,
+            0,
+            30,
+            alice,
+            wrapper,
+            { value: burnValue(env, alice), bounce: true },
+        );
+        expect(sent).toHaveFailedTx<AskToBurn>({ to: wallet.address, exitCode: code });
+        expect(
+            sent.findTransaction<BurnNotificationForMinter>({ to: env.minter.address }) == null,
+        ).toBeTrue();
+        expect(jettonBalanceOf(env, alice)).toEqual(100);
+        val forged = net.send(
+            wallet.address,
+            createMessage({
+                bounce: BounceMode.NoBounce,
+                dest: env.minter.address,
+                value: grams("1"),
+                body: BurnNotificationForMinter {
+                    queryId: 0,
+                    jettonAmount: 30,
+                    burnInitiator: alice,
+                    sendExcessesTo: alice,
+                    sccp: wrapper as Cell<SccpBurnToTaira>,
+                },
+            }),
+        );
+        expect(forged).toHaveFailedTx<BurnNotificationForMinter>({ to: env
+                .minter
+                .address, exitCode: code });
+        expect(
+            forged.findExternalOutMessage<SccpTransferToTairaEvent>({ from: env.minter.address }) ==
+                null,
+        ).toBeTrue();
+        i += 1;
+    }
+    val state = env.minter.getSccpState();
+    expect(state.totalSupply).toEqual(100);
+    expect(state.outboundNonce).toEqual(0);
     expect(state.opCount).toEqual(1);
 }
 
@@ -326,15 +437,17 @@ get fun `test owners outside workchain 0 cannot burn`() {
         env.minter.address,
         createMessage({
             bounce: BounceMode.NoBounce,
-            value: grams("1"),
+            value: sccpWalletRecoveryFloor() + grams("1"),
             dest: sccpWalletDeployment(owner, env.minter.address, build("SccpTairaXorWallet")),
-            body: InternalTransferStep {
+            body: SccpRecoveryDispatch {
+                operationId: 1,
+                stage: SCCP_RECOVERY_MINT,
+                attempt: 1,
+                nonce: 0,
+                count: 1,
+                amount: 50,
                 queryId: 0,
-                jettonAmount: 50,
-                transferInitiator: null,
-                sendExcessesTo: null,
-                forwardTonAmount: 0,
-                forwardPayload: beginCell().storeUint(0, 1).toSlice(),
+                response: owner,
             },
         }),
     );
@@ -541,13 +654,16 @@ get fun `test exhausted source nonces answer BadNonce before any state change`()
     expect(state.totalSupply).toEqual(1400);
     expect(state.opCount).toEqual(3);
     // the recipient is still validated first, so a malformed burn keeps its own code
-    expectBurnRefused(
-        env,
-        sendBurn(env, bob, 500, snakeOfLength(1025), burnValue(env, bob)),
-        bob,
-        SccpErrors.BadRecipient as int,
-        500,
-    );
+    val malformed = sendBurn(env, bob, 500, snakeOfLength(1025), burnValue(env, bob));
+    expect(malformed).toHaveFailedTx<AskToBurn>({
+        to: walletOf(env, bob).address,
+        exitCode: SccpErrors.BadRecipient as int,
+    });
+    expect(
+        malformed.findTransaction<BurnNotificationForMinter>({ to: env.minter.address }) == null,
+    ).toBeTrue();
+    expect(jettonBalanceOf(env, bob)).toEqual(500);
+    expect(minterStorage(env).toCell().hash()).toEqual(before);
     // the Taira→TON direction is unaffected
     finalizeOk(env, 2, 5, alice);
     expect(env.minter.getSccpState().totalSupply).toEqual(1405);

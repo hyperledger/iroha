@@ -110,10 +110,11 @@ fn limits(allocation: usize) -> norito::DecodeLimits {
 
 #[test]
 fn prefix_import_preserves_active_owner_work_and_allocation_refusal() {
+    const CEILING: usize = 64 * 1024 * 1024;
     let chain = Chain::constant(4, 2);
     let checkpoint = chain.verifier_at(2).checkpoint().clone();
     let original_bytes = checkpoint.encode_canonical().unwrap();
-    const CEILING: usize = 64 * 1024 * 1024;
+
     let import_budget = DecodeBudgetContext::new(limits(CEILING));
     let imported = import_budget
         .with(|| {

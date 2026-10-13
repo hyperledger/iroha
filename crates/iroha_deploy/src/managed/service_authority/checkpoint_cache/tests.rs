@@ -605,69 +605,14 @@ fn borrowed_epoch_imports_keep_late_outer_admission_and_exact_single_cache_entry
     drop(ports);
     let unavailable = UnavailablePeers::start(&prepared);
 
-    let mut validation = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&authority, Some(&mut validation));
-    let warm = imports.decode(&bytes).unwrap();
-    assert_eq!(warm, original);
-    assert_entry(&authority, &bytes);
-    let baseline_budget = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let expected = baseline_budget
-        .with(|| {
-            decode_checkpoint(
-                &bytes,
-                authority.config.network_id,
-                authority.config.chain.as_str(),
-            )
-        })
-        .unwrap();
-    let charge = baseline_budget.consumed_allocated_bytes();
-    assert!(charge > 0 && charge < 64 * 1024 * 1024);
-    let budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
-    let before = attempts(&authority);
-    let admitted = budget.with(|| imports.decode(&bytes)).unwrap();
-    assert_eq!(admitted, expected);
-    assert_eq!(budget.consumed_allocated_bytes(), charge);
-    assert_eq!(attempts(&authority), before + 1);
-    assert!(!std::ptr::eq(admitted.checkpoint(), warm.checkpoint()));
-    assert!(
-        authority
-            .effective_checkpoint_cache()
-            .entry
-            .try_lock()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        crate::managed::native_operation::verify_carrier(&admitted, &signed)
-            .unwrap()
-            .height,
-        2
-    );
-
-    let zero = DecodeBudgetContext::new(limits(0));
-    let first = zero
-        .with(|| {
-            norito::decode_canonical_for_admission::<SumeragiFinalityCheckpoint>(
-                &bytes,
-                norito::canonical_decode_limits(bytes.len()),
-            )
-        })
-        .unwrap_err();
-    assert_eq!(first.kind(), DecodeAttemptErrorKind::EnclosingLimit);
-    let first_request = match first.into_error().decode_resource_error().unwrap() {
-        DecodeResourceError::TotalAllocationExceeded {
-            attempted,
-            limit: 0,
-        } => attempted,
-        other => panic!("original allocation refusal required: {other:?}"),
-    };
-    assert!(first_request > 1);
-    let cap = usize::try_from(first_request.checked_sub(1).unwrap()).unwrap();
-    for allocation in [0, cap] {
-        imports.decode(&bytes).unwrap();
+    {
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&authority, Some(&mut validation));
+        let warm = imports.decode(&bytes).unwrap();
+        assert_eq!(warm, original);
         assert_entry(&authority, &bytes);
-        let original_budget = DecodeBudgetContext::new(limits(allocation));
-        let expected = original_budget
+        let baseline_budget = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
+        let expected = baseline_budget
             .with(|| {
                 decode_checkpoint(
                     &bytes,
@@ -675,17 +620,16 @@ fn borrowed_epoch_imports_keep_late_outer_admission_and_exact_single_cache_entry
                     authority.config.chain.as_str(),
                 )
             })
-            .unwrap_err()
-            .to_string();
-        let actual_budget = DecodeBudgetContext::new(limits(allocation));
+            .unwrap();
+        let charge = baseline_budget.consumed_allocated_bytes();
+        assert!(charge > 0 && charge < 64 * 1024 * 1024);
+        let budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
         let before = attempts(&authority);
-        let actual = actual_budget.with(|| imports.decode(&bytes)).unwrap_err();
-        assert_eq!(actual.to_string(), expected);
-        assert_eq!(
-            actual_budget.consumed_allocated_bytes(),
-            original_budget.consumed_allocated_bytes()
-        );
+        let admitted = budget.with(|| imports.decode(&bytes)).unwrap();
+        assert_eq!(admitted, expected);
+        assert_eq!(budget.consumed_allocated_bytes(), charge);
         assert_eq!(attempts(&authority), before + 1);
+        assert!(!std::ptr::eq(admitted.checkpoint(), warm.checkpoint()));
         assert!(
             authority
                 .effective_checkpoint_cache()
@@ -694,47 +638,103 @@ fn borrowed_epoch_imports_keep_late_outer_admission_and_exact_single_cache_entry
                 .unwrap()
                 .is_empty()
         );
-        let retry = imports.decode(&bytes).unwrap();
-        assert_eq!(retry, original);
+        assert_eq!(
+            crate::managed::native_operation::verify_carrier(&admitted, &signed)
+                .unwrap()
+                .height,
+            2
+        );
+
+        let zero = DecodeBudgetContext::new(limits(0));
+        let first = zero
+            .with(|| {
+                norito::decode_canonical_for_admission::<SumeragiFinalityCheckpoint>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            })
+            .unwrap_err();
+        assert_eq!(first.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let first_request = match first.into_error().decode_resource_error().unwrap() {
+            DecodeResourceError::TotalAllocationExceeded {
+                attempted,
+                limit: 0,
+            } => attempted,
+            other => panic!("original allocation refusal required: {other:?}"),
+        };
+        assert!(first_request > 1);
+        let cap = usize::try_from(first_request.checked_sub(1).unwrap()).unwrap();
+        for allocation in [0, cap] {
+            imports.decode(&bytes).unwrap();
+            assert_entry(&authority, &bytes);
+            let original_budget = DecodeBudgetContext::new(limits(allocation));
+            let expected = original_budget
+                .with(|| {
+                    decode_checkpoint(
+                        &bytes,
+                        authority.config.network_id,
+                        authority.config.chain.as_str(),
+                    )
+                })
+                .unwrap_err()
+                .to_string();
+            let actual_budget = DecodeBudgetContext::new(limits(allocation));
+            let before = attempts(&authority);
+            let actual = actual_budget.with(|| imports.decode(&bytes)).unwrap_err();
+            assert_eq!(actual.to_string(), expected);
+            assert_eq!(
+                actual_budget.consumed_allocated_bytes(),
+                original_budget.consumed_allocated_bytes()
+            );
+            assert_eq!(attempts(&authority), before + 1);
+            assert!(
+                authority
+                    .effective_checkpoint_cache()
+                    .entry
+                    .try_lock()
+                    .unwrap()
+                    .is_empty()
+            );
+            let retry = imports.decode(&bytes).unwrap();
+            assert_eq!(retry, original);
+            assert_entry(&authority, &bytes);
+        }
+        let held = authority
+            .effective_checkpoint_cache()
+            .entry
+            .try_lock()
+            .unwrap();
+        let before = attempts(&authority);
+        let held_budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
+        assert_eq!(
+            held_budget.with(|| imports.decode(&bytes)).unwrap(),
+            expected
+        );
+        assert_eq!(held_budget.consumed_allocated_bytes(), charge);
+        assert_eq!(attempts(&authority), before + 1);
+        drop(held);
         assert_entry(&authority, &bytes);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _held = authority.effective_checkpoint_cache().entry.lock().unwrap();
+                panic!("poison only the optional borrowed-epoch memo");
+            }))
+            .is_err()
+        );
+        let before = attempts(&authority);
+        let poisoned_budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
+        let admitted = poisoned_budget.with(|| imports.decode(&bytes)).unwrap();
+        assert_eq!(admitted, expected);
+        assert_eq!(poisoned_budget.consumed_allocated_bytes(), charge);
+        let refused_budget = DecodeBudgetContext::new(limits(cap));
+        assert!(refused_budget.with(|| imports.decode(&bytes)).is_err());
+        assert_eq!(attempts(&authority), before + 2);
+        let poisoned = match authority.effective_checkpoint_cache().entry.try_lock() {
+            Err(TryLockError::Poisoned(poisoned)) => poisoned,
+            _ => panic!("original optional memo remains poisoned"),
+        };
+        assert!(poisoned.into_inner().is_empty());
     }
-    let held = authority
-        .effective_checkpoint_cache()
-        .entry
-        .try_lock()
-        .unwrap();
-    let before = attempts(&authority);
-    let held_budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
-    assert_eq!(
-        held_budget.with(|| imports.decode(&bytes)).unwrap(),
-        expected
-    );
-    assert_eq!(held_budget.consumed_allocated_bytes(), charge);
-    assert_eq!(attempts(&authority), before + 1);
-    drop(held);
-    assert_entry(&authority, &bytes);
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _held = authority.effective_checkpoint_cache().entry.lock().unwrap();
-            panic!("poison only the optional borrowed-epoch memo");
-        }))
-        .is_err()
-    );
-    let before = attempts(&authority);
-    let poisoned_budget = DecodeBudgetContext::new(limits(usize::try_from(charge).unwrap()));
-    let admitted = poisoned_budget.with(|| imports.decode(&bytes)).unwrap();
-    assert_eq!(admitted, expected);
-    assert_eq!(poisoned_budget.consumed_allocated_bytes(), charge);
-    let refused_budget = DecodeBudgetContext::new(limits(cap));
-    assert!(refused_budget.with(|| imports.decode(&bytes)).is_err());
-    assert_eq!(attempts(&authority), before + 2);
-    let poisoned = match authority.effective_checkpoint_cache().entry.try_lock() {
-        Err(TryLockError::Poisoned(poisoned)) => poisoned,
-        _ => panic!("original optional memo remains poisoned"),
-    };
-    assert!(poisoned.into_inner().is_empty());
-    drop(imports);
-    drop(validation);
     let before = attempts(&authority);
     let same = authority.decode_checkpoint(&bytes).unwrap();
     assert_eq!(same, original);

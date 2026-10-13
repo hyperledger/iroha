@@ -646,19 +646,34 @@ mod tests {
         let budget = iroha_allocation::AllocationBudget::new(1);
         let occupied = budget.try_reserve_bytes(1).unwrap();
         let refusal = budget.try_reserve_bytes(1).unwrap_err();
-        for original in [
-            VMError::AllocationDeferred(refusal),
-            VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable),
-            VMError::InvalidMetadata,
-            VMError::DecodeError,
-        ] {
-            for metadata in [false, true] {
-                let error = if metadata {
-                    ProgramAnalysisError::Metadata(original.clone())
-                } else {
-                    ProgramAnalysisError::Decode(original.clone())
+        for metadata in [false, true] {
+            for original in [
+                VMError::AllocationDeferred(refusal.clone()),
+                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable),
+                VMError::InvalidMetadata,
+                VMError::DecodeError,
+            ] {
+                let expected = match &original {
+                    VMError::AllocationDeferred(_) => 0,
+                    VMError::ExecutionDeferred(_) => 1,
+                    VMError::InvalidMetadata => 2,
+                    VMError::DecodeError => 3,
+                    _ => unreachable!(),
                 };
-                assert_eq!(error.into_vm_error(), original);
+                let error = if metadata {
+                    ProgramAnalysisError::Metadata(original)
+                } else {
+                    ProgramAnalysisError::Decode(original)
+                };
+                match (expected, error.into_vm_error()) {
+                    (0, VMError::AllocationDeferred(actual)) => assert_eq!(actual, refusal),
+                    (1, VMError::ExecutionDeferred(reason)) => assert_eq!(
+                        reason,
+                        crate::error::ExecutionDeferral::AllocationUnavailable
+                    ),
+                    (2, VMError::InvalidMetadata) | (3, VMError::DecodeError) => {}
+                    (_, other) => panic!("analysis changed the original failure: {other:?}"),
+                }
             }
         }
         drop(occupied);
@@ -694,9 +709,8 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(error, ProgramAnalysisError::Metadata(_)));
-        assert_eq!(
-            error.into_vm_error(),
-            VMError::ExecutionDeferred(crate::error::ExecutionDeferral::ActiveMemoryCapacity,)
+        assert!(
+            matches!(error.into_vm_error(), VMError::DecodeDeferred(original) if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit)
         );
         assert!(analyze_program(&bytes).unwrap().instruction_count > 0);
     }

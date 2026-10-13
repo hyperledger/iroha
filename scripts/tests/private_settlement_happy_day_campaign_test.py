@@ -43,9 +43,14 @@ class HappyDayEvidenceTests(unittest.TestCase):
         return H.validate_run(self.root, self.request, self.sha)
 
     def test_exact_happy_day_contract(self):
-        self.assertEqual(len(H.EVIDENCE_NAMES), 79)
+        self.assertEqual(len(H.EVIDENCE_NAMES), 81)
         self.assertEqual(self.validate()["continuous_checks"], 64)
         H.validate_request(self.request, F.COMMIT, 0)
+
+    def test_happy_day_checks_size_evidence_without_restart_artifacts(self):
+        self.evidence["prepared-artifact-sizes.json"]["legs"][2]["proof_bytes"] += 1
+        with self.assertRaisesRegex(H.shared.CampaignError, "genuine finite APZ1"):
+            self.validate()
 
     def test_scope_is_bound_to_request_and_terminal_marker(self):
         with self.assertRaises(H.CampaignError):

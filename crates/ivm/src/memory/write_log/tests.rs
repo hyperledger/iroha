@@ -54,10 +54,14 @@ fn row_and_payload_refusal_preserve_nonempty_contents_and_retry() {
     let snapshot = log.try_snapshot().unwrap();
     let before = budget.stats().active_bytes;
     refuse_next_owned_vec_growth_for_test();
-    assert_eq!(
+    assert!(matches!(
         log.prepare(9, &[9]).unwrap_err(),
-        allocation_error(OwnedVecGrowthError::AllocationUnavailable)
-    );
+        VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+    ));
+    assert!(matches!(
+        allocation_error(OwnedVecGrowthError::AllocationUnavailable),
+        VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+    ));
     assert_eq!(budget.stats().active_bytes, before);
     assert_eq!(&log.rows[..], &*snapshot);
     refuse_next_owned_allocation_for_test();

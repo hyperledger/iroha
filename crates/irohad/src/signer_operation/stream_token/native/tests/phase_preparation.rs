@@ -273,7 +273,7 @@ fn current_phase_still_captures_and_wrong_configured_operator_rejects() {
     let mut source = source_with_timeout(&fixture, queue(), Duration::from_secs(10));
     let reviewed = reviewed(&source);
     let (prepared, captures) = capture_counts::measure(|| {
-        source.prepare_check(reviewed, Phase::Current(reviewed.intent.previous_audit))
+        source.prepare_check(&reviewed, Phase::Current(reviewed.intent.previous_audit))
     });
     let prepared = prepared.unwrap();
     assert_eq!(captures, [fixture.state.view().height() as u64]);
@@ -292,7 +292,7 @@ fn current_phase_still_captures_and_wrong_configured_operator_rejects() {
     )
     .unwrap();
     assert!(matches!(
-        source.prepare_check(reviewed, Phase::Current(reviewed.intent.previous_audit)),
+        source.prepare_check(&reviewed, Phase::Current(reviewed.intent.previous_audit)),
         Err(SignerOperationErrorV1::CustodyChanged)
     ));
 }

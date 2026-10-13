@@ -72,6 +72,13 @@ fn active_chain_with_cadence(cadence: NonZeroU64) -> CertifiedTestChain {
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.staking.unbonding_delay = Duration::from_secs(21 * 86_400);
     nexus.staking.max_slash_bps = 1;
+    let keys = crate::smartcontracts::isi::sccp::forgery::tests::keys();
+    config.validator_keys = Some(keys.clone());
+    crate::smartcontracts::isi::sccp::forgery::tests::register_genesis_members(
+        &mut config,
+        &keys,
+        &nexus.staking,
+    );
     config.nexus = Some(nexus);
     config.genesis_instructions.push(
         InitializeSccpV1 {
@@ -351,8 +358,14 @@ fn streaming_history_and_block_paths_match_the_canonical_promote_odd_tree() {
             if size <= MAX_BLOCK_LEAVES {
                 let (block, path) = bounded_tree_path(&mut leaves.clone(), index as u64).unwrap();
                 assert_eq!(block, block_root(&leaves).unwrap());
-                verify_block_inclusion(&leaves[index], index as u32, size as u32, &path, &block)
-                    .unwrap();
+                verify_block_inclusion(
+                    &leaves[index],
+                    u32::try_from(index).expect("fixture value fits u32"),
+                    u32::try_from(size).expect("fixture value fits u32"),
+                    &path,
+                    &block,
+                )
+                .unwrap();
             }
         }
     }

@@ -88,10 +88,10 @@ mod epoch_seed_tests {
         vm.set_register(11, 71);
         vm.registers.set_tag(10, true);
         for seed in [None, Some(&[0x42; 32])] {
-            assert_eq!(
+            assert!(matches!(
                 publish_epoch_seed(&mut vm, seed),
                 Err(crate::VMError::PrivacyViolation)
-            );
+            ));
             assert_eq!(vm.register(10), 7);
             assert_eq!(vm.register(11), 71);
         }
@@ -109,13 +109,12 @@ mod epoch_seed_tests {
             host.prepare_syscall(number, &vm).unwrap(),
             epoch_seed_gas(false)
         );
-        assert_eq!(
-            host.syscall(number, &mut vm),
-            Err(crate::VMError::metered_not_implemented(
-                epoch_seed_gas(false),
-                number
-            ))
-        );
+        let error = host
+            .syscall(number, &mut vm)
+            .expect_err("lookup needs a World snapshot");
+        let (gas, error) = error.split_metered();
+        assert_eq!(gas, Some(epoch_seed_gas(false)));
+        assert!(matches!(error, crate::VMError::NotImplemented { syscall } if syscall == number));
         assert_eq!(vm.register(10), 7);
         assert_eq!(vm.register(11), 71);
     }

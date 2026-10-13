@@ -193,6 +193,8 @@ fn iso20022_v2_status_and_audit_responses_are_exact_and_bounded() {
         "collateral_reason_code",
         "plan_execution_order",
         "plan_atomicity",
+        "reported_return",
+        "native_payment",
         "profile_id",
         "message_type",
         "business_service",
@@ -339,4 +341,106 @@ fn iso20022_v2_status_and_audit_responses_are_exact_and_bounded() {
             .collect::<Vec<_>>();
         assert_eq!(actual, expected, "{name} values");
     }
+}
+
+#[test]
+fn iso_return_report_schema_is_closed_and_separate_from_native_execution() {
+    let document = generate_spec();
+    let schemas = component_schemas(&document);
+    assert_strict_object_schema(
+        schemas,
+        "Iso20022ReportedReturnV1",
+        &[
+            "amount",
+            "currency",
+            "disposition",
+            "original_message_id",
+            "original_payload_hash",
+            "original_transaction_hash",
+            "reason_code",
+        ],
+        &[],
+    );
+    let report = &schemas["Iso20022ReportedReturnV1"];
+    assert_eq!(report["allOf"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        report["allOf"][1]["then"]["properties"]["original_transaction_hash"]["type"].as_str(),
+        Some("string")
+    );
+    assert_eq!(
+        report["allOf"][2]["then"]["properties"]["original_transaction_hash"]["type"].as_str(),
+        Some("null")
+    );
+
+    assert_eq!(
+        report["properties"]["disposition"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "pending_original",
+            "external_report",
+            "original_rejected",
+            "original_not_submitted",
+            "invalid_terms"
+        ]
+    );
+    assert!(
+        report["properties"]
+            .get("reverse_transaction_hash")
+            .is_none()
+    );
+    assert_eq!(
+        report["properties"]["original_transaction_hash"]["anyOf"][1]["type"].as_str(),
+        Some("null")
+    );
+}
+
+#[test]
+fn iso_native_payment_schema_preserves_distinct_carrier_and_business_evidence() {
+    let document = generate_spec();
+    let schemas = component_schemas(&document);
+    assert_strict_object_schema(
+        schemas,
+        "Iso20022NativePaymentV1",
+        &[
+            "intent_frame",
+            "carrier",
+            "business_settlement",
+            "conflicting_intent",
+            "verified",
+        ],
+        &[],
+    );
+    assert_strict_object_schema(
+        schemas,
+        "Iso20022NativeCarrierV1",
+        &["height", "applied", "rejection"],
+        &[],
+    );
+    assert_strict_object_schema(
+        schemas,
+        "Iso20022NativeBusinessSettlementV1",
+        &["transaction_hash", "receipt_frame", "nexus_fee_frame"],
+        &[],
+    );
+    let payment = &schemas["Iso20022NativePaymentV1"];
+    assert_eq!(
+        payment["properties"]["intent_frame"]["contentEncoding"].as_str(),
+        Some("base64")
+    );
+    assert_eq!(
+        payment["properties"]["intent_frame"]["maxLength"].as_u64(),
+        Some(1_048_576)
+    );
+    assert_eq!(
+        payment["properties"]["verified"]["type"].as_str(),
+        Some("boolean")
+    );
+    assert_eq!(
+        payment["allOf"][0]["then"]["properties"]["business_settlement"]["type"].as_str(),
+        Some("null")
+    );
 }

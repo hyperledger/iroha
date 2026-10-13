@@ -199,14 +199,16 @@ struct Me {
 }
 
 /// Execution state of a block (§6.0 `exec`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExecState {
     Pending {
         since: Millis,
         req: u64,
         attempt: u32,
     },
-    Valid(Hash32),
+    Valid {
+        admission: crate::prepare_admission::ExecutionAdmission,
+    },
     Invalid,
     RetryAt {
         at: Millis,
@@ -316,6 +318,8 @@ enum PqcVia {
 struct Want {
     height: u64,
     sources: Vec<PublicKey>,
+    /// Latest requested and fully verified sync donor; also present in `sources`.
+    sync_responder: Option<PublicKey>,
     cursor: usize,
     attempt: u32,
     next_retry: Millis,
@@ -780,7 +784,18 @@ impl Core {
         preimage: &[u8],
     ) -> Option<Signature> {
         let signer = self.keys.get(slot)?.signer.as_ref()?;
-        match signer.sign(preimage) {
+        let outcome = signer.sign(preimage);
+        self.signing_outcome(kind, height, view, outcome)
+    }
+
+    fn signing_outcome(
+        &mut self,
+        kind: crate::api::SigningKind,
+        height: u64,
+        view: u64,
+        outcome: Result<Signature, crate::crypto::SigningError>,
+    ) -> Option<Signature> {
+        match outcome {
             Ok(signature) => Some(signature),
             Err(error) => {
                 self.local_fault(LocalFault::SigningFailed {

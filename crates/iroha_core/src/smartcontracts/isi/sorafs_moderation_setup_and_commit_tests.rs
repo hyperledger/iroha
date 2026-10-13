@@ -1644,7 +1644,7 @@ fn seed_activated_case(
         appeal_finance_config_version: spec.context.appeal_finance_config_version.clone(),
         policy_reference: spec.context.policy_reference.clone(),
         evidence_uri: spec.context.evidence_uri.clone(),
-        panel_size: spec.jurors.len() as u16,
+        panel_size: u16::try_from(spec.jurors.len()).expect("fixture value fits u16"),
         waitlist_size: 0,
         quorum: spec.quorum,
         exclusions: vec![manager.clone()],

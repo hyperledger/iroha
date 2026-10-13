@@ -10,6 +10,7 @@ impl State {
     /// discarded and retried just like successful ones. The fixed attempt bound
     /// prevents sustained block publication from turning an operator request into
     /// an unbounded sequence of full evidence scans.
+    #[cfg(test)]
     fn derive_diagnostics_at_stable_state_generation<T, E>(
         &self,
         mut derive: impl FnMut() -> core::result::Result<T, E>,

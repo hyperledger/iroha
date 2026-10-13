@@ -2452,10 +2452,15 @@ fn transfer_control_effects_require_exact_subject_asset_domain_and_dataspace_sco
             &mut vm,
         )
     };
-    assert_eq!(
-        call_availability(&mut host),
-        Err(ivm::VMError::PermissionDenied),
-        "an app grant and a wrong-account subject grant must not authorize the effect",
+    assert!(
+        match (
+            &(call_availability(&mut host)),
+            &(ivm::VMError::PermissionDenied)
+        ) {
+            (Err(ivm::VMError::PermissionDenied), ivm::VMError::PermissionDenied) => true,
+            _ => false,
+        },
+        "an app grant and a wrong-account subject grant must not authorize the effect"
     );
     assert_eq!(
         host.inner.wsv.asset_transfer_availability(&target, &asset),
@@ -3178,17 +3183,26 @@ fn invocation_alias_decoding_preserves_read_deferral_before_test_failure() {
         budget.set_limit_bytes(occupied);
         let refusal = vm.memory.load_u8(ivm::Memory::INPUT_START).unwrap_err();
         assert!(matches!(refusal, ivm::VMError::AllocationDeferred(_)));
-        assert_eq!(host.invoke_entrypoint(&mut vm, false), Err(refusal));
+        assert!(match (host.invoke_entrypoint(&mut vm, false), refusal) {
+            (
+                Err(ivm::VMError::AllocationDeferred(actual)),
+                ivm::VMError::AllocationDeferred(expected),
+            ) => actual == expected,
+            _ => false,
+        });
         assert_eq!(host.last_test_error(), None);
         assert_eq!(vm.register(register), ivm::Memory::INPUT_START);
         assert_eq!(budget.reserved_bytes(), occupied);
         // Restore credit and retain the deterministic unknown-actor failure.
         if target_actor {
             budget.set_limit_bytes(occupied + 8 * std::mem::size_of::<ivm::AccessRange>());
-            assert_eq!(
-                host.invoke_entrypoint(&mut vm, false),
-                Err(ivm::VMError::AssertionFailed)
-            );
+            assert!(match (
+                &(host.invoke_entrypoint(&mut vm, false)),
+                &(ivm::VMError::AssertionFailed)
+            ) {
+                (Err(ivm::VMError::AssertionFailed), ivm::VMError::AssertionFailed) => true,
+                _ => false,
+            });
             assert!(host.last_test_error().unwrap().contains("unknown actor"));
         }
         drop(vm);

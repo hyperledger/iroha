@@ -1,0 +1,185 @@
+{
+  "source_id": "7cc9ad79e452fe3cfd58cc0fdc570a7d5b76614f7352d9c13ba9b17be670a409",
+  "profile_qualified": false,
+  "modes": {
+    "portable": {
+      "samples": 5084,
+      "classes": 164,
+      "raw_sha256": "ebe23b75f8e482a661e072e9d8d14cdc6af0760cb154f45ac660e6f5519b422e",
+      "by_case": [
+        {
+          "row": "candidate",
+          "case": "registration",
+          "classes": 16,
+          "samples": 496,
+          "largest_observed_elapsed_ns": 818834,
+          "largest_elapsed_mutation": "proof_counter_above_limit",
+          "max_total_peak_live_bytes": 518243,
+          "max_incremental_peak_bytes": 181816
+        },
+        {
+          "row": "candidate",
+          "case": "vote3",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 743334,
+          "largest_elapsed_mutation": "proof_opening_above_capacity",
+          "max_total_peak_live_bytes": 648667,
+          "max_incremental_peak_bytes": 176624
+        },
+        {
+          "row": "candidate",
+          "case": "vote500",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 1917166,
+          "largest_elapsed_mutation": "proof_counter_above_limit",
+          "max_total_peak_live_bytes": 984454,
+          "max_incremental_peak_bytes": 385179
+        },
+        {
+          "row": "candidate",
+          "case": "vote1000",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 3320459,
+          "largest_elapsed_mutation": "proof_grinding_bit_set",
+          "max_total_peak_live_bytes": 1496454,
+          "max_incremental_peak_bytes": 769179
+        },
+        {
+          "row": "comparator",
+          "case": "registration",
+          "classes": 16,
+          "samples": 496,
+          "largest_observed_elapsed_ns": 781458,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 414967,
+          "max_incremental_peak_bytes": 179840
+        },
+        {
+          "row": "comparator",
+          "case": "vote3",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 720500,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 496815,
+          "max_incremental_peak_bytes": 174648
+        },
+        {
+          "row": "comparator",
+          "case": "vote500",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 1864625,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 834578,
+          "max_incremental_peak_bytes": 385179
+        },
+        {
+          "row": "comparator",
+          "case": "vote1000",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 3262208,
+          "largest_elapsed_mutation": "proof_grinding_bit_set",
+          "max_total_peak_live_bytes": 1346578,
+          "max_incremental_peak_bytes": 769179
+        }
+      ]
+    },
+    "accel": {
+      "samples": 5084,
+      "classes": 164,
+      "raw_sha256": "5a81244f0aab613f86b984c198476e2e439eba4a993f743738e4a683eb34b19c",
+      "by_case": [
+        {
+          "row": "candidate",
+          "case": "registration",
+          "classes": 16,
+          "samples": 496,
+          "largest_observed_elapsed_ns": 8360167,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 518237,
+          "max_incremental_peak_bytes": 181816
+        },
+        {
+          "row": "candidate",
+          "case": "vote3",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 3681000,
+          "largest_elapsed_mutation": "proof_opening_above_capacity",
+          "max_total_peak_live_bytes": 648661,
+          "max_incremental_peak_bytes": 176624
+        },
+        {
+          "row": "candidate",
+          "case": "vote500",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 4247500,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 984448,
+          "max_incremental_peak_bytes": 385179
+        },
+        {
+          "row": "candidate",
+          "case": "vote1000",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 10844625,
+          "largest_elapsed_mutation": "proof_opening_above_capacity",
+          "max_total_peak_live_bytes": 1496448,
+          "max_incremental_peak_bytes": 769179
+        },
+        {
+          "row": "comparator",
+          "case": "registration",
+          "classes": 16,
+          "samples": 496,
+          "largest_observed_elapsed_ns": 5072000,
+          "largest_elapsed_mutation": "wrong_statement_tag",
+          "max_total_peak_live_bytes": 414961,
+          "max_incremental_peak_bytes": 179840
+        },
+        {
+          "row": "comparator",
+          "case": "vote3",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 2409292,
+          "largest_elapsed_mutation": "record_proof_length_zero",
+          "max_total_peak_live_bytes": 496809,
+          "max_incremental_peak_bytes": 174648
+        },
+        {
+          "row": "comparator",
+          "case": "vote500",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 3530000,
+          "largest_elapsed_mutation": "proof_nonzero_opening_padding",
+          "max_total_peak_live_bytes": 834572,
+          "max_incremental_peak_bytes": 385179
+        },
+        {
+          "row": "comparator",
+          "case": "vote1000",
+          "classes": 22,
+          "samples": 682,
+          "largest_observed_elapsed_ns": 6043209,
+          "largest_elapsed_mutation": "proof_opening_above_capacity",
+          "max_total_peak_live_bytes": 1346572,
+          "max_incremental_peak_bytes": 769179
+        }
+      ]
+    }
+  },
+  "feature_parity": {
+    "classes": 164,
+    "sample_pairs": 5084,
+    "input_digest_length_outcome_diagnostic_equal": true
+  }
+}

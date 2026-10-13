@@ -46,7 +46,11 @@
 //! not a conflict: relabelling honest aggregates would otherwise let anyone freeze an honest
 //! light client.
 
-use std::{cmp::Ordering, collections::BTreeMap};
+use super::set_ref::{EthereumSetRef, SetFrameRef};
+use super::state::SccpLcConsensusSetRefV1;
+#[cfg(test)]
+use super::state::{SccpLcInitialStateV1, SccpLcPurgeV1, state_hash};
+use std::cmp::Ordering;
 
 use core::fmt;
 
@@ -56,8 +60,8 @@ use iroha_data_model::{
         inbound::SccpSourceLocatorV1,
         light_client::{
             SccpLcCheckpointDataV1, SccpLcCheckpointOriginV1, SccpLcCheckpointV1,
-            SccpLcConsensusSetV1, SccpLcEquivocationFreezeV1, SccpLcFreezeReasonV1, SccpLcHeadV1,
-            SccpLcPointV1, SccpLightClientParamsV1, SccpLightClientV1,
+            SccpLcEquivocationFreezeV1, SccpLcFreezeReasonV1, SccpLcHeadV1, SccpLcPointV1,
+            SccpLightClientParamsV1, SccpLightClientV1,
         },
         outbound::SccpVoidKindV1,
     },
@@ -65,14 +69,15 @@ use iroha_data_model::{
 
 use super::{
     SccpLcConflictV1, SccpLcError, SccpVerifierWorkV1,
+    prepared::{LcMemory, SccpLcAttemptErrorV1, SccpNativeEventV1, SccpSourceSenderV1},
     profile::{
         ETHEREUM_MAX_ANCESTRY_HEADERS, ETHEREUM_MAX_BACKFILL_HEADERS,
         ETHEREUM_MAX_UPDATES_PER_ADVANCE, EthereumChainProfileV1, MAX_SOURCE_FUTURE_MS,
     },
     proof::{SccpLcSetDataV1, SccpNormalizedEventV1, SccpSourceEmitterV1, SccpVerifiedProofV1},
     state::{
-        CheckpointRecorder, SccpLcDeltaV1, SccpLcInitialStateV1, SccpLcPurgeV1, SccpLcStateView,
-        SccpLcSupersessionV1, is_set_fresh, same_checkpoint_block, state_hash,
+        CheckpointRecorder, SccpLcDeltaV1, SccpLcStateView, is_set_fresh, same_checkpoint_block,
+        writer::DeltaWriter,
     },
 };
 use crate::{
@@ -83,18 +88,18 @@ use crate::{
     ethereum_source::{
         EthereumExecutionError, EthereumExecutionHeaderFieldsV1, EthereumMptRoleV1,
         EthereumNativeLightClientBootstrapV1, EthereumNativeLightClientUpdateV1,
-        EthereumNativeMptProofV1, EthereumNativeSyncCommitteeV1, EthereumReceiptV1, decode_account,
-        decode_execution_header, decode_receipt, decode_storage_word, rlp_encode_u64,
-        verify_mpt_inclusion,
+        EthereumNativeMptProofV1, EthereumNativeSyncCommitteeV1, decode_account,
+        decode_execution_header, decode_storage_word,
     },
     v1::{
-        constants::{CODEC_EVM_ADDRESS20, MAX_VOID_FROZEN_RANGE_EVM},
-        evm_abi::{AbiError, TransferToTairaLogV1, VoidedLogV1},
+        constants::MAX_VOID_FROZEN_RANGE_EVM,
+        evm_abi::{AbiError, FinalizedLogV1, TransferToTairaLogV1, VoidedLogV1},
         hashes::{keccak256, payload_hash, word_u64},
         network::tag,
-        payload::PayloadAccountV1,
     },
 };
+
+use super::state::SccpLcSupersessionV1;
 
 const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 
@@ -283,9 +288,11 @@ pub enum EthereumEventSelectorV1 {
     TransferToTaira(EthereumLogRefV1),
     /// One `voidExpired` log, or a run of `voidFrozen` logs of consecutive nonces.
     Void(EthereumLogRangeV1),
+    /// One `SccpFinalized` mint log.
+    Finalized(EthereumLogRefV1),
 }
 
-/// Ethereum inbound or void proof.
+/// Ethereum inbound, finalized-mint or void proof.
 #[derive(
     Clone,
     Debug,
@@ -588,55 +595,59 @@ impl<'a> Ctx<'a> {
 }
 
 /// A committee learned from a finalized update.
-struct LearnedCommitteeV1 {
+struct LearnedCommitteeV1<'a> {
     period: u64,
     root: Root,
-    wire: EthereumNativeSyncCommitteeV1,
+    wire: &'a EthereumNativeSyncCommitteeV1,
 }
 
 /// An update that passed every rule.
-struct VerifiedUpdateV1 {
+struct VerifiedUpdateV1<'a> {
     finalized_slot: u64,
     finalized_root: Root,
     execution: AuthenticatedExecutionBlock,
-    next_committee: Option<LearnedCommitteeV1>,
+    next_committee: Option<LearnedCommitteeV1<'a>>,
 }
 
-fn stored_committee(set: &SccpLcConsensusSetV1) -> Result<SyncCommittee, SccpLcError> {
-    let malformed = EthereumLcError::MalformedStoredSet { set_id: set.set_id };
-    let SccpLcSetDataV1::Ethereum(data) =
-        SccpLcSetDataV1::from_frame(&set.set_bytes).map_err(|_| malformed)?
-    else {
-        return Err(malformed.into());
+fn detached_error(error: &SccpLcAttemptErrorV1) -> SccpLcError {
+    match error {
+        SccpLcAttemptErrorV1::Protocol(error) => *error,
+        _ => execution(EthereumExecutionError::ResourceLimit),
+    }
+}
+#[cfg(test)]
+fn stored_committee(set: &SccpLcConsensusSetRefV1<'_>) -> Result<SyncCommittee, SccpLcError> {
+    stored_committee_with(set, &LcMemory::detached()).map_err(|error| detached_error(&error))
+}
+fn stored_committee_with(
+    set: &SccpLcConsensusSetRefV1<'_>,
+    memory: &LcMemory<'_>,
+) -> Result<SyncCommittee, SccpLcAttemptErrorV1> {
+    let malformed =
+        || SccpLcError::from(EthereumLcError::MalformedStoredSet { set_id: set.set_id });
+    let owner = memory
+        .decode_set(set.set_bytes, set.set_bytes.len())
+        .map_err(|error| match error {
+            SccpLcAttemptErrorV1::Protocol(_) => SccpLcAttemptErrorV1::Protocol(malformed()),
+            other => other,
+        })?;
+    let SccpLcSetDataV1::Ethereum(data) = owner.get() else {
+        return Err(malformed().into());
     };
     if data.period != set.set_id {
-        return Err(malformed.into());
+        return Err(malformed().into());
     }
-    data.committee.to_native().map_err(|_| malformed.into())
+    data.committee.to_native().map_err(|_| malformed().into())
 }
 
-fn committee_set(
-    period: u64,
-    committee: EthereumNativeSyncCommitteeV1,
-) -> Result<SccpLcConsensusSetV1, SccpLcError> {
-    let valid_from_source_height =
-        EthereumChainProfileV1::period_start_slot(period).ok_or(EthereumLcError::TimeOverflow)?;
-    Ok(SccpLcConsensusSetV1 {
-        set_id: period,
-        valid_from_source_height,
-        superseded_at_source_ms: None,
-        set_bytes: SccpLcSetDataV1::Ethereum(EthereumSyncCommitteeSetV1 { period, committee })
-            .to_frame()?,
-    })
-}
-
-fn verify_update<F>(
+fn verify_update_with<'a, 'wire, F>(
     ctx: &Ctx<'_>,
     lookup: F,
-    update: &EthereumNativeLightClientUpdateV1,
-) -> Result<VerifiedUpdateV1, SccpLcError>
+    update: &'wire EthereumNativeLightClientUpdateV1,
+    memory: &LcMemory<'_>,
+) -> Result<VerifiedUpdateV1<'wire>, SccpLcAttemptErrorV1>
 where
-    F: Fn(u64) -> Option<SccpLcConsensusSetV1>,
+    F: Fn(u64) -> Option<SccpLcConsensusSetRefV1<'a>>,
 {
     let native = update.to_native().map_err(execution)?;
     let attested_slot = native.attested_header.beacon().slot;
@@ -649,23 +660,23 @@ where
     let execution_block = native
         .finalized_header
         .authenticated_execution_block()
-        .ok_or(EthereumLcError::MissingExecutionPayload)?;
+        .ok_or_else(|| SccpLcError::from(EthereumLcError::MissingExecutionPayload))?;
     let execution_ms = seconds_to_ms(execution_block.timestamp)?;
     let signature_ms = ctx
         .profile
         .slot_start_ms(native.signature_slot)
-        .ok_or(EthereumLcError::TimeOverflow)?;
+        .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?;
     if execution_ms > signature_ms {
-        return Err(EthereumLcError::ExecutionAfterSignature {
+        return Err(SccpLcError::from(EthereumLcError::ExecutionAfterSignature {
             execution_ms,
             signature_ms,
-        }
+        })
         .into());
     }
     let period = native.signature_period();
     let set = lookup(period).ok_or(SccpLcError::UnknownSigningSet { set_id: period })?;
     ctx.check_fresh(period)?;
-    let committee = stored_committee(&set)?;
+    let committee = stored_committee_with(&set, memory)?;
     native
         .verify_signature(&committee, &ctx.schedule)
         .map_err(consensus)?;
@@ -673,9 +684,9 @@ where
         (Some(next), Some(wire)) => Some(LearnedCommitteeV1 {
             period: sync_committee_period_at_slot(attested_slot)
                 .checked_add(1)
-                .ok_or(EthereumLcError::TimeOverflow)?,
+                .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?,
             root: next.committee.hash_tree_root(),
-            wire: wire.committee.clone(),
+            wire: &wire.committee,
         }),
         _ => None,
     };
@@ -725,28 +736,20 @@ const fn point(data: &SccpLcCheckpointDataV1) -> SccpLcPointV1 {
     }
 }
 
-fn decode_headers(
-    headers: &[Vec<u8>],
-) -> Result<Vec<EthereumExecutionHeaderFieldsV1>, SccpLcError> {
-    headers
-        .iter()
-        .map(|header| decode_execution_header(header).map_err(execution))
-        .collect()
-}
-
-/// Check that `headers` continue `start` one block at a time; returns the last header.
+/// Check one bounded header chain without retaining a second header graph.
 fn link_headers(
     start: EthereumExecutionHeaderFieldsV1,
-    headers: &[EthereumExecutionHeaderFieldsV1],
+    headers: &[Vec<u8>],
 ) -> Result<EthereumExecutionHeaderFieldsV1, SccpLcError> {
     let mut previous = start;
-    for (index, header) in headers.iter().enumerate() {
+    for (index, wire) in headers.iter().enumerate() {
+        let header = decode_execution_header(wire).map_err(execution)?;
         if header.parent_hash != previous.hash
             || previous.number.checked_add(1) != Some(header.number)
         {
             return Err(EthereumLcError::AncestryBroken { index }.into());
         }
-        previous = *header;
+        previous = header;
     }
     Ok(previous)
 }
@@ -764,12 +767,48 @@ fn count_bound(param: u32, hard: usize) -> usize {
 /// The header lies within the compiled fork bound and not in the future, carries an execution
 /// payload, and its period's committee is fresh at `taira_now_ms` and proven by the
 /// current-committee branch.
+#[cfg(test)]
 pub(super) fn verify_bootstrap(
     profile: &EthereumChainProfileV1,
     params: &SccpLightClientParamsV1,
     bootstrap: &EthereumNativeLightClientBootstrapV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
+    let mut output = SccpLcDeltaV1::default();
+    let head = verify_bootstrap_into(
+        profile,
+        params,
+        bootstrap,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut output,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(SccpLcInitialStateV1 {
+        light_client: SccpLightClientV1 {
+            params: *params,
+            head,
+            frozen: None,
+            state_hash: state_hash(params, &head, None),
+        },
+        purge: SccpLcPurgeV1::DiscardUnvetted,
+        superseded_sets: output.superseded_sets,
+        sets: output.new_sets,
+        checkpoints: output.checkpoints,
+    })
+}
+
+pub(super) fn verify_bootstrap_into<D: DeltaWriter>(
+    profile: &EthereumChainProfileV1,
+    params: &SccpLightClientParamsV1,
+    bootstrap: &EthereumNativeLightClientBootstrapV1,
+    taira_now_ms: u64,
+    _memory: &LcMemory<'_>,
+    output: &mut D,
+) -> Result<SccpLcHeadV1, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let ctx = Ctx::new(profile, params, taira_now_ms)?;
     let native = bootstrap.to_native().map_err(execution)?;
     let slot = native.header.beacon().slot;
@@ -782,28 +821,32 @@ pub(super) fn verify_bootstrap(
     let period = sync_committee_period_at_slot(slot);
     ctx.check_fresh(period)?;
     native.verify(&ctx.schedule).map_err(consensus)?;
-    let set = committee_set(period, bootstrap.current_sync_committee.clone())?;
+    let first = period
+        .checked_mul(8_192)
+        .ok_or(EthereumLcError::TimeOverflow)?;
+    output
+        .encode_set(
+            period,
+            first,
+            None,
+            &SetFrameRef::ethereum(&EthereumSetRef {
+                period,
+                committee: &bootstrap.current_sync_committee,
+            }),
+        )
+        .map_err(Into::into)?;
     let data = execution_checkpoint(&execution_block)?;
-    let head = SccpLcHeadV1 {
-        latest_set_id: period,
-        latest_finalized: point(&data),
-        last_progress_taira_ms: taira_now_ms,
-    };
-    Ok(SccpLcInitialStateV1 {
-        light_client: SccpLightClientV1 {
-            params: *params,
-            head,
-            frozen: None,
-            state_hash: state_hash(params, &head, None),
-        },
-        purge: SccpLcPurgeV1::DiscardUnvetted,
-        superseded_sets: Vec::new(),
-        sets: vec![set],
-        checkpoints: vec![SccpLcCheckpointV1 {
+    output
+        .checkpoint(SccpLcCheckpointV1 {
             data,
             recorded_at_taira_ms: taira_now_ms,
             origin: SccpLcCheckpointOriginV1::Parliament,
-        }],
+        })
+        .map_err(Into::into)?;
+    Ok(SccpLcHeadV1 {
+        latest_set_id: period,
+        latest_finalized: point(&data),
+        last_progress_taira_ms: taira_now_ms,
     })
 }
 
@@ -811,70 +854,91 @@ pub(super) fn verify_bootstrap(
 // Advance
 // ---------------------------------------------------------------------------------------------
 
-struct CommitteeLearner<'a, V: SccpLcStateView + ?Sized> {
+struct CommitteeLearner<'a, V: SccpLcStateView + ?Sized, D: DeltaWriter> {
     view: &'a V,
     profile: &'a EthereumChainProfileV1,
-    new_sets: BTreeMap<u64, SccpLcConsensusSetV1>,
-    superseded: BTreeMap<u64, u64>,
+    output: &'a mut D,
+    memory: &'a LcMemory<'a>,
 }
 
-impl<'a, V: SccpLcStateView + ?Sized> CommitteeLearner<'a, V> {
-    const fn new(view: &'a V, profile: &'a EthereumChainProfileV1) -> Self {
+impl<'a, V: SccpLcStateView + ?Sized, D: DeltaWriter> CommitteeLearner<'a, V, D>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
+    const fn new(
+        view: &'a V,
+        profile: &'a EthereumChainProfileV1,
+        output: &'a mut D,
+        memory: &'a LcMemory<'a>,
+    ) -> Self {
         Self {
             view,
             profile,
-            new_sets: BTreeMap::new(),
-            superseded: BTreeMap::new(),
+            output,
+            memory,
         }
     }
 
-    fn lookup(&self, period: u64) -> Option<SccpLcConsensusSetV1> {
-        self.new_sets
-            .get(&period)
-            .cloned()
+    fn lookup(&self, period: u64) -> Option<SccpLcConsensusSetRefV1<'_>> {
+        self.output
+            .find_set(period)
             .or_else(|| self.view.consensus_set(NETWORK, period))
     }
 
-    fn learn(&mut self, next: LearnedCommitteeV1) -> Result<(), SccpLcError> {
+    fn learn(&mut self, next: &LearnedCommitteeV1<'_>) -> Result<(), SccpLcAttemptErrorV1> {
         if let Some(existing) = self.lookup(next.period) {
-            if stored_committee(&existing)?.hash_tree_root() != next.root {
-                return Err(SccpLcError::ConflictsWithStoredData(
-                    SccpLcConflictV1::ConsensusSet {
+            if stored_committee_with(&existing, self.memory)?.hash_tree_root() != next.root {
+                return Err(
+                    SccpLcError::ConflictsWithStoredData(SccpLcConflictV1::ConsensusSet {
                         set_id: next.period,
-                    },
-                ));
+                    })
+                    .into(),
+                );
             }
             return Ok(());
         }
-        let mut set = committee_set(next.period, next.wire)?;
         let successor = next
             .period
             .checked_add(1)
-            .ok_or(EthereumLcError::TimeOverflow)?;
-        if self.lookup(successor).is_some() {
-            set.superseded_at_source_ms = Some(
+            .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?;
+        let superseded = if self.lookup(successor).is_some() {
+            Some(
                 self.profile
                     .period_start_ms(successor)
-                    .ok_or(EthereumLcError::TimeOverflow)?,
-            );
-        }
+                    .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?,
+            )
+        } else {
+            None
+        };
         if let Some(previous) = next.period.checked_sub(1) {
             let superseded_at = self
                 .profile
                 .period_start_ms(next.period)
-                .ok_or(EthereumLcError::TimeOverflow)?;
-            if let Some(pending) = self.new_sets.get_mut(&previous) {
-                pending.superseded_at_source_ms = Some(superseded_at);
-            } else if self
-                .view
-                .consensus_set(NETWORK, previous)
-                .is_some_and(|stored| stored.superseded_at_source_ms.is_none())
+                .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?;
+            if self.output.find_set(previous).is_some()
+                || self
+                    .view
+                    .consensus_set(NETWORK, previous)
+                    .is_some_and(|stored| stored.superseded_at_source_ms.is_none())
             {
-                self.superseded.insert(previous, superseded_at);
+                self.output
+                    .supersede(previous, superseded_at)
+                    .map_err(Into::into)?;
             }
         }
-        self.new_sets.insert(next.period, set);
-        Ok(())
+        let first_height = EthereumChainProfileV1::period_start_slot(next.period)
+            .ok_or_else(|| SccpLcError::from(EthereumLcError::TimeOverflow))?;
+        self.output
+            .encode_set(
+                next.period,
+                first_height,
+                superseded,
+                &super::set_ref::SetFrameRef::ethereum(&super::set_ref::EthereumSetRef {
+                    period: next.period,
+                    committee: next.wire,
+                }),
+            )
+            .map_err(Into::into)
     }
 }
 
@@ -886,6 +950,33 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
     advance: &EthereumLcAdvanceV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcDeltaV1, SccpLcError> {
+    let mut output = SccpLcDeltaV1::default();
+    output.head = apply_advance_into(
+        profile,
+        view,
+        light_client,
+        advance,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut output,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(output)
+}
+
+/// One verification algorithm writing into the caller's actual delta owner.
+pub(super) fn apply_advance_into<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    profile: &EthereumChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    advance: &EthereumLcAdvanceV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    output: &mut D,
+) -> Result<Option<SccpLcHeadV1>, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let params = &light_client.params;
     let count = advance.updates.len();
     if count == 0 {
@@ -893,7 +984,8 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
             kind: "light-client updates",
             count,
             min: 1,
-        });
+        }
+        .into());
     }
     let max = count_bound(
         params.max_updates_per_advance,
@@ -904,10 +996,11 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
             kind: "light-client updates",
             count,
             max,
-        });
+        }
+        .into());
     }
     let ctx = Ctx::new(profile, params, taira_now_ms)?;
-    let mut learner = CommitteeLearner::new(view, profile);
+    let mut learner = CommitteeLearner::new(view, profile, output, memory);
     let mut recorder = CheckpointRecorder::new(
         view,
         NETWORK,
@@ -917,7 +1010,7 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
     let mut latest_set_id = light_client.head.latest_set_id;
     let mut latest_finalized = light_client.head.latest_finalized;
     for update in &advance.updates {
-        let verified = verify_update(&ctx, |period| learner.lookup(period), update)?;
+        let verified = verify_update_with(&ctx, |period| learner.lookup(period), update, memory)?;
         let data = execution_checkpoint(&verified.execution)?;
         recorder.record(data)?;
         if data.source_height > latest_finalized.source_height {
@@ -925,28 +1018,19 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
         }
         if let Some(next) = verified.next_committee {
             latest_set_id = latest_set_id.max(next.period);
-            learner.learn(next)?;
+            learner.learn(&next)?;
         }
     }
     let moved = latest_set_id != light_client.head.latest_set_id
         || latest_finalized != light_client.head.latest_finalized;
-    Ok(SccpLcDeltaV1 {
-        new_sets: learner.new_sets.into_values().collect(),
-        superseded_sets: learner
-            .superseded
-            .into_iter()
-            .map(|(set_id, superseded_at_source_ms)| SccpLcSupersessionV1 {
-                set_id,
-                superseded_at_source_ms,
-            })
-            .collect(),
-        checkpoints: recorder.into_vec(),
-        head: moved.then_some(SccpLcHeadV1 {
-            latest_set_id,
-            latest_finalized,
-            last_progress_taira_ms: taira_now_ms,
-        }),
-    })
+    for checkpoint in recorder.into_records() {
+        learner.output.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(moved.then_some(SccpLcHeadV1 {
+        latest_set_id,
+        latest_finalized,
+        last_progress_taira_ms: taira_now_ms,
+    }))
 }
 
 /// Verify a `Backfill` segment and return the checkpoint of its first header.
@@ -956,13 +1040,30 @@ pub(super) fn apply_backfill<V: SccpLcStateView + ?Sized>(
     segment: &EthereumHeaderSegmentV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcDeltaV1, SccpLcError> {
+    let mut output = SccpLcDeltaV1::default();
+    apply_backfill_into(view, light_client, segment, taira_now_ms, &mut output)
+        .map_err(|error| detached_error(&error))?;
+    Ok(output)
+}
+
+pub(super) fn apply_backfill_into<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    view: &V,
+    light_client: &SccpLightClientV1,
+    segment: &EthereumHeaderSegmentV1,
+    taira_now_ms: u64,
+    output: &mut D,
+) -> Result<(), SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let count = segment.headers.len();
     if count < 2 {
         return Err(SccpLcError::TooFewItems {
             kind: "backfill headers",
             count,
             min: 2,
-        });
+        }
+        .into());
     }
     let max = count_bound(
         light_client.params.max_backfill_headers,
@@ -973,11 +1074,11 @@ pub(super) fn apply_backfill<V: SccpLcStateView + ?Sized>(
             kind: "backfill headers",
             count,
             max,
-        });
+        }
+        .into());
     }
-    let headers = decode_headers(&segment.headers)?;
-    let first = headers[0];
-    let last = link_headers(first, &headers[1..])?;
+    let first = decode_execution_header(&segment.headers[0]).map_err(execution)?;
+    let last = link_headers(first, &segment.headers[1..])?;
     let stored = view
         .checkpoint(NETWORK, last.number)
         .ok_or(SccpLcError::UnknownCheckpoint {
@@ -996,10 +1097,10 @@ pub(super) fn apply_backfill<V: SccpLcStateView + ?Sized>(
         taira_now_ms,
     );
     recorder.record(header_checkpoint(&first)?)?;
-    Ok(SccpLcDeltaV1 {
-        checkpoints: recorder.into_vec(),
-        ..SccpLcDeltaV1::default()
-    })
+    for checkpoint in recorder.into_records() {
+        output.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1035,26 +1136,26 @@ fn verify_history(
         .into());
     }
     let account_key = keccak256(&[&ctx.profile.history_storage_address]);
-    let account_value = verify_mpt_inclusion(
+    let account_value = crate::ethereum_source::verify_mpt_inclusion_ref(
         state_root,
         &account_key,
         &history.account_proof,
         EthereumMptRoleV1::Account,
     )
     .map_err(execution)?;
-    let account = decode_account(&account_value).map_err(execution)?;
+    let account = decode_account(account_value).map_err(execution)?;
     if account.code_hash != ctx.profile.history_storage_code_hash {
         return Err(EthereumLcError::HistoryCodeHashMismatch.into());
     }
     let storage_key = keccak256(&[&word_u64(event.number % window)]);
-    let storage_value = verify_mpt_inclusion(
+    let storage_value = crate::ethereum_source::verify_mpt_inclusion_ref(
         account.storage_root,
         &storage_key,
         &history.storage_proof,
         EthereumMptRoleV1::Storage,
     )
     .map_err(execution)?;
-    if decode_storage_word(&storage_value).map_err(execution)? != event.hash {
+    if decode_storage_word(storage_value).map_err(execution)? != event.hash {
         return Err(EthereumLcError::HistoryValueMismatch.into());
     }
     Ok(())
@@ -1086,7 +1187,7 @@ fn verify_ancestry(
                     max,
                 });
             }
-            link_headers(*event, &decode_headers(&segment.headers)?)?
+            link_headers(*event, &segment.headers)?
         }
         EthereumAncestryV1::HistoryContract(history) => {
             return verify_history(ctx, event, anchor, history);
@@ -1100,25 +1201,57 @@ fn verify_ancestry(
 }
 
 /// Open the successful receipt `transaction_index` under `receipts_root` (shared with BSC).
-pub(super) fn open_receipt(
+pub(super) fn open_receipt<'a>(
     receipts_root: [u8; 32],
     transaction_index: u32,
-    proof: &EthereumNativeMptProofV1,
-) -> Result<EthereumReceiptV1, SccpLcError> {
-    let key = rlp_encode_u64(u64::from(transaction_index));
-    let value = verify_mpt_inclusion(receipts_root, &key, proof, EthereumMptRoleV1::Receipt)
-        .map_err(execution)?;
-    let receipt = decode_receipt(&value).map_err(execution)?;
+    proof: &'a EthereumNativeMptProofV1,
+    memory: &LcMemory<'_>,
+) -> Result<crate::ethereum_source::EthereumReceiptOwner<'a>, SccpLcAttemptErrorV1> {
+    // Canonical RLP u32 key is at most five bytes, including its scalar prefix.
+    let bytes = transaction_index.to_be_bytes();
+    let leading = bytes.iter().take_while(|byte| **byte == 0).count();
+    let mut key = [0u8; 5];
+    let key_len = if transaction_index == 0 {
+        key[0] = 0x80;
+        1
+    } else if transaction_index < 0x80 {
+        key[0] = bytes[3];
+        1
+    } else {
+        let count = 4 - leading;
+        key[0] = 0x80 + u8::try_from(count).expect("u32 RLP keys contain at most four bytes");
+        key[1..=count].copy_from_slice(&bytes[leading..]);
+        count + 1
+    };
+    let value = crate::ethereum_source::verify_mpt_inclusion_ref(
+        receipts_root,
+        &key[..key_len],
+        proof,
+        EthereumMptRoleV1::Receipt,
+    )
+    .map_err(execution)?;
+    let receipt = memory
+        .native()
+        .finish(crate::ethereum_source::decode_receipt_native(
+            value,
+            memory.native(),
+        ))
+        .map_err(|error| match error {
+            crate::native_memory::AttemptError::Protocol(error) => {
+                SccpLcAttemptErrorV1::Protocol(execution(error))
+            }
+            crate::native_memory::AttemptError::Allocation(error) => error.into(),
+        })?;
     if !receipt.success {
-        return Err(EthereumLcError::FailedReceipt.into());
+        return Err(SccpLcError::from(EthereumLcError::FailedReceipt).into());
     }
     Ok(receipt)
 }
 
-fn log_at(
-    receipt: &EthereumReceiptV1,
+fn log_at<'a, 'wire>(
+    receipt: &'a crate::ethereum_source::EthereumReceiptOwner<'wire>,
     index: u32,
-) -> Result<&crate::ethereum_source::EthereumLogV1, SccpLcError> {
+) -> Result<&'a crate::ethereum_source::EthereumLogRef<'wire>, SccpLcError> {
     usize::try_from(index)
         .ok()
         .and_then(|position| receipt.logs.get(position))
@@ -1133,21 +1266,33 @@ fn log_at(
 
 /// Select the SCCP event of `receipt` named by `selector` (shared with BSC).
 pub(super) fn select_event(
-    receipt: &EthereumReceiptV1,
+    receipt: &crate::ethereum_source::EthereumReceiptOwner<'_>,
     selector: EthereumEventSelectorV1,
     locator: SccpSourceLocatorV1,
-) -> Result<SccpNormalizedEventV1, SccpLcError> {
+) -> Result<SccpNativeEventV1, SccpLcError> {
     match selector {
+        EthereumEventSelectorV1::Finalized(reference) => {
+            let log = log_at(receipt, reference.log_index)?;
+            let decoded =
+                FinalizedLogV1::decode(log.topics(), log.data).map_err(EthereumLcError::Event)?;
+            Ok(SccpNormalizedEventV1::Finalized {
+                emitter: SccpSourceEmitterV1::Evm(log.address),
+                message_id: decoded.message_id,
+                nonce: decoded.nonce,
+                amount: Some(decoded.token_amount),
+                locator,
+            })
+        }
         EthereumEventSelectorV1::TransferToTaira(reference) => {
             let log = log_at(receipt, reference.log_index)?;
-            let decoded = TransferToTairaLogV1::decode(&log.topics, &log.data)
+            let decoded = TransferToTairaLogV1::decode_ref(log.topics(), log.data)
                 .map_err(EthereumLcError::Event)?;
             Ok(SccpNormalizedEventV1::TransferToTaira {
                 emitter: SccpSourceEmitterV1::Evm(log.address),
                 message_id: decoded.message_id,
-                sender: PayloadAccountV1::new(CODEC_EVM_ADDRESS20, decoded.sender.to_vec()),
+                sender: SccpSourceSenderV1::Evm(decoded.sender),
                 nonce: decoded.nonce,
-                payload_hash: payload_hash(&decoded.payload),
+                payload_hash: payload_hash(decoded.payload),
                 locator,
             })
         }
@@ -1156,16 +1301,17 @@ pub(super) fn select_event(
 }
 
 fn select_voids(
-    receipt: &EthereumReceiptV1,
+    receipt: &crate::ethereum_source::EthereumReceiptOwner<'_>,
     range: EthereumLogRangeV1,
     locator: SccpSourceLocatorV1,
-) -> Result<SccpNormalizedEventV1, SccpLcError> {
+) -> Result<SccpNativeEventV1, SccpLcError> {
     let count = u64::from(range.log_count);
     if count == 0 || count > MAX_VOID_FROZEN_RANGE_EVM {
         return Err(EthereumLcError::VoidRangeInvalid.into());
     }
     let emitter = log_at(receipt, range.first_log_index)?.address;
-    let mut voids = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
+    let mut first = None;
+    let mut consecutive = true;
     for offset in 0..range.log_count {
         let index = range
             .first_log_index
@@ -1175,9 +1321,12 @@ fn select_voids(
         if log.address != emitter {
             return Err(EthereumLcError::VoidRangeInvalid.into());
         }
-        voids.push(VoidedLogV1::decode(&log.topics, &log.data).map_err(EthereumLcError::Event)?);
+        let void = VoidedLogV1::decode(log.topics(), log.data).map_err(EthereumLcError::Event)?;
+        let initial = *first.get_or_insert(void);
+        consecutive &=
+            void.is_frozen() && initial.nonce.checked_add(u64::from(offset)) == Some(void.nonce);
     }
-    let first = voids[0];
+    let first = first.ok_or(EthereumLcError::VoidRangeInvalid)?;
     if count == 1 && !first.is_frozen() {
         return Ok(SccpNormalizedEventV1::Void {
             emitter: SccpSourceEmitterV1::Evm(emitter),
@@ -1188,9 +1337,6 @@ fn select_voids(
             locator,
         });
     }
-    let consecutive = voids.iter().zip(0_u64..).all(|(void, offset)| {
-        void.is_frozen() && first.nonce.checked_add(offset) == Some(void.nonce)
-    });
     if !consecutive {
         return Err(EthereumLcError::VoidRangeInvalid.into());
     }
@@ -1204,7 +1350,7 @@ fn select_voids(
     })
 }
 
-/// Verify an Ethereum inbound or void proof.
+/// Verify an Ethereum inbound, finalized-mint or void proof.
 pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
     profile: &EthereumChainProfileV1,
     view: &V,
@@ -1212,14 +1358,47 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
     proof: &EthereumSourceProofV1,
     taira_now_ms: u64,
 ) -> Result<SccpVerifiedProofV1, SccpLcError> {
+    let mut output = SccpLcDeltaV1::default();
+    let event = verify_proof_native(
+        profile,
+        view,
+        light_client,
+        proof,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut output,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(SccpVerifiedProofV1 {
+        event: event.into_detached(),
+        checkpoints: output.checkpoints,
+    })
+}
+
+pub(super) fn verify_proof_native<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    profile: &EthereumChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    proof: &EthereumSourceProofV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    output: &mut D,
+) -> Result<SccpNativeEventV1, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let params = &light_client.params;
     let ctx = Ctx::new(profile, params, taira_now_ms)?;
     let mut recorder =
         CheckpointRecorder::new(view, NETWORK, SccpLcCheckpointOriginV1::Proof, taira_now_ms);
     let anchor = match &proof.anchor {
         EthereumProofAnchorV1::FinalityUpdate(update) => {
-            let verified =
-                verify_update(&ctx, |period| view.consensus_set(NETWORK, period), update)?;
+            let verified = verify_update_with(
+                &ctx,
+                |period| view.consensus_set(NETWORK, period),
+                update,
+                memory,
+            )?;
             let data = execution_checkpoint(&verified.execution)?;
             recorder.record(data)?;
             data
@@ -1239,6 +1418,7 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
         event_block.receipts_root,
         proof.transaction_index,
         &proof.receipt_proof,
+        memory,
     )?;
     let locator = SccpSourceLocatorV1 {
         source_height: event_block.number,
@@ -1246,10 +1426,10 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
         index_in_block: proof.transaction_index,
     };
     let event = select_event(&receipt, proof.event, locator)?;
-    Ok(SccpVerifiedProofV1 {
-        event,
-        checkpoints: recorder.into_vec(),
-    })
+    for checkpoint in recorder.into_records() {
+        output.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(event)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1262,7 +1442,7 @@ struct EvidenceClaimsV1 {
     finalized_root: Root,
     next_committee: Option<(u64, Root)>,
     /// Finalized execution blocks: the update's, and a `FinalizedAncestor`'s ancestor.
-    blocks: Vec<SccpLcCheckpointDataV1>,
+    blocks: [Option<SccpLcCheckpointDataV1>; 2],
 }
 
 fn verify_evidence<V: SccpLcStateView + ?Sized>(
@@ -1270,18 +1450,24 @@ fn verify_evidence<V: SccpLcStateView + ?Sized>(
     params: &SccpLightClientParamsV1,
     view: &V,
     evidence: &EthereumLcEvidenceV1,
-) -> Result<EvidenceClaimsV1, SccpLcError> {
+    memory: &LcMemory<'_>,
+) -> Result<EvidenceClaimsV1, SccpLcAttemptErrorV1> {
     let (update, ancestor) = match evidence {
         EthereumLcEvidenceV1::Update(update) => (update.as_ref(), None),
         EthereumLcEvidenceV1::FinalizedAncestor(record) => (&record.update, Some(record.as_ref())),
     };
-    let verified = verify_update(ctx, |period| view.consensus_set(NETWORK, period), update)?;
+    let verified = verify_update_with(
+        ctx,
+        |period| view.consensus_set(NETWORK, period),
+        update,
+        memory,
+    )?;
     let finalized = execution_checkpoint(&verified.execution)?;
-    let mut blocks = vec![finalized];
+    let mut blocks = [Some(finalized), None];
     if let Some(record) = ancestor {
         let header = decode_execution_header(&record.header).map_err(execution)?;
         verify_ancestry(ctx, params, &header, &finalized, &record.ancestry)?;
-        blocks.push(header_checkpoint(&header)?);
+        blocks[1] = Some(header_checkpoint(&header)?);
     }
     Ok(EvidenceClaimsV1 {
         finalized_slot: verified.finalized_slot,
@@ -1313,7 +1499,8 @@ fn claims_conflict(a: &EvidenceClaimsV1, b: &EvidenceClaimsV1) -> bool {
     let execution = a
         .blocks
         .iter()
-        .any(|x| b.blocks.iter().any(|y| blocks_conflict(x, y)));
+        .flatten()
+        .any(|x| b.blocks.iter().flatten().any(|y| blocks_conflict(x, y)));
     finalized || committee || execution
 }
 
@@ -1331,15 +1518,36 @@ pub(super) fn verify_equivocation<V: SccpLcStateView + ?Sized>(
     second: (&EthereumLcEvidenceV1, &[u8]),
     taira_now_ms: u64,
 ) -> Result<SccpLcFreezeReasonV1, SccpLcError> {
+    verify_equivocation_native(
+        profile,
+        view,
+        light_client,
+        first,
+        second,
+        taira_now_ms,
+        &LcMemory::detached(),
+    )
+    .map_err(|error| detached_error(&error))
+}
+
+pub(super) fn verify_equivocation_native<V: SccpLcStateView + ?Sized>(
+    profile: &EthereumChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    first: (&EthereumLcEvidenceV1, &[u8]),
+    second: (&EthereumLcEvidenceV1, &[u8]),
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+) -> Result<SccpLcFreezeReasonV1, SccpLcAttemptErrorV1> {
     if first.1 == second.1 {
-        return Err(SccpLcError::EvidenceNotConflicting);
+        return Err(SccpLcError::EvidenceNotConflicting.into());
     }
     let params = &light_client.params;
     let ctx = Ctx::new(profile, params, taira_now_ms)?;
-    let a = verify_evidence(&ctx, params, view, first.0)?;
-    let b = verify_evidence(&ctx, params, view, second.0)?;
+    let a = verify_evidence(&ctx, params, view, first.0, memory)?;
+    let b = verify_evidence(&ctx, params, view, second.0, memory)?;
     if !claims_conflict(&a, &b) {
-        return Err(SccpLcError::EvidenceNotConflicting);
+        return Err(SccpLcError::EvidenceNotConflicting.into());
     }
     let mut hashes = [keccak256(&[first.1]), keccak256(&[second.1])];
     hashes.sort_unstable();
@@ -1385,25 +1593,25 @@ pub(super) fn weak_subjectivity_deadline_ms(
 
 /// Supersession of an aged light client's newest committee, recorded when a fresh bootstrap
 /// re-initializes it without a purge: the committee's period ended when the next one started.
-pub(super) fn aged_supersessions<V: SccpLcStateView + ?Sized>(
+pub(super) fn aged_supersession<V: SccpLcStateView + ?Sized>(
     profile: &EthereumChainProfileV1,
     view: &V,
     light_client: &SccpLightClientV1,
-) -> Result<Vec<SccpLcSupersessionV1>, SccpLcError> {
+) -> Result<Option<SccpLcSupersessionV1>, SccpLcError> {
     let period = light_client.head.latest_set_id;
     if !view
         .consensus_set(NETWORK, period)
         .is_some_and(|set| set.is_current())
     {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let successor = period.checked_add(1).ok_or(EthereumLcError::TimeOverflow)?;
-    Ok(vec![SccpLcSupersessionV1 {
+    Ok(Some(SccpLcSupersessionV1 {
         set_id: period,
         superseded_at_source_ms: profile
             .period_start_ms(successor)
             .ok_or(EthereumLcError::TimeOverflow)?,
-    }])
+    }))
 }
 
 fn header_bytes(headers: &[Vec<u8>]) -> u64 {
@@ -1476,6 +1684,21 @@ pub(super) fn evidence_work(evidence: &EthereumLcEvidenceV1) -> SccpVerifierWork
 
 #[cfg(test)]
 mod tests {
+    use crate::ethereum_source::EthereumReceiptV1;
+    use crate::v1::{constants::CODEC_EVM_ADDRESS20, payload::PayloadAccountV1};
+
+    // Test-only convenience inputs enter the same borrowed receipt decoder and selector.
+    fn select_voids(
+        receipt: &EthereumReceiptV1,
+        range: super::EthereumLogRangeV1,
+        locator: iroha_data_model::sccp::inbound::SccpSourceLocatorV1,
+    ) -> Result<super::SccpNormalizedEventV1, super::SccpLcError> {
+        let bytes = crate::ethereum_source::encode_receipt(receipt, &[0; 256]);
+        let memory = super::LcMemory::detached();
+        let receipt = crate::ethereum_source::decode_receipt_native(&bytes, memory.native())
+            .map_err(super::execution)?;
+        super::select_voids(&receipt, range, locator).map(super::SccpNativeEventV1::into_detached)
+    }
     use super::*;
     use crate::{
         ethereum_native::{FINALITY_PARTICIPANT_THRESHOLD, SYNC_COMMITTEE_SIZE},
@@ -1874,6 +2097,117 @@ mod tests {
         assert_eq!(delta.head.expect("moves").latest_set_id, PERIOD + 3);
     }
 
+    #[test]
+    fn admitted_advance_and_proof_keep_original_pool_and_borrowed_overlay() {
+        use crate::light_client::{
+            prepared::PreparedLcFrameV1,
+            profile::SccpChainProfilesV1,
+            proof::{SccpLcAdvanceV1, SccpSourceProofV1},
+            state::admitted::{SccpLcDeltaReadV1, SccpLcOverlayV1},
+        };
+        use iroha_allocation::AllocationBudget;
+
+        let chain = SyntheticBeaconChainV1::mainnet();
+        let now = chain.slot_unix_ms(slot(8_192 + 300));
+        let original = installed(&chain, now);
+        let original_head = light_client(&original);
+        let original_bytes = original
+            .consensus_set(NETWORK, PERIOD)
+            .unwrap()
+            .set_bytes
+            .as_ptr();
+        let advance = chain.catch_up_advance(PERIOD, PERIOD + 1);
+        let frame = advance.to_bytes().unwrap();
+        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        let prepared =
+            PreparedLcFrameV1::advance(frame.as_bytes(), 4 * 1024 * 1024, &budget).unwrap();
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        let verify =
+            || prepared.verify_advance(SccpChainProfilesV1::latest(), &original, NETWORK, now);
+        assert!(
+            matches!(verify(), Err(SccpLcAttemptErrorV1::Output(_))),
+            "native output admission must refuse the exhausted original pool"
+        );
+        let foreign = AllocationBudget::new(32 * 1024 * 1024);
+        drop(foreign.try_reserve_bytes(foreign.limit_bytes()).unwrap());
+        assert!(matches!(verify(), Err(SccpLcAttemptErrorV1::Output(_))));
+        drop(occupied);
+        let delta = verify().expect("original release permits genuine catch-up");
+        let SccpLcAdvanceV1::Ethereum(advance) = &advance else {
+            unreachable!()
+        };
+        let detached =
+            apply_advance(&ETHEREUM_MAINNET, &original, &original_head, advance, now).unwrap();
+        assert_eq!(delta.head(), detached.head);
+        assert_eq!(delta.checkpoints(), detached.checkpoints);
+        assert_eq!(
+            delta.set(0).unwrap().set_bytes,
+            detached.new_sets[0].set_bytes
+        );
+
+        let (header, receipt_proof) =
+            inbound_block(&chain, vec![transfer_log(EMITTER, &transfer())]);
+        let proof = SccpSourceProofV1::Ethereum(EthereumSourceProofV1 {
+            anchor: EthereumProofAnchorV1::FinalityUpdate(Box::new(
+                chain.finality_update_for(execution_of(&header), slot(8_192 + 200)),
+            )),
+            ancestry: EthereumAncestryV1::SameBlock,
+            event_header: header,
+            transaction_index: 1,
+            receipt_proof,
+            event: EthereumEventSelectorV1::TransferToTaira(EthereumLogRefV1 { log_index: 0 }),
+        });
+        let proof_frame = proof.to_bytes().unwrap();
+        let proof =
+            PreparedLcFrameV1::proof(proof_frame.as_bytes(), 4 * 1024 * 1024, &budget).unwrap();
+        assert!(
+            proof
+                .verify_proof(SccpChainProfilesV1::latest(), &original, NETWORK, now)
+                .is_err(),
+            "the proof requires the signed advance's newly learned committee"
+        );
+        let overlay = SccpLcOverlayV1::new(&original, NETWORK, std::slice::from_ref(&delta));
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(
+            proof.verify_proof(SccpChainProfilesV1::latest(), &overlay, NETWORK, now),
+            Err(SccpLcAttemptErrorV1::Output(_))
+        ));
+        drop(occupied);
+        let verified = proof
+            .verify_proof(SccpChainProfilesV1::latest(), &overlay, NETWORK, now)
+            .expect("genuine receipt verifies through the borrowed advance overlay");
+        assert!(
+            matches!(verified.event, SccpNativeEventV1::TransferToTaira { message_id, .. } if message_id == [0x3c; 32])
+        );
+        assert_eq!(
+            light_client(&original),
+            original_head,
+            "verification never commits overlay writes"
+        );
+        assert_eq!(
+            original
+                .consensus_set(NETWORK, PERIOD)
+                .unwrap()
+                .set_bytes
+                .as_ptr(),
+            original_bytes
+        );
+        assert!(original.consensus_set(NETWORK, PERIOD + 1).is_none());
+        drop(verified);
+        drop(proof);
+        drop(delta);
+        drop(prepared);
+        assert_eq!(
+            budget.reserved_bytes(),
+            0,
+            "all original owners release on completion"
+        );
+    }
+
     fn inbound_block(
         chain: &SyntheticBeaconChainV1,
         logs: Vec<EthereumLogV1>,
@@ -1981,6 +2315,95 @@ mod tests {
                 now
             ),
             Err(EthereumLcError::Event(AbiError::WrongTopic).into())
+        );
+    }
+
+    #[test]
+    fn finalized_proof_binds_receipt_emitter_nonce_and_exact_taira_units() {
+        let chain = SyntheticBeaconChainV1::mainnet();
+        let now = chain.slot_unix_ms(slot(300));
+        let memory = installed(&chain, now);
+        let finalized = FinalizedLogV1 {
+            message_id: [0x74; 32],
+            nonce: 9,
+            recipient: [0x42; 20],
+            token_amount: 1_500_000_000,
+        };
+        let (topics, data) = finalized.encode();
+        let log = crate::ethereum_source::EthereumLogV1 {
+            address: EMITTER,
+            topics,
+            data,
+        };
+        let (header, receipt_proof) = inbound_block(&chain, vec![log]);
+        let proof = EthereumSourceProofV1 {
+            anchor: EthereumProofAnchorV1::FinalityUpdate(Box::new(
+                chain.finality_update_for(execution_of(&header), slot(200)),
+            )),
+            ancestry: EthereumAncestryV1::SameBlock,
+            event_header: header.clone(),
+            transaction_index: 1,
+            receipt_proof,
+            event: EthereumEventSelectorV1::Finalized(EthereumLogRefV1 { log_index: 0 }),
+        };
+        let verified = verify_proof(
+            &ETHEREUM_MAINNET,
+            &memory,
+            &light_client(&memory),
+            &proof,
+            now,
+        )
+        .expect("authenticated finalized log");
+        assert_eq!(
+            verified.event,
+            SccpNormalizedEventV1::Finalized {
+                emitter: SccpSourceEmitterV1::Evm(EMITTER),
+                message_id: finalized.message_id,
+                nonce: 9,
+                amount: Some(1_500_000_000),
+                locator: SccpSourceLocatorV1 {
+                    source_height: 1_000,
+                    block_hash: execution_of(&header).block_hash,
+                    index_in_block: 1,
+                },
+            }
+        );
+        let mut wrong_log = proof.clone();
+        wrong_log.event = EthereumEventSelectorV1::Finalized(EthereumLogRefV1 { log_index: 1 });
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_log,
+                now
+            )
+            .is_err()
+        );
+        let mut wrong_receipt = proof.clone();
+        wrong_receipt.transaction_index = 0;
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_receipt,
+                now
+            )
+            .is_err()
+        );
+        let mut wrong_kind = proof;
+        wrong_kind.event =
+            EthereumEventSelectorV1::TransferToTaira(EthereumLogRefV1 { log_index: 0 });
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_kind,
+                now
+            )
+            .is_err()
         );
     }
 
@@ -2226,7 +2649,9 @@ mod tests {
             receipts_root,
         }));
         assert_eq!(
-            open_receipt(header.receipts_root, 0, &proof),
+            open_receipt(header.receipts_root, 0, &proof, &LcMemory::detached())
+                .map(|_| ())
+                .map_err(|error| detached_error(&error)),
             Err(EthereumLcError::FailedReceipt.into())
         );
     }
@@ -2338,6 +2763,109 @@ mod tests {
             (b, &frame(b)),
             now,
         )
+    }
+
+    #[test]
+    fn admitted_bootstrap_and_equivocation_retain_original_decode_and_native_custody() {
+        use crate::light_client::{
+            prepared::{PreparedLcEvidencePairV1, PreparedLcFrameV1},
+            profile::SccpChainProfilesV1,
+            state::admitted::SccpLcDeltaReadV1,
+        };
+        use iroha_allocation::AllocationBudget;
+        use iroha_data_model::sccp::light_client::SccpLcInitExpectationV1;
+
+        let chain = SyntheticBeaconChainV1::mainnet();
+        let now = chain.slot_unix_ms(slot(300));
+        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        let profiles = SccpChainProfilesV1::latest();
+        let params = SccpLightClientParamsV1::defaults_for(NETWORK).unwrap();
+        let bootstrap =
+            chain.bootstrap_with_execution(slot(64), &chain.synthetic_execution(slot(64)));
+        let prepared =
+            PreparedLcFrameV1::bootstrap(&bootstrap.bytes, 4 * 1024 * 1024, &budget).unwrap();
+        let empty = SccpLcMemoryStateV1::default();
+        let verify = || {
+            prepared.verify_initialization(
+                profiles,
+                &empty,
+                NETWORK,
+                SccpLcInitExpectationV1::Absent,
+                &params,
+                now,
+            )
+        };
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        assert!(matches!(verify(), Err(SccpLcAttemptErrorV1::Output(_))));
+        let foreign = AllocationBudget::new(budget.limit_bytes());
+        drop(foreign.try_reserve_bytes(foreign.limit_bytes()).unwrap());
+        assert!(matches!(verify(), Err(SccpLcAttemptErrorV1::Output(_))));
+        drop(occupied);
+        let initial = verify().expect("original release permits bootstrap verification");
+        assert_eq!(initial.delta.set_count(), 1);
+        let detached = verify_bootstrap(
+            &ETHEREUM_MAINNET,
+            &params,
+            &match crate::light_client::proof::SccpLcBootstrapDataV1::from_frame(&bootstrap.bytes)
+                .unwrap()
+            {
+                crate::light_client::proof::SccpLcBootstrapDataV1::Ethereum(value) => value,
+                _ => unreachable!(),
+            },
+            now,
+        )
+        .unwrap();
+        assert_eq!(
+            initial.delta.set(0).unwrap().set_bytes,
+            detached.sets[0].set_bytes
+        );
+        drop(initial);
+        drop(prepared);
+        assert_eq!(budget.reserved_bytes(), 0);
+
+        let memory = installed(&chain, now);
+        let honest = EthereumLcEvidenceV1::Update(Box::new(chain.update(&spec(&chain, 200))));
+        let mut forked_execution = chain.synthetic_execution(slot(160));
+        forked_execution.block_hash[1] ^= 0xff;
+        let forked = EthereumLcEvidenceV1::Update(Box::new(chain.update(&SyntheticUpdateSpecV1 {
+            finalized_execution: forked_execution,
+            ..spec(&chain, 200)
+        })));
+        let (first, second) = (frame(&honest), frame(&forked));
+        let pair =
+            PreparedLcEvidencePairV1::new(&first, &second, 4 * 1024 * 1024, &budget).unwrap();
+        let verify = || pair.verify(profiles, &memory, NETWORK, now);
+        let occupied = budget
+            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+            .unwrap();
+        let local = |error: SccpLcAttemptErrorV1| {
+            assert!(
+                matches!(
+                    error,
+                    SccpLcAttemptErrorV1::Admission(_)
+                        | SccpLcAttemptErrorV1::Decode(_)
+                        | SccpLcAttemptErrorV1::Buffer(_)
+                        | SccpLcAttemptErrorV1::Control(_)
+                ),
+                "original native refusal must remain physical: {error:?}"
+            )
+        };
+        local(verify().unwrap_err());
+        drop(foreign.try_reserve_bytes(foreign.limit_bytes()).unwrap());
+        local(verify().unwrap_err());
+        drop(occupied);
+        assert_eq!(
+            verify().unwrap(),
+            report(&memory, &honest, &forked, now).unwrap()
+        );
+        drop(pair);
+        assert_eq!(
+            budget.reserved_bytes(),
+            0,
+            "all source-bound evidence owners retire"
+        );
     }
 
     #[test]
@@ -2668,19 +3196,19 @@ mod tests {
         let memory = installed(&chain, now);
         let client = light_client(&memory);
         assert_eq!(
-            aged_supersessions(&ETHEREUM_MAINNET, &memory, &client),
-            Ok(vec![SccpLcSupersessionV1 {
+            aged_supersession(&ETHEREUM_MAINNET, &memory, &client),
+            Ok(Some(SccpLcSupersessionV1 {
                 set_id: PERIOD,
                 superseded_at_source_ms: ETHEREUM_MAINNET
                     .period_start_ms(PERIOD + 1)
                     .expect("time"),
-            }])
+            }))
         );
         let mut unknown = client;
         unknown.head.latest_set_id = PERIOD + 5;
         assert_eq!(
-            aged_supersessions(&ETHEREUM_MAINNET, &memory, &unknown),
-            Ok(Vec::new())
+            aged_supersession(&ETHEREUM_MAINNET, &memory, &unknown),
+            Ok(None)
         );
     }
 }

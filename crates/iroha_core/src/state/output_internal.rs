@@ -255,9 +255,8 @@ impl ExecutionOutputProducer<'_, '_, '_> {
                 None,
             ));
         }
-        if let Some(reason) = tx.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        tx.ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if tx.tx_call_hash != Some(call)
             || tx.current_tx_hash.is_some()
             || tx.current_entrypoint_index.is_some()

@@ -123,18 +123,31 @@ pub(super) fn parse(table: Table, source: &Path, sora: bool) -> Result<actual::R
     Ok(actual)
 }
 
+/// Original input and destination custody for one generated peer configuration.
+#[derive(Clone, Copy)]
+pub(super) struct RenderTarget<'a> {
+    pub index: usize,
+    pub original: &'a [u8],
+    pub destination: &'a Path,
+    pub material: &'a PrivateDirectory,
+    pub provider_material: Option<&'a PrivateDirectory>,
+}
+
 /// A new sibling retains every existing source-relative path and the original generation cwd.
 pub(super) fn render(
     authority: &ServiceAuthority,
     selection: &RuntimeSelection,
     intent: &Intent,
     components: Option<&[Arc<ProviderComponent>; 3]>,
-    index: usize,
-    original: &[u8],
-    destination: &Path,
-    material: &PrivateDirectory,
-    provider_material: Option<&PrivateDirectory>,
+    target: RenderTarget<'_>,
 ) -> Result<Zeroizing<String>> {
+    let RenderTarget {
+        index,
+        original,
+        destination,
+        material,
+        provider_material,
+    } = target;
     let policies = &selection.policies;
     if index >= 4 || (index < 3) != provider_material.is_some() {
         return Err(invalid(
@@ -327,7 +340,7 @@ fn native_signers(
             authority.config.network_id.as_bytes(),
             plan.provider_id().as_bytes(),
             label.as_bytes(),
-            &key.to_bytes().1,
+            key.to_bytes().1,
             &policy,
         ]);
         let binding = section(
@@ -418,7 +431,7 @@ fn configure_compliance(
     duration(
         config,
         "max_catalog_validity",
-        Duration::from_secs(plan.catalog_validity_seconds()),
+        Duration::from_secs(crate::localnet::service_authorities::RetainedGatewayCompliancePlan::catalog_validity_seconds()),
     )?;
     Ok(())
 }
@@ -550,7 +563,7 @@ fn configure_tokens(
     text(
         native,
         "operator",
-        &authority
+        authority
             .provider_inventory(plan.provider_id())?
             .authority(Role::IssuerOperator)?
             .account
@@ -750,17 +763,12 @@ fn configure_ingest(
     flag(archive, "retention_enabled", false);
     // This projection is reachable only for the carrier-gated StreamTokens revision. It never
     // creates history: fresh generation owns initialization and the daemon owns ordinary open.
-    configure_attestation_journal(
-        section(config, &["provider_attestation_journal"])?,
-        plan,
-        signer,
-    )?;
+    configure_attestation_journal(section(config, &["provider_attestation_journal"])?, signer)?;
     Ok(())
 }
 
 fn configure_attestation_journal(
     table: &mut Table,
-    plan: &RetainedProviderServicePlan,
     completion_signer: &iroha_data_model::account::AccountId,
 ) -> Result<()> {
     use sorafs_node::{
@@ -771,7 +779,7 @@ fn configure_attestation_journal(
             NATIVE_PROVIDER_ATTESTATION_INVENTORY_HANDLE_V1,
         },
     };
-    let policy = plan.attestation_journal_policy();
+    let policy = crate::localnet::service_authorities::RetainedProviderServicePlan::attestation_journal_policy();
     let digest = policy
         .digest()
         .map_err(|_| invalid("original attestation journal policy differs"))?;

@@ -139,7 +139,7 @@ async fn handler_post_transactions_batch(
                         )
                     } else {
                         let entrypoint_hash = prepared.transaction.entrypoint().hash();
-                        match tokio::time::timeout_at(
+                        tokio::time::timeout_at(
                             deadline,
                             submit_prepared_transaction_ingress(
                                 &app,
@@ -149,14 +149,16 @@ async fn handler_post_transactions_batch(
                             ),
                         )
                         .await
-                        {
-                            Ok(result) => result.unwrap_or_else(IntoResponse::into_response),
-                            Err(_) => transaction_dispatch_outcome_unknown_response(
-                                entrypoint_hash,
-                                Some(hash),
-                                "batch deadline elapsed after this entry was dispatched",
-                            ),
-                        }
+                        .map_or_else(
+                            |_| {
+                                transaction_dispatch_outcome_unknown_response(
+                                    entrypoint_hash,
+                                    Some(hash),
+                                    "batch deadline elapsed after this entry was dispatched",
+                                )
+                            },
+                            |result| result.unwrap_or_else(IntoResponse::into_response),
+                        )
                     }
                 }
                 #[cfg(not(feature = "connect"))]
@@ -1129,6 +1131,12 @@ fn read_pipeline_transaction_carrier(
     app: &SharedAppState,
     anchor: CanonicalTransactionAnchor,
 ) -> Result<AuthenticatedPipelineCarrier, Error> {
+    read_pipeline_execution_carrier(app, anchor.height)
+}
+fn read_pipeline_execution_carrier(
+    app: &SharedAppState,
+    height: NonZeroUsize,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let work = routing::app_query_limits().max_fetch_size;
     let carrier = owner.scope(|| {
@@ -1136,16 +1144,12 @@ fn read_pipeline_transaction_carrier(
         let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
         // G1 still requires its actual certified H2. Only successors use the original
         // State/checkpoint ancestry. Refusal never selects another reader or pool.
-        if anchor.height == NonZeroUsize::MIN {
-            app.state.read_finalized_execution_carrier_with_read_budget(
-                anchor.height,
-                work,
-                bytes,
-                &budget,
-            )
+        if height == NonZeroUsize::MIN {
+            app.state
+                .read_finalized_execution_carrier_with_read_budget(height, work, bytes, &budget)
         } else {
             app.state
-                .read_executed_carrier_from_checkpoints(anchor.height, work, bytes, &budget)
+                .read_executed_carrier_from_checkpoints(height, work, bytes, &budget)
         }
         .map_err(crate::canonical_history::query_attempt_error)
     })?;

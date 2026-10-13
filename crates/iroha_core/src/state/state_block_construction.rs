@@ -5,6 +5,10 @@ use super::*;
 impl State {
     /// Prepare metadata while the exact acquired writers remain jointly armed.
     /// The finish continuation receives an already armed executing owner.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     pub(super) fn construct_acquired_block<'state, R>(
         &'state self,
         acquired: canonical_runtime::AcquiredRuntimeBlock<'state>,
@@ -95,7 +99,10 @@ impl State {
                 .compliance
                 .clone(),
         );
-        fraud_monitoring = Some(self.fraud_monitoring.clone());
+        fraud_monitoring = Some(crate::fraud_admission_policy::effective_fraud(
+            self.fraud_monitoring.clone(),
+            acquired.world.parameters.get(),
+        ));
         zk = Some(effective_zk);
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());
@@ -173,6 +180,7 @@ impl State {
                 native_execution_tip,
                 projection,
                 block_hashes,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 da_rewind_releases,
             } = original
                 .take()
@@ -187,6 +195,7 @@ impl State {
                     .deferred_refund_batch(),
                 state_ref: self,
                 _read_releases: StateViewReleases::new(self),
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 _da_rewind_releases: da_rewind_releases,
                 canonical_runtime: block_field::BlockField::new(canonical_runtime),
                 native_execution_tip: block_field::BlockField::new(native_execution_tip),
@@ -298,6 +307,7 @@ impl State {
                 sumeragi_lanes_step: crate::sumeragi::lanes::step::LaneStep::Off,
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 state_write_lock: &self.state_write_lock,
                 da_commitments: &self.da_commitments,
                 da_receipt_cursors: &self.da_receipt_cursors,

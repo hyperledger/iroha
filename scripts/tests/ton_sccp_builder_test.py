@@ -183,10 +183,10 @@ def test_contract_sources_are_exactly_the_v1_set() -> None:
 def test_security_notes_describe_the_v1_design() -> None:
     text = (builder.PROJECT / "SECURITY.md").read_text(encoding="utf-8")
     for current in (
-        "sccp_apply_control",
         "sccp_checkpoint",
         "BLS_FASTAGGREGATEVERIFY",
         "sccp_latched",
+        "sccp_apply_control",
         "control_nonce",
         "raw_reserve",
         "MINTER_FLOOR",
@@ -423,9 +423,15 @@ def test_minter_initial_data_layout() -> None:
     network, instance = int("11" * 32, 16), int("77" * 32, 16)
     cells = builder.minter_initial_data(network, instance, 1, 10**18, 7, 7000, 1234, keys, wallet, bucket)
     root = cells["root"]
-    # minter_data: 331 zero bits and the empty `retries` dictionary bit
-    assert len(root.bits) == 332 and set(root.bits) == {"0"}
-    assert root.refs == [cells["config"], cells["committee"], cells["checkpoints"]]
+    # minter_data: 331 zero bits and four mandatory references, including recovery.
+    assert len(root.bits) == 331 and set(root.bits) == {"0"}
+    assert root.refs == [cells["config"], cells["committee"], cells["checkpoints"], cells["recovery"]]
+    assert cells["recovery"].bits == format(1, "064b") + "0" * 75
+    assert not cells["recovery"].refs
+    missing_recovery = builder.Builder().raw(bytes(41)).uint(0, 3)
+    for child in root.refs[:3]:
+        missing_recovery.ref(child)
+    assert missing_recovery.end().hash != root.hash
     config = cells["config"]
     assert config.refs == [cells["initial_pin"], wallet, bucket]
     assert config.bits[:256] == format(network, "0256b") and config.bits[256:512] == format(instance, "0256b")
@@ -456,14 +462,24 @@ def test_minter_initial_data_layout() -> None:
 
 def test_bucket_initial_data_layout() -> None:
     data = golden.bucket_initial_data(int("cd" * 32, 16), 5)
-    # addr_std (267) ‖ index:uint64 ‖ activated:Bool ‖ bits:uint512
-    assert len(data.bits) == 267 + 64 + 1 + 512 and not data.refs
+    # addr_std (267) ‖ index:uint64 ‖ activated:Bool ‖ bits:uint512 ‖ ^RecoveryReceipts
+    assert len(data.bits) == 267 + 64 + 1 + 512 and len(data.refs) == 1
+    assert data.refs[0].bits == "0" * 11 and not data.refs[0].refs
     assert data.bits[267:331] == format(5, "064b")
     assert data.bits[331] == "0"
     assert set(data.bits[332:]) == {"0"}
     assert golden.bucket_address(int("cd" * 32, 16), 5, OpaqueCell("bb" * 32, 5)) != golden.bucket_address(
         int("cd" * 32, 16), 6, OpaqueCell("bb" * 32, 5)
     )
+
+
+def test_child_addresses_require_empty_recovery_receipts() -> None:
+    code = OpaqueCell("bb" * 32, 5)
+    owner, minter = 7, 8
+    missing_wallet = builder.Builder().coins(0).address(0, owner).address(0, minter).end()
+    missing_bucket = builder.Builder().address(0, minter).uint(5, 64).bit(False).uint(0, 512).end()
+    assert golden.wallet_address(owner, minter, code) != int.from_bytes(builder.state_init(code, missing_wallet).hash, "big")
+    assert golden.bucket_address(minter, 5, code) != int.from_bytes(builder.state_init(code, missing_bucket).hash, "big")
 
 
 def test_state_init_hash_matches_tvm_formula() -> None:
@@ -583,7 +599,7 @@ def test_replay_deployment_time_and_init_mode() -> None:
 
 def test_committed_tolk_vectors_are_current() -> None:
     generated = builder.generated_vectors()
-    assert list(generated) == [builder.VECTORS_FILE, builder.CERT_VECTORS_FILE]
+    assert list(generated) == [builder.VECTORS_FILE, builder.CERT_VECTORS_FILE, builder.BOC_VECTORS_FILE]
     for path, rendered in generated.items():
         assert path.read_text(encoding="utf-8") == rendered, path.name
         assert rendered.endswith("\n") and not rendered.endswith("\n\n")
@@ -605,6 +621,35 @@ def test_vectors_command_detects_stale_files(tmp_path: Path, monkeypatch: pytest
     assert "test vectors are current" in capsys.readouterr().out
 
 
+def test_boc_renderer_imports_every_wallet_graph_and_native_type() -> None:
+    fixture = builder.load_fixture("ton_boc_v1.json")
+    rendered = builder.render_boc_vectors()
+    assert f"const VEC_BOC_COUNT = {len(fixture['rows'])}\n" in rendered
+    assert f"const VEC_BOC_NEGATIVE_COUNT = {len(fixture['snake_negatives'])}\n" in rendered
+    for index, row in enumerate(fixture["rows"]):
+        assert f"const VEC_BOC_{builder._upper(row['label'])} = {index}\n" in rendered
+        assert f'parseCellFromHex("{row["boc"]}")' in rendered
+        assert builder._word("0x" + row["hash"]) in rendered
+        if row["kind"] != "KeyChunk":
+            assert f"{row['kind']}.fromCell(vecBocCell(index)).toCell()" in rendered
+    for row in fixture["snake_negatives"]:
+        assert f'parseCellFromHex("{row["boc"]}")' in rendered
+
+
+def test_boc_renderer_refuses_changed_hash_or_duplicate_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture = builder.load_fixture("ton_boc_v1.json")
+    load = builder.load_fixture
+    monkeypatch.setattr(builder, "load_fixture", lambda name: fixture if name == "ton_boc_v1.json" else load(name))
+    original = fixture["rows"][0]["hash"]
+    fixture["rows"][0]["hash"] = "00" * 32
+    with pytest.raises(builder.TonBuilderError, match="disagrees with its Python cell graph"):
+        builder.render_boc_vectors()
+    fixture["rows"][0]["hash"] = original
+    fixture["rows"].append(fixture["rows"][0])
+    with pytest.raises(builder.TonBuilderError, match="duplicate TON BoC fixture label"):
+        builder.render_boc_vectors()
+
+
 def test_test_vectors_render_the_fixture_rows() -> None:
     text = builder.render_test_vectors()
     finality = _finality()
@@ -619,6 +664,10 @@ def test_test_vectors_render_the_fixture_rows() -> None:
         assert word(key["sk"]) in text
     for name, committee in finality["committees"].items():
         assert f"const VEC_COMMITTEE_{builder._upper(name)}_ROOT = {word(committee['root'])}\n" in text
+    stateinit = builder.load_fixture("ton_stateinit_v1.json")
+    for vector in stateinit["vectors"]:
+        expected = word("0x" + vector["initial_data"]["keys"][0]["hash"])
+        assert f"const VEC_KEYS_{builder._upper(vector['committee'])}_CELL_HASH = {expected}\n" in text
     worked = finality["worked_examples"]
     assert f"const VEC_COMMIT_M = {word(worked['commit']['m'])}\n" in text
     assert f"const VEC_X_ROTATION_ID = {word(worked['cases']['rotation']['checkpoint_id'])}\n" in text
@@ -647,12 +696,27 @@ def test_test_vectors_render_the_fixture_rows() -> None:
         assert len(literal) <= 254 and len(literal) % 2 == 0
 
 
+def test_committee_renderer_rejects_stateinit_keys_from_another_committee() -> None:
+    stateinit = builder.load_fixture("ton_stateinit_v1.json")
+    stateinit["vectors"][0]["keys"][0] = "00" * 48
+    with pytest.raises(builder.TonBuilderError, match="StateInit vector n4 has other committee keys"):
+        builder._render_committees(_finality(), stateinit)
+
+
 def test_cert_vectors_render_certificates_and_scenarios() -> None:
     text = builder.render_cert_vectors()
     finality = _finality()
     transitions = builder.load_fixture("committee_transitions_v1.json")
     assert f"const VEC_CERTIFICATE_COUNT = {len(finality['certificates'])}\n" in text
     negatives = finality["negative_certificates"] + finality["flavor_specific_certificates"]
+    rust = builder.load_fixture("finality_rust_v1.json")
+    rust_negatives = rust["negative_certificates"]
+    assert f"const VEC_RUST_NEGATIVE_CERTIFICATE_COUNT = {len(rust_negatives)}\n" in text
+    for index, row in enumerate(rust_negatives):
+        assert f"const VEC_RUST_NEG_{builder._upper(row['label'])} = {index}\n" in text
+        assert builder._certificate_row(row, rust["committees"], builder.exit_codes(transitions), transitions["constants"]) in text
+        for value in (row["m"], row["checkpoint_id"], row["header_fields"]["height"]):
+            assert builder._word(value) in text
     assert f"const VEC_NEGATIVE_CERTIFICATE_COUNT = {len(negatives)}\n" in text
     assert "const VEC_CERT_N4_LOWEST_Q = 0\n" in text and "const VEC_NEG_PREPARE_KIND = 0\n" in text
     for row in finality["certificates"] + negatives:
@@ -660,21 +724,36 @@ def test_cert_vectors_render_certificates_and_scenarios() -> None:
     # a row without a pinned TON outcome carries the placeholder, never a guess
     unpinned = sum(1 for row in negatives if row["expected"]["ton"] is None)
     assert unpinned > 0 and text.count("exit: VEC_EXIT_UNPINNED,") == unpinned
-    assert text.count("exit: 405,") == sum(1 for row in negatives if row["expected"]["ton"] == "BadSignature")
+    assert text.count("exit: 405,") == sum(1 for row in negatives + rust_negatives if row["expected"]["ton"] == "BadSignature")
     # every TON scenario and every replayable EVM scenario has its replay function
     replayed = [
         scenario["name"] for scenario in transitions["scenarios"]
         if scenario.get("flavor") == "ton" or scenario.get("ton_replayable")
     ]
-    assert len(replayed) == text.count("\nfun vecScenario") and len(replayed) >= 20
+    control_rows = builder.load_fixture("control_v1.json")["ton_destination_effects"]
+    assert len(replayed) + len(control_rows) == text.count("\nfun vecScenario")
+    assert len(replayed) >= 20 and len(control_rows) == 10
+    for row in control_rows:
+        assert f"fun vecScenario{builder._camel(row['name'])}() {{\n" in text
+        assert f"const VEC_SCENARIO_{builder._upper(row['name'])}_STEPS = {len(row['steps'])}\n" in text
+    assert f"const VEC_TON_CONTROL_SCENARIO_COUNT = {len(control_rows)}\n" in text
+    assert f"const VEC_TON_CONTROL_SCENARIO_STEPS = {sum(len(row['steps']) for row in control_rows)}\n" in text
     for name in replayed:
         assert f"fun vecScenario{builder._camel(name)}() {{\n" in text
+        scenario = next(row for row in transitions["scenarios"] if row["name"] == name)
+        assert f"const VEC_SCENARIO_{builder._upper(name)}_STEPS = {len(scenario['steps'])}\n" in text
+    for flavor, selected in (
+        ("TON", [row for row in transitions["scenarios"] if row.get("flavor") == "ton"]),
+        ("REPLAYABLE", [row for row in transitions["scenarios"] if row.get("ton_replayable")]),
+    ):
+        assert f"const VEC_{flavor}_SCENARIO_COUNT = {len(selected)}\n" in text
+        assert f"const VEC_{flavor}_SCENARIO_STEPS = {sum(len(row['steps']) for row in selected)}\n" in text
     skipped = [s["name"] for s in transitions["scenarios"] if s["name"] not in replayed]
     for name in skipped:
         assert f"fun vecScenario{builder._camel(name)}()" not in text
     # outcomes are exit codes of the shared table and events are full bodies
     assert "expectOutcome(res0, 403);" in text  # BadCommittee: key change without next_keys
-    for call in ("eventCertificate(", "eventCheckpointed(", "eventRotated(", "eventLatched(", "eventControlApplied("):
+    for call in ("eventCertificate(", "eventCheckpointed(", "eventRotated(", "eventLatched(", "eventControlApplied(", "replayEventFinalized(", "replayEventVoided("):
         assert call in text
     for literal in __import__("re").findall(r'"([0-9a-f]*)"\.hexToSlice\(\)', text):
         assert len(literal) <= 254 and len(literal) % 2 == 0
@@ -695,7 +774,7 @@ def test_scenario_renderer_refuses_rows_it_cannot_replay() -> None:
         builder._scenario_function(foreign, transitions, codes, context)
     # an event that TON does not emit in a replayed step is refused, not dropped
     with pytest.raises(builder.TonBuilderError, match="no TON replay form"):
-        builder._event_expr({"event": "SccpFinalized"}, {}, {"checkpoints": []})
+        builder._event_expr({"event": "UnknownFutureEvent"}, {}, {"checkpoints": []})
 
 
 # ---------------------------------------------------------------------------
@@ -752,11 +831,12 @@ def test_fixture_reproduces_from_code_hashes_and_depths_alone() -> None:
         data = vector["initial_data"]
         assert cells["root"].hash.hex() == data["hash"]
         assert cells["root"].depth == data["depth"]
-        for name in ("root", "config", "initial_pin", "committee", "checkpoints"):
+        for name in ("root", "config", "initial_pin", "committee", "checkpoints", "recovery"):
             assert cells[name].hash.hex() == data[name]["hash"], name
             assert cells[name].data_hex() == data[name]["data"], name
             assert len(cells[name].bits) == data[name]["bit_len"], name
-        assert data["root"]["bit_len"] == 332 and data["root"]["refs"] == ["config", "committee", "checkpoints"]
+        assert data["root"]["bit_len"] == 331 and data["root"]["refs"] == ["config", "committee", "checkpoints", "recovery"]
+        assert data["recovery"]["bit_len"] == 139 and data["recovery"]["refs"] == []
         assert data["checkpoints"]["bit_len"] == 2 and data["checkpoints"]["data"] == "00"
         state_init = builder.state_init(code["minter"], cells["root"])
         assert state_init.hash.hex() == vector["state_init_hash"] == vector["address"]["account_id"]
@@ -779,10 +859,11 @@ def test_fixture_bag_of_cells_is_the_initial_data() -> None:
         root = builder.parse_boc(bytes.fromhex(data["boc"]))
         assert root.hash.hex() == data["hash"] and root.depth == data["depth"]
         assert builder.serialize_boc(root).hex() == data["boc"]
-        config, committee, checkpoints = root.refs
+        config, committee, checkpoints, recovery = root.refs
         assert config.hash.hex() == data["config"]["hash"]
         assert committee.hash.hex() == data["committee"]["hash"]
         assert checkpoints.hash.hex() == data["checkpoints"]["hash"]
+        assert recovery.hash.hex() == data["recovery"]["hash"]
         pin, wallet, bucket = config.refs
         assert pin.hash.hex() == data["initial_pin"]["hash"]
         # the bag carries the complete wallet and bucket code
@@ -814,6 +895,7 @@ def test_script_output_parser_and_cross_check() -> None:
             f"sccp-stateinit {label} committee_hash={data['committee']['hash']}",
             f"sccp-stateinit {label} keys_hash={data['keys'][0]['hash']}",
             f"sccp-stateinit {label} checkpoints_hash={data['checkpoints']['hash']}",
+            f"sccp-stateinit {label} recovery_hash={data['recovery']['hash']}",
             f"sccp-stateinit {label} data_hash={vector['initial_data']['hash']}",
             f"sccp-stateinit {label} data_depth={vector['initial_data']['depth']}",
             f"sccp-stateinit {label} state_init_hash={vector['state_init_hash']}",
@@ -940,13 +1022,15 @@ def test_test_command_records_gas_and_applies_the_baseline(
         return GAS_OUTPUT
 
     monkeypatch.setattr(builder, "run_acton", fake_acton)
-    # A missing baseline refuses qualification while preserving the measured run.
-    with pytest.raises(builder.TonBuilderError, match="gas-baseline.json is missing"):
+    # a missing baseline fails after recording the measured run for diagnosis
+    with pytest.raises(builder.TonBuilderError, match="required gas baseline is missing"):
         builder.command_test(Path("/acton"), [])
     assert calls == [["test", "tests/unit"]]
     rows = builder.load_gas_report(current)
     assert rows["checkpoint n=31"] == {"gas": 164189, "limit": 250000}
-    assert "gas is within" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "wrote gas-current.json" in output
+    assert "gas is within" not in output
     # the recorded run is its own baseline
     baseline.write_text(current.read_text())
     builder.command_test(Path("/acton"), [])

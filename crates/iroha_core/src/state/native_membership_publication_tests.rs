@@ -51,7 +51,12 @@ state_test! { sync apply_without_execution_indexes_sealed_commitment_entrypoint_
     // any execution. No supplied output, result, witness or certificate grants trust.
     let proposal = payload::assemble(
         chain.state(),
-        Assembly { parent: parent.block(), view: 0, cadence },
+        Assembly {
+            parent: parent.block(),
+            view: 0,
+            cadence,
+            proposed_time: std::time::Duration::ZERO,
+        },
         &[accepted],
     ).expect("assemble the exact original sealed entrypoint");
     assert!(!proposal.has_results());

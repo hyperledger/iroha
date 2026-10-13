@@ -23,6 +23,32 @@
 //! `h_i = H_1(com_{i,0} || ... || com_{i,N_i - 1})` and the whole batch as
 //! `H_1(h_0 || ... || h_{tau - 1})`.
 //!
+//! # Extended leaf commitment
+//!
+//! The functions ending in `_as` take a [`Construction`]. With
+//! [`Construction::Faest`] they are the functions above. With
+//! [`Construction::Extended`] (`lambda = 256` and `n_leafcom = 3` only, otherwise
+//! [`BavcError::Variant`]) the leaf commitment gains an affine check:
+//!
+//! ```text
+//! H_0(iv)                          = h0[96] || h1[32]
+//! PRG(key, iv, tweak; 144 bytes)   = sd[32] || b0[96] || b1[16]
+//! c0 = LeafHash(h0, (sd, b0))                      96 bytes, as above
+//! c1 = (sd * h1 in GF(2^256))[0..16] XOR b1        16 bytes
+//! com = c0 || c1                                   112 bytes
+//! ```
+//!
+//! `sd` and `h1` are read as elements of `GF(2^256)` in the encoding of
+//! [`crate::field`] (byte `i`, bit `j` is the coefficient of `X^{8i+j}`), and
+//! `[0..16]` are the first 16 bytes of the product's encoding: its 128 low
+//! coordinates. The node key, `iv` and tweak of the generator call are those of
+//! the FAEST leaf; the generator output is simply read 16 bytes further. The inner
+//! `H_1` absorbs the 112-byte commitments and an opening carries `tau` of them, so
+//! it is `112 * tau + 32 * T_open` bytes ([`decommitment_bytes_as`]). The tree,
+//! the order of the sibling keys, the padding rule and the challenge decoding are
+//! unchanged. `h0`, `h1` and the commitments are public; `sd`, `b0`, `b1` and the
+//! product `sd * h1` of a hidden leaf are secret and erased.
+//!
 //! # Decommitment
 //!
 //! An opening hides entry `Delta_i` of each vector. Its byte layout is fixed:
@@ -65,14 +91,15 @@
 use core::fmt;
 
 use thiserror::Error;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
-    field::{Gf128, Gf192, Gf256},
-    hash::{HashError, Hasher, Namespace, Oracle, hash_in},
+    field::{BinaryField, Gf128, Gf192, Gf256},
+    hash::{HashError, Hasher, Namespace, Oracle, h0_as},
     params::{IV_BYTES, SecurityLevel, VoleParams},
     prg::{Prg, PrgError},
     universal_hash::{UniversalHashError, leaf_hash_bytes},
+    variant::{Construction, EXTENDED_CHECK_BYTES, VariantError},
 };
 
 /// Largest `lambda / 8`.
@@ -93,12 +120,13 @@ pub enum Input {
     /// A tree node key given to [`leaf_commit`], `lambda / 8` bytes.
     LeafKey,
     /// The leaf-hash key `uhash`: `3 * lambda / 8` bytes for
-    /// [`LeafScheme::Hashed`] and empty for [`LeafScheme::Direct`].
+    /// [`LeafScheme::Hashed`] and empty for [`LeafScheme::Direct`]; the 128 bytes
+    /// `h0 || h1` in the extended construction.
     LeafHashKey,
     /// The leaf seed output of [`leaf_commit`], `lambda / 8` bytes.
     LeafSeed,
     /// The leaf commitment output of [`leaf_commit`], `n_leafcom * lambda / 8`
-    /// bytes.
+    /// bytes; 112 bytes in the extended construction.
     LeafCommitment,
 }
 
@@ -166,6 +194,9 @@ pub enum BavcError {
     /// The leaf hash rejected a call.
     #[error(transparent)]
     LeafHash(#[from] UniversalHashError),
+    /// The extended construction was requested on a row where it is not defined.
+    #[error(transparent)]
+    Variant(#[from] VariantError),
 }
 
 impl BavcError {
@@ -188,7 +219,10 @@ fn check_length(input: Input, expected: usize, actual: usize) -> Result<(), Bavc
     }
 }
 
-/// The leaf commitment rule of a row (specification Figure 5.3).
+/// The leaf commitment rule of a row in the FAEST construction (specification
+/// Figure 5.3). The extended construction replaces [`Self::Hashed`] by the
+/// affine-checked rule of the module documentation and is not defined for
+/// [`Self::Direct`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LeafScheme {
     /// `FAEST.LeafCommit`, `n_leafcom = 3`: the key is expanded to `sd || x_1` and
@@ -219,9 +253,84 @@ impl LeafScheme {
     }
 }
 
+/// The leaf rule actually computed: the FAEST rule of the row, or the extended
+/// one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeafRule {
+    /// [`LeafScheme::Hashed`].
+    Hashed,
+    /// [`LeafScheme::Direct`].
+    Direct,
+    /// The affine-checked rule of the extended construction, `lambda = 256`.
+    AffineChecked,
+}
+
+impl From<LeafScheme> for LeafRule {
+    fn from(scheme: LeafScheme) -> Self {
+        match scheme {
+            LeafScheme::Hashed => Self::Hashed,
+            LeafScheme::Direct => Self::Direct,
+        }
+    }
+}
+
+impl LeafRule {
+    /// The rule of `construction` on the row `params`.
+    fn of(construction: Construction, params: &VoleParams) -> Result<Self, VariantError> {
+        construction.check_row(params)?;
+        Ok(match construction {
+            Construction::Faest => LeafScheme::of(params).into(),
+            Construction::Extended => Self::AffineChecked,
+        })
+    }
+
+    /// Bytes of the public key derived from `iv`.
+    const fn hash_key_bytes(self, level: SecurityLevel) -> usize {
+        match self {
+            Self::Hashed => 3 * level.bytes(),
+            Self::Direct => 0,
+            Self::AffineChecked => 4 * level.bytes(),
+        }
+    }
+
+    /// Bytes of one leaf commitment.
+    const fn commitment_bytes(self, level: SecurityLevel) -> usize {
+        match self {
+            Self::Hashed => 3 * level.bytes(),
+            Self::Direct => 2 * level.bytes(),
+            Self::AffineChecked => 3 * level.bytes() + EXTENDED_CHECK_BYTES,
+        }
+    }
+
+    const fn construction(self) -> Construction {
+        match self {
+            Self::Hashed | Self::Direct => Construction::Faest,
+            Self::AffineChecked => Construction::Extended,
+        }
+    }
+}
+
 /// Bytes of a decommitment: `(n_leafcom * tau + T_open) * lambda / 8`.
 pub const fn decommitment_bytes(params: &VoleParams) -> usize {
-    (params.n_leafcom() * params.tau() + params.t_open()) * params.lambda().bytes()
+    decommitment_bytes_as(Construction::Faest, params)
+}
+
+/// Bytes of one leaf commitment under `construction`: `n_leafcom * lambda / 8`,
+/// plus the 16-byte affine check in the extended construction (112 bytes on the
+/// rows it is defined for; see [`Construction::check_row`]).
+pub const fn leaf_commitment_bytes(construction: Construction, params: &VoleParams) -> usize {
+    match construction {
+        Construction::Faest => params.leaf_commitment_bytes(),
+        Construction::Extended => params.leaf_commitment_bytes() + EXTENDED_CHECK_BYTES,
+    }
+}
+
+/// Bytes of a decommitment under `construction`: `tau` leaf commitments
+/// ([`leaf_commitment_bytes`]) and `T_open` node keys. In the extended
+/// construction this is `112 * tau + 32 * T_open`.
+pub const fn decommitment_bytes_as(construction: Construction, params: &VoleParams) -> usize {
+    params.tau() * leaf_commitment_bytes(construction, params)
+        + params.t_open() * params.lambda().bytes()
 }
 
 /// `BAVC.PosInTree(i, j)`: the heap index in `[L - 1, 2L - 1)` of the leaf holding
@@ -236,7 +345,7 @@ pub fn position_in_tree(params: &VoleParams, vector: usize, index: usize) -> Opt
 #[derive(Debug, Clone, Copy)]
 struct Shape {
     level: SecurityLevel,
-    scheme: LeafScheme,
+    rule: LeafRule,
     /// `lambda / 8`.
     lb: usize,
     tau: usize,
@@ -251,7 +360,13 @@ struct Shape {
 }
 
 impl Shape {
+    /// The shape of the row in the FAEST construction.
     fn new(params: &VoleParams) -> Result<Self, BavcError> {
+        Self::new_as(Construction::Faest, params)
+    }
+
+    fn new_as(construction: Construction, params: &VoleParams) -> Result<Self, BavcError> {
+        let rule = LeafRule::of(construction, params)?;
         let leaves = params.leaves();
         let lb = params.lambda().bytes();
         let error = BavcError::TreeTooLarge { leaves };
@@ -272,13 +387,13 @@ impl Shape {
         }
         Ok(Self {
             level: params.lambda(),
-            scheme: LeafScheme::of(params),
+            rule,
             lb,
             tau: params.tau(),
             tau1: params.tau1(),
             half: 1 << (params.k() - 1),
             leaves,
-            com_bytes: params.leaf_commitment_bytes(),
+            com_bytes: rule.commitment_bytes(params.lambda()),
             t_open: params.t_open(),
         })
     }
@@ -359,70 +474,108 @@ fn leaf_hash(
     }
 }
 
+/// Largest leaf commitment in bytes: the 112 bytes of the extended construction.
+const MAX_COMMITMENT_BYTES: usize = 3 * MAX_LAMBDA_BYTES + EXTENDED_CHECK_BYTES;
+/// Bytes the leaf generator expands in the extended construction:
+/// `sd[32] || b0[96] || b1[16]`.
+const EXTENDED_EXPANSION_BYTES: usize = 4 * MAX_LAMBDA_BYTES + EXTENDED_CHECK_BYTES;
+
+/// The affine check of the extended construction: the first
+/// [`EXTENDED_CHECK_BYTES`] bytes (the 128 low coordinates) of `sd * h1` in
+/// `GF(2^256)`, added (XOR) to `b1`, written to `out`.
+///
+/// `sd` and `b1` are secret for a hidden leaf: the multiplication is the
+/// constant-time one of [`crate::field`], and the operands and the product are
+/// erased.
+fn affine_check(sd: &[u8], h1: &[u8], b1: &[u8], out: &mut [u8]) -> Result<(), BavcError> {
+    let lb = Gf256::BYTES;
+    check_length(Input::LeafSeed, lb, sd.len())?;
+    check_length(Input::LeafHashKey, lb, h1.len())?;
+    check_length(Input::LeafCommitment, EXTENDED_CHECK_BYTES, b1.len())?;
+    check_length(Input::LeafCommitment, EXTENDED_CHECK_BYTES, out.len())?;
+    let invalid = |_| BavcError::InvalidLength {
+        input: Input::LeafSeed,
+        expected: lb,
+        actual: sd.len(),
+    };
+    let mut seed = Gf256::from_bytes(sd).map_err(invalid)?;
+    let mut key = Gf256::from_bytes(h1).map_err(invalid)?;
+    let mut product = seed * key;
+    let mut bytes = product.to_bytes();
+    for ((slot, low), mask) in out.iter_mut().zip(bytes.iter()).zip(b1) {
+        *slot = low ^ mask;
+    }
+    seed.zeroize();
+    key.zeroize();
+    product.zeroize();
+    bytes.zeroize();
+    Ok(())
+}
+
 /// The leaf commitment function of one row under one `iv`.
 #[derive(Clone)]
 struct LeafCommitter {
     level: SecurityLevel,
-    scheme: LeafScheme,
+    rule: LeafRule,
     iv: [u8; IV_BYTES],
-    /// The public key `uhash`; `scheme.hash_key_bytes(level)` bytes are used.
-    uhash: [u8; 3 * MAX_LAMBDA_BYTES],
+    /// The public key derived from `iv`; `rule.hash_key_bytes(level)` bytes are
+    /// used: `uhash`, or `h0 || h1` in the extended construction.
+    uhash: [u8; 4 * MAX_LAMBDA_BYTES],
 }
 
 impl LeafCommitter {
-    /// The function with `uhash = H_0(iv)`, evaluated inside `namespace`, where
-    /// the scheme has a key.
+    /// The function with the key `H_0(iv)`, evaluated inside `namespace`, where
+    /// the rule has a key.
     fn new(
         namespace: Namespace<'_>,
         level: SecurityLevel,
-        scheme: LeafScheme,
+        rule: impl Into<LeafRule>,
         iv: &[u8; IV_BYTES],
     ) -> Result<Self, BavcError> {
-        let mut uhash = [0u8; 3 * MAX_LAMBDA_BYTES];
-        if scheme == LeafScheme::Hashed {
-            hash_in(
+        let rule = rule.into();
+        let mut uhash = [0u8; 4 * MAX_LAMBDA_BYTES];
+        if rule != LeafRule::Direct {
+            h0_as(
                 namespace,
                 level,
-                Oracle::H0,
+                rule.construction(),
                 iv,
-                &mut uhash[..scheme.hash_key_bytes(level)],
+                &mut uhash[..rule.hash_key_bytes(level)],
             )?;
         }
         Ok(Self {
             level,
-            scheme,
+            rule,
             iv: *iv,
             uhash,
         })
     }
 
-    /// The function with a caller-supplied `uhash`.
+    /// The function with a caller-supplied key.
     fn with_hash_key(
         level: SecurityLevel,
-        scheme: LeafScheme,
+        rule: impl Into<LeafRule>,
         iv: &[u8; IV_BYTES],
         hash_key: &[u8],
     ) -> Result<Self, BavcError> {
+        let rule = rule.into();
         check_length(
             Input::LeafHashKey,
-            scheme.hash_key_bytes(level),
+            rule.hash_key_bytes(level),
             hash_key.len(),
         )?;
-        let mut uhash = [0u8; 3 * MAX_LAMBDA_BYTES];
+        let mut uhash = [0u8; 4 * MAX_LAMBDA_BYTES];
         uhash[..hash_key.len()].copy_from_slice(hash_key);
         Ok(Self {
             level,
-            scheme,
+            rule,
             iv: *iv,
             uhash,
         })
     }
 
-    fn commitment_bytes(&self) -> usize {
-        match self.scheme {
-            LeafScheme::Hashed => 3 * self.level.bytes(),
-            LeafScheme::Direct => 2 * self.level.bytes(),
-        }
+    const fn commitment_bytes(&self) -> usize {
+        self.rule.commitment_bytes(self.level)
     }
 
     /// `LeafCommit(key, iv, tweak)`: the seed to `sd`, the commitment to `com`.
@@ -438,17 +591,28 @@ impl LeafCommitter {
         check_length(Input::LeafSeed, lb, sd.len())?;
         check_length(Input::LeafCommitment, self.commitment_bytes(), com.len())?;
         let generator = Prg::new(node_key)?;
-        match self.scheme {
-            LeafScheme::Hashed => {
+        match self.rule {
+            LeafRule::Hashed => {
                 let mut expanded = Zeroizing::new([0u8; 4 * MAX_LAMBDA_BYTES]);
                 let expanded = &mut expanded[..4 * lb];
                 generator.fill(&self.iv, tweak, expanded)?;
                 sd.copy_from_slice(&expanded[..lb]);
                 leaf_hash(self.level, &self.uhash[..3 * lb], expanded, com)?;
             }
-            LeafScheme::Direct => {
+            LeafRule::Direct => {
                 generator.fill(&self.iv, tweak, com)?;
                 sd.copy_from_slice(node_key);
+            }
+            LeafRule::AffineChecked => {
+                // sd[lb] || b0[3 lb] || b1[16], with lb = 32 by `LeafRule::of`.
+                let mut expanded = Zeroizing::new([0u8; EXTENDED_EXPANSION_BYTES]);
+                generator.fill(&self.iv, tweak, &mut expanded[..])?;
+                let (hashed, b1) = expanded.split_at(4 * lb);
+                let (h0, h1) = self.uhash.split_at(3 * lb);
+                let (c0, c1) = com.split_at_mut(3 * lb);
+                sd.copy_from_slice(&hashed[..lb]);
+                leaf_hash(self.level, h0, hashed, c0)?;
+                affine_check(&hashed[..lb], h1, b1, c1)?;
             }
         }
         Ok(())
@@ -475,8 +639,59 @@ pub fn leaf_commit(
     sd: &mut [u8],
     com: &mut [u8],
 ) -> Result<(), BavcError> {
-    LeafCommitter::with_hash_key(params.lambda(), LeafScheme::of(params), iv, hash_key)?
-        .commit(node_key, tweak, sd, com)
+    leaf_commit_as(
+        Construction::Faest,
+        params,
+        &LeafInput {
+            node_key,
+            iv,
+            tweak,
+            hash_key,
+        },
+        sd,
+        com,
+    )
+}
+
+/// The inputs of one leaf commitment ([`leaf_commit_as`]).
+#[derive(Debug, Clone, Copy)]
+pub struct LeafInput<'a> {
+    /// The tree node key of the leaf, `lambda / 8` bytes. **Secret** for a hidden
+    /// leaf.
+    pub node_key: &'a [u8],
+    /// `iv`.
+    pub iv: &'a [u8; IV_BYTES],
+    /// The generator tweak, `i + L - 1` for a leaf of vector `i`.
+    pub tweak: u32,
+    /// The public key derived from `iv`: `uhash`, nothing, or `h0 || h1`.
+    pub hash_key: &'a [u8],
+}
+
+/// The leaf commitment of `construction` on the row `params`.
+///
+/// With [`Construction::Faest`] this is [`leaf_commit`]. With
+/// [`Construction::Extended`], `hash_key` is the 128 bytes `h0 || h1`, `sd`
+/// receives the 32-byte leaf seed and `com` the 112 bytes `c0 || c1` of the
+/// module documentation. [`commit_as`] and [`reconstruct_as`] use
+/// `h0 || h1 = H_0(iv)`.
+///
+/// # Errors
+/// [`BavcError::Variant`] where the construction is not defined, and
+/// [`BavcError::InvalidLength`] naming the first buffer whose length is wrong.
+pub fn leaf_commit_as(
+    construction: Construction,
+    params: &VoleParams,
+    input: &LeafInput<'_>,
+    sd: &mut [u8],
+    com: &mut [u8],
+) -> Result<(), BavcError> {
+    let rule = LeafRule::of(construction, params)?;
+    LeafCommitter::with_hash_key(params.lambda(), rule, input.iv, input.hash_key)?.commit(
+        input.node_key,
+        input.tweak,
+        sd,
+        com,
+    )
 }
 
 /// Check the hidden indices and mark every node whose key must stay hidden: the
@@ -550,7 +765,7 @@ fn hash_leaves(
     out: &mut [u8],
 ) -> Result<(), BavcError> {
     let lb = shape.lb;
-    let mut com = Zeroizing::new([0u8; 3 * MAX_LAMBDA_BYTES]);
+    let mut com = Zeroizing::new([0u8; MAX_COMMITMENT_BYTES]);
     let com = &mut com[..shape.com_bytes];
     let mut vector_hash = [0u8; 2 * MAX_LAMBDA_BYTES];
     let vector_hash = &mut vector_hash[..2 * lb];
@@ -614,22 +829,38 @@ pub fn commit(
     commit_in(Namespace::REFERENCE, params, root, iv)
 }
 
-/// `BAVC.Commit(r, iv)`: commit to the `tau` vectors of leaf seeds derived from
-/// the root seed `root` (`lambda / 8` bytes), with `H_0` and both levels of `H_1`
-/// evaluated inside `namespace`.
+/// `BAVC.Commit(r, iv)` in the FAEST construction inside `namespace`; see
+/// [`commit_as`].
 ///
 /// # Errors
-/// Returns [`BavcError::InvalidLength`] unless `root` is `lambda / 8` bytes long.
+/// As [`commit_as`].
 pub fn commit_in(
     namespace: Namespace<'_>,
     params: &VoleParams,
     root: &[u8],
     iv: &[u8; IV_BYTES],
 ) -> Result<Commitment, BavcError> {
-    let shape = Shape::new(params)?;
+    commit_as(namespace, Construction::Faest, params, root, iv)
+}
+
+/// `BAVC.Commit(r, iv)`: commit to the `tau` vectors of leaf seeds derived from
+/// the root seed `root` (`lambda / 8` bytes), with `H_0` and both levels of `H_1`
+/// evaluated inside `namespace` and the leaf commitment of `construction`.
+///
+/// # Errors
+/// Returns [`BavcError::Variant`] where the construction is not defined and
+/// [`BavcError::InvalidLength`] unless `root` is `lambda / 8` bytes long.
+pub fn commit_as(
+    namespace: Namespace<'_>,
+    construction: Construction,
+    params: &VoleParams,
+    root: &[u8],
+    iv: &[u8; IV_BYTES],
+) -> Result<Commitment, BavcError> {
+    let shape = Shape::new_as(construction, params)?;
     let lb = shape.lb;
     check_length(Input::RootSeed, lb, root.len())?;
-    let committer = LeafCommitter::new(namespace, shape.level, shape.scheme, iv)?;
+    let committer = LeafCommitter::new(namespace, shape.level, shape.rule, iv)?;
 
     let mut keys = Zeroizing::new(vec![0u8; shape.nodes() * lb]);
     keys[..lb].copy_from_slice(root);
@@ -658,6 +889,11 @@ impl Commitment {
         &self.params
     }
 
+    /// The construction the commitment was made in.
+    pub const fn construction(&self) -> Construction {
+        self.shape.rule.construction()
+    }
+
     /// The commitment `com`, `2 * lambda / 8` bytes. Public.
     pub fn commitment(&self) -> &[u8] {
         &self.com
@@ -680,7 +916,8 @@ impl Commitment {
     }
 
     /// `BAVC.Open(decom, I)`: the decommitment that hides entry `hidden[i]` of each
-    /// vector `i` and reveals all others, [`decommitment_bytes`] bytes.
+    /// vector `i` and reveals all others, [`decommitment_bytes_as`] bytes for the
+    /// construction of the commitment.
     ///
     /// # Errors
     /// Returns [`BavcError::OpeningTooLarge`] if the pattern needs more than
@@ -770,20 +1007,11 @@ pub fn reconstruct(
     reconstruct_in(Namespace::REFERENCE, params, decommitment, hidden, iv)
 }
 
-/// `BAVC.Reconstruct(decom_I, I, iv)`: recompute the commitment and the `L - tau`
-/// revealed leaf seeds from a decommitment and the hidden indices, with `H_0` and
-/// both levels of `H_1` evaluated inside `namespace`.
-///
-/// This is a verifier entry point: every input is untrusted and public.
+/// `BAVC.Reconstruct(decom_I, I, iv)` in the FAEST construction inside
+/// `namespace`; see [`reconstruct_as`].
 ///
 /// # Errors
-/// * [`BavcError::InvalidLength`] unless `decommitment` is exactly
-///   [`decommitment_bytes`] bytes long;
-/// * [`BavcError::InvalidIndexCount`] unless there are `tau` indices and
-///   [`BavcError::IndexOutOfRange`] unless each is below its `N_i`;
-/// * [`BavcError::OpeningTooLarge`] if the pattern needs more than `T_open` node
-///   keys;
-/// * [`BavcError::NonZeroPadding`] if a byte after the last node key is not zero.
+/// As [`reconstruct_as`].
 pub fn reconstruct_in(
     namespace: Namespace<'_>,
     params: &VoleParams,
@@ -791,7 +1019,43 @@ pub fn reconstruct_in(
     hidden: &[u16],
     iv: &[u8; IV_BYTES],
 ) -> Result<Reconstruction, BavcError> {
-    let shape = Shape::new(params)?;
+    reconstruct_as(
+        namespace,
+        Construction::Faest,
+        params,
+        decommitment,
+        hidden,
+        iv,
+    )
+}
+
+/// `BAVC.Reconstruct(decom_I, I, iv)`: recompute the commitment and the `L - tau`
+/// revealed leaf seeds from a decommitment and the hidden indices, with `H_0` and
+/// both levels of `H_1` evaluated inside `namespace` and the leaf commitment of
+/// `construction`. Every revealed leaf has its whole commitment recomputed (in
+/// the extended construction both `c0` and `c1`); the `tau` hidden ones are taken
+/// from the decommitment.
+///
+/// This is a verifier entry point: every input is untrusted and public.
+///
+/// # Errors
+/// * [`BavcError::Variant`] where the construction is not defined;
+/// * [`BavcError::InvalidLength`] unless `decommitment` is exactly
+///   [`decommitment_bytes_as`] bytes long;
+/// * [`BavcError::InvalidIndexCount`] unless there are `tau` indices and
+///   [`BavcError::IndexOutOfRange`] unless each is below its `N_i`;
+/// * [`BavcError::OpeningTooLarge`] if the pattern needs more than `T_open` node
+///   keys;
+/// * [`BavcError::NonZeroPadding`] if a byte after the last node key is not zero.
+pub fn reconstruct_as(
+    namespace: Namespace<'_>,
+    construction: Construction,
+    params: &VoleParams,
+    decommitment: &[u8],
+    hidden: &[u16],
+    iv: &[u8; IV_BYTES],
+) -> Result<Reconstruction, BavcError> {
+    let shape = Shape::new_as(construction, params)?;
     let lb = shape.lb;
     check_length(
         Input::Decommitment,
@@ -810,7 +1074,7 @@ pub fn reconstruct_in(
     if padding.iter().any(|&byte| byte != 0) {
         return Err(BavcError::NonZeroPadding);
     }
-    let committer = LeafCommitter::new(namespace, shape.level, shape.scheme, iv)?;
+    let committer = LeafCommitter::new(namespace, shape.level, shape.rule, iv)?;
 
     // Keys of marked nodes are unknown; their slots stay zero and are never read.
     let mut keys = vec![0u8; shape.nodes() * lb];
@@ -1310,8 +1574,9 @@ mod tests {
 
             // Recompute the commitment from the public leaf function.
             let shape = Shape::new(&params).expect("supported row");
-            let mut uhash = vec![0u8; shape.scheme.hash_key_bytes(shape.level)];
-            if shape.scheme == LeafScheme::Hashed {
+            let scheme = LeafScheme::of(&params);
+            let mut uhash = vec![0u8; scheme.hash_key_bytes(shape.level)];
+            if scheme == LeafScheme::Hashed {
                 hash(shape.level, Oracle::H0, &IV, &mut uhash).expect("exact length");
             }
             let mut outer = Hasher::new(shape.level, Oracle::H1);
@@ -1375,7 +1640,7 @@ mod tests {
         let [for_h0, for_inner, for_outer] = prefixes;
         let shape = Shape::new(params).expect("supported row");
         let lb = shape.lb;
-        let uhash = if shape.scheme == LeafScheme::Hashed {
+        let uhash = if LeafScheme::of(params) == LeafScheme::Hashed {
             shake(shape.level, &[for_h0, &IV, &[0x00]], 3 * lb)
         } else {
             Vec::new()
@@ -1787,5 +2052,170 @@ mod tests {
         // A row without grinding accepts every challenge.
         let params = VoleParams::new(SecurityLevel::L128, 64, 0, 600, 3, 7, 312).expect("valid");
         assert!(decode_challenge(&params, &[0xff; 16]).is_ok());
+    }
+
+    #[test]
+    fn leaf_rules_follow_the_construction() {
+        use crate::params::{FAEST_256F, FAEST_256S, FAEST_EM_256F};
+        let fast = *FAEST_256F.vole();
+        let extended = Construction::Extended;
+        assert_eq!(
+            LeafRule::of(Construction::Faest, &fast),
+            Ok(LeafRule::Hashed)
+        );
+        assert_eq!(LeafRule::of(extended, &fast), Ok(LeafRule::AffineChecked));
+        assert_eq!(
+            LeafRule::of(Construction::Faest, &small(2, 600)),
+            Ok(LeafRule::Direct)
+        );
+        assert_eq!(
+            LeafRule::of(extended, &small(3, 600)),
+            Err(VariantError::UnsupportedLevel { lambda: 128 })
+        );
+        assert_eq!(
+            LeafRule::of(extended, FAEST_EM_256F.vole()),
+            Err(VariantError::UnsupportedLeafBlocks { n_leafcom: 2 })
+        );
+        for scheme in [LeafScheme::Hashed, LeafScheme::Direct] {
+            let rule = LeafRule::from(scheme);
+            assert_eq!(rule.construction(), Construction::Faest);
+            for level in SecurityLevel::ALL {
+                assert_eq!(rule.hash_key_bytes(level), scheme.hash_key_bytes(level));
+            }
+        }
+        assert_eq!(LeafRule::Hashed.commitment_bytes(SecurityLevel::L192), 72);
+        assert_eq!(LeafRule::Direct.commitment_bytes(SecurityLevel::L192), 48);
+        let rule = LeafRule::AffineChecked;
+        assert_eq!(rule.construction(), extended);
+        assert_eq!(rule.hash_key_bytes(SecurityLevel::L256), 128);
+        assert_eq!(rule.commitment_bytes(SecurityLevel::L256), 112);
+        assert_eq!(MAX_COMMITMENT_BYTES, 112);
+        assert_eq!(EXTENDED_EXPANSION_BYTES, 144);
+
+        for (set, bytes) in [(FAEST_256F, 11_024), (FAEST_256S, 9_664)] {
+            let vole = set.vole();
+            assert_eq!(leaf_commitment_bytes(extended, vole), 112);
+            assert_eq!(leaf_commitment_bytes(Construction::Faest, vole), 96);
+            assert_eq!(decommitment_bytes_as(extended, vole), bytes);
+            assert_eq!(bytes, 112 * vole.tau() + 32 * vole.t_open());
+            assert_eq!(
+                decommitment_bytes_as(Construction::Faest, vole),
+                decommitment_bytes(vole)
+            );
+            let shape = Shape::new_as(extended, vole).expect("supported row");
+            assert_eq!(shape.rule, rule);
+            assert_eq!(shape.com_bytes, 112);
+            assert_eq!(shape.decommitment_bytes(), bytes);
+            assert_eq!(
+                Shape::new(vole).expect("supported row").rule,
+                LeafRule::Hashed
+            );
+        }
+        assert!(matches!(
+            Shape::new_as(extended, &small(3, 600)),
+            Err(BavcError::Variant(VariantError::UnsupportedLevel {
+                lambda: 128
+            }))
+        ));
+    }
+
+    #[test]
+    fn affine_check_is_the_low_half_of_the_product_plus_the_mask() {
+        let check = |sd: &[u8; 32], h1: &[u8; 32], b1: &[u8; 16]| {
+            let mut out = [0u8; 16];
+            affine_check(sd, h1, b1, &mut out).expect("exact lengths");
+            out
+        };
+        let h1: [u8; 32] = core::array::from_fn(|at| u8::try_from(0x80 + at).expect("small"));
+        let mut one = [0u8; 32];
+        one[0] = 1;
+        // 1 * h1 = h1: the result is its first 16 bytes.
+        assert_eq!(check(&one, &h1, &[0; 16])[..], h1[..16]);
+        // The zero seed gives the mask itself.
+        let mask: [u8; 16] = core::array::from_fn(|at| u8::try_from(3 * at + 1).expect("small"));
+        assert_eq!(check(&[0; 32], &h1, &mask), mask);
+        // X * X^255 = X^256 = X^10 + X^5 + X^2 + 1.
+        let (mut x, mut top) = ([0u8; 32], [0u8; 32]);
+        x[0] = 2;
+        top[31] = 0x80;
+        let mut reduced = [0u8; 16];
+        reduced[..2].copy_from_slice(&[0x25, 0x04]);
+        assert_eq!(check(&x, &top, &[0; 16]), reduced);
+        // X^128 * 1 has no low coordinate: the truncation drops the high half.
+        let mut high = [0u8; 32];
+        high[16] = 1;
+        assert_eq!(check(&high, &one, &[0; 16]), [0; 16]);
+        // The mask enters by XOR, whatever the product.
+        let sd: [u8; 32] = core::array::from_fn(|at| u8::try_from(7 * at + 2).expect("small"));
+        let plain = check(&sd, &h1, &[0; 16]);
+        let masked = check(&sd, &h1, &mask);
+        for ((left, right), mask) in plain.iter().zip(masked).zip(mask) {
+            assert_eq!(left ^ mask, right);
+        }
+
+        let mut out = [0u8; 16];
+        let invalid = |input, expected, actual| {
+            Err(BavcError::InvalidLength {
+                input,
+                expected,
+                actual,
+            })
+        };
+        assert_eq!(
+            affine_check(&sd[..31], &h1, &mask, &mut out),
+            invalid(Input::LeafSeed, 32, 31)
+        );
+        assert_eq!(
+            affine_check(&sd, &h1[..31], &mask, &mut out),
+            invalid(Input::LeafHashKey, 32, 31)
+        );
+        assert_eq!(
+            affine_check(&sd, &h1, &mask[..15], &mut out),
+            invalid(Input::LeafCommitment, 16, 15)
+        );
+        assert_eq!(
+            affine_check(&sd, &h1, &mask, &mut out[..15]),
+            invalid(Input::LeafCommitment, 16, 15)
+        );
+    }
+
+    #[test]
+    fn the_extended_committer_derives_128_bytes_from_the_iv() {
+        let namespace = Namespace::new(b"committer").expect("bounded");
+        let committer =
+            LeafCommitter::new(namespace, SecurityLevel::L256, LeafRule::AffineChecked, &IV)
+                .expect("valid call");
+        assert_eq!(committer.commitment_bytes(), 112);
+        let mut expected = [0u8; 128];
+        h0_as(
+            namespace,
+            SecurityLevel::L256,
+            Construction::Extended,
+            &IV,
+            &mut expected,
+        )
+        .expect("exact length");
+        assert_eq!(committer.uhash, expected);
+        let supplied = LeafCommitter::with_hash_key(
+            SecurityLevel::L256,
+            LeafRule::AffineChecked,
+            &IV,
+            &expected,
+        )
+        .expect("valid key");
+        assert_eq!(supplied.uhash, committer.uhash);
+        assert!(matches!(
+            LeafCommitter::with_hash_key(
+                SecurityLevel::L256,
+                LeafRule::AffineChecked,
+                &IV,
+                &expected[..96]
+            ),
+            Err(BavcError::InvalidLength {
+                input: Input::LeafHashKey,
+                expected: 128,
+                actual: 96
+            })
+        ));
     }
 }

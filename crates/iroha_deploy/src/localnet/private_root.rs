@@ -190,7 +190,7 @@ pub fn prepare_private_root(
     prepare_private_root_at(name, directory, ports, spec, None)
 }
 
-pub(crate) fn prepare_private_root_at(
+pub fn prepare_private_root_at(
     name: &str,
     directory: &Path,
     ports: &LocalnetPorts,
@@ -200,7 +200,7 @@ pub(crate) fn prepare_private_root_at(
     prepare_private_root_selected(name, directory, ports, spec, publication_root, None)
 }
 
-pub(crate) fn prepare_private_root_with_amx_at(
+pub fn prepare_private_root_with_amx_at(
     name: &str,
     directory: &Path,
     ports: &LocalnetPorts,
@@ -231,29 +231,26 @@ fn prepare_private_root_selected(
     })?;
     if directory.exists() {
         let root = iroha_fs::PrivateDirectory::open(directory)?;
-        match root.read_optional(PREPARED, 1024 * 1024)? {
-            Some(bytes) => {
-                if publication_root.is_some() {
-                    return Err(Error::Invalid(
-                        "publication stage already contains a prepared identity".into(),
-                    ));
-                }
-                let retained: RetainedPrivateRoot = norito::json::from_slice(&bytes)
-                    .map_err(|_| Error::Invalid("retained private root is invalid".into()))?;
-                if retained.spec != *spec || retained.prepared.context.name != name {
-                    return Err(Error::Invalid(
-                        "retained private-root identity differs".into(),
-                    ));
-                }
-                verify_retained(root.path(), &retained.prepared, spec)?;
-                if let Some(sources) = amx {
-                    sources
-                        .require_signed_generation(&retained.prepared)
-                        .map_err(|error| Error::Invalid(error.to_string()))?;
-                }
-                return Ok(retained.prepared);
+        if let Some(bytes) = root.read_optional(PREPARED, 1024 * 1024)? {
+            if publication_root.is_some() {
+                return Err(Error::Invalid(
+                    "publication stage already contains a prepared identity".into(),
+                ));
             }
-            None => {}
+            let retained: RetainedPrivateRoot = norito::json::from_slice(&bytes)
+                .map_err(|_| Error::Invalid("retained private root is invalid".into()))?;
+            if retained.spec != *spec || retained.prepared.context.name != name {
+                return Err(Error::Invalid(
+                    "retained private-root identity differs".into(),
+                ));
+            }
+            verify_retained(root.path(), &retained.prepared, spec)?;
+            if let Some(sources) = amx {
+                sources
+                    .require_signed_generation(&retained.prepared)
+                    .map_err(|error| Error::Invalid(error.to_string()))?;
+            }
+            return Ok(retained.prepared);
         }
     }
     let mut prepared = prepare_fresh(name, directory, ports, spec, publication_root, amx)
@@ -280,7 +277,7 @@ fn prepare_private_root_selected(
     Ok(prepared)
 }
 
-pub(crate) fn verify_retained(
+pub fn verify_retained(
     root: &Path,
     prepared: &PreparedLocalnet,
     spec: &PrivateRootSpec,
@@ -305,10 +302,8 @@ pub(crate) fn verify_retained(
     let client = prepared.context.load_client_config()?;
     prepared.load_operator_key_pair()?;
     verify_private_credentials(prepared, spec)?;
-    let bytes = iroha_fs::read_private(
-        &root.join("genesis.signed.nrt"),
-        SIGNED_GENESIS_MAX_BYTES_V1,
-    )?;
+    let bytes =
+        iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)?;
     let block =
         iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| invalid())?;
     let metadata = iroha_data_model::sumeragi_finality::authenticated_genesis(&block)
@@ -470,15 +465,15 @@ fn prepare_fresh(
     OsRng
         .try_fill_bytes(token_bytes.as_mut())
         .map_err(|error| eyre!("private-root token generation failed: {error}"))?;
-    let api_token = Zeroizing::new(hex::encode(&*token_bytes));
+    let api_token = Zeroizing::new(hex::encode(*token_bytes));
     let runtime = root.join(LOCALNET_RUNTIME_DIRECTORY);
     custody::create_directory(&runtime)?;
     custody::write(
-        &runtime.join(LOCALNET_OPERATOR_SIGNER_KEY_FILE),
+        runtime.join(LOCALNET_OPERATOR_SIGNER_KEY_FILE),
         Zeroizing::new(format!("{}\n", operator.private_key.as_str())).as_bytes(),
     )?;
     custody::write(
-        &runtime.join(LOCALNET_LEDGER_SIGNER_KEY_FILE),
+        runtime.join(LOCALNET_LEDGER_SIGNER_KEY_FILE),
         Zeroizing::new(format!("{}\n", owner.private_key.as_str())).as_bytes(),
     )?;
     prepare_managed_node_directories(&root, peers.len())?;
@@ -621,7 +616,16 @@ fn prepare_fresh(
         };
         custody::write(&path, rendered.as_bytes())?;
     }
-    write_client_config(&root, ports.base_api, &hosts, &chain, None, &owner, None)?;
+    write_client_config(
+        &root,
+        ports.base_api,
+        &hosts,
+        &chain,
+        None,
+        &owner,
+        HttpTransportPolicy::DirectLoopback,
+        None,
+    )?;
     let client_path = root.join("client.toml");
     let client = iroha_fs::read_private(&client_path, 1024 * 1024)?;
     let mut table = crate::secret_toml::Table::new(crate::secret_toml::parse_table(
@@ -741,7 +745,7 @@ fn private_peer_config(
     Ok(Zeroizing::new(toml::to_string(&*root)?))
 }
 
-pub(crate) fn private_fee_policy(spec: &PrivateRootSpec) -> Result<PrivateRootFeePolicy> {
+pub fn private_fee_policy(spec: &PrivateRootSpec) -> Result<PrivateRootFeePolicy> {
     let policy = PrivateRootFeePolicy {
         asset_definition_id: AssetDefinitionId::derive_from_components(
             DomainId::parse_fully_qualified(&format!("app.{}", spec.dataspace_alias))?,
@@ -911,7 +915,7 @@ fn private_genesis(
         SumeragiConsensusMode::Permissioned,
     )?;
     let genesis = append_peer_pop(genesis, peers)?;
-    Ok(apply_localnet_crypto_overrides(genesis)?.with_consensus_meta()?)
+    apply_localnet_crypto_overrides(genesis)?.with_consensus_meta()
 }
 
 #[cfg(test)]
@@ -1055,9 +1059,21 @@ mod tests {
                 Some(&peer.config_path),
             )
             .unwrap();
-            assert_eq!(table["zk"]["pipa_r"]["enabled"].as_bool(), Some(true));
-            assert!(table["zk"].get("halo2").is_none());
+            // Proof validity is committed chain policy; generated node settings must
+            // neither select a backend nor preserve a retired compatibility setting.
+            let local_zk = table.get("zk").and_then(toml::Value::as_table);
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("pipa_r")));
+            assert!(local_zk.is_none_or(|zk| !zk.contains_key("halo2")));
             assert!(config.zk.pipa_r.enabled);
+            for enabled in [true, false] {
+                let node_validity = Zeroizing::new(format!(
+                    "{}\n[zk.pipa_r]\nenabled = {enabled}\n",
+                    std::str::from_utf8(&bytes).unwrap(),
+                ));
+                assert!(
+                    parse_private_peer_config(&node_validity, Some(&peer.config_path)).is_err()
+                );
+            }
             let retired = Zeroizing::new(format!(
                 "{}\n[zk.halo2]\nenabled = true\n",
                 std::str::from_utf8(&bytes).unwrap()
@@ -1191,7 +1207,7 @@ mod tests {
                     .exists()
             );
         }
-        let manifest = RawGenesisTransaction::from_path(&directory.join("genesis.json")).unwrap();
+        let manifest = RawGenesisTransaction::from_path(directory.join("genesis.json")).unwrap();
         let projected =
             iroha_core::state::StateParameters::try_from(manifest.effective_parameters().unwrap())
                 .unwrap();
@@ -1288,17 +1304,13 @@ mod tests {
         assert!(!repeated.build_cache_root().exists());
         assert_eq!(repeated.load_private_registration().unwrap(), registration);
         let original_manifest = iroha_fs::read_private(
-            &directory.join("genesis.json"),
+            directory.join("genesis.json"),
             iroha_genesis::GENESIS_MANIFEST_JSON_MAX_BYTES_V1,
         )
         .unwrap();
-        custody::replace(&directory.join("genesis.json"), b"{}").unwrap();
+        custody::replace(directory.join("genesis.json"), b"{}").unwrap();
         assert!(prepared.load_private_registration().is_err());
-        custody::replace(
-            &directory.join("genesis.json"),
-            original_manifest.as_slice(),
-        )
-        .unwrap();
+        custody::replace(directory.join("genesis.json"), original_manifest.as_slice()).unwrap();
         let peer_path = &prepared.peers[0].config_path;
         let bytes = iroha_fs::read_private(peer_path, 1024 * 1024).unwrap();
         let mut table = crate::secret_toml::Table::new(

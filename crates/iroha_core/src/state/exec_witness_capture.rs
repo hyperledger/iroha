@@ -3,7 +3,7 @@
 use super::{Hash, StateBlock, output_capacity::ExecutionOutputPlanState};
 
 /// A witness capture ends with a completed content verdict or its original local owner.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum WitnessCaptureError {
     /// A completed deterministic source or content rejection.
     #[error("{0}")]
@@ -132,8 +132,14 @@ mod local_capture_controls {
         let occupied = budget.try_reserve_bytes(8).unwrap();
         let refusal = budget.try_reserve_bytes(1).unwrap_err();
         let original: crate::execution_attempt::ExecutionDeferred = refusal.clone().into();
-        let observed = WitnessCaptureGuard::new(&mut block).defer(original.clone());
-        assert_eq!(observed, original);
+        let observed = WitnessCaptureGuard::new(&mut block).defer(original);
+        assert_eq!(
+            observed.reason(),
+            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+        );
+        assert!(observed.phase().is_none());
+        assert!(observed.decode_refusal().is_none());
+        assert!(observed.verification_refusal().is_none());
         assert_eq!(observed.allocation_refusal(), Some(&refusal));
         assert!(
             block.fastpq_source_inventory.is_none(),

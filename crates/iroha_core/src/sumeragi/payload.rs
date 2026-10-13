@@ -37,16 +37,18 @@ pub const MAX_QUEUE_SCAN: NonZeroUsize = NonZeroUsize::new(4096).expect("non-zer
 /// Largest framed transaction a proposer of the committed chain can select for a transaction
 /// routed to `lane`: the committed transaction cap, bounded by the selection budget of the
 /// proposers that can carry it (`Parameters::max_includable_transaction_bytes`). Lane zero is
-/// carried by the global proposer only. A native lane adds its own proposer's budget. The
-/// global chain rescues a transaction of a stalled lane (`specs/sumeragi_lanes.md` §6.4) only
-/// within its available global budget ([`select`] skips a larger one). Complete committed
-/// policy makes the transaction cap fit the full global budget; smaller lane capacity or
-/// other proposal contents can still defer packing. For raw authoring parameters before
-/// coherence validation, a transaction above the full global budget depends on its lane's
-/// proposer alone. The lane budget is the payload limit pinned by the lane's committed
-/// record, which is what the lane proposer builds within; a later change
-/// of the lane policy does not move it. A transaction without a route, or routed to a lane
-/// without a committed record, is given the global budget.
+/// carried by the global proposer only. A native lane adds its own proposer's budget. Under a
+/// complete committed policy, the transaction cap plus the global proposer reserve fits the
+/// global payload limit, so every admitted input fits the full global selection budget. A
+/// smaller lane budget or the remaining space in a global proposal can still defer selection.
+/// Global rescue of a stalled lane (`specs/sumeragi_lanes.md` §6.4) checks that available budget
+/// in [`select`]. The lane budget is the payload limit pinned by the lane's committed record;
+/// a later lane-policy change does not move it. A transaction without a route, or routed to a
+/// lane without a committed record, is given the global budget.
+///
+/// The underlying helper also handles raw authoring parameters before complete policy
+/// validation. An unvalidated combination can describe a transaction that only the lane
+/// budget carries; that does not establish an admissible chain above the full global budget.
 #[must_use]
 pub fn max_includable_transaction_bytes_on_route(
     parameters: &Parameters,
@@ -118,7 +120,7 @@ pub fn check_includable_transaction<W: WorldReadOnly>(
 }
 
 /// Why a payload could not be built or decoded.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum PayloadError {
     /// No transaction can justify creating a block.
     #[error("block proposal must contain at least one transaction")]
@@ -161,54 +163,64 @@ pub enum PayloadError {
     SignatureCustodyInvariant(String),
 }
 
-fn staking_preparation_error(error: eyre::Report) -> PayloadError {
+fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
     if !cfg!(all(test, sumeragi_core_mutation = "HC49")) {
-        if let Some(refusal) = error.downcast_ref::<crate::state::EvidencePreparationError>() {
-            return PayloadError::StakingPreparation(refusal.clone());
-        }
-        if let Some(refusal) = error.downcast_ref::<crate::state::StateAdmissionError>() {
-            return PayloadError::StakingAdmission(refusal.clone());
-        }
-        if let Some(refusal) = error.downcast_ref::<crate::state::MergeLedgerCommitError>() {
-            use crate::state::{MergeLedgerCommitError, StateAdmissionError};
-            let admission = match refusal {
-                MergeLedgerCommitError::StateStorageAdmission(original) => {
-                    Some(StateAdmissionError::Storage(original.clone()))
-                }
-                MergeLedgerCommitError::BlockHashAdmission(original) => {
-                    Some(StateAdmissionError::History(original.clone()))
-                }
-                MergeLedgerCommitError::MembershipAdmission(original) => {
-                    Some(StateAdmissionError::Membership(original.clone()))
-                }
-                MergeLedgerCommitError::ExecutionDeferred(original) => {
-                    return PayloadError::RoutingDeferred(original.clone());
-                }
-                _ => None,
-            };
-            if let Some(original) = admission {
-                return PayloadError::StakingAdmission(original);
+        error = match error.downcast::<crate::state::EvidencePreparationError>() {
+            Ok(original) => return PayloadError::StakingPreparation(original),
+            Err(error) => error,
+        };
+        error = match error.downcast::<crate::state::StateAdmissionError>() {
+            Ok(original) => return PayloadError::StakingAdmission(original),
+            Err(error) => error,
+        };
+        error = match error.downcast::<crate::state::MergeLedgerCommitError>() {
+            Ok(original) => {
+                use crate::state::{MergeLedgerCommitError, StateAdmissionError};
+                return match original {
+                    MergeLedgerCommitError::StateStorageAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::Storage(original))
+                    }
+                    MergeLedgerCommitError::BlockHashAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::History(original))
+                    }
+                    MergeLedgerCommitError::MembershipAdmission(original) => {
+                        PayloadError::StakingAdmission(StateAdmissionError::Membership(original))
+                    }
+                    MergeLedgerCommitError::ExecutionDeferred(original) => {
+                        PayloadError::RoutingDeferred(original)
+                    }
+                    other => PayloadError::Staking(other.to_string()),
+                };
             }
+            Err(error) => error,
+        };
+    }
+    use crate::execution_attempt::ExecutionAttemptError;
+    error = match error.downcast::<ExecutionAttemptError<String>>() {
+        Ok(ExecutionAttemptError::Deferred(original)) => {
+            return PayloadError::RoutingDeferred(original);
         }
-    }
-    if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-        error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<String>>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
-    if let Some(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)) =
-        error.downcast_ref::<crate::execution_attempt::ExecutionAttemptError<
-            iroha_data_model::isi::error::InstructionExecutionError,
-        >>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
-    if let Some(super::evidence::EvidenceAdmissionError::Policy(
-        crate::execution_attempt::ExecutionAttemptError::Deferred(reason),
-    )) = error.downcast_ref::<super::evidence::EvidenceAdmissionError>()
-    {
-        return PayloadError::RoutingDeferred(reason.clone());
-    }
+        Ok(ExecutionAttemptError::Rejected(reason)) => return PayloadError::Staking(reason),
+        Err(error) => error,
+    };
+    error = match error
+        .downcast::<ExecutionAttemptError<iroha_data_model::isi::error::InstructionExecutionError>>(
+        ) {
+        Ok(ExecutionAttemptError::Deferred(original)) => {
+            return PayloadError::RoutingDeferred(original);
+        }
+        Ok(ExecutionAttemptError::Rejected(reason)) => {
+            return PayloadError::Staking(reason.to_string());
+        }
+        Err(error) => error,
+    };
+    error = match error.downcast::<super::evidence::EvidenceAdmissionError>() {
+        Ok(super::evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(
+            original,
+        ))) => return PayloadError::RoutingDeferred(original),
+        Ok(other) => return PayloadError::Staking(other.to_string()),
+        Err(error) => error,
+    };
     PayloadError::Staking(error.to_string())
 }
 
@@ -221,13 +233,17 @@ pub struct Assembly<'a> {
     pub view: u64,
     /// The chain's block cadence (`ChainParams.block_time`).
     pub cadence: Duration,
+    /// One captured proposer clock reading, rounded down to milliseconds. The authenticated
+    /// proposal time is at least this reading and the committed parent/input time floor.
+    pub proposed_time: Duration,
 }
 
 /// Build the unsigned proposal carrying `transactions` (in order) over `assembly.parent`,
 /// reading the DA policy and confidential-feature digest from the committed `state`.
 ///
-/// Deterministic in its inputs: the block time is canonical (parent time plus the cadence,
-/// strictly after every timed input), not the local clock.
+/// Deterministic in its explicit inputs: the authenticated time is the maximum of the
+/// proposed time and the parent/cadence, lane and signed-input floors. Followers and replay
+/// consume that original authenticated timestamp; they never restamp from their clocks.
 ///
 /// # Errors
 /// There are no transactions, or the canonical block time overflows.
@@ -276,6 +292,10 @@ pub(crate) fn assemble_with_parent_service(
     if transactions.is_empty() && merges.merges.is_empty() {
         return Err(PayloadError::EmptyBlock);
     }
+    let proposed = Duration::from_millis(
+        u64::try_from(assembly.proposed_time.as_millis())
+            .map_err(|_| PayloadError::TimeOverflow)?,
+    );
     let parent_time = assembly.parent.header().creation_time();
     let minimum = parent_time
         .checked_add(assembly.cadence)
@@ -291,13 +311,14 @@ pub(crate) fn assemble_with_parent_service(
     let build = |time: Duration| -> Result<SignedBlock, PayloadError> {
         build_at(state, assembly, transactions, merges, time, parent_service)
     };
-    let first = build(minimum)?;
-    let canonical = ValidBlock::sumeragi_block_time(&first, parent_time, assembly.cadence)
-        .map_err(|_| PayloadError::TimeOverflow)?;
-    if canonical == first.header().creation_time() {
+    let first = build(minimum.max(proposed))?;
+    let required = ValidBlock::sumeragi_block_time_floor(&first, parent_time, assembly.cadence)
+        .map_err(|_| PayloadError::TimeOverflow)?
+        .max(proposed);
+    if required == first.header().creation_time() {
         Ok(first)
     } else {
-        build(canonical)
+        build(required)
     }
 }
 
@@ -338,8 +359,12 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
         } else {
             minimum.max(Duration::from_millis(merges.time_floor_ms))
         };
+        let proposed = Duration::from_millis(
+            u64::try_from(assembly.proposed_time.as_millis())
+                .map_err(|_| PayloadError::TimeOverflow)?,
+        );
         let time = crate::block::creation_time_after_inputs(
-            minimum,
+            minimum.max(proposed),
             selected.iter().map(AcceptedTransaction::entrypoint),
         )
         .ok_or(PayloadError::TimeOverflow)?;
@@ -381,6 +406,68 @@ pub(crate) fn recheck_sccp_forgery_for_proposal(
         if selected.len() == before {
             return Ok(());
         }
+    }
+}
+
+/// Recheck progress carriers after every removal that can change the canonical clock.
+/// Original Queue sources remain owned by the lease path; the keeper creates fresh signatures.
+pub(crate) fn recheck_progress_for_proposal(
+    view: &crate::state::StateView<'_>,
+    assembly: Assembly<'_>,
+    selected: &mut Vec<AcceptedTransaction<'static>>,
+    merges: &MergeProposal,
+    wall_time: Duration,
+) -> Result<(), PayloadError> {
+    use crate::smartcontracts::isi::sccp::keepalive;
+    let wall_ms = u64::try_from(wall_time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?;
+    loop {
+        let before = selected.len();
+        recheck_sccp_forgery_for_proposal(view, assembly, selected, merges)?;
+        let minimum = assembly
+            .parent
+            .header()
+            .creation_time()
+            .checked_add(assembly.cadence)
+            .ok_or(PayloadError::TimeOverflow)?
+            .max(Duration::from_millis(merges.time_floor_ms));
+        let time = crate::block::creation_time_after_inputs(
+            minimum,
+            selected.iter().map(AcceptedTransaction::entrypoint),
+        )
+        .ok_or(PayloadError::TimeOverflow)?;
+        let time_ms = u64::try_from(time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?;
+        let height = assembly.parent.header().height().get().saturating_add(1);
+        let policy = keepalive::clock_parameters(view.world())
+            .map_err(|error| PayloadError::ParentService(error.into()))?;
+        let due = keepalive::due(view.world(), height, time_ms);
+        let fresh = !keepalive::needs_fresh_carrier(time_ms, wall_ms, policy.due_work_max_lag_ms);
+        let mut kept = false;
+        selected.retain(|transaction| {
+            let Some(payload) = keepalive::payload(transaction.entrypoint()) else {
+                return true;
+            };
+            if keepalive::count(&payload.instructions) == 0 {
+                return true;
+            }
+            let retain = !kept && due == Ok(true) && fresh && keepalive::valid_shape(payload);
+            kept |= retain;
+            retain
+        });
+        if selected.len() != before {
+            continue;
+        }
+        if !selected.is_empty() || !merges.merges.is_empty() {
+            match keepalive::stale_due_work(view.world(), height, time_ms, wall_ms, false) {
+                Ok(false) => {}
+                Ok(true) => {
+                    return Err(PayloadError::ParentService(
+                        "StaleDueWork: awaiting a fresh keeper carrier".into(),
+                    ));
+                }
+                Err(error) => return Err(PayloadError::ParentService(error.to_string())),
+            }
+        }
+        return Ok(());
     }
 }
 
@@ -665,6 +752,7 @@ pub fn select(
     use crate::smartcontracts::isi::sccp::admission::{
         SccpExemptBlockBudgetV1, SccpExemptClassV1, exempt_class_of_entrypoint,
     };
+    use crate::smartcontracts::isi::sccp::keepalive;
     let block_parameters = view.world().parameters().block();
     // The next block executes under the FASTPQ source policy frozen at its start (the
     // committed one): proposal packing honours its Network input cap, as validation does.
@@ -708,6 +796,22 @@ pub fn select(
     let mut future_input = false;
     let mut original_parent = None;
     let budget = view.execution_budget();
+    let newest_keepalive = pending
+        .iter()
+        .filter_map(|transaction| {
+            let payload = keepalive::payload(transaction.entrypoint())?;
+            (keepalive::valid_shape(payload)
+                && Duration::from_millis(payload.creation_time_ms)
+                    <= wall_time
+                        .saturating_add(view.world().parameters().sumeragi().max_clock_drift())
+                && payload
+                    .creation_time_ms
+                    .checked_add(1)
+                    .is_some_and(|time| keepalive::due(view.world(), height, time) == Ok(true)))
+            .then_some((payload.creation_time_ms, transaction.hash_as_entrypoint()))
+        })
+        .max()
+        .map(|(_, hash)| hash);
     for transaction in pending {
         if selected.len() >= max_transactions {
             break;
@@ -741,6 +845,12 @@ pub fn select(
         }
         let class =
             exempt_class_of_entrypoint(view.world(), transaction.entrypoint(), committed_time_ms);
+        if keepalive::payload(transaction.entrypoint())
+            .is_some_and(|payload| keepalive::count(&payload.instructions) != 0)
+            && newest_keepalive != Some(transaction.hash_as_entrypoint())
+        {
+            continue;
+        }
         if class == Some(SccpExemptClassV1::ForgeryEvidence) {
             if forgery_selected {
                 continue;
@@ -782,8 +892,11 @@ pub fn select(
             } else {
                 minimum.max(Duration::from_millis(merges.time_floor_ms))
             };
+            let proposed = Duration::from_millis(
+                u64::try_from(wall_time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?,
+            );
             let time = crate::block::creation_time_after_inputs(
-                minimum,
+                minimum.max(proposed),
                 selected
                     .iter()
                     .map(AcceptedTransaction::entrypoint)
@@ -846,31 +959,40 @@ mod tests {
         let chain = CertifiedTestChain::start(config).unwrap();
         let view = chain.state().view();
         let policy = view.world().sumeragi_npos_parameters().unwrap();
-        let error = norito::with_decode_limits_scope(
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-            || view.world().sumeragi_npos_parameters(),
-        )
-        .unwrap_err()
-        .map_rejection(|message| InstructionExecutionError::InvariantViolation(message.into()));
-        let ExecutionAttemptError::Deferred(expected) = &error else {
-            panic!("original decoder must refuse: {error:?}");
-        };
-        let expected = expected.clone();
-        let payload = staking_preparation_error(
-            eyre::Report::new(error.clone()).wrap_err("original staking preparation"),
-        );
-        assert!(
-            matches!(&payload, PayloadError::RoutingDeferred(actual) if actual == &expected),
-            "payload erased original policy refusal: {payload:?}"
-        );
-        let block = crate::block::BlockValidationError::from_npos_application_error(
-            eyre::Report::new(error).wrap_err("original staking preparation"),
-            "validation",
-        );
-        assert!(
-            matches!(&block, crate::block::BlockValidationError::ExecutionDeferred(actual) if actual == &expected),
-            "validation erased original policy refusal: {block:?}"
-        );
+        for boundary in ["payload", "block"] {
+            let error = norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+                || view.world().sumeragi_npos_parameters(),
+            )
+            .unwrap_err()
+            .map_rejection(|message| InstructionExecutionError::InvariantViolation(message.into()));
+            let ExecutionAttemptError::Deferred(expected) = &error else {
+                panic!("original decoder must refuse: {error:?}");
+            };
+            let expected = expected
+                .decode_refusal()
+                .expect("genuine captured policy decoder")
+                .clone();
+            let report = eyre::Report::new(error).wrap_err("original staking preparation");
+            if boundary == "payload" {
+                let payload = staking_preparation_error(report);
+                assert!(
+                    matches!(&payload, PayloadError::RoutingDeferred(actual)
+                    if actual.decode_refusal() == Some(&expected)),
+                    "payload erased original policy refusal: {payload:?}"
+                );
+            } else {
+                let block = crate::block::BlockValidationError::from_npos_application_error(
+                    report,
+                    "validation",
+                );
+                assert!(
+                    matches!(&block, crate::block::BlockValidationError::ExecutionDeferred(actual)
+                    if actual.decode_refusal() == Some(&expected)),
+                    "validation erased original policy refusal: {block:?}"
+                );
+            }
+        }
         assert_eq!(view.world().sumeragi_npos_parameters().unwrap(), policy);
     }
 
@@ -935,7 +1057,7 @@ mod tests {
             "the transport payload itself is nonempty"
         );
         assert!(matches!(decode(&bytes), Err(PayloadError::EmptyBlock)));
-        assert_eq!(encode(&block), Err(PayloadError::EmptyBlock));
+        assert!(matches!(encode(&block), Err(PayloadError::EmptyBlock)));
     }
 
     #[test]
@@ -960,6 +1082,7 @@ mod tests {
                     parent: &parent,
                     view: 10,
                     cadence: Duration::from_millis(100),
+                    proposed_time: std::time::Duration::ZERO,
                 },
                 &[]
             ),
@@ -1104,6 +1227,7 @@ mod tests {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             },
             &[accepted],
         )

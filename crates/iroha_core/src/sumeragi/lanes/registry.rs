@@ -155,7 +155,7 @@ impl LaneStores {
     // All registry-owned buffers use this original pool. Keep every physical map/store
     // guard inside the scope so retirement and recovery callbacks may safely reenter.
     fn with_original_refunds<R>(&self, operation: impl FnOnce() -> R) -> R {
-        if cfg!(all(test, sumeragi_core_mutation = "HC280")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC348")) {
             operation()
         } else {
             self.budget

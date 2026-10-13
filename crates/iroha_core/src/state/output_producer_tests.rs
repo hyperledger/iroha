@@ -559,7 +559,7 @@ fn capacity_refusal_keeps_original_release_after_rollback_seal_and_native_bounda
         Some(ExecutionOutputPlanState::Poisoned)
     ));
     assert!(!source.has_results());
-    let sealed: ExecutionOutputSealError<String> = error.clone().into();
+    let sealed: ExecutionOutputSealError<String> = error.into();
     let ExecutionOutputSealError::Deferred(sealed_owner) = sealed else {
         panic!("seal error must preserve the local owner");
     };
@@ -576,8 +576,8 @@ fn capacity_refusal_keeps_original_release_after_rollback_seal_and_native_bounda
     };
     let mut release = release.clone().wait_for_release(&mut registration);
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
     drop(occupied);
     assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
@@ -602,11 +602,8 @@ fn local_refusal_rolls_back_and_never_becomes_a_canonical_rejection() {
             Ok(())
         })
         .unwrap_err();
-    assert_eq!(
-        error,
-        ExecutionOutputAttemptError::Deferred(
-            ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-        )
+    assert!(
+        matches!(&(error), ExecutionOutputAttemptError::Deferred(owner) if owner.reason() == ivm::error::ExecutionDeferral::AllocationUnavailable && owner.phase().is_none() && owner.allocation_refusal().is_none() && owner.decode_refusal().is_none() && owner.verification_refusal().is_none())
     );
     assert_eq!(*block.world.parameters.get(), before);
     assert!(exec_witness::snapshot_exec_witness().writes.is_empty());

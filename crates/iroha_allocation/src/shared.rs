@@ -135,20 +135,23 @@ impl<T: SharedWake, Charge: Send + Sync + 'static> Shared<T, Charge> {
     }
 }
 
-/// One original shared owner with an allocation-free erased charge type.
+/// One original shared owner with an allocation-free erased concrete type.
 ///
 /// The payload and its charge remain in their original concrete allocation.
-/// Erasure adds no Box, reference counter, or replacement allocation.
-pub(crate) struct ErasedShared<T> {
+/// A projection may expose a borrowed field or trait object without another Box,
+/// reference counter, or replacement allocation. Construct it with [`Shared::project`].
+pub struct ErasedShared<T: ?Sized> {
     allocation: NonNull<()>,
     value: NonNull<T>,
     clone_owner: unsafe fn(NonNull<()>),
     drop_owner: unsafe fn(NonNull<()>),
 }
 
-// Construction requires the erased charge to satisfy the same thread bounds.
-unsafe impl<T: Send + Sync> Send for ErasedShared<T> {}
-unsafe impl<T: Send + Sync> Sync for ErasedShared<T> {}
+// Internal identity erasure requires a thread-safe charge. Public projection
+// additionally requires the entire hidden concrete payload to be Send + Sync:
+// exposing a thread-safe field must not move a non-Send destructor across threads.
+unsafe impl<T: ?Sized + Send + Sync> Send for ErasedShared<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Sync for ErasedShared<T> {}
 
 impl<T> ErasedShared<T> {
     pub(crate) fn new<Charge: Send + Sync + 'static>(value: T, charge: Charge) -> Self {
@@ -163,6 +166,16 @@ impl<T> ErasedShared<T> {
     }
 
     fn from_owner<Charge: Send + Sync + 'static>(owner: Shared<T, Charge>) -> Self {
+        let value = NonNull::from(&*owner);
+        Self::from_projection(owner, value)
+    }
+}
+
+impl<U: ?Sized> ErasedShared<U> {
+    // Both callers derive `value` while the original strong owner is live.
+    // Public projection enforces the hidden owner's lifetime and thread bounds;
+    // internal identity erasure preserves T in the resulting owner's type.
+    fn from_projection<T, Charge>(owner: Shared<T, Charge>, value: NonNull<U>) -> Self {
         unsafe fn clone_owner<T, Charge>(pointer: NonNull<()>) {
             let original = ManuallyDrop::new(Shared::<T, Charge> {
                 pointer: pointer.cast(),
@@ -175,7 +188,6 @@ impl<T> ErasedShared<T> {
                 pointer: pointer.cast(),
             });
         }
-        let value = NonNull::from(&*owner);
         let owner = ManuallyDrop::new(owner);
         Self {
             allocation: owner.pointer.cast(),
@@ -185,7 +197,8 @@ impl<T> ErasedShared<T> {
         }
     }
 
-    pub(crate) fn ptr_eq(left: &Self, right: &Self) -> bool {
+    /// Whether both handles retain the same original allocation, regardless of projection.
+    pub fn ptr_eq(left: &Self, right: &Self) -> bool {
         left.allocation == right.allocation
     }
 
@@ -197,7 +210,7 @@ impl<T> ErasedShared<T> {
     }
 }
 
-impl<T> Clone for ErasedShared<T> {
+impl<T: ?Sized> Clone for ErasedShared<T> {
     fn clone(&self) -> Self {
         // SAFETY: the function and pointer are installed together by `new`,
         // and this live reference prevents concurrent final destruction.
@@ -211,7 +224,7 @@ impl<T> Clone for ErasedShared<T> {
     }
 }
 
-impl<T> Deref for ErasedShared<T> {
+impl<T: ?Sized> Deref for ErasedShared<T> {
     type Target = T;
     fn deref(&self) -> &T {
         // SAFETY: every erased owner retains one original initialized reference.
@@ -219,10 +232,45 @@ impl<T> Deref for ErasedShared<T> {
     }
 }
 
-impl<T> Drop for ErasedShared<T> {
+impl<T: ?Sized> Drop for ErasedShared<T> {
     fn drop(&mut self) {
         // SAFETY: this consumes exactly the original reference held by self.
         unsafe { (self.drop_owner)(self.allocation) };
+    }
+}
+
+impl<T: Send + Sync + 'static, Charge: Send + Sync + 'static> Shared<T, Charge> {
+    /// Expose a shared projection while retaining this original payload and charge.
+    ///
+    /// The callback borrows the original payload and may return a field, slice,
+    /// or trait object. This operation neither allocates nor increments the
+    /// reference count. The callback may allocate; its own resources remain its
+    /// responsibility. If it panics, the original owner is dropped normally.
+    /// Clones retain the same concrete allocation and destroy the entire original
+    /// payload before releasing its charge, even when only one field is exposed.
+    ///
+    /// A captured temporary cannot escape through the projection:
+    /// ```compile_fail
+    /// use iroha_allocation::shared::Shared;
+    /// let temporary = String::from("temporary");
+    /// let owner = Shared::new(17_u64, ());
+    /// let erased = owner.project(|_| temporary.as_str());
+    /// drop(temporary);
+    /// println!("{}", &*erased);
+    /// ```
+    /// A thread-safe field cannot hide a non-thread-safe concrete owner:
+    /// ```compile_fail
+    /// use iroha_allocation::shared::Shared;
+    /// use std::rc::Rc;
+    /// let owner = Shared::new((17_u64, Rc::new(())), ());
+    /// let erased = owner.project(|value| &value.0);
+    /// ```
+    pub fn project<U: ?Sized + 'static>(
+        self,
+        project: impl for<'a> FnOnce(&'a T) -> &'a U,
+    ) -> ErasedShared<U> {
+        let value = NonNull::from(project(&self));
+        ErasedShared::from_projection(self, value)
     }
 }
 
@@ -516,6 +564,25 @@ mod tests {
             let copy = other.clone();
             assert_eq!(std::ptr::from_ref(&*copy) as usize, pointer);
             assert_eq!(*copy, 17);
+        })
+        .join()
+        .unwrap();
+        assert_eq!(dropped.load(SeqCst), 1);
+    }
+
+    #[test]
+    fn public_projection_retains_concrete_charge_across_thread_transfer() {
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let owner = Shared::new([17_u64, 23], Charge(Arc::clone(&dropped)));
+        let pointer = std::ptr::from_ref(&owner[1]) as usize;
+        let erased = owner.project(|values| &values[1]);
+        let copy = erased.clone();
+        drop(erased);
+        assert_eq!(dropped.load(SeqCst), 0);
+        std::thread::spawn(move || {
+            assert_eq!(std::ptr::from_ref(&*copy) as usize, pointer);
+            assert_eq!(*copy, 23);
+            assert_eq!(copy.strong_count(), 1);
         })
         .join()
         .unwrap();

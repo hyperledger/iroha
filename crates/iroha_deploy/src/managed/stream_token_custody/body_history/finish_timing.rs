@@ -7,12 +7,12 @@
 //! exclude their caller's directory/tree entry and exit. Inventory subphases surround only
 //! the original `entries` calls: ordinary calls include full ancestry checks, scoped calls
 //! include native census work under the caller's separate entry/exit fences. No interval
-//! measures wallet decoding. GraphValidate covers every retained-graph traversal call during the
-//! capture, including calls outside prepare/finish closures. SnapshotRevalidate brackets only
+//! measures wallet decoding. `GraphValidate` covers every retained-graph traversal call during the
+//! capture, including calls outside prepare/finish closures. `SnapshotRevalidate` brackets only
 //! the full snapshot entry, including its recursive walk and native entry/exit checks, without
-//! recursively sampling each node. SuccessorBuild includes SelectionDigest and ReservationDigest
+//! recursively sampling each node. `SuccessorBuild` includes `SelectionDigest` and `ReservationDigest`
 //! calls made during successor construction; the digest phases also count their other original
-//! callers. EpochRecordDecode surrounds only an actual canonical epoch/claim decoder, excluding
+//! callers. `EpochRecordDecode` surrounds only an actual canonical epoch/claim decoder, excluding
 //! native reads, exact-image reuse, semantic checks and memoized digest work. These intervals
 //! overlap and must not be added together.
 
@@ -126,7 +126,9 @@ impl Capture {
         Self
     }
     pub(in crate::managed) fn finish(self) -> Stats {
-        ACTIVE.with(|active| active.take().expect("finish capture is active"))
+        let observation = ACTIVE.with(|active| active.take().expect("finish capture is active"));
+        drop(self);
+        observation
     }
 }
 impl Drop for Capture {

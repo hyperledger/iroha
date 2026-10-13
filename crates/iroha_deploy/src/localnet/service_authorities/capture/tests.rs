@@ -53,7 +53,7 @@ fn complete_original_capture_rechecks_every_input_and_only_closed_static_names()
         .sum::<usize>();
     assert_eq!(maximum, 73_160_704);
     assert!(maximum <= MAX_TOTAL);
-    let (_, parses) = count_semantic_validations(|| {
+    let ((), parses) = count_semantic_validations(|| {
         for directory in &image.directories {
             for input in &directory.inputs {
                 assert!(!input.bytes.is_empty());
@@ -286,7 +286,7 @@ fn standard_profile_authenticates_genesis_without_service_capture() {
         None,
     )
     .unwrap();
-    let (_, parses) = count_semantic_validations(|| {
+    let ((), parses) = count_semantic_validations(|| {
         assert!(capture_retained(&prepared).unwrap().is_none());
     });
     assert_eq!(parses, 0);

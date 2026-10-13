@@ -195,7 +195,10 @@ impl AdmissionRegistry {
                     }
                 }
                 Err(err) => {
-                    return Err(AdmissionRegistryError::LoadEnvelope { path, source: err });
+                    return Err(AdmissionRegistryError::LoadEnvelope {
+                        path,
+                        source: Box::new(err),
+                    });
                 }
             }
         }
@@ -577,7 +580,7 @@ pub enum AdmissionRegistryError {
         /// Path to the envelope being processed.
         path: PathBuf,
         /// Reason the envelope could not be loaded or verified.
-        source: SingleEnvelopeError,
+        source: Box<SingleEnvelopeError>,
     },
 }
 /// Errors raised while mutating an in-memory provider admission registry.
@@ -758,9 +761,10 @@ mod tests {
         assert!(matches!(
             AdmissionRegistry::load_from_dir(temp.path(), local_network, policy.clone()),
             Err(AdmissionRegistryError::LoadEnvelope {
-                source: SingleEnvelopeError::NetworkMismatch { expected, provided },
+                source,
                 ..
-            }) if expected == local_network && provided == envelope.network_id
+            }) if matches!(*source, SingleEnvelopeError::NetworkMismatch { expected, provided }
+                if expected == local_network && provided == envelope.network_id)
         ));
         let mut registry = AdmissionRegistry::with_policy(local_network, policy);
         assert!(matches!(
@@ -818,9 +822,9 @@ mod tests {
         assert!(matches!(
             AdmissionRegistry::load_from_dir(oversized.path(), [0xA1; 32], policy),
             Err(AdmissionRegistryError::LoadEnvelope {
-                source: SingleEnvelopeError::TooLarge { .. },
+                source,
                 ..
-            })
+            }) if matches!(*source, SingleEnvelopeError::TooLarge { .. })
         ));
     }
     #[test]
@@ -948,11 +952,11 @@ mod tests {
         assert!(matches!(
             error,
             AdmissionRegistryError::LoadEnvelope {
-                source: SingleEnvelopeError::Verify(ProviderAdmissionEnvelopeError::Signature(
-                    ProviderAdmissionSignatureError::UntrustedSigner { .. }
-                )),
+                source,
                 ..
-            }
+            } if matches!(*source, SingleEnvelopeError::Verify(ProviderAdmissionEnvelopeError::Signature(
+                    ProviderAdmissionSignatureError::UntrustedSigner { .. }
+                )))
         ));
         assert_eq!(
             registry

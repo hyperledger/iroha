@@ -173,7 +173,7 @@ pub(super) fn validate_routes(
     }
     Ok(())
 }
-pub(crate) fn load_bound_generated_publication_runtime_v1<V: PublicationCleanPackageValidatorV1>(
+pub fn load_bound_generated_publication_runtime_v1<V: PublicationCleanPackageValidatorV1>(
     provenance: &PlatformConfigProvenanceV1,
     context: &GeneratedPublicationContextV1,
     validator: V,

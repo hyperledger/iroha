@@ -478,9 +478,8 @@ pub(crate) struct OrdinaryQueryCursorMemory {
 }
 impl OrdinaryQueryCursorMemory {
     fn new(lease: OrdinaryQueryMemoryLease, policy: OrdinaryQueryCursorPolicy) -> Option<Self> {
-        if lease.pool_generation() != policy.pool_generation()
-            || lease.reserved_bytes() < policy.retained_bytes()
-        {
+        let retained_bytes_covered = lease.reserved_bytes() >= policy.retained_bytes();
+        if lease.pool_generation() != policy.pool_generation() || !retained_bytes_covered {
             return None;
         }
         Some(Self { lease, policy })
@@ -1731,9 +1730,10 @@ mod tests {
         QueryRequest::Start(query)
     }
     fn peer_params() -> QueryParams {
-        let mut params = QueryParams::default();
-        params.fetch_size = FetchSize::new(Some(nonzero!(16_u64)));
-        params
+        QueryParams {
+            fetch_size: FetchSize::new(Some(nonzero!(16_u64))),
+            ..Default::default()
+        }
     }
     #[test]
     fn singular_source_admission_audit_covers_every_variant() {
@@ -2138,8 +2138,10 @@ mod tests {
     #[test]
     fn stored_exact_requires_and_bounds_pagination_before_execution() {
         let query_limits = QueryLimits::new(16);
-        let mut params = QueryParams::default();
-        params.fetch_size = FetchSize::new(Some(nonzero!(16_u64)));
+        let mut params = QueryParams {
+            fetch_size: FetchSize::new(Some(nonzero!(16_u64))),
+            ..Default::default()
+        };
         let error =
             ensure_iterable_params(&params, OrdinaryCursorMode::Stored, query_limits, limits())
                 .expect_err("exact count without a limit must fail closed");

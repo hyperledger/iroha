@@ -743,7 +743,7 @@ pub(super) fn authenticate<'view, 'state, 'bound>(
             .targets
             .first()
             .map(|target| target.execution.height)
-            .unwrap_or(check.floor_height())
+            .unwrap_or_else(|| check.floor_height())
             .min(check.floor_height());
         let through = if start == 1 {
             check.applied_height().max(2)

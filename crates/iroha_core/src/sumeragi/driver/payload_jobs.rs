@@ -98,6 +98,11 @@ impl NetworkAcquisition {
         clippy::result_large_err,
         reason = "return exact incoming relay owner under backpressure"
     )]
+    ///
+    /// # Errors
+    ///
+    /// Returns the incoming chunk unchanged if the retry slot is occupied or
+    /// the acquisition job is no longer present.
     pub fn receive(&mut self, from: PublicKey, chunk: PayloadChunk) -> Result<(), PayloadChunk> {
         if self.pending.is_some() || self.job.is_none() {
             return Err(chunk);
@@ -300,7 +305,7 @@ impl PayloadDissemination {
                     instance: self.source.instance(),
                     height: self.source.height(),
                     block_hash: self.source.block_hash(),
-                    index: index as u32,
+                    index: u32::try_from(index).map_err(|_| invalid(AvailabilityError::Source))?,
                     bytes,
                 };
                 Ok(Some(chunk))
@@ -333,13 +338,13 @@ mod indexed_tests {
         assert!(error.is_local_refusal());
         assert_eq!(stream.pending_index(), Some(1));
         let pointer = stream.row.as_ref().unwrap().1.as_slice().as_ptr();
-        let held = f.budget.reserved_bytes();
+        let reserved_bytes = f.budget.reserved_bytes();
         assert!(matches!(
             stream.chunk(2, &f.budget, &crypto),
             Err(DisseminationError::Invalid(AvailabilityError::Source))
         ));
         assert_eq!(stream.pending_index(), Some(1));
-        assert_eq!(f.budget.reserved_bytes(), held);
+        assert_eq!(f.budget.reserved_bytes(), reserved_bytes);
         drop(hold);
         let retried = stream.chunk(1, &f.budget, &crypto).unwrap().unwrap();
         assert_eq!(retried.index, 1);

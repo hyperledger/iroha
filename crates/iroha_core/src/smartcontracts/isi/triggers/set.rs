@@ -3797,11 +3797,8 @@ mod tests {
                 length_ms: u64::MAX,
             },
         };
-        let matches = set
-            .view()
-            .match_time_event(event, 2, u64::MAX, 3)
-            .collect::<Vec<_>>();
-        assert_eq!(matches.len(), 3);
+        let matches = set.view().match_time_event(event, 2, u64::MAX, 3).count();
+        assert_eq!(matches, 3);
     }
     #[test]
     fn match_time_event_skips_disabled_triggers() {

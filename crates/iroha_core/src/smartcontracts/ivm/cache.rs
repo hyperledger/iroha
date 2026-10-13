@@ -1737,7 +1737,11 @@ mod tests {
         let vm = cache
             .checkout_generic_runtime(&summary, 10_000, HEAP_LIMIT)
             .expect("next runtime");
-        assert_eq!(vm.memory.load_u64(ivm::Memory::HEAP_START), Ok(0));
+        assert_eq!(
+            (vm.memory.load_u64(ivm::Memory::HEAP_START))
+                .expect("expected successful VM operation"),
+            0
+        );
     }
 
     #[test]
@@ -2004,9 +2008,8 @@ mod tests {
             let error = IvmCache::new()
                 .summarize_generic_program(&program)
                 .expect_err("generic syscall profile must reject contract-only calls");
-            assert_eq!(
-                error,
-                ivm::VMError::GenericSyscallNotAllowed { syscall },
+            assert!(
+                matches!((&(error), &(ivm::VMError::GenericSyscallNotAllowed { syscall })), (ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}, ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
                 "generic syscall profile must reject 0x{syscall:02x}"
             );
         }
@@ -2364,19 +2367,18 @@ mod tests {
         let code_hash = ivm::contract_code_hash(program.as_slice());
         let cache = PreparedContractCache::with_capacity(4);
         let barrier = Arc::new(std::sync::Barrier::new(WORKERS));
-        let handles = (0..WORKERS)
-            .map(|_| {
-                let program = Arc::clone(&program);
-                let cache = cache.clone();
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    barrier.wait();
-                    cache
-                        .get_or_prepare(code_hash, program.as_slice())
-                        .expect("singleflight preparation")
-                })
+        // All workers must start before the first join because they share this barrier.
+        let handles: [_; WORKERS] = std::array::from_fn(|_| {
+            let program = Arc::clone(&program);
+            let cache = cache.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                cache
+                    .get_or_prepare(code_hash, program.as_slice())
+                    .expect("singleflight preparation")
             })
-            .collect::<Vec<_>>();
+        });
         let prepared = handles
             .into_iter()
             .map(|handle| handle.join().expect("worker must not panic"))

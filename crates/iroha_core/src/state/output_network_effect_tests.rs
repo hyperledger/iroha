@@ -133,7 +133,8 @@ fn actual_by_call_callback_keeps_its_separate_instruction_scope() {
         policy.overlay_max_bytes = u64::try_from(root.encode().len()).unwrap();
     });
     let direct_gas =
-        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS);
+        crate::gas::meter_instructions(std::slice::from_ref(&root), &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
     let source = carrier(
         &state,
         vec![input(
@@ -270,7 +271,8 @@ fn actual_generic_ivm_callback_output(quarantine: bool) -> (NetworkExecutionOutp
     let direct_gas = crate::gas::meter_instructions(
         std::slice::from_ref(&instruction),
         &crate::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .expect("gas quote must complete for this fixture");
     let entrypoint = if quarantine {
         let mut metadata = iroha_model_base::metadata::Metadata::default();
         metadata.insert("quarantine".parse().unwrap(), Json::new(true));

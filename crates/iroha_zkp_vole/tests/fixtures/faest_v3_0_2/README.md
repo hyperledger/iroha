@@ -8,6 +8,44 @@ These vectors establish conformance of the building blocks in `iroha_zkp_vole`
 with the FAEST reference implementation. They say nothing about the Parliament
 ballot relations, which are FAEST-derived and have no official vectors.
 
+## Direct CRT generator comparison
+
+`compare_upstream_crt.py` compiles the unmodified upstream
+[`tables/vole_mult_tables.cpp`](https://github.com/faest-sign/faest-ref/blob/4fb6b71143b37764546b7c7729440d9cd8898a5e/tables/vole_mult_tables.cpp)
+at commit `4fb6b71143b37764546b7c7729440d9cd8898a5e`, extracts the numeric
+`parameters.h` macros from that commit's `meson.build`, and compares all scalars
+and every word of `TREE_MODULI`, `M_TREE`, `F`, `G`, `W_TREE`, `W_GATE`, and
+`W_CRT` with the eight embedded Rust table sets. No Rust or Python table
+generator supplies the expected tables. The upstream source tree generates
+these headers during its build; they are not tracked upstream fixtures.
+
+All eight comparisons passed on 2026-10-13. The driver pins SHA-256 hashes of
+its four source inputs (`vole_mult_tables.cpp`, `meson.build`, `macros.h`,
+`faest_defines.h`) before compilation. `upstream_crt_comparison.txt` records the
+generated-header SHA-256 and the SHA3-256 of each canonical `codec::encode_words`
+image serialized as little-endian words. This digest is not the ballot's
+separately framed `T_crt` digest. Reproduction requires Python 3.10+, a C++17
+compiler, and network access on the first run; normal Cargo tests stay offline:
+
+```sh
+python3 crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/compare_upstream_crt.py --work-dir /tmp/parliament-upstream-crt
+```
+
+The comparison aborts on source hash, scalar, matrix word, or saved-result
+differences. It does not rewrite the Rust tables or qualify the extended ballot
+construction.
+
+## Direct bidirectional reference verification
+
+[`cross_verification.md`](cross_verification.md) records fresh signatures
+exchanged with the unmodified pinned FAEST v3.0.2 library for all twelve
+reference parameter sets, using portable and accelerated Rust verifiers and
+signers. It includes both directions, a finite negative corpus, exact commands,
+and retained evidence. The original campaign's publication was rejected after
+concurrent lockfile drift; a separate positive recovery run preserves the
+frozen-binary result and explicitly labels regenerated C signatures. This
+reference-mode evidence does not qualify the Parliament extension.
+
 ## Provenance
 
 | | |
@@ -117,6 +155,9 @@ provenance and meaning; `Fixture::load_extracted()` loads them.
 Only the six `F` sets appear (`FAEST_128F` … `FAEST_EM_256F`); upstream skips the
 `S` sets.
 
+Consumed by `tests/conformance_owf.rs` (every entry; each vector is checked on
+the `f` and the `s` set of its family and level).
+
 | Name | Meaning |
 |---|---|
 | `owf_tvs.<SET>.key` | input: `lb` random bytes |
@@ -210,6 +251,11 @@ semantics below are inferred from the names only.** Namespaces are
 Namespaces are lower-case here, in header order: `faest_128s`, `faest_128f`,
 `faest_192s`, `faest_192f`, `faest_256s`, `faest_256f`, then the same six with the
 `faest_em_` prefix.
+
+Consumed by `tests/conformance_faest.rs` (every entry: public key, extended
+witness, exact signature bytes and verification for all twelve sets) and by
+`tests/conformance_signature_fields.rs` (every entry: the signature fields that
+do not depend on the one-way-function relation).
 
 | Name | Meaning |
 |---|---|

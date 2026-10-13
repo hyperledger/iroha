@@ -152,6 +152,11 @@ impl DaPinStore {
     pub fn len(&self) -> usize {
         self.by_location.len()
     }
+    /// Whether the store has no currently queryable pin intents.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.by_location.is_empty()
+    }
     /// Drop pin intents belonging to retired lanes.
     pub fn prune_lanes(&mut self, retired: &BTreeSet<iroha_model_base::topology::LaneId>) {
         if retired.is_empty() {
@@ -238,11 +243,13 @@ mod tests {
     #[test]
     fn inserts_and_overwrites_alias() {
         let mut store = DaPinStore::default();
+        assert!(store.is_empty());
         let a = located(sample_intent(1, 1, Some("alias-a")), 5, 0);
         let b = located(sample_intent(2, 2, Some("alias-b")), 5, 1);
         assert!(store.insert_with_location(a.clone()));
         assert!(store.insert_with_location(b.clone()));
         assert_eq!(store.all_sorted().count(), 2);
+        assert!(!store.is_empty());
         assert_eq!(store.len(), 2);
         assert_eq!(
             store

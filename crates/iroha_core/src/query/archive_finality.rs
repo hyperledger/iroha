@@ -42,6 +42,70 @@ impl From<crate::execution_attempt::ExecutionAttemptError<ChainReadError>>
     }
 }
 
+/// One immutable State view and its exact durable Kura boundary.
+pub(crate) struct CertifiedArchiveView<'v, V: StateReadOnly + ?Sized> {
+    kura: &'v Kura,
+    boundary: ExactReplayBoundary,
+    chain: CertifiedChain<'v, V>,
+}
+
+impl<'v, V: StateReadOnly + ?Sized> CertifiedArchiveView<'v, V> {
+    /// Authenticate the State/Kura association and freeze the durable hash journal.
+    pub(crate) fn new(view: &'v V, kura: &'v Kura) -> Result<Self, ArchiveFinalityError> {
+        if !std::ptr::eq(view.kura(), kura) {
+            return Err(ArchiveFinalityError::ForeignKura);
+        }
+        let boundary = kura
+            .exact_replay_boundary()
+            .map_err(|error| ArchiveFinalityError::Storage(error.to_string()))?;
+        if u64::try_from(view.height())
+            .ok()
+            .is_none_or(|height| height > boundary.count)
+        {
+            return Err(ArchiveFinalityError::BoundaryMismatch);
+        }
+        let chain = CertifiedChain::new(view)?;
+        Ok(Self {
+            kura,
+            boundary,
+            chain,
+        })
+    }
+
+    /// The exact durable height against which lag is measured.
+    pub(crate) fn tip_height(&self) -> u64 {
+        self.boundary.count
+    }
+
+    /// Read one certified block belonging to both this State and the frozen durable boundary.
+    pub(crate) fn block(&self, height: u64) -> Result<CertifiedBlock, ArchiveFinalityError> {
+        let block = self.chain.certified(height)?;
+        let index = usize::try_from(height)
+            .ok()
+            .and_then(|value| value.checked_sub(1));
+        if index
+            .and_then(|index| self.boundary.hashes.get(index))
+            .copied()
+            != Some(block.block_hash())
+        {
+            return Err(ArchiveFinalityError::BoundaryMismatch);
+        }
+        Ok(block)
+    }
+
+    /// Refuse publication when Kura moved while the archive operation was being prepared.
+    pub(crate) fn verify_unchanged(&self) -> Result<(), ArchiveFinalityError> {
+        let current = self
+            .kura
+            .exact_replay_boundary()
+            .map_err(|error| ArchiveFinalityError::Storage(error.to_string()))?;
+        if current != self.boundary {
+            return Err(ArchiveFinalityError::BoundaryChanged);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,69 +230,5 @@ mod tests {
             CertifiedArchiveView::new(&foreign.view(), &foreign_kura),
             Err(ArchiveFinalityError::Chain(ChainReadError::ForeignGenesis))
         ));
-    }
-}
-
-/// One immutable State view and its exact durable Kura boundary.
-pub(crate) struct CertifiedArchiveView<'v, V: StateReadOnly + ?Sized> {
-    kura: &'v Kura,
-    boundary: ExactReplayBoundary,
-    chain: CertifiedChain<'v, V>,
-}
-
-impl<'v, V: StateReadOnly + ?Sized> CertifiedArchiveView<'v, V> {
-    /// Authenticate the State/Kura association and freeze the durable hash journal.
-    pub(crate) fn new(view: &'v V, kura: &'v Kura) -> Result<Self, ArchiveFinalityError> {
-        if !std::ptr::eq(view.kura(), kura) {
-            return Err(ArchiveFinalityError::ForeignKura);
-        }
-        let boundary = kura
-            .exact_replay_boundary()
-            .map_err(|error| ArchiveFinalityError::Storage(error.to_string()))?;
-        if u64::try_from(view.height())
-            .ok()
-            .is_none_or(|height| height > boundary.count)
-        {
-            return Err(ArchiveFinalityError::BoundaryMismatch);
-        }
-        let chain = CertifiedChain::new(view)?;
-        Ok(Self {
-            kura,
-            boundary,
-            chain,
-        })
-    }
-
-    /// The exact durable height against which lag is measured.
-    pub(crate) fn tip_height(&self) -> u64 {
-        self.boundary.count
-    }
-
-    /// Read one certified block belonging to both this State and the frozen durable boundary.
-    pub(crate) fn block(&self, height: u64) -> Result<CertifiedBlock, ArchiveFinalityError> {
-        let block = self.chain.certified(height)?;
-        let index = usize::try_from(height)
-            .ok()
-            .and_then(|value| value.checked_sub(1));
-        if index
-            .and_then(|index| self.boundary.hashes.get(index))
-            .copied()
-            != Some(block.block_hash())
-        {
-            return Err(ArchiveFinalityError::BoundaryMismatch);
-        }
-        Ok(block)
-    }
-
-    /// Refuse publication when Kura moved while the archive operation was being prepared.
-    pub(crate) fn verify_unchanged(&self) -> Result<(), ArchiveFinalityError> {
-        let current = self
-            .kura
-            .exact_replay_boundary()
-            .map_err(|error| ArchiveFinalityError::Storage(error.to_string()))?;
-        if current != self.boundary {
-            return Err(ArchiveFinalityError::BoundaryChanged);
-        }
-        Ok(())
     }
 }

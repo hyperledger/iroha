@@ -46,7 +46,8 @@ fn native_carrier_charges_the_complete_source_and_preserves_exact_outputs() {
         let carrier = chain
             .state()
             .read_finalized_execution_carrier(
-                NonZeroUsize::new(height as usize).unwrap(),
+                NonZeroUsize::new(usize::try_from(height).expect("fixture value fits usize"))
+                    .unwrap(),
                 work,
                 bytes,
             )

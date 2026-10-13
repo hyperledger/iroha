@@ -36,7 +36,7 @@ fn config() -> HeightConfig {
 
 fn result_of(parent_result: &Hash32, block: &AvailableBody) -> Hash32 {
     match reference_exec(parent_result, block.payload().as_slice()) {
-        ExecOutcome::Valid(r) => r,
+        ExecOutcome::Valid { result: r, .. } => r,
         other => panic!("{other:?}"),
     }
 }
@@ -117,8 +117,8 @@ fn most_recent_first_and_parking() {
     assert_eq!(rig.sched.outstanding(), 2);
     rig.drain();
     let answers = rig.answers();
-    assert_eq!(answers[&1], vec![ExecOutcome::Valid(r1)]);
-    assert_eq!(answers[&2], vec![ExecOutcome::Valid(r2)]);
+    assert!(matches!(answers[&1].as_slice(), [ExecOutcome::Valid { result, .. }] if *result == r1));
+    assert!(matches!(answers[&2].as_slice(), [ExecOutcome::Valid { result, .. }] if *result == r2));
     assert_eq!(rig.sched.outstanding(), 0);
 }
 
@@ -156,7 +156,9 @@ fn execution_certification_survives_parking() {
             if *actual == certified && *actual_hash == block_hash)
         );
         rig.finish(resumed);
-        assert_eq!(rig.answers()[&2], vec![ExecOutcome::Valid(result)]);
+        assert!(
+            matches!(rig.answers()[&2].as_slice(), [ExecOutcome::Valid { result: actual, .. }] if *actual == result)
+        );
         assert_eq!(rig.sched.outstanding(), 0);
     }
 }
@@ -194,7 +196,9 @@ fn discard_cancels_waiting_and_running() {
     rig.finish(next);
     assert!(!rig.exec.state.lock().cache.contains_key(&bhb));
     rig.drain();
-    assert_eq!(rig.answers()[&1], vec![ExecOutcome::Valid(ra)]);
+    assert!(
+        matches!(rig.answers()[&1].as_slice(), [ExecOutcome::Valid { result, .. }] if *result == ra)
+    );
     assert!(rig.answers().values().all(|a| a.len() == 1));
 }
 
@@ -211,7 +215,9 @@ fn commit_during_execution_executes_once() {
     assert_eq!(rig.finish(running), None);
     rig.drain();
     assert_eq!(rig.exec.executions(&bh1), 1);
-    assert_eq!(rig.answers()[&1], vec![ExecOutcome::Valid(r1)]);
+    assert!(
+        matches!(rig.answers()[&1].as_slice(), [ExecOutcome::Valid { result, .. }] if *result == r1)
+    );
     assert!(rig.events.iter().any(|e| matches!(
         e,
         Event::BlockApplied { height: 1, block_hash, header, .. }
@@ -234,7 +240,7 @@ fn commit_answers_a_queued_execution() {
     rig.finish(first);
     rig.drain();
     assert_eq!(rig.exec.executions(&bh1), 1);
-    assert_eq!(rig.answers()[&1], vec![ExecOutcome::Valid(r1)]);
+    assert_eq!(rig.answers()[&1], vec![ExecOutcome::Cancelled]);
 }
 
 /// O3: a missing post-state is recomputed (no divergence); a local commitment other than the
@@ -519,7 +525,12 @@ impl Executor for Panicking {
         panic!("boom")
     }
 
-    fn execute(&mut self, _: &AvailableBody, _: &Hash32, _: bool) -> Option<ExecOutcome> {
+    fn execute(
+        &mut self,
+        _: &AvailableBody,
+        _: &Hash32,
+        _: bool,
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         panic!("boom")
     }
     fn discard(&mut self, _: u64, _: &[Hash32]) {}
@@ -563,7 +574,7 @@ fn executor_panics_become_local_failures() {
     );
     assert!(matches!(
         done,
-        ExecDone::Executed(Some(ExecOutcome::Failed(_)))
+        ExecDone::Executed(Err(PublicationError::RecoveryRequired(_)))
     ));
     let commit = std::sync::Arc::new(super::super::exec::Commit {
         qc: commit_qc(&b1, r1),
@@ -642,7 +653,7 @@ fn certified_execution_flag_reaches_the_application_without_inference() {
                     certified
                 },
             ),
-            ExecDone::Executed(Some(ExecOutcome::Valid(_)))
+            ExecDone::Executed(Ok(Some(ExecOutcome::Valid { .. })))
         ));
     }
     assert_eq!(
@@ -678,7 +689,7 @@ impl Executor for Overlay {
         block: &AvailableBody,
         block_hash: &Hash32,
         certified: bool,
-    ) -> Option<ExecOutcome> {
+    ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.certified_calls.push(certified);
         self.other("execute");
         self.inner.execute(block, block_hash, certified)
@@ -787,7 +798,7 @@ fn apply_runs_alone_while_backing_off() {
     );
     assert!(events.iter().any(|e| matches!(
         e,
-        Event::Executed { req: 1, outcome: ExecOutcome::Valid(r), .. } if *r == r2
+        Event::Executed { req: 1, outcome: ExecOutcome::Valid { result: r, .. }, .. } if *r == r2
     )));
     assert!(exec.calls.contains(&"build") && exec.calls.contains(&"reject"));
 }
@@ -1288,7 +1299,7 @@ fn all_validator_control_waits_for_applied_parent_and_shares_do_not_starve_work(
 fn application_control_ingress_has_a_hard_protocol_cap() {
     let mut sched = ExecSched::new(0, Backoff::default(), super::test_registrations());
     sched.retain_control_context(Some((partial_context(1), 0)));
-    for index in 0..iroha_sumeragi::types::MAX_COMMITTEE_SIZE + 1 {
+    for index in 0..=iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
         let mut bytes = vec![0xAB; 32];
         bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
         sched.receive_control(PublicKey::new(bytes).unwrap(), partial(1));

@@ -41,6 +41,18 @@ use iroha_data_model::prelude::HashOf;
 use iroha_data_model::transaction::TransactionEntrypoint;
 /// Length in bytes of a Connect session identifier.
 pub const SID_LEN: usize = 32;
+/// One-time credentials for the four independent Connect session roles.
+pub struct SessionTokens {
+    /// App-side session authentication token.
+    pub app: String,
+    /// Wallet-side session authentication token.
+    pub wallet: String,
+    /// Session management authentication token.
+    pub management: String,
+    /// Relay authentication and MAC key derivation token.
+    pub relay: String,
+}
+
 /// Connect session identifier stored as raw bytes.
 pub type Sid = [u8; SID_LEN];
 // Stable WS close codes for Connect
@@ -861,10 +873,12 @@ impl Bus {
         sid: Sid,
         app_pk: [u8; 32],
         nonce: [u8; 16],
-        token_app: String,
-        token_wallet: String,
-        token_management: String,
-        token_relay: String,
+        SessionTokens {
+            app: token_app,
+            wallet: token_wallet,
+            management: token_management,
+            relay: token_relay,
+        }: SessionTokens,
     ) -> Result<(), RegisterSessionError> {
         if connect_sdk::derive_session_id(&self.network_id, &app_pk, &nonce) != sid {
             return Err(RegisterSessionError::InvalidIdentity);
@@ -1430,10 +1444,7 @@ impl Bus {
         let (sequence_violation, expected_seq) = match frame.dir {
             proto::Dir::AppToWallet => {
                 let mut last = sess.last_seq_app_to_wallet.lock().await;
-                let expected = match *last {
-                    Some(prev) => prev.checked_add(1),
-                    None => Some(1),
-                };
+                let expected = last.map_or(Some(1), |prev| prev.checked_add(1));
                 let violation = expected != Some(frame.seq);
                 if !violation {
                     *last = Some(frame.seq);
@@ -1442,10 +1453,7 @@ impl Bus {
             }
             proto::Dir::WalletToApp => {
                 let mut last = sess.last_seq_wallet_to_app.lock().await;
-                let expected = match *last {
-                    Some(prev) => prev.checked_add(1),
-                    None => Some(1),
-                };
+                let expected = last.map_or(Some(1), |prev| prev.checked_add(1));
                 let violation = expected != Some(frame.seq);
                 if !violation {
                     *last = Some(frame.seq);
@@ -1595,7 +1603,7 @@ impl Bus {
                         .await;
                         return;
                     };
-                    let account = match AccountId::parse_encoded(&account_id) {
+                    let account = match AccountId::parse_encoded(account_id) {
                         Ok(parsed) if parsed.to_string() == account_id.as_str() => parsed,
                         Ok(_) => {
                             drop(approved);
@@ -1852,7 +1860,7 @@ impl Bus {
                 self.relay_from_p2p(envelope).await;
             }
             proto::ConnectP2pMessageV1::SessionClaim(claim) => {
-                self.install_peer_session_claim(claim).await;
+                self.install_peer_session_claim(&claim).await;
             }
             proto::ConnectP2pMessageV1::RoleConsumed(event) => {
                 self.apply_role_consumed(event).await;
@@ -1894,7 +1902,7 @@ impl Bus {
         let wallet_hash = *session.wallet_token_hash.lock().await;
         !wallet_hash.is_some_and(|stored| stored != claim.token_wallet_hash)
     }
-    async fn install_peer_session_claim(&self, claim: proto::ConnectSessionClaimV1) {
+    async fn install_peer_session_claim(&self, claim: &proto::ConnectSessionClaimV1) {
         self.shared
             .p2p_session_claims_in_total
             .fetch_add(1, Ordering::Relaxed);
@@ -1930,7 +1938,7 @@ impl Bus {
             return;
         }
         if let Some(existing) = self.inner.read().await.get(&claim.sid.to_vec()).cloned() {
-            if !Self::claim_matches_session(&existing, &claim).await {
+            if !Self::claim_matches_session(&existing, claim).await {
                 self.shared
                     .p2p_session_claim_conflicts_total
                     .fetch_add(1, Ordering::Relaxed);
@@ -1969,7 +1977,7 @@ impl Bus {
         match map.get(&claim.sid.to_vec()).cloned() {
             Some(existing) => {
                 drop(map);
-                if !Self::claim_matches_session(&existing, &claim).await {
+                if !Self::claim_matches_session(&existing, claim).await {
                     self.shared
                         .p2p_session_claim_conflicts_total
                         .fetch_add(1, Ordering::Relaxed);
@@ -2253,17 +2261,22 @@ pub(crate) async fn handle_ws(
     ws: WebSocket,
     send_timeout: Duration,
 ) -> Result<(), String> {
-    recover_ws_session(handle_ws_inner(bus, reservation, ws, send_timeout)).await
+    recover_ws_session(Box::pin(handle_ws_inner(
+        bus,
+        reservation,
+        ws,
+        send_timeout,
+    )))
+    .await
 }
 
 async fn recover_ws_session<F>(session: F) -> Result<(), String>
 where
     F: Future<Output = Result<(), String>>,
 {
-    match crate::panic_recovery::catch_async_recoverable(session).await {
-        Ok(result) => result,
-        Err(_) => Err("connect websocket session panicked".to_owned()),
-    }
+    crate::panic_recovery::catch_async_recoverable(session)
+        .await
+        .unwrap_or_else(|_| Err("connect websocket session panicked".to_owned()))
 }
 
 async fn drive_ws_halves<R, W>(reader: R, writer: W) -> Result<(), String>

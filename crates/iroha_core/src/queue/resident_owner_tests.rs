@@ -60,10 +60,7 @@ fn resident_fixture() -> (State, TimeSource) {
 }
 
 fn resident_shell_layout() -> std::alloc::Layout {
-    iroha_allocation::shared::Shared::<
-        CheckedTransaction<'static>,
-        resident_owner::QueueResidentCharge,
-    >::layout()
+    QueuedTransaction::allocation_layout()
 }
 
 #[test]

@@ -5,12 +5,14 @@ use super::{
     PreparedLocalnet, Result, RetainedCustodyEnrollment,
     native_operation::{encode, invalid, now_ms, read_optional, require_deadline},
     service_authority::{CheckpointImportScope, NetworkPurpose, ServiceAuthority},
-    service_bootstrap::{ManagedServiceBootstrap, ServiceBootstrapProgress},
+    service_bootstrap::ManagedServiceBootstrap,
     service_policies::GeneratedServicePolicies,
 };
 use crate::localnet::service_authorities::{
     RetainedGatewayCompliancePlan, RetainedProviderServicePlan, RetainedPublicationServicePlan,
 };
+#[cfg(test)]
+use crate::managed::service_bootstrap::ServiceBootstrapProgress;
 use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId, account::address::ChainDiscriminantGuard, sorafs::capacity::ProviderId,
@@ -353,9 +355,9 @@ impl GeneratedServiceRuntime {
         #[cfg(all(test, unix))]
         tests::before_bootstrap_reopen();
         let mut parent = self.open_original_bootstrap(&self.authority.prepared)?;
-        let ServiceBootstrapProgress::Complete(history) = parent.recover(deadline)? else {
-            return Err(invalid("renewal requires all original parent execution"));
-        };
+        let history = parent
+            .recover(deadline)?
+            .require_complete("renewal requires all original parent execution")?;
         let original_carriers = history.ordered_carriers()?;
         drop(parent);
         let mut custody = ManagedStreamTokenCustody::open(&self.authority.prepared, provider)?;
@@ -638,10 +640,7 @@ impl GeneratedServiceRuntime {
                 || intent.originals != expected.originals
                 || intent.policies != expected.policies
                 || intent.providers != expected.providers
-                || retained
-                    .launch_digests
-                    .iter()
-                    .any(|value| *value == [0; 32])
+                || retained.launch_digests.contains(&[0; 32])
             {
                 return Err(invalid(
                     "retained runtime reference differs from original profile",
@@ -750,11 +749,13 @@ impl GeneratedServiceRuntime {
                 selection,
                 &intent,
                 components.as_ref(),
-                index,
-                original,
-                &destination,
-                &self.authority.directory,
-                provider_material.get(index),
+                config::RenderTarget {
+                    index,
+                    original,
+                    destination: &destination,
+                    material: &self.authority.directory,
+                    provider_material: provider_material.get(index),
+                },
             )?;
             configurations.push((name, rendered));
             peers.push(GeneratedRuntimePeer {

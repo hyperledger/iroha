@@ -1,0 +1,10 @@
+--- oracle-build-Cargo.lock
++++ observed-current-Cargo.lock
+@@ -5787,6 +5787,7 @@
+ dependencies = [
+  "ed25519-dalek",
+  "hex",
++ "iroha",
+  "iroha_config",
+  "iroha_config_base",
+  "iroha_crypto",

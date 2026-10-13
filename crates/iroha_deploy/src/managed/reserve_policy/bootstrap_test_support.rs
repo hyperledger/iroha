@@ -1,6 +1,7 @@
 //! Test-only reserve preparation through its sole owner and genuine native absence proof.
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::{
     NativeFixture, NativeReadHttp,
 };
@@ -21,7 +22,7 @@ impl ManagedInitialReservePolicy {
         let current = native
             .policy_proof(&self.authority.config.account)
             .verify(
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
                 self.authority.config.network_id,
                 &self.authority.config.account,
                 policy,
@@ -36,7 +37,7 @@ impl ManagedInitialReservePolicy {
             checkpoint: checkpoint_bytes(&verifier).unwrap(),
         };
         self.validate_original(&original).unwrap();
-        let directory = self.authority.directory.ensure_child("set").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "set").unwrap();
         let original =
             super::tests::retain_explicit_request(self, &directory, &original, utc, options);
         let wallet = AccountService::new(self.authority.config.clone()).unwrap();

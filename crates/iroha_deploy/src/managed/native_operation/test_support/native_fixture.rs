@@ -23,7 +23,7 @@ use iroha_core::{
         ValidSingularQuery,
         isi::query::{QueryLimits, validate_fresh_query_for_client_world_parts},
     },
-    state::{AllocationBudget, State, StateReadOnly},
+    state::{State, StateReadOnly},
     sumeragi::{
         finality::{FinalityProofReader, build_attestation, build_proof, with_proof_reader},
         lanes::merge::NoLanes,
@@ -81,6 +81,7 @@ use std::{
 pub(in crate::managed) struct NativeFixture {
     pub(in crate::managed) chain: CertifiedTestChain,
     validators: Vec<(KeyPair, Hash)>,
+    http_listeners: Option<super::owned_listeners::ReservedHttpListeners>,
 }
 // Exact prepared inputs cross the phase boundary; parsed configuration temporaries do not.
 struct PreparedNativeFixture {
@@ -117,7 +118,49 @@ impl NativeFixture {
         Self {
             chain,
             validators: prepared.validators,
+            http_listeners: None,
         }
+    }
+
+    pub(in crate::managed) fn retain_http_listeners(
+        &mut self,
+        prepared: &PreparedLocalnet,
+        ports: &crate::managed::LocalnetPorts,
+    ) {
+        assert!(self.http_listeners.is_none());
+        let endpoints: Vec<url::Url> = prepared
+            .peers
+            .iter()
+            .map(|peer| peer.torii_url.parse().unwrap())
+            .collect();
+        self.http_listeners = Some(
+            super::owned_listeners::ReservedHttpListeners::new(
+                ports.clone_api_listeners().unwrap(),
+                &endpoints,
+            )
+            .unwrap(),
+        );
+    }
+
+    pub(in crate::managed) fn read_http(&self, config: &Config) -> NativeReadHttp {
+        match &self.http_listeners {
+            Some(owner) => {
+                NativeReadHttp::start_owned(config, Arc::clone(self.chain.state()), owner)
+            }
+            None => NativeReadHttp::start_config(config, Arc::clone(self.chain.state())),
+        }
+    }
+
+    pub(in crate::managed) fn unavailable_peers(
+        &self,
+        prepared: &PreparedLocalnet,
+    ) -> super::UnavailablePeers {
+        super::UnavailablePeers::start_owned(
+            prepared,
+            self.http_listeners
+                .as_ref()
+                .expect("renewal fixture retains original HTTP sockets"),
+        )
     }
     // End canonical configuration/state preparation before genesis executes. The returned
     // owner retains every chain input and the original directory custody across that execution.
@@ -140,7 +183,7 @@ impl NativeFixture {
             root.path().join("genesis.json"),
         )
         .unwrap();
-        let _discriminant = staged_genesis_chain_discriminant(&manifest);
+        let discriminant = staged_genesis_chain_discriminant(&manifest);
         let signed = root
             .read(
                 "genesis.signed.nrt",
@@ -216,7 +259,7 @@ impl NativeFixture {
             chain,
             validators,
             signed,
-            _discriminant,
+            _discriminant: discriminant,
             _root: root,
         }
     }
@@ -245,7 +288,9 @@ impl NativeFixture {
     }
     pub(in crate::managed) fn policy_proof(&self, manager: &AccountId) -> ReservePolicyProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -274,7 +319,7 @@ impl NativeFixture {
         let proof = ReservePolicyProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }
@@ -286,7 +331,9 @@ impl NativeFixture {
         provider: ProviderId,
     ) -> ReserveAccountProofV1 {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        // Borrow the original State pool: certified storage rejects foreign scopes.
+        let budget = self.chain.state().ivm_execution_budget();
+        let retained_bytes = budget.reserved_bytes();
         let (bytes, charge) = self
             .chain
             .state()
@@ -318,7 +365,7 @@ impl NativeFixture {
         let proof = ReserveAccountProofV1::decode_frame(&bytes).unwrap();
         drop(bytes);
         drop(charge);
-        assert_eq!(budget.reserved_bytes(), 0);
+        assert_eq!(budget.reserved_bytes(), retained_bytes);
         proof
     }
 }
@@ -495,6 +542,7 @@ pub(in crate::managed) fn quote_instructions(
 pub(in crate::managed) struct NativeReadHttp {
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<io::Result<()>>>,
+    loan: Option<super::owned_listeners::ListenerLoan>,
     pub(in crate::managed) requests: Arc<Mutex<Vec<(String, String)>>>,
     pub(in crate::managed) quote: Arc<Mutex<Option<FeeQuoteResponse>>>,
 }
@@ -504,6 +552,25 @@ impl NativeReadHttp {
         assert_eq!(endpoint.host_str(), Some("127.0.0.1"));
         assert_eq!(endpoint.scheme(), "http");
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, endpoint.port().unwrap())).unwrap();
+        Self::from_listener(config, state, listener, None)
+    }
+
+    fn start_owned(
+        config: &Config,
+        state: Arc<State>,
+        owner: &super::owned_listeners::ReservedHttpListeners,
+    ) -> Self {
+        let loan = owner.loan(&config.torii_api_url).unwrap();
+        let listener = loan.clone_listener().unwrap();
+        Self::from_listener(config, state, listener, Some(loan))
+    }
+
+    fn from_listener(
+        config: &Config,
+        state: Arc<State>,
+        listener: TcpListener,
+        loan: Option<super::owned_listeners::ListenerLoan>,
+    ) -> Self {
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -546,13 +613,16 @@ impl NativeReadHttp {
         Self {
             stop,
             worker: Some(worker),
+            loan,
             requests,
             quote,
         }
     }
     pub(in crate::managed) fn finish(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        self.worker.take().unwrap().join().unwrap().unwrap();
+        let result = self.worker.take().unwrap().join();
+        self.loan.take();
+        result.unwrap().unwrap();
     }
 }
 impl Drop for NativeReadHttp {
@@ -561,6 +631,7 @@ impl Drop for NativeReadHttp {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        self.loan.take();
     }
 }
 fn read_response(
@@ -590,7 +661,7 @@ fn read_response(
             assert_eq!(signed.payload.network_id(), *state.network_id_ref());
             let view = state.view();
             validate_fresh_query_for_client_world_parts(
-                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast(),
+                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast().as_ref(),
                 QueryLimits::from_pipeline(view.pipeline()), &state.ivm_execution_budget(),
             ).unwrap();
             // Validation consumes the request. Execute the same bounded original bytes.

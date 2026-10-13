@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        read_optional, require_deadline, require_empty,
+        read_optional, require_deadline,
     },
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
@@ -147,7 +147,8 @@ impl ManagedReserveAccountRegistration {
     ) -> Result<ManagedReserveAccountProgress> {
         self.authority.validate_profile()?;
         self.validate_registration(policy, underwriting)?;
-        let directory = self.authority.directory.ensure_child("register")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "register")?;
         let original = self.select_intent(&directory, policy, underwriting, options.deadline)?;
         let account = AccountService::new(self.authority.reserve_operations_config()?)
             .map_err(|_| invalid("cannot open reserve registration wallet"))?;
@@ -162,12 +163,17 @@ impl ManagedReserveAccountRegistration {
         underwriting: &ReserveProviderTermsV1,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(policy, underwriting)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(policy, underwriting)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(policy, deadline)?;
         if current.current().is_some() {
             return Err(invalid("reserve provider partition already exists"));
@@ -200,19 +206,22 @@ impl ManagedReserveAccountRegistration {
             ));
         }
         self.validate_registration(policy, underwriting)?;
-        let directory = self.authority.directory.ensure_child("register")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "register")?;
         let original = self.select_intent(&directory, policy, underwriting, deadline)?;
         let account = AccountService::new(self.authority.reserve_operations_config()?)
             .map_err(|_| invalid("cannot open reserve registration wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_reserve_account_registration_preparation_in_parent(
@@ -368,7 +377,7 @@ impl ManagedReserveAccountRegistration {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = observe_current
@@ -444,7 +453,7 @@ impl ManagedReserveAccountRegistration {
         verify_custody()?;
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -476,7 +485,7 @@ impl ManagedReserveAccountRegistration {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -584,7 +593,7 @@ impl ManagedReserveAccountRegistration {
             .map_err(|_| invalid("invalid original reserve registration checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())

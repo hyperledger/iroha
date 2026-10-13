@@ -61,9 +61,9 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
     assert_eq!(Current(&published).committee_current(), 4);
     assert_eq!(Current(&published).liability_clock(), 22);
     assert_eq!(Current(&published).degraded_run(), 0);
-    assert!(Current(&published).generation(&1).is_none());
+    assert!(Current(&published).generation(1).is_none());
     assert!(Current(&published).anchor_open().is_empty());
-    assert!(Current(&published).anchor_chunk(&0).is_none());
+    assert!(Current(&published).anchor_chunk(0).is_none());
     let mut replacement = world.block_and_revert();
     for apply in [true, false] {
         let mut tx = replacement.transaction_without_telemetry(
@@ -88,11 +88,11 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
         assert_eq!(parent.committee_current(), 3);
         assert_eq!(parent.liability_clock(), 11);
         assert_eq!(parent.degraded_run(), 1);
-        assert_eq!(parent.generation(&1).unwrap().generation, 1);
-        assert!(parent.generation(&2).is_none());
-        assert_eq!(parent.generation(&3).unwrap().generation, 3);
+        assert_eq!(parent.generation(1).unwrap().generation, 1);
+        assert!(parent.generation(2).is_none());
+        assert_eq!(parent.generation(3).unwrap().generation, 3);
         assert_eq!(parent.anchor_open(), &[anchor]);
-        assert_eq!(parent.anchor_chunk(&0), Some(&[3; 32]));
+        assert_eq!(parent.anchor_chunk(0), Some(&[3; 32]));
         assert_eq!(
             parent
                 .generations()
@@ -109,6 +109,6 @@ fn replacement_parent_keeps_original_generations_clock_anchors_and_finality() {
     assert_eq!(Current(&after).committee_current(), 4);
     assert_eq!(Current(&after).liability_clock(), 22);
     assert_eq!(Current(&after).degraded_run(), 0);
-    assert!(Current(&after).generation(&1).is_none());
-    assert_eq!(Current(&after).generation(&2).unwrap().generation, 2);
+    assert!(Current(&after).generation(1).is_none());
+    assert_eq!(Current(&after).generation(2).unwrap().generation, 2);
 }

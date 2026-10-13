@@ -75,7 +75,7 @@ fn check_joined_source(chain: &CertifiedTestChain) {
     assert_eq!(
         chain.kura().canonical_query_reads_for_test(),
         (
-            height as usize + 3,
+            usize::try_from(height).expect("fixture value fits usize") + 3,
             4 * lengths[0] + lengths[1..].iter().sum::<u64>()
         )
     );
@@ -90,7 +90,7 @@ fn check_joined_source(chain: &CertifiedTestChain) {
     assert_eq!(
         chain.kura().canonical_query_reads_for_test(),
         (
-            height as usize + 4,
+            usize::try_from(height).expect("fixture value fits usize") + 4,
             4 * lengths[0] + lengths.iter().sum::<u64>()
         )
     );
@@ -110,7 +110,8 @@ fn check_joined_source(chain: &CertifiedTestChain) {
     assert_ne!(fresh.signature, actual.signature);
 
     // Every source frame is still required. A damaged intermediate is not a cache hit.
-    let at = NonZeroUsize::new((height - 1) as usize).unwrap();
+    let at =
+        NonZeroUsize::new(usize::try_from(height - 1).expect("fixture value fits usize")).unwrap();
     chain.kura().corrupt_native_frame_for_test(at);
     assert!(capture(&view, chain, [63; 32], status(chain)).is_err());
     chain.kura().corrupt_native_frame_for_test(at);
@@ -229,7 +230,8 @@ fn check_source_and_certificates(chain: &CertifiedTestChain) {
         chain
             .kura()
             .corrupt_commit_certificate_for_testing(
-                NonZeroUsize::new(*height as usize).unwrap(),
+                NonZeroUsize::new(usize::try_from(*height).expect("fixture value fits usize"))
+                    .unwrap(),
                 Some(original_qc.clone()),
             )
             .unwrap();

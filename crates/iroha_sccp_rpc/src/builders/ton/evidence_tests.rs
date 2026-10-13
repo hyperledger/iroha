@@ -31,7 +31,7 @@ fn params() -> SccpLightClientParamsV1 {
 }
 
 fn profile() -> TonChainProfileV1 {
-    SccpChainProfilesV1::latest().ton
+    iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ton
 }
 
 /// TON data served from the synthetic chain.
@@ -172,7 +172,11 @@ fn hopped() -> (SyntheticSource, LightClientReplayV1) {
     let now = u64::from(T0) * 1_000 + 60_000;
     let initial = lc::verify_bootstrap(TON, &params(), &chain.bootstrap(100, 0, T0, UNTIL0), now)
         .expect("the bootstrap verifies");
-    let mut replay = LightClientReplayV1::installed(TON, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        TON,
+        &initial,
+    );
     let key100 = chain.key_block(100, 90, 0, 0, T0, UNTIL0, 0);
     let key200 = chain.key_block(200, 100, 0, 1, T0 + 1_000, UNTIL1, 4);
     let hop = SccpLcAdvanceV1::Ton(TonLcAdvanceV1 {
@@ -276,7 +280,11 @@ fn burns_in_an_unlearned_epoch_need_an_advance_first() {
     let now = u64::from(T0) * 1_000 + 60_000;
     let initial = lc::verify_bootstrap(TON, &params(), &chain.bootstrap(100, 0, T0, UNTIL0), now)
         .expect("the bootstrap verifies");
-    let replay = LightClientReplayV1::installed(TON, &initial);
+    let replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        TON,
+        &initial,
+    );
     let (burn, registered) = burn(&chain, 250, 200, 1);
     let mut source = SyntheticSource {
         burn: Some(burn),

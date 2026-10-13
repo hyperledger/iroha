@@ -81,7 +81,7 @@ fn generated_body_handle_tree_refuses_container_row_and_active_attempt_edges_the
         assert!(history.read_current(&fixture.owner).is_err());
         std::fs::set_permissions(directory.path(), permissions).unwrap();
         history.revalidate_handles().unwrap();
-        let saved = fixture._temporary.path().join(format!("held-body-{label}"));
+        let saved = fixture.temporary.path().join(format!("held-body-{label}"));
         std::fs::rename(directory.path(), &saved).unwrap();
         assert!(
             matches!(history.revalidate_handles(), Err(crate::managed::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)

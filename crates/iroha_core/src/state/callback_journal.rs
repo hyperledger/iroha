@@ -288,9 +288,8 @@ impl super::StateTransaction<'_, '_> {
             events::{EventBox, trigger_completed::TriggerCompletedEvent},
             transaction::error::TransactionLimitError,
         };
-        if let Some(owner) = self.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(owner));
-        }
+        self.ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if self
             .world
             .external_event_buf
@@ -396,12 +395,21 @@ mod tests {
         let mut journal = CallbackJournal::new(Ok(4096));
         // Exercise the real fallible reservation without depending on host OOM.
         // Host address-space capacity is physical, not a transaction limit.
-        assert_eq!(
-            journal.reserve_slots(usize::MAX),
-            Err(ExecutionAttemptError::Deferred(
-                ivm::ExecutionDeferral::AllocationUnavailable.into()
-            ))
-        );
+        {
+            let ExecutionAttemptError::Deferred(actual) =
+                (journal.reserve_slots(usize::MAX)).expect_err("expected local refusal")
+            else {
+                panic!("local refusal cannot become a completed verdict")
+            };
+            assert_eq!(
+                actual.reason(),
+                ivm::ExecutionDeferral::AllocationUnavailable
+            );
+            assert_eq!(actual.phase(), None);
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.decode_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+        };
         assert!(journal.refused);
         assert!(!journal.allows_apply());
         assert!(

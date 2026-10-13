@@ -21,6 +21,10 @@ use iroha_data_model::{
 };
 use std::alloc::Layout;
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the retained pending block takes ownership of the supplied header"
+)]
 fn pending(state: &State, header: BlockHeader, replacement: bool) -> Box<StateBlock<'_>> {
     let mut block = Box::new(staged_block(state, header, replacement, true));
     let budget = state.ivm_execution_budget();

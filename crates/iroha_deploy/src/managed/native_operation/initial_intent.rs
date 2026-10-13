@@ -5,14 +5,14 @@
 
 use super::{attempts::FirstReservation, *};
 
-/// Sole successful CreateNew publication, borrowed from its original native operation owner.
+/// Sole successful `CreateNew` publication, borrowed from its original native operation owner.
 /// It is neither serializable nor Clone and grants no wallet preparation or dispatch authority.
 pub(in crate::managed) struct PublishedInitialIntent<'a> {
     directory: &'a PrivateDirectory,
     original: Vec<u8>,
 }
 impl<'a> PublishedInitialIntent<'a> {
-    /// Publish the original canonical bytes with the existing optional-read/write recipe.
+    /// Durably retain exact pending bytes, publish Original, then mark the sole metadata image pristine.
     /// Existing bytes and active decoder admission never produce a reusable receipt.
     pub(in crate::managed) fn publish(
         directory: &'a PrivateDirectory,
@@ -20,13 +20,9 @@ impl<'a> PublishedInitialIntent<'a> {
         maximum: usize,
         conflict: &'static str,
     ) -> Result<Option<Self>> {
-        if let Some(retained) = read_optional(directory, "original.nrt", maximum)? {
-            if retained != original {
-                return Err(invalid(conflict));
-            }
+        if !attempts::metadata::publish_original(directory, &original, maximum, conflict)? {
             return Ok(None);
         }
-        directory.write_atomic("original.nrt", &original, PublishMode::CreateNew)?;
         if norito::core::decode_limits_active() {
             return Ok(None);
         }
@@ -58,6 +54,7 @@ impl<'a> PublishedInitialIntent<'a> {
         semantic: [u8; 32],
     ) -> Result<()> {
         first.validate(self.directory, purpose, semantic)?;
+        attempts::metadata::require_published(self.directory, &self.original)?;
         if self
             .directory
             .read("original.nrt", self.original.len())?

@@ -1844,7 +1844,7 @@ fn state_free_preflight_fixture() -> (
 ) {
     let (signer, _, _, _) = test_governed_signer(test_signer_policy(1), None);
     let config = SorafsProviderIngestRuntime {
-        native_source_origins: Default::default(),
+        native_source_origins: std::collections::BTreeMap::default(),
         native_completion_credential: None,
         authenticated_source_fetch_handle: "https-pinned-source-pool:region-a".to_owned(),
         authenticated_source_fetch_revision: 5,
@@ -2882,10 +2882,10 @@ fn committed_provider_observation_uses_only_the_matching_network_output() {
         .set_execution_outputs(
             outputs,
             0,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &limits,
         )
         .unwrap();

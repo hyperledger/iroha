@@ -517,10 +517,10 @@ mod tests {
 
     #[test]
     fn wire_schema_hash_binds_fixed_result_header_and_outer_hash_contract() {
+        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
         let abi = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
         let [block, consensus, execution] = covered_wire_roots();
         let roots = [&block, &consensus, &execution];
-        use iroha_data_model::sumeragi_finality::certified_result::wire_identity;
         let schemas = iroha_data_model::wire_schema::wire_schema_hash_of(&roots, &[], abi);
         let contract = wire_identity::descriptor();
         let bind = |contract: &[u8]| {

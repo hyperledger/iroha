@@ -37,7 +37,7 @@ pub(super) trait LiveGatewayProcess {
 
 /// Created only after the original live gateway reports the exact loaded candidate.
 /// This is a local reload observation, not native admission or a serving capability.
-pub(crate) struct ObservedGatewayCatalog {
+pub struct ObservedGatewayCatalog {
     network: NetworkId,
     policy: [u8; 32],
     catalog: [u8; 32],
@@ -114,18 +114,18 @@ impl ManagedGatewayCompliance {
                     self.validate(live, deadline)?;
                     return report(last);
                 }
-                self.require_no_candidate(&status)?;
+                Self::require_no_candidate(&status)?;
                 self.authority
                     .sign_gateway_compliance_catalog(Some(last), now)?
             }
             Some(last) => {
-                self.require_predecessor(&status, chain.iter().rev().nth(1))?;
-                self.require_candidate_or_absent(&status, last)?;
+                Self::require_predecessor(&status, chain.iter().rev().nth(1))?;
+                Self::require_candidate_or_absent(&status, last)?;
                 last.clone()
             }
             None => {
-                self.require_predecessor(&status, None)?;
-                self.require_no_candidate(&status)?;
+                Self::require_predecessor(&status, None)?;
+                Self::require_no_candidate(&status)?;
                 self.authority.sign_gateway_compliance_catalog(None, now)?
             }
         };
@@ -133,7 +133,7 @@ impl ManagedGatewayCompliance {
             if chain.len() >= MAX_CATALOGS {
                 return Err(invalid("original generated catalog inventory is full"));
             }
-            let child = directory.ensure_child(&catalog_name(selected.payload.sequence))?;
+            let child = directory.ensure_child(catalog_name(selected.payload.sequence))?;
             if !child.entries(1)?.is_empty() {
                 return Err(invalid(
                     "unpublished catalog contains unexpected retained state",
@@ -151,7 +151,7 @@ impl ManagedGatewayCompliance {
         selected
             .verify(self.plan.trust_policy(), now, 0)
             .map_err(|_| invalid("original staged generated catalog is no longer fresh"))?;
-        let child = directory.open_child(&catalog_name(selected.payload.sequence))?;
+        let child = directory.open_child(catalog_name(selected.payload.sequence))?;
         let retained_ack = self.read_ack(&child, &selected)?;
         self.call_retained(
             live,
@@ -168,7 +168,7 @@ impl ManagedGatewayCompliance {
         )?;
         status = self.status(live, deadline)?;
         self.validate_retained(&child, &selected, retained_ack.as_ref())?;
-        self.require_predecessor(&status, chain.iter().rev().nth(1))?;
+        Self::require_predecessor(&status, chain.iter().rev().nth(1))?;
         if !status
             .candidate
             .as_ref()
@@ -283,7 +283,7 @@ impl ManagedGatewayCompliance {
         if report(selected)? != expected {
             return Err(invalid("promoted catalog differs from original activation"));
         }
-        let child = directory.open_child(&catalog_name(selected.payload.sequence))?;
+        let child = directory.open_child(catalog_name(selected.payload.sequence))?;
         let acknowledgement = self
             .read_ack(&child, selected)?
             .ok_or_else(|| invalid("original promoted catalog acknowledgement is absent"))?;
@@ -504,14 +504,13 @@ impl ManagedGatewayCompliance {
         Ok(Some(ack))
     }
 
-    fn require_no_candidate(&self, status: &GatewayComplianceStatusResponseV1) -> Result<()> {
+    fn require_no_candidate(status: &GatewayComplianceStatusResponseV1) -> Result<()> {
         if status.candidate.is_some() || status.acknowledgement_count != 0 {
             return Err(invalid("original gateway retains an unexpected candidate"));
         }
         Ok(())
     }
     fn require_candidate_or_absent(
-        &self,
         status: &GatewayComplianceStatusResponseV1,
         catalog: &GatewayComplianceCatalogV1,
     ) -> Result<()> {
@@ -527,7 +526,6 @@ impl ManagedGatewayCompliance {
         Ok(())
     }
     fn require_predecessor(
-        &self,
         status: &GatewayComplianceStatusResponseV1,
         previous: Option<&GatewayComplianceCatalogV1>,
     ) -> Result<()> {
@@ -547,7 +545,7 @@ impl ManagedGatewayCompliance {
         catalog: &GatewayComplianceCatalogV1,
         now: u64,
     ) -> Result<()> {
-        self.require_no_candidate(status)?;
+        Self::require_no_candidate(status)?;
         if !is_promoted(status, catalog)? || !status.serving_ready {
             return Err(invalid(
                 "original gateway did not confirm the exact promoted catalog",
@@ -617,6 +615,6 @@ fn report(catalog: &GatewayComplianceCatalogV1) -> Result<PromotedGeneratedCatal
 }
 
 #[cfg(test)]
-pub(crate) mod material_tests;
+pub mod material_tests;
 #[cfg(test)]
 mod tests;

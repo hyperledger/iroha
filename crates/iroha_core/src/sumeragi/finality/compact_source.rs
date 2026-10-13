@@ -75,7 +75,6 @@ impl NativeCommitCertificateDataV1 {
     ///
     /// Retain the reservation until both the certificate and its encoded response
     /// have been released. Moving these values does not confer finality authority.
-    #[must_use]
     pub fn into_parts(self) -> (SumeragiCommitCertificateV1, AllocationReservation) {
         (self.certificate, self.charge)
     }

@@ -13,6 +13,9 @@ struct FixtureSource {
     absent: bool,
 }
 impl Source for FixtureSource {
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+        Box::pin(async { Ok(self.proofs.keys().next_back().copied().unwrap_or(0)) })
+    }
     fn locate(&self, _: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
         Box::pin(async {
             Ok(if self.absent {
@@ -47,7 +50,9 @@ impl WorkflowLedger for NoDispatch {
         panic!("proof observation cannot delegate status finality")
     }
 }
-fn fixture(rejected: bool) -> (RelayLedger, TransactionIdentityV1, SumeragiFinalityVerifier) {
+pub(super) fn fixture(
+    rejected: bool,
+) -> (RelayLedger, TransactionIdentityV1, SumeragiFinalityVerifier) {
     let mut fixture = NativeFinalityFixture::start("amx-relay-proof");
     let root = fixture.verifier();
     let mut block = fixture.block_with_submitted_work(fixture.next_header());
@@ -84,6 +89,8 @@ fn fixture(rejected: bool) -> (RelayLedger, TransactionIdentityV1, SumeragiFinal
         authority,
         fee_payment,
         instruction: Mutex::new(Some(digest)),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     };
@@ -108,6 +115,8 @@ async fn relay_authenticates_last_payment_without_successor_and_after_restart() 
         authority: ledger.authority.clone(),
         fee_payment: ledger.fee_payment.clone(),
         instruction: Mutex::new(*ledger.instruction.lock().unwrap()),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     };
@@ -143,7 +152,7 @@ async fn relay_refusal_preserves_verifier_progress_and_never_closes_identity() {
         CommittedOutcome::ReadFailed { .. }
     ));
     let digest = ledger.instruction.lock().unwrap().unwrap();
-    ledger.begin_observation(digest).unwrap();
+    ledger.begin_observation(digest, None).unwrap();
     assert!(matches!(
         ledger.committed_outcome(&identity).await,
         CommittedOutcome::Applied { .. }
@@ -174,7 +183,7 @@ async fn relay_rejects_substituted_history_and_locator_without_proof() {
 async fn relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier() {
     let (ledger, identity, _) = fixture(false);
     ledger
-        .begin_observation(Hash::new(b"different authenticated source intent"))
+        .begin_observation(Hash::new(b"different authenticated source intent"), None)
         .unwrap();
     assert!(matches!(
         ledger.committed_outcome(&identity).await,
@@ -200,6 +209,9 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         visible: Arc<AtomicBool>,
     }
     impl Source for GatedSource {
+        fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+            self.original.applied_height()
+        }
         fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
             Box::pin(async move {
                 if self.visible.load(Ordering::Relaxed) {
@@ -300,8 +312,10 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         }
         fn sleep(&self, duration: Duration) -> WorkflowFuture<'_, ()> {
             Box::pin(async move {
-                self.0
-                    .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+                self.0.fetch_add(
+                    u64::try_from(duration.as_millis()).expect("fixture duration fits u64"),
+                    Ordering::Relaxed,
+                );
             })
         }
     }
@@ -359,7 +373,7 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
                     &driver,
                     &WorkflowRunOptions {
                         retransmit_identical_bytes: false,
-                        ..options.clone()
+                        ..options
                     }
                 )
                 .await
@@ -377,6 +391,8 @@ async fn relay_durable_restart_retransmits_identical_bytes_and_never_resigns_unk
         authority: ledger.authority.clone(),
         fee_payment: ledger.fee_payment.clone(),
         instruction: Mutex::new(*ledger.instruction.lock().unwrap()),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 4,
         reads: AtomicUsize::new(4),
     });
@@ -577,11 +593,13 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         let substituted = TransactionBuilder::from_payload(payload)
             .unwrap()
             .sign(KeyPair::from_seed(vec![signing_seed; 32], Algorithm::Ed25519).private_key());
-        let signed = substituted.encode_wire_v1().unwrap();
-        let substituted_identity = counter.identify(&signed).unwrap();
+        let submission_wire = substituted.encode_wire_v1().unwrap();
+        let substituted_identity = counter.identify(&submission_wire).unwrap();
         assert!(
             matches!(
-                ledger.dispatch(&signed, &substituted_identity).await,
+                ledger
+                    .dispatch(&submission_wire, &substituted_identity)
+                    .await,
                 DispatchOutcome::NotAdmitted {
                     code: WorkflowErrorCode::BindingMismatch,
                     ..
@@ -592,11 +610,11 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         assert_eq!(counter.signs.load(Ordering::Relaxed), 0, "{mutation}");
         assert_eq!(counter.sends.load(Ordering::Relaxed), 0, "{mutation}");
     }
-    let signed = transaction.encode_wire_v1().unwrap();
+    let submission_wire = transaction.encode_wire_v1().unwrap();
     let mut wrong_identity = identity;
     wrong_identity.entrypoint_hash[0] ^= 1;
     assert!(matches!(
-        ledger.dispatch(&signed, &wrong_identity).await,
+        ledger.dispatch(&submission_wire, &wrong_identity).await,
         DispatchOutcome::NotAdmitted {
             code: WorkflowErrorCode::BindingMismatch,
             ..
@@ -608,7 +626,7 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         .await
         .unwrap();
     assert_eq!(
-        ledger.dispatch(&signed, &identity).await,
+        ledger.dispatch(&submission_wire, &identity).await,
         DispatchOutcome::Accepted
     );
     assert_eq!(counter.signs.load(Ordering::Relaxed), 1);
@@ -623,7 +641,7 @@ async fn relay_canonical_resumed_payload_cannot_cross_signing_or_dispatch_bounda
         WorkflowErrorCode::BindingMismatch
     );
     assert!(matches!(
-        ledger.dispatch(&signed, &identity).await,
+        ledger.dispatch(&submission_wire, &identity).await,
         DispatchOutcome::NotAdmitted {
             code: WorkflowErrorCode::BindingMismatch,
             ..

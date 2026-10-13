@@ -1,0 +1,224 @@
+name: Native default-policy custody renewal
+
+# Separate from the six-hour native matrix: the unchanged one-day enrollment
+# policy renews at its real twelve-hour midpoint. Use an existing self-hosted
+# native runner reserved for this job; no runner is provisioned by this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: Existing self-hosted native runner label with at least 13 GiB RAM and 50 GiB free disk
+        required: true
+        type: string
+      target:
+        description: Native target of that runner
+        required: true
+        type: choice
+        options:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devex-renewal-${{ inputs.runner_label }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: "1"
+  CARGO_INCREMENTAL: "0"
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: 1.93.1
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: core.autocrlf
+  GIT_CONFIG_VALUE_0: "false"
+  RENEWAL_TEST: managed::tests::installed_renewal::installed_default_custody_renews_three_providers_and_preserves_paid_restart_evidence
+
+jobs:
+  renewal:
+    name: Ordinary custody renewal on ${{ inputs.target }}
+    runs-on: [self-hosted, "${{ inputs.runner_label }}"]
+    # Same outer ceiling as nightly_sumeragi_soak.yml. The test retains its own
+    # thirteen-hour bound; startup/restart, observation and renewal-turn limits
+    # are unchanged. No time, policy, genesis or consensus override is supplied.
+    timeout-minutes: 1800
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify exact workflow source and approved network profile
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$WORKFLOW_SHA" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          profile=defaults/developer/network-profiles.nrt
+          git ls-files --error-unmatch -- "$profile" >/dev/null
+          test -f "$profile" && test ! -L "$profile"
+          test "$(git hash-object --no-filters -- "$profile")" = "$(git rev-parse "HEAD:$profile")"
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Check native host and resource floor
+        env:
+          EXPECTED_TARGET: ${{ inputs.target }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import ctypes
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import shutil
+          import subprocess
+
+          targets = {
+              "x86_64-unknown-linux-gnu": ("Linux", "x86_64", "linux-x86_64"),
+              "aarch64-unknown-linux-gnu": ("Linux", "aarch64", "linux-aarch64"),
+              "x86_64-apple-darwin": ("Darwin", "x86_64", "macos-x86_64"),
+              "aarch64-apple-darwin": ("Darwin", "aarch64", "macos-aarch64"),
+              "x86_64-pc-windows-msvc": ("Windows", "x86_64", "windows-x86_64"),
+          }
+          expected = os.environ["EXPECTED_TARGET"]
+          expected_os, expected_machine, bundle_host = targets[expected]
+          version = subprocess.check_output(["rustc", "-vV"], text=True)
+          host = next(line.removeprefix("host: ") for line in version.splitlines() if line.startswith("host: "))
+          machine = {"arm64": "aarch64", "amd64": "x86_64"}.get(platform.machine().lower(), platform.machine().lower())
+          if host != expected or platform.system() != expected_os or machine != expected_machine:
+              raise SystemExit("runner differs from the requested native target; cross-build is not qualification")
+          if platform.system() == "Windows":
+              kib = ctypes.c_ulonglong()
+              if not ctypes.windll.kernel32.GetPhysicallyInstalledSystemMemory(ctypes.byref(kib)):
+                  raise SystemExit("cannot measure installed Windows memory")
+              memory = kib.value * 1024
+          elif platform.system() == "Darwin":
+              memory = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True))
+          else:
+              memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+          free = shutil.disk_usage(".").free
+          report = Path("target/devex-renewal/evidence/host.json")
+          report.parent.mkdir(parents=True, exist_ok=True)
+          report.write_text(json.dumps({
+              "source_sha": os.environ["SOURCE_SHA"], "rustc": version,
+              "host": host, "expected_target": expected, "profile": "release",
+              "ram_bytes": memory, "free_build_bytes": free,
+              "scope": "one native host, default-policy renewal and retained restart",
+              "reference_latency_qualified": False,
+          }, indent=2) + "\n", encoding="utf-8")
+          if memory < 13 * 1024**3 or free < 50 * 1024**3:
+              raise SystemExit("select a native runner with at least 13 GiB RAM and 50 GiB free storage")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("BUNDLE_HOST=" + bundle_host + "\n")
+          PY
+      - name: Build the matching standalone Kagami release bundle
+        run: cargo run --locked --release -p xtask --features dev-tools --bin xtask -- kagami-bundle --profile release --out target/devex-renewal/build
+      - name: Archive and extract the published bundle into a fresh installed directory
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import tempfile
+
+          name = "kagami-" + os.environ["BUNDLE_HOST"] + "-release"
+          package = Path("target/devex-renewal/build", name).resolve(strict=True)
+          archive = package.parent.parent / (name + ".tar.gz")
+          subprocess.run(["tar", "-czf", str(archive), "-C", str(package.parent), name], check=True)
+          installed = Path(tempfile.mkdtemp(prefix="kagami-renewal-extracted-", dir=os.environ["RUNNER_TEMP"]))
+          subprocess.run(["tar", "-xzf", str(archive), "-C", str(installed)], check=True)
+          extracted = installed / name
+          manifest = package.joinpath("manifest.json").read_bytes()
+          if extracted.joinpath("manifest.json").read_bytes() != manifest:
+              raise SystemExit("extracted bundle manifest differs from the published bundle")
+          inventory = json.loads(manifest)
+          if inventory["schema"] != "iroha.kagami-bundle.v1" or inventory["profile"] != "release" or inventory["target"] != os.environ["BUNDLE_HOST"]:
+              raise SystemExit("published bundle has a different format, profile or native target")
+          expected = {row["path"] for row in inventory["files"]}
+          actual = {path.relative_to(extracted).as_posix() for path in extracted.rglob("*") if not path.is_dir()}
+          if actual != expected | {"manifest.json"}:
+              raise SystemExit("extracted bundle file census differs from its manifest")
+          for row in inventory["files"]:
+              path = extracted / row["path"]
+              if path.is_symlink() or not path.is_file() or path.stat().st_size != row["size"]:
+                  raise SystemExit("extracted bundle contains an indirect or changed file")
+              with path.open("rb") as source:
+                  if hashlib.file_digest(source, "sha256").hexdigest() != row["sha256"]:
+                      raise SystemExit("extracted bundle bytes differ from its manifest")
+          evidence = Path("target/devex-renewal/evidence")
+          evidence.joinpath("bundle-manifest.json").write_bytes(manifest)
+          with archive.open("rb") as source:
+              archive_sha = hashlib.file_digest(source, "sha256").hexdigest()
+          evidence.joinpath("archive.json").write_text(json.dumps({
+              "archive_sha256": archive_sha,
+              "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+          }, indent=2) + "\n", encoding="utf-8")
+          runtime = extracted.joinpath("bin").resolve(strict=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("IROHA_TEST_RUNTIME_DIRECTORY=" + str(runtime) + "\n")
+          PY
+      - name: Compile and require the exact ignored renewal test before timing
+        run: |
+          set -euo pipefail
+          cargo test --locked --release -p iroha_deploy --lib "$RENEWAL_TEST" --no-run
+          python - <<'PY'
+          import os
+          import subprocess
+
+          selector = os.environ["RENEWAL_TEST"]
+          listing = subprocess.check_output([
+              "cargo", "test", "--locked", "--release", "-p", "iroha_deploy", "--lib",
+              selector, "--", "--exact", "--ignored", "--list",
+          ], text=True)
+          tests = [line for line in listing.splitlines() if line.endswith(": test")]
+          if tests != [selector + ": test"]:
+              raise SystemExit("the matching compiled driver did not list exactly the renewal test")
+          PY
+      - name: Run the genuine default-policy renewal and owned restart
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          cargo test --locked --release -p iroha_deploy --lib "$RENEWAL_TEST" -- --exact --ignored --test-threads=1 --nocapture
+      - name: Verify source remained unchanged
+        if: always()
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Retain public source, host and bundle inventory only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: devex-renewal-${{ inputs.target }}-${{ github.sha }}
+          path: |
+            target/devex-renewal/evidence/host.json
+            target/devex-renewal/evidence/bundle-manifest.json
+            target/devex-renewal/evidence/archive.json
+          if-no-files-found: warn
+          retention-days: 14
+          # The test stops its owned worker and retains owner-private diagnostics.
+          # Never upload that directory, runtime configurations, keys or node logs.

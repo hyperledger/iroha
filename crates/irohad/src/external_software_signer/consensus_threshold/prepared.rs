@@ -85,6 +85,8 @@ pub(super) fn prepare_global_beacon_transition_from_retained_v1(
     budget: &AllocationBudget,
 ) -> Result<RuntimePreparedGlobalBeaconCredentialV1, RuntimeConsensusThresholdSignerCredentialErrorV1>
 {
+    use RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected;
+
     if !pending.belongs_to(budget)
         || retained
             .as_ref()
@@ -94,7 +96,6 @@ pub(super) fn prepare_global_beacon_transition_from_retained_v1(
             GlobalThresholdBeaconSessionError::ForeignReservation,
         ));
     }
-    use RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected;
     transition.validate().map_err(|_| Rejected)?;
     if transition.outcome.is_some() {
         return Err(Rejected);

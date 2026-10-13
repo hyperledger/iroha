@@ -43,6 +43,7 @@ fn config_factory() -> crate::config::Config {
         transaction_add_nonce: false,
         sorafs_alias_cache: crate::client::default_alias_policy(),
         sorafs_anonymity_policy: AnonymityPolicy::GuardPq,
+        http_transport_policy: crate::config::HttpTransportPolicy::Ordinary,
         sorafs_rollout_phase: RolloutPhase::Canary,
     }
 }

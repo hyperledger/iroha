@@ -1,4 +1,4 @@
-ivm-iso20022-schema-v1	19	193	183
+ivm-iso20022-schema-v1	19	200	193
 record	owner	key	requirement	max_occurs	kind	values	target
 schema	HEAD001	head.001	-	-	-	-	-
 field	HEAD001	AppHdr/BizMsgIdr	required	none	text	-	-
@@ -45,6 +45,11 @@ alias	COLR012	Document/CollSbstitnConf/CollSbstitn/OrgnlColl/SctiesId/OthrId/Id	
 alias	COLR012	Document/CollSbstitnConf/CollSbstitn/SubstnColl/SctiesId/ISIN	-	-	-	-	Substitution/SubstituteFinInstrmId
 alias	COLR012	Document/CollSbstitnConf/CollSbstitn/SubstnColl/SctiesId/OthrId/Id	-	-	-	-	Substitution/SubstituteFinInstrmId
 schema	PACS008	pacs.008	-	-	-	-	-
+field	PACS008	NexusSettlement/NetworkId	optional	none	text	-	-
+field	PACS008	NexusSettlement/ExpiresAtHeight	optional	none	text	-	-
+field	PACS008	NexusSettlement/SourceAccountId	optional	none	text	-	-
+field	PACS008	NexusSettlement/TargetAccountId	optional	none	text	-	-
+field	PACS008	NexusSettlement/AssetDefinitionId	optional	none	text	-	-
 field	PACS008	MsgId	required	none	text	-	-
 field	PACS008	IntrBkSttlmCcy	required	none	identifier:currency	-	-
 field	PACS008	IntrBkSttlmAmt	required	none	amount	-	-
@@ -62,11 +67,13 @@ field	PACS008	CdtrAcct/Prxy/Tp/Prtry	optional	none	text	-	-
 field	PACS008	ChrgBr	optional	none	enum	DEBT|CRED|SHAR|SLEV	-
 field	PACS008	RmtInf/Ustrd[*]	optional	10	text	-	-
 field	PACS008	SplmtryData/LedgerId	optional	none	text	-	-
-field	PACS008	SplmtryData/SourceAccountId	optional	none	text	-	-
 field	PACS008	SplmtryData/SourceAccountAddress	optional	none	text	-	-
-field	PACS008	SplmtryData/TargetAccountId	optional	none	text	-	-
 field	PACS008	SplmtryData/TargetAccountAddress	optional	none	text	-	-
-field	PACS008	SplmtryData/AssetDefinitionId	optional	none	text	-	-
+alias	PACS008	Document/FIToFICstmrCdtTrf/SplmtryData/Envlp/NexusSettlement/NetworkId	-	-	-	-	NexusSettlement/NetworkId
+alias	PACS008	Document/FIToFICstmrCdtTrf/SplmtryData/Envlp/NexusSettlement/ExpiresAtHeight	-	-	-	-	NexusSettlement/ExpiresAtHeight
+alias	PACS008	Document/FIToFICstmrCdtTrf/SplmtryData/Envlp/NexusSettlement/SourceAccountId	-	-	-	-	NexusSettlement/SourceAccountId
+alias	PACS008	Document/FIToFICstmrCdtTrf/SplmtryData/Envlp/NexusSettlement/TargetAccountId	-	-	-	-	NexusSettlement/TargetAccountId
+alias	PACS008	Document/FIToFICstmrCdtTrf/SplmtryData/Envlp/NexusSettlement/AssetDefinitionId	-	-	-	-	NexusSettlement/AssetDefinitionId
 alias	PACS008	Document/FIToFICstmrCdtTrf/GrpHdr/MsgId	-	-	-	-	MsgId
 alias	PACS008	Document/FIToFICstmrCdtTrf/CdtTrfTxInf/IntrBkSttlmAmt	-	-	-	-	IntrBkSttlmAmt
 alias	PACS008	Document/FIToFICstmrCdtTrf/CdtTrfTxInf/IntrBkSttlmAmt/@Ccy	-	-	-	-	IntrBkSttlmCcy
@@ -239,6 +246,11 @@ field	PACS007	TxInf[*]/OrgnlTxId	optional	1024	text	-	-
 field	PACS007	TxInf[*]/CxlRsnInf/Rsn/Cd	optional	1024	text	-	-
 field	PACS007	SplmtryData/LedgerInstruction	optional	none	text	-	-
 schema	PACS009	pacs.009	-	-	-	-	-
+field	PACS009	NexusSettlement/NetworkId	optional	none	text	-	-
+field	PACS009	NexusSettlement/ExpiresAtHeight	optional	none	text	-	-
+field	PACS009	NexusSettlement/SourceAccountId	optional	none	text	-	-
+field	PACS009	NexusSettlement/TargetAccountId	optional	none	text	-	-
+field	PACS009	NexusSettlement/AssetDefinitionId	optional	none	text	-	-
 field	PACS009	BizMsgIdr	required	none	text	-	-
 field	PACS009	MsgDefIdr	required	none	text	-	-
 field	PACS009	CreDtTm	required	none	datetime	-	-
@@ -250,6 +262,11 @@ field	PACS009	InstdAgt	required	none	identifier:bic	-	-
 field	PACS009	DbtrAcct	required	none	identifier:iban	-	-
 field	PACS009	CdtrAcct	required	none	identifier:iban	-	-
 field	PACS009	Purp	optional	none	text	-	-
+alias	PACS009	Document/FICdtTrf/SplmtryData/Envlp/NexusSettlement/NetworkId	-	-	-	-	NexusSettlement/NetworkId
+alias	PACS009	Document/FICdtTrf/SplmtryData/Envlp/NexusSettlement/ExpiresAtHeight	-	-	-	-	NexusSettlement/ExpiresAtHeight
+alias	PACS009	Document/FICdtTrf/SplmtryData/Envlp/NexusSettlement/SourceAccountId	-	-	-	-	NexusSettlement/SourceAccountId
+alias	PACS009	Document/FICdtTrf/SplmtryData/Envlp/NexusSettlement/TargetAccountId	-	-	-	-	NexusSettlement/TargetAccountId
+alias	PACS009	Document/FICdtTrf/SplmtryData/Envlp/NexusSettlement/AssetDefinitionId	-	-	-	-	NexusSettlement/AssetDefinitionId
 alias	PACS009	AppHdr/BizMsgIdr	-	-	-	-	BizMsgIdr
 alias	PACS009	AppHdr/MsgDefIdr	-	-	-	-	MsgDefIdr
 alias	PACS009	AppHdr/CreDt	-	-	-	-	AppHdr/CreDt

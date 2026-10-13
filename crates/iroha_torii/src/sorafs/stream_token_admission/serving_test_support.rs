@@ -1,6 +1,6 @@
 // Route tests share the durable admission and reputation fixtures, never the local quota fallback.
 
-pub(crate) struct ServingAdmissionFixture {
+pub struct ServingAdmissionFixture {
     pub(crate) capture: Arc<StreamTokenAdmissionCaptureV1>,
     provider: Arc<DurableProvider>,
     reputation: Arc<ReputationProbe>,

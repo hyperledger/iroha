@@ -207,20 +207,20 @@ fn persist_da_receipt_converges_under_same_process_writers() {
     let receipt = Arc::new(test_receipt(&signer, lane_id, 5, 7, 0xAA));
     let fingerprint = Arc::new(receipt_fingerprint(&receipt));
     let barrier = Arc::new(Barrier::new(4));
-    let handles: Vec<_> = (0..4)
-        .map(|_| {
-            let manifest_dir = manifest_dir.clone();
-            let receipt = Arc::clone(&receipt);
-            let fingerprint = Arc::clone(&fingerprint);
-            let barrier = Arc::clone(&barrier);
-            std::thread::spawn(move || {
-                barrier.wait();
-                persistence::persist_da_receipt(&manifest_dir, &receipt, 7, &fingerprint)
-                    .expect("concurrent receipt persist")
-                    .expect("receipt path")
-            })
-        })
-        .collect();
+    let mut handles = Vec::with_capacity(4);
+    // Start every barrier participant before waiting for any worker.
+    for _ in 0..4 {
+        let manifest_dir = manifest_dir.clone();
+        let receipt = Arc::clone(&receipt);
+        let fingerprint = Arc::clone(&fingerprint);
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            persistence::persist_da_receipt(&manifest_dir, &receipt, 7, &fingerprint)
+                .expect("concurrent receipt persist")
+                .expect("receipt path")
+        }));
+    }
     let paths: Vec<_> = handles
         .into_iter()
         .map(|handle| handle.join().expect("writer thread"))

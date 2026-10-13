@@ -387,7 +387,10 @@ fn permission_cache_rebuilds_after_restart_impl() {
             .replay_from(&fixture)
             .expect("replay every original certified permission carrier");
         let restarted = replayed.state().as_ref();
-        assert_eq!(restarted.committed_height(), fixture.height() as usize);
+        assert_eq!(
+            restarted.committed_height(),
+            usize::try_from(fixture.height()).expect("fixture value fits usize")
+        );
         assert_eq!(
             restarted.latest_block_hash_fast(),
             live.latest_block_hash_fast()

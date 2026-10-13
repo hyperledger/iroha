@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_data_model::{
     sorafs::{
         reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1,
@@ -229,12 +230,7 @@ fn full_intent_terms_and_selection_cannot_change_and_large_checkpoint_is_codec_o
         ),
     );
     let original = codec_original(Intent::gateway(&owner.inner.authority, &policy).unwrap());
-    let directory = owner
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let directory = metadata::ensure_operation(&owner.inner.authority.directory, "setup").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let retained = journal::read_intent(&directory).unwrap().unwrap();
     assert_eq!(retained.checkpoint, original.checkpoint);
@@ -286,7 +282,7 @@ fn full_intent_terms_and_selection_cannot_change_and_large_checkpoint_is_codec_o
             0 => selection.chain_id.push_str("-other"),
             1 => selection.manager = selection.operator.clone(),
             _ => selection.policy_digest[0] ^= 1,
-        };
+        }
         assert!(owner.inner.validate_intent(&changed).is_err());
     }
     let bytes = std::fs::read(directory.path().join("original.nrt")).unwrap();
@@ -314,12 +310,7 @@ fn recorder_full_delivery_policy_and_bounds_are_retained() {
     });
     assert_eq!(parses, 0);
     let original = codec_original(intent);
-    let directory = owner
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let directory = metadata::ensure_operation(&owner.inner.authority.directory, "setup").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let retained = journal::read_intent(&directory).unwrap().unwrap();
     assert_eq!(retained.checkpoint.len(), 16 * 1024);
@@ -374,7 +365,7 @@ fn selected_setup_recovery_distinguishes_absent_empty_and_dirty_without_http() {
     let options = options();
     let mut peers =
         crate::managed::native_operation::test_support::UnavailablePeers::start(&prepared);
-    for dirty in 0..3 {
+    for dirty in 0..4 {
         let gateway_result = gateway_owner.recover_selected_if_present(
             &gateway,
             &Fees::from_options(&options).unwrap(),
@@ -386,7 +377,16 @@ fn selected_setup_recovery_distinguishes_absent_empty_and_dirty_without_http() {
             &Fees::from_options(&options).unwrap(),
             options.deadline,
         );
-        if dirty == 2 {
+        if dirty == 1 {
+            assert!(
+                matches!(gateway_result, Err(crate::managed::Error::Invalid(message))
+                if message == "operation metadata image is absent")
+            );
+            assert!(
+                matches!(recorder_result, Err(crate::managed::Error::Invalid(message))
+                if message == "operation metadata image is absent")
+            );
+        } else if dirty == 3 {
             assert!(gateway_result.is_err() && recorder_result.is_err());
         } else {
             assert!(gateway_result.unwrap().is_none() && recorder_result.unwrap().is_none());
@@ -399,7 +399,13 @@ fn selected_setup_recovery_distinguishes_absent_empty_and_dirty_without_http() {
                 let directory = owner.authority.directory.open_child("setup").unwrap();
                 assert!(!directory.path().join("transaction").exists());
                 if dirty == 1 {
-                    require_empty(&directory).unwrap();
+                    crate::managed::native_operation::require_empty(&directory).unwrap();
+                    let path = directory.path().to_path_buf();
+                    drop(directory);
+                    std::fs::remove_dir(&path).unwrap();
+                    metadata::ensure_operation(&owner.authority.directory, "setup").unwrap();
+                } else if dirty == 2 {
+                    metadata::require_unselected(&directory).unwrap();
                     directory
                         .write_atomic("incomplete.nrt", &[1], iroha_fs::PublishMode::CreateNew)
                         .unwrap();
@@ -514,12 +520,7 @@ fn provider_ingest_retains_exact_roles_owner_wallet_and_full_original_claims() {
     let restored_terms: Terms = norito::decode_canonical(&terms_bytes).unwrap();
     assert!(restored_terms == terms);
     let original = codec_original(intent);
-    let directory = owner
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let directory = metadata::ensure_operation(&owner.inner.authority.directory, "setup").unwrap();
     journal::publish_intent(&directory, &original).unwrap();
     let bytes = std::fs::read(directory.path().join("original.nrt")).unwrap();
     let retained = journal::read_intent(&directory).unwrap().unwrap();
@@ -614,7 +615,10 @@ pub(super) fn retain_explicit_request(
     journal::publish_intent(directory, original).unwrap();
     assert_eq!(
         directory.entries(3).unwrap(),
-        vec![std::ffi::OsString::from("original.nrt")]
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("original.nrt"),
+        ]
     );
     assert!(
         journal::required_original(directory, owner.purpose().unwrap()).is_err(),

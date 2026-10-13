@@ -22,6 +22,7 @@ pub(super) struct EnrollmentValidity {
     pub expires_at_unix_ms: u64,
 }
 impl EnrollmentValidity {
+    #[cfg(test)]
     pub(super) fn from_interval(interval: ManagedCustodyEnrollmentInterval) -> Self {
         Self {
             issued_at_unix_ms: interval.issued_at_unix_ms,
@@ -38,6 +39,10 @@ impl EnrollmentValidity {
 }
 #[derive(Clone, Encode, Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_deploy::managed::stream_token_custody::Action")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "This canonical journal value is decoded under exact allocation admission; boxing its policy would change those charges"
+)]
 pub(super) enum Action {
     Configure(SignerCustodyPolicyV1),
     Enroll {
@@ -54,6 +59,10 @@ pub(super) struct Original {
     pub action: Action,
     pub checkpoint: Vec<u8>,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Original wallet requests remain inline during allocation-bounded history inspections"
+)]
 pub(super) enum Request {
     Configure(StreamTokenCustodyConfigureRequest),
     Enroll(StreamTokenCustodyEnrollRequest),
@@ -117,12 +126,13 @@ impl Request {
         }
         .map_err(Self::inspection_error)
     }
-    fn inspection_error(_error: color_eyre::eyre::Report) -> crate::managed::Error {
+    fn inspection_error(error: color_eyre::eyre::Report) -> crate::managed::Error {
         #[cfg(test)]
         crate::managed::native_operation::deadline_diagnostics::wallet_error(
             "wallet preparation inspection",
-            &_error,
+            &error,
         );
+        drop(error);
         invalid("custody wallet preparation differs from original request")
     }
     pub(super) fn retain(
@@ -324,15 +334,6 @@ impl Selected<Original> {
             Action::Configure(_) => Err(invalid("configuration is not an enrollment interval")),
         }
     }
-    pub fn matches_configuration(
-        &self,
-        policy: &SignerCustodyPolicyV1,
-        utc: u64,
-        options: &BoundedTransactionOptions,
-    ) -> Result<()> {
-        Original::matches_configuration(self, policy)?;
-        self.terms.matches(utc, options)
-    }
     pub fn matches_enrollment(
         &self,
         interval: ManagedCustodyEnrollmentInterval,
@@ -357,31 +358,33 @@ impl Selected<Original> {
 pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Original>> {
     let names = directory.entries(4)?;
     if names.iter().any(|name| {
-        !["original.nrt", "dispatch.nrt", "attempts", "epochs"]
+        !["original.nrt", "operation.nrt", "attempts", "epochs"]
             .iter()
             .any(|allowed| name == *allowed)
     }) {
         return Err(invalid("custody intent contains unknown material"));
     }
     let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         return Ok(None);
     };
+    attempts::metadata::require_published(directory, &bytes)?;
     decode_original(&bytes).map(Some)
 }
-/// BodyHistory owns this directory census and anchored absence; the Original decoder is shared.
+/// `BodyHistory` owns this directory census and anchored absence; the Original decoder is shared.
 /// Return the sole canonical decoded Original with the exact bounded bytes it consumed.
-/// BodyHistory binds its immutable snapshot to this read, never to a later replacement.
+/// `BodyHistory` binds its immutable snapshot to this read, never to a later replacement.
 pub(super) fn read_body_intent(
     directory: &PrivateDirectory,
 ) -> Result<Option<(Original, zeroize::Zeroizing<Vec<u8>>)>> {
-    read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)?
-        .map(|bytes| {
-            decode_original(&bytes).map(|original| (original, zeroize::Zeroizing::new(bytes)))
-        })
-        .transpose()
+    let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
+        attempts::metadata::require_reserved(directory)?;
+        return Ok(None);
+    };
+    attempts::metadata::require_published(directory, &bytes)?;
+    decode_original(&bytes).map(|original| Some((original, zeroize::Zeroizing::new(bytes))))
 }
-fn decode_original(bytes: &[u8]) -> Result<Original> {
+pub(super) fn decode_original(bytes: &[u8]) -> Result<Original> {
     let original: Original = norito::decode_canonical_with_limits(
         bytes,
         norito::DecodeLimits::new(
@@ -395,6 +398,15 @@ fn decode_original(bytes: &[u8]) -> Result<Original> {
     .map_err(|_| invalid("invalid bounded original custody intent"))?;
     original.validate()?;
     Ok(original)
+}
+/// Complete only the exact retained initialization before selecting fresh native inputs.
+pub(super) fn recover_intent(
+    directory: &PrivateDirectory,
+    validate: impl FnOnce(&Original) -> Result<()>,
+) -> Result<()> {
+    attempts::metadata::recover_original(directory, MAX_ORIGINAL_BYTES, |bytes| {
+        validate(&decode_original(bytes)?)
+    })
 }
 pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selected<Original>>> {
     let Some(intent) = read_intent(directory)? else {

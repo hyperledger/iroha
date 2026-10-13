@@ -68,5 +68,5 @@ fn zk_verify_batch_syscall_rejects_non_norito_pointer_before_backend_status() {
     let err = host
         .syscall(syscalls::SYSCALL_ZK_VERIFY_BATCH, &mut vm)
         .expect_err("non-NoritoBytes pointer must be rejected");
-    assert_eq!(err, VMError::NoritoInvalid);
+    assert!(matches!(err, VMError::NoritoInvalid));
 }

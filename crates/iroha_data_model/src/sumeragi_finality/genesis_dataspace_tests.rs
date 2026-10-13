@@ -8,8 +8,9 @@ use crate::{
     },
     parameter::system::ConsensusMode,
     sumeragi_finality::{
-        FinalityReadError, SignedGenesisPinsV1, WorldStateElementKindV1, WorldStateSnapshotEntryV1,
-        WorldStateSnapshotV1, authenticate_signed_genesis_v1,
+        FinalityReadError, SignedGenesisPinsV1, SumeragiFinalityProof, SumeragiFinalityVerifier,
+        WorldStateElementKindV1, WorldStateSnapshotEntryV1, WorldStateSnapshotV1,
+        authenticate_signed_genesis_v1,
         test_fixtures::{
             NativeFinalityFixture, NexusAmxContextFixture, fixture_dataspace_id,
             lane_policy_instruction, taira_fixture_lane_policy,
@@ -337,7 +338,48 @@ fn pinned_signed_genesis_preserves_original_json_refusal_and_retry() {
 }
 
 #[test]
-fn signed_genesis_rejects_executed_block_and_invalid_registration_proof() {
+fn signed_genesis_authenticates_preexecuted_original_without_execution_finality() {
+    let fixture = NativeFinalityFixture::start(CHAIN);
+    let (_, mut selected) = pins(&fixture);
+    let mut original =
+        crate::block::decode_framed_signed_block(&fixture.genesis_proof().block_wire).unwrap();
+    original.set_commit_certificate(None);
+    assert_eq!(original.header(), fixture.genesis().header());
+    original
+        .signatures()
+        .next()
+        .unwrap()
+        .signature()
+        .verify_hash(&selected.genesis_public_key, original.hash())
+        .unwrap();
+    assert!(original.has_results());
+    original.validate_output_merkle_cache().unwrap();
+    let wire = original.encode_wire().unwrap();
+    selected.genesis_hash = original.hash();
+    selected.network_id = NetworkId::from_genesis_hash(original.hash());
+    selected.signed_genesis_sha256 = Sha256::digest(&wire).into();
+    let authenticated = authenticate_signed_genesis_v1(&wire, &selected).unwrap();
+    assert_eq!(authenticated.block().encode_wire().unwrap(), wire);
+    assert_eq!(authenticated.epoch().network_id, selected.network_id);
+    let mut verifier = SumeragiFinalityVerifier::new(
+        authenticated.block(),
+        CHAIN,
+        authenticated.validators().to_vec(),
+    )
+    .unwrap();
+    let unauthenticated_execution = SumeragiFinalityProof {
+        block_header: original.header(),
+        block_wire: wire,
+        committee: authenticated.validators().to_vec(),
+    };
+    assert!(
+        verifier.verify(&unauthenticated_execution).is_err(),
+        "signed authoring outputs must not authenticate genesis execution finality"
+    );
+}
+
+#[test]
+fn signed_genesis_rejects_execution_certificate_and_invalid_registration_proof() {
     let fixture = NativeFinalityFixture::start(CHAIN);
     let (_, pins) = pins(&fixture);
     let rebind = |block: &crate::block::SignedBlock, pins: &SignedGenesisPinsV1| {

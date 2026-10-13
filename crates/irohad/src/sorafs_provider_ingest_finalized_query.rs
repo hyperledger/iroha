@@ -156,7 +156,7 @@ pub(crate) enum ProviderIngestFinalizedArchiveStartupModeV1 {
     /// Ordinary startup reconciled and qualified with an exact zero-gap tip.
     Qualified {
         /// Exact startup reconciliation against committed State and Kura.
-        reconciliation: ProviderIngestFinalizedArchiveReconcileOutcomeV1,
+        reconciliation: Box<ProviderIngestFinalizedArchiveReconcileOutcomeV1>,
         /// Subsequent configured live-lag qualification.
         live_qualification: ProviderIngestFinalizedArchiveQualificationV1,
     },
@@ -517,7 +517,7 @@ fn prepare_qualified_archive_mode(
             },
         )?;
     Ok(ProviderIngestFinalizedArchiveStartupModeV1::Qualified {
-        reconciliation,
+        reconciliation: Box::new(reconciliation),
         live_qualification,
     })
 }
@@ -2471,7 +2471,7 @@ mod tests {
             reader.activation_ready().unwrap(),
             "settled original writers permit a fresh qualification"
         );
-        let key = reader.qualify_live().unwrap().archive_tip().clone();
+        let key = *reader.qualify_live().unwrap().archive_tip();
         let record = prepared.archive().record_path(&key).unwrap();
         let original = std::fs::read(&record).unwrap();
         std::fs::write(&record, [0xff]).unwrap();
@@ -2851,10 +2851,10 @@ mod tests {
             .set_execution_outputs(
                 outputs,
                 1,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 Vec::new(),
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &output_limits,
             )
             .expect("attach one canonical successful Network output to archive genesis");

@@ -76,7 +76,6 @@ use std::sync::Arc;
 #[derive(Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
 /// Request body for drafting a Ministry agenda proposal submission transaction.
-
 pub struct MinistryAgendaProposalDraftDto {
     /// Agenda proposal payload that will be submitted on-chain.
     pub proposal: AgendaProposalV1,
@@ -111,14 +110,13 @@ pub enum MinistryAgendaProposalDraftOutcome {
     /// Draft created successfully.
     Draft(MinistryAgendaProposalDraftResponse),
     /// Proposal id already exists in committed state.
-    Duplicate(MinistryAgendaProposalGetResponse),
+    Duplicate(Box<MinistryAgendaProposalGetResponse>),
 }
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii::gov::PlainBallotDto")]
 #[derive(Debug, JsonDeserialize, JsonSerialize)]
 #[norito(deny_unknown_fields)]
 /// Request body for submitting a plain (non-ZK) quadratic ballot.
-
 pub struct PlainBallotDto {
     /// Authority as canonical I105 or on-chain account alias.
     pub authority: String,
@@ -317,8 +315,7 @@ fn parse_exact_lower_hex32_path(field: &str, value: &str) -> Result<[u8; 32], cr
     Ok(decoded)
 }
 fn require_exact_governance_path_token(field: &str, value: &str) -> Result<(), crate::Error> {
-    validate_governance_selector_v1(field, value)
-        .map_err(|message| crate::routing::conversion_error(message.into()))
+    validate_governance_selector_v1(field, value).map_err(crate::routing::conversion_error)
 }
 fn parse_canonical_u64_decimal(field: &str, value: &str) -> Result<u64, String> {
     if value.is_empty()
@@ -339,7 +336,6 @@ fn parse_canonical_u64_decimal(field: &str, value: &str) -> Result<u64, String> 
 #[derive(Debug, JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
 /// Request body for submitting a ZK ballot using BallotProof-style fields.
-
 pub struct ZkBallotV1Dto {
     /// Authority submitting the ballot (AccountId string)
     pub authority: String,
@@ -374,7 +370,6 @@ pub struct ZkBallotV1Dto {
 #[derive(Debug, JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
 /// Request body that carries a BallotProof directly along with transaction context.
-
 pub struct ZkBallotV1BallotProofDto {
     pub authority: String,
     /// Exact genesis-derived network to build the transaction skeleton for.
@@ -626,6 +621,10 @@ pub struct GovernanceTargetBodySizesV1 {
 }
 /// Public fail-closed governance configuration and route projection.
 #[derive(Debug, JsonSerialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "These advertised protocol capabilities are independent and may coexist."
+)]
 pub struct GovernanceCapabilitiesV1 {
     /// Stable projection schema identifier.
     pub schema: String,
@@ -1543,7 +1542,6 @@ pub fn handle_gov_parliament_tle_release_context_read(
 #[norito_schema(name = "iroha_torii::gov::CitizenDraftRequestV1")]
 #[derive(Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
 pub struct CitizenDraftRequestV1 {
     /// Request layout version.
     pub version: u16,
@@ -1620,7 +1618,7 @@ pub async fn handle_gov_citizen_status(
     let world = state.world_view();
     let record = world.citizens().get(&account).cloned();
     Ok(JsonBody(CitizenStatusResponse {
-        account_id: canonical_account_id.to_string(),
+        account_id: canonical_account_id.clone(),
         is_citizen: record.is_some(),
         amount: record.as_ref().map(|record| record.amount.to_string()),
         bonded_height: record
@@ -1986,7 +1984,7 @@ fn governance_tally_from_view(
     };
     referendum
         .validate_context()
-        .map_err(|message| crate::routing::conversion_error(message.into()))?;
+        .map_err(crate::routing::conversion_error)?;
     // Project the current standalone referendum tally without mutating state.
     let mut approve: u128 = 0;
     let mut reject: u128 = 0;
@@ -1998,7 +1996,7 @@ fn governance_tally_from_view(
                 world.governance_locks().get(&rid),
                 evaluated_block_height,
             )
-            .map_err(|message| crate::routing::conversion_error(message.into()))?;
+            .map_err(crate::routing::conversion_error)?;
         }
         iroha_core::state::GovernanceReferendumMode::Zk => {
             if let Some(e) = world.elections().get(&rid) {
@@ -2025,7 +2023,6 @@ fn governance_tally_from_view(
 #[derive(Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
 /// Request body for applying protected namespaces parameter.
-
 pub struct ProtectedNamespacesDto {
     /// Namespaces to protect (e.g., `["apps", "system"]`).
     pub namespaces: Vec<String>,
@@ -2698,12 +2695,12 @@ pub async fn handle_ministry_agenda_proposal_draft(
         .get(&body.proposal.proposal_id)
         .cloned()
     {
-        return Ok(MinistryAgendaProposalDraftOutcome::Duplicate(
+        return Ok(MinistryAgendaProposalDraftOutcome::Duplicate(Box::new(
             MinistryAgendaProposalGetResponse {
                 found: true,
                 record: Some(existing),
             },
-        ));
+        )));
     }
     let instr = iroha_data_model::isi::ministry::SubmitAgendaProposal {
         proposal: body.proposal.clone(),
@@ -2770,9 +2767,9 @@ pub async fn handle_gov_ballot_plain_with_policy(
     })?;
     ensure_authenticated_authority(authenticated_account, &authority_id)?;
     validate_governance_selector_v1("referendum_id", &body.referendum_id)
-        .map_err(|message| crate::routing::conversion_error(message.into()))?;
+        .map_err(crate::routing::conversion_error)?;
     reject_typed_proposal_ballot_selector(&state.world_view(), &body.referendum_id)
-        .map_err(|message| crate::routing::conversion_error(message.into()))?;
+        .map_err(crate::routing::conversion_error)?;
     // Basic shape validations
     if !(body.direction == "Aye" || body.direction == "Nay" || body.direction == "Abstain") {
         return Err(crate::routing::conversion_error("invalid direction".into()));

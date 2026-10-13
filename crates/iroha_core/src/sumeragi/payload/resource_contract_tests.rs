@@ -203,7 +203,10 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
 
     // Height 2: the largest includable transaction.
     let largest = sized(&chain, &clock, INCLUDABLE, 1_500);
-    assert_eq!(admission(&chain, &largest), Ok(()));
+    assert_eq!(
+        (admission(&chain, &largest)).expect("completed fixture operation"),
+        ()
+    );
     let wire = chain
         .proposal(None, vec![largest.clone()])
         .resultless_proposal_wire_len()
@@ -241,7 +244,7 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
         &time,
     ));
     for transaction in &window {
-        assert_eq!(admission(&chain, transaction), Ok(()));
+        assert_eq!(admission(&chain, transaction).unwrap(), ());
         let accepted = AcceptedTransaction::accept_with_time_source(
             transaction.clone(),
             &chain.network_id(),
@@ -282,7 +285,7 @@ fn follower_accepts_the_assembled_maximum_and_the_reserve_is_packing_policy() {
         .map(|index| sized(&chain, &clock, INCLUDABLE, 3_500 + index))
         .collect::<Vec<_>>();
     for transaction in &oversized {
-        assert_eq!(admission(&chain, transaction), Ok(()));
+        assert_eq!(admission(&chain, transaction).unwrap(), ());
     }
     let wire = chain
         .proposal(None, oversized)
@@ -319,9 +322,13 @@ fn lane_chain() -> (CertifiedTestChain, KeyPair, KeyPair) {
         })
         .collect::<Vec<_>>();
     committee.sort();
-    let mut lane_params = SumeragiParameters::default();
-    lane_params.max_block_bytes =
-        std::num::NonZeroU32::new(LANE_FIXTURE_LANE + LANE_BATCH_FRAMING_RESERVE_BYTES).unwrap();
+    let lane_params = SumeragiParameters {
+        max_block_bytes: std::num::NonZeroU32::new(
+            LANE_FIXTURE_LANE + LANE_BATCH_FRAMING_RESERVE_BYTES,
+        )
+        .unwrap(),
+        ..Default::default()
+    };
     let policy = SumeragiLanePolicy {
         da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
         anchor_freshness: 4,
@@ -468,7 +475,12 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
     let skip = std::collections::BTreeSet::new();
     assert!(
         matches!(
-            source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+            source.candidates(
+                height,
+                LANE_FIXTURE_LANE as usize,
+                &skip,
+                &chain.state().ivm_execution_budget()
+            ),
             Err(LaneSelectionError::ClockAhead)
         ),
         "lane proposer must leave future signed input queued"
@@ -476,14 +488,25 @@ fn lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advan
     assert_eq!(queue.queued_len(), 1);
     clock.advance(Duration::from_millis(1));
     let selected = source
-        .candidates(height, LANE_FIXTURE_LANE as usize, &skip)
-        .unwrap();
+        .candidates(
+            height,
+            LANE_FIXTURE_LANE as usize,
+            &skip,
+            &chain.state().ivm_execution_budget(),
+        )
+        .unwrap()
+        .0;
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].hash(), future.hash_as_entrypoint());
     assert_eq!(queue.queued_len(), 1);
     clock.rewind(Duration::from_millis(1));
     assert!(matches!(
-        source.candidates(height, LANE_FIXTURE_LANE as usize, &skip),
+        source.candidates(
+            height,
+            LANE_FIXTURE_LANE as usize,
+            &skip,
+            &chain.state().ivm_execution_budget()
+        ),
         Err(LaneSelectionError::ClockAhead)
     ));
 }
@@ -578,7 +601,7 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
         &at_cap_lane,
         &at_global,
     ] {
-        assert_eq!(admission(accepted), Ok(()));
+        assert_eq!(admission(accepted).unwrap(), ());
     }
 
     // Queue custody retains valid inputs even when the lane alone cannot carry them.
@@ -605,13 +628,22 @@ fn lane_routed_transaction_is_admitted_and_selected_within_its_lane_budget() {
     );
     let budget = usize::try_from(LANE_FIXTURE_LANE).unwrap();
     let skip = std::collections::BTreeSet::new();
-    let selected = source.candidates(height, budget, &skip).unwrap();
+    let selected = source
+        .candidates(height, budget, &skip, &chain.state().ivm_execution_budget())
+        .unwrap()
+        .0;
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].hash(), at_lane.hash_as_entrypoint());
     assert!(
         source
-            .candidates(height, budget - 1, &skip)
+            .candidates(
+                height,
+                budget - 1,
+                &skip,
+                &chain.state().ivm_execution_budget()
+            )
             .unwrap()
+            .0
             .is_empty()
     );
     // The global proposer leaves fresh lane inputs to their lane even with enough capacity.

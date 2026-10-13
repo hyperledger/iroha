@@ -8,13 +8,12 @@ fn custody_namespace_paths() -> Vec<StatePath> {
         key_path as custody_key_path,
     };
     use crate::query::stream_token_authority as authority;
+    use crate::query::stream_token_custody::{head_key, height_key, key_path, record_key};
     use crate::query::stream_token_gateway::{
         rows::{GatewayExpiryKeyV1, GatewayExpiryTargetV1, GatewayRowKey},
         storage as gateway,
     };
     use iroha_data_model::sorafs::provider_admission::history::AdmissionHistoryPathV1;
-
-    use crate::query::stream_token_custody::{head_key, height_key, key_path, record_key};
     let provider = iroha_data_model::sorafs::capacity::ProviderId::new([37; 32]);
     let mut paths = vec![
         head_key(provider),
@@ -133,13 +132,14 @@ fn custody_namespace_scoped_host() -> CoreHost {
 }
 
 fn custody_namespace_vm(paths: &[StatePath]) -> IVM {
+    use std::fmt::Write as _;
     let mut source = String::from("seiyaku CustodyNamespaceShadows {\n");
     for path in paths {
-        source.push_str(&format!("state bytes {path};\n"));
+        writeln!(source, "state bytes {path};").expect("format test contract");
     }
     source.push_str("hajimari() {\n");
     for path in paths {
-        source.push_str(&format!("{path} = b\"\";\n"));
+        writeln!(source, "{path} = b\"\";").expect("format test contract");
     }
     source.push_str("}\npermission WriteState;\nkotoage fn main() authorize(WriteState) -> int { return 1; }\n}");
     let (program, _) = kotodama_lang::compiler::Compiler::new()
@@ -266,9 +266,8 @@ fn stream_token_custody_generic_classes_reject_state_before_namespace_dispatch()
                 ivm_sys::SYSCALL_STATE_SCAN,
             ] {
                 vm.set_register(10, path_ptr);
-                assert_eq!(
-                    host.syscall(syscall, &mut vm),
-                    Err(ivm::VMError::GenericSyscallNotAllowed { syscall })
+                assert!(
+                    matches!((&(host.syscall(syscall, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed { syscall })), (Err(ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}), ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0)
                 );
             }
         }
@@ -300,9 +299,17 @@ fn stream_token_custody_debug_syscalls_cannot_mutate_delete_or_disclose_native_s
         ] {
             vm.set_register(10, path_ptr);
             vm.set_register(11, value_ptr);
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    (
+                        &(host.syscall(syscall, &mut vm)),
+                        &(ivm::VMError::PermissionDenied)
+                    ),
+                    (
+                        Err(ivm::VMError::PermissionDenied),
+                        ivm::VMError::PermissionDenied
+                    )
+                ),
                 "{path}: {syscall}"
             );
         }
@@ -388,9 +395,17 @@ fn stream_token_custody_contract_syscalls_reject_logical_shadows_with_valid_type
                 ty: ivm::EmbeddedStateType::Bytes,
             }],
         );
-        assert_eq!(
-            IVM::new(u64::MAX).load_program(&invalid),
-            Err(ivm::VMError::InvalidMetadata),
+        assert!(
+            matches!(
+                (
+                    &(IVM::new(u64::MAX).load_program(&invalid)),
+                    &(ivm::VMError::InvalidMetadata)
+                ),
+                (
+                    Err(ivm::VMError::InvalidMetadata),
+                    ivm::VMError::InvalidMetadata
+                )
+            ),
             "native path cannot acquire scalar declaration authority: {path}"
         );
     }
@@ -407,9 +422,14 @@ fn stream_token_custody_contract_syscalls_reject_logical_shadows_with_valid_type
     for path in &paths {
         let typed_value = ivm::host::validate_declared_state_value_payload(&vm, path, &value);
         if namespace_only.contains(path) {
-            assert_eq!(
-                typed_value,
-                Err(ivm::VMError::NoritoInvalid),
+            assert!(
+                matches!(
+                    (&(typed_value), &(ivm::VMError::NoritoInvalid)),
+                    (
+                        Err(ivm::VMError::NoritoInvalid),
+                        ivm::VMError::NoritoInvalid
+                    )
+                ),
                 "namespace-only descendant is not a declared Bytes state"
             );
         } else {
@@ -445,16 +465,31 @@ fn stream_token_custody_contract_syscalls_reject_logical_shadows_with_valid_type
             } else {
                 ivm::VMError::PermissionDenied
             };
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(expected),
-                "{path}: {syscall}"
+            let actual = host.syscall(syscall, &mut vm);
+            assert!(
+                matches!(
+                    (&actual, &expected),
+                    (
+                        Err(ivm::VMError::NoritoInvalid),
+                        ivm::VMError::NoritoInvalid
+                    ) | (
+                        Err(ivm::VMError::PermissionDenied),
+                        ivm::VMError::PermissionDenied
+                    )
+                ),
+                "{path}: {syscall}: {actual:?} != {expected:?}"
             );
         }
         vm.set_register(10, path_ptr);
         let count = host.syscall(ivm_sys::SYSCALL_STATE_COUNT, &mut vm);
         if namespace_only.contains(path) {
-            assert_eq!(count, Err(ivm::VMError::NoritoInvalid));
+            assert!(matches!(
+                (&(count), &(ivm::VMError::NoritoInvalid)),
+                (
+                    Err(ivm::VMError::NoritoInvalid),
+                    ivm::VMError::NoritoInvalid
+                )
+            ));
         } else {
             assert!(count.is_ok());
             assert_eq!(
@@ -514,7 +549,13 @@ fn stream_token_custody_namespace_scan_rejects_a_declared_opaque_map() {
         vm.set_register(15, 0);
         let result = host.syscall(ivm_sys::SYSCALL_STATE_SCAN, &mut vm);
         if opaque {
-            assert_eq!(result, Err(ivm::VMError::PermissionDenied));
+            assert!(matches!(
+                (&(result), &(ivm::VMError::PermissionDenied)),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ));
         } else {
             assert!(
                 result.is_ok(),
@@ -552,10 +593,16 @@ fn stream_token_custody_native_state_survives_debug_apply_and_export_refusal() {
         for syscall in [ivm_sys::SYSCALL_STATE_SET, ivm_sys::SYSCALL_STATE_DEL] {
             vm.set_register(10, ptr);
             vm.set_register(11, value_ptr);
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(ivm::VMError::PermissionDenied)
-            );
+            assert!(matches!(
+                (
+                    &(host.syscall(syscall, &mut vm)),
+                    &(ivm::VMError::PermissionDenied)
+                ),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ));
         }
     }
     let user: StatePath = "sorafs_stream_token_custody_v1x".parse().unwrap();
@@ -581,7 +628,7 @@ fn stream_token_custody_native_state_survives_debug_apply_and_export_refusal() {
         Ok(_) => panic!("debug export must fail"),
     };
     assert!(
-        matches!(error, ValidationFail::NotPermitted(message) if message == "local debug execution artifacts cannot be committed")
+        matches!(error, crate::execution_attempt::ExecutionAttemptError::Rejected(ValidationFail::NotPermitted(message)) if message == "local debug execution artifacts cannot be committed")
     );
     for path in &paths {
         assert_eq!(tx.world.smart_contract_state.get(path), Some(&sentinel));

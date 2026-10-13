@@ -19,7 +19,7 @@ enum Incomplete {
     },
     Funding {
         provider_id: ProviderId,
-        progress: ProviderFundingProgress,
+        progress: Box<ProviderFundingProgress>,
     },
 }
 
@@ -35,8 +35,8 @@ impl Incomplete {
 
     /// Form the outer report only after the native child owner has returned.
     #[inline(never)]
-    fn into_progress(self) -> Result<ServiceBootstrapProgress> {
-        Ok(match self {
+    fn into_progress(self) -> ServiceBootstrapProgress {
+        match self {
             Self::Pending { step, status } => ServiceBootstrapProgress::Pending { step, status },
             Self::Funding {
                 provider_id,
@@ -45,15 +45,15 @@ impl Incomplete {
                 provider_id,
                 progress,
             },
-        })
+        }
     }
 }
 
-fn absent<T>(step: ServiceBootstrapStep) -> Result<Phase<T>> {
-    Ok(Phase::Incomplete(Incomplete::Pending {
+fn absent<T>(step: ServiceBootstrapStep) -> Phase<T> {
+    Phase::Incomplete(Incomplete::Pending {
         step,
         status: OperationStatus::Absent,
-    }))
+    })
 }
 
 // Each existing admission authenticates ordinary native absence without creating material;
@@ -69,7 +69,7 @@ macro_rules! open_child {
             None if $run.may_submit()? => {
                 <$owner>::open_from_original($run.authority $(, $provider)?)?
             }
-            None => return absent($step),
+            None => return Ok(absent($step)),
         }
     }};
 }
@@ -171,7 +171,7 @@ pub(super) fn run(
         Phase::Complete(value) => value,
         Phase::Incomplete(progress) => {
             return Ok(RunOutcome {
-                progress: progress.into_progress()?,
+                progress: progress.into_progress(),
                 dependencies: DependencyFrontiers::before_reserve(&original.policies),
             });
         }
@@ -235,7 +235,7 @@ pub(super) fn run(
     }
     if let Some(progress) = first_incomplete {
         return Ok(RunOutcome {
-            progress: progress.into_progress()?,
+            progress: progress.into_progress(),
             dependencies,
         });
     }
@@ -248,8 +248,8 @@ pub(super) fn run(
     dependencies.reputation_complete = matches!(&reputation, Phase::Complete(_));
     Ok(RunOutcome {
         progress: match reputation {
-            Phase::Complete(history) => ServiceBootstrapProgress::Complete(history),
-            Phase::Incomplete(progress) => progress.into_progress()?,
+            Phase::Complete(history) => ServiceBootstrapProgress::Complete(Box::new(history)),
+            Phase::Incomplete(progress) => progress.into_progress(),
         },
         dependencies,
     })
@@ -383,7 +383,7 @@ impl Run<'_> {
         };
         let mut reserve = if purpose_absent {
             if !self.may_submit()? {
-                return absent(ServiceBootstrapStep::ReservePolicy);
+                return Ok(absent(ServiceBootstrapStep::ReservePolicy));
             }
             // The fresh observation grants no signing/current-state authority. The creator
             // retains its own profile and lock after ordinary live authorization.
@@ -402,7 +402,7 @@ impl Run<'_> {
                 None if self.may_submit()? => {
                     ManagedInitialReservePolicy::open_from_original(self.authority)?
                 }
-                None => return absent(ServiceBootstrapStep::ReservePolicy),
+                None => return Ok(absent(ServiceBootstrapStep::ReservePolicy)),
             }
         };
         let mut result = incomplete(if mode == Mode::Local {
@@ -428,7 +428,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::ReservePolicy);
+            return Ok(absent(ServiceBootstrapStep::ReservePolicy));
         };
         let Some(reserve_policy) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -480,7 +480,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::CustodyPolicy { provider_id });
+            return Ok(absent(ServiceBootstrapStep::CustodyPolicy { provider_id }));
         };
         let Some(custody_policy) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -513,7 +513,9 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::CustodyEnrollment { provider_id });
+            return Ok(absent(ServiceBootstrapStep::CustodyEnrollment {
+                provider_id,
+            }));
         };
         let Some(custody_enrollment) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -579,7 +581,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::ReserveAccount { provider_id });
+            return Ok(absent(ServiceBootstrapStep::ReserveAccount { provider_id }));
         };
         let Some(reserve_account) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -632,7 +634,9 @@ impl Run<'_> {
             );
         }
         let Some(funding_result) = result else {
-            return absent(ServiceBootstrapStep::ProviderFunding { provider_id });
+            return Ok(absent(ServiceBootstrapStep::ProviderFunding {
+                provider_id,
+            }));
         };
         let ProviderFundingProgress::Complete {
             credit, capacity, ..
@@ -640,7 +644,7 @@ impl Run<'_> {
         else {
             return Ok(Phase::Incomplete(Incomplete::Funding {
                 provider_id,
-                progress: funding_result,
+                progress: Box::new(funding_result),
             }));
         };
         require_after(credit, account_height)?;
@@ -691,7 +695,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::ProviderIngest { provider_id });
+            return Ok(absent(ServiceBootstrapStep::ProviderIngest { provider_id }));
         };
         let Some(ingest_finality) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -744,7 +748,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::Gateway { provider_id });
+            return Ok(absent(ServiceBootstrapStep::Gateway { provider_id }));
         };
         let Some(gateway_finality) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {
@@ -809,7 +813,7 @@ impl Run<'_> {
             );
         }
         let Some(result) = result else {
-            return absent(ServiceBootstrapStep::Reputation);
+            return Ok(absent(ServiceBootstrapStep::Reputation));
         };
         let Some(reputation_finality) = result.finalized else {
             return Ok(Phase::Incomplete(Incomplete::Pending {

@@ -26,7 +26,7 @@ fn push_committed_test_block_hash(state: &mut Arc<State>, height: u64) -> Result
 
 #[test]
 fn execute_apartment_returns_authoritative_status_and_commitment() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let apartment = sample_agent_record()?;
     {
         let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
@@ -62,7 +62,7 @@ fn execute_apartment_returns_authoritative_status_and_commitment() -> Result<()>
 
 #[test]
 fn apartment_execution_fails_closed_at_committed_lease_expiry_height() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut apartment = sample_agent_record()?;
     apartment.lease_expires_height = 2;
     let apartment_name = apartment.manifest.apartment_name.to_string();

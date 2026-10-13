@@ -115,15 +115,14 @@ fn explicit_path(attrs: &[Attribute]) -> Result<Option<String>> {
             bail!("conditional module attributes require an explicit configuration review");
         }
         if attr.path().is_ident("path") {
-            if let Meta::NameValue(pair) = &attr.meta {
-                if let syn::Expr::Lit(syn::ExprLit {
+            if let Meta::NameValue(pair) = &attr.meta
+                && let syn::Expr::Lit(syn::ExprLit {
                     lit: syn::Lit::Str(value),
                     ..
                 }) = &pair.value
-                {
-                    paths.push(value.value());
-                    continue;
-                }
+            {
+                paths.push(value.value());
+                continue;
             }
             bail!("module path is not one string literal");
         }
@@ -146,7 +145,7 @@ impl Builder {
         });
     }
 
-    fn site(&self, file: &Loaded, span: Span) -> Result<Site> {
+    fn site(file: &Loaded, span: Span) -> Result<Site> {
         Ok(Site {
             file: file.record.path.clone(),
             span: source_span(&file.source, span)?,
@@ -256,13 +255,13 @@ impl Builder {
             .iter()
             .find(|(file, _)| *file == context.file)
         {
-            self.contexts[id].state = "cycle".to_owned();
+            "cycle".clone_into(&mut self.contexts[id].state);
             self.review.push(Review { kind: "cycle".to_owned(), context: id, site: context.origin,
                 related_contexts: vec![*ancestor], reason: "source is already active on this inclusion path; traversal stops without expanding the cycle".to_owned() });
             return Ok(());
         }
         if !allow_items || loaded.syntax.is_none() {
-            self.contexts[id].state = "parse_review".to_owned();
+            "parse_review".clone_into(&mut self.contexts[id].state);
             self.note("parse_fragment", id, context.origin,
                 "this source has no supported item-file parse in this position; expression/statement/type fragments and macro expansion require separate review");
             if context.kind == "crate_root" || context.kind == "external_module" {
@@ -271,7 +270,7 @@ impl Builder {
             return Ok(());
         }
         if self.active_files.len() >= MAX_DEPTH {
-            self.contexts[id].state = "depth_limit".to_owned();
+            "depth_limit".clone_into(&mut self.contexts[id].state);
             self.note(
                 "depth_limit",
                 id,
@@ -281,7 +280,7 @@ impl Builder {
             return Ok(());
         }
         self.active_files.push((context.file, id));
-        self.contexts[id].state = "visited".to_owned();
+        "visited".clone_into(&mut self.contexts[id].state);
         let mut visitor = AccessVisitor {
             builder: self,
             loaded: Rc::clone(&loaded),
@@ -306,7 +305,7 @@ impl Builder {
         local: bool,
     ) -> Result<()> {
         let owner = self.contexts[parent].clone();
-        let site = self.site(&loaded, item.span())?;
+        let site = Self::site(&loaded, item.span())?;
         let kind = if item.content.is_some() {
             "inline_module"
         } else {
@@ -327,7 +326,7 @@ impl Builder {
         names.push(item.ident.to_string());
         let result = (|| -> Result<(PathBuf, bool)> {
             let explicit = explicit_path(&item.attrs)?;
-            edge.literal = explicit.clone();
+            edge.literal.clone_from(&explicit);
             if local && item.content.is_none() && explicit.is_none() {
                 bail!(
                     "an ordinary external module in a local block has no unambiguous file ownership"
@@ -370,14 +369,14 @@ impl Builder {
         let module_dir = if inline {
             path.clone()
         } else if explicit || path.file_name().is_some_and(|name| name == "mod.rs") {
-            path.parent().unwrap_or(Path::new("")).to_owned()
+            path.parent().unwrap_or_else(|| Path::new("")).to_owned()
         } else {
             path.with_extension("")
         };
         let path_dir = if inline {
             module_dir.clone()
         } else {
-            path.parent().unwrap_or(Path::new("")).to_owned()
+            path.parent().unwrap_or_else(|| Path::new("")).to_owned()
         };
         let id = self.new_context(Context {
             id: 0,
@@ -394,7 +393,7 @@ impl Builder {
             state: "visited".to_owned(),
         })?;
         edge.to = Some(id);
-        edge.state = "resolved".to_owned();
+        "resolved".clone_into(&mut edge.state);
         self.edges.push(edge);
         if let Some((_, items)) = &item.content {
             let mut visitor = AccessVisitor {
@@ -427,7 +426,7 @@ impl Builder {
         local: bool,
     ) -> Result<()> {
         let owner = self.contexts[parent].clone();
-        let site = self.site(loaded, value.span())?;
+        let site = Self::site(loaded, value.span())?;
         let mut edge = Edge {
             from: parent,
             to: None,
@@ -445,7 +444,9 @@ impl Builder {
                 .value();
             edge.literal = Some(literal.clone());
             let path = self.resolve(
-                Path::new(&owner.file).parent().unwrap_or(Path::new("")),
+                Path::new(&owner.file)
+                    .parent()
+                    .unwrap_or_else(|| Path::new("")),
                 &literal,
             )?;
             edge.candidates.push(spelling(&path)?);
@@ -460,7 +461,7 @@ impl Builder {
                 self.edges.push(edge);
             }
             Ok(path) => {
-                let directory = spelling(path.parent().unwrap_or(Path::new("")))?;
+                let directory = spelling(path.parent().unwrap_or_else(|| Path::new("")))?;
                 let id = self.new_context(Context {
                     id: 0,
                     root: owner.root,
@@ -476,7 +477,7 @@ impl Builder {
                     state: "pending".to_owned(),
                 })?;
                 edge.to = Some(id);
-                edge.state = "resolved".to_owned();
+                "resolved".clone_into(&mut edge.state);
                 self.edges.push(edge);
                 self.enter_file(id, items)?;
             }
@@ -529,7 +530,7 @@ impl AccessVisitor<'_> {
                     | "non_exhaustive"
                     | "deprecated"
             ) {
-                let site = self.builder.site(&self.loaded, attr.span())?;
+                let site = Builder::site(&self.loaded, attr.span())?;
                 self.builder.note("unexpanded_attribute", self.context, Some(site), "conditional/helper/procedural attributes remain source evidence, not evaluated ownership");
             }
         }
@@ -547,7 +548,7 @@ impl AccessVisitor<'_> {
                 self.local_depth > 0,
             )
         } else {
-            let site = self.builder.site(&self.loaded, value.span())?;
+            let site = Builder::site(&self.loaded, value.span())?;
             self.builder.note("macro_expansion", self.context, Some(site), "macro tokens may generate access paths; no module/include ownership is inferred from their bodies");
             Ok(())
         }
@@ -635,10 +636,10 @@ impl<'ast> Visit<'ast> for AccessVisitor<'_> {
     }
 
     fn visit_macro(&mut self, value: &'ast syn::Macro) {
-        if self.error.is_none() {
-            if let Err(error) = self.mac(value, false) {
-                self.error = Some(error);
-            }
+        if self.error.is_none()
+            && let Err(error) = self.mac(value, false)
+        {
+            self.error = Some(error);
         }
     }
 }
@@ -710,7 +711,7 @@ pub fn inventory_contexts(root: &Path, roots: &[PathBuf]) -> Result<ContextGraph
         let root = builder.resolve(Path::new(""), &spelling(root)?)?;
         let file = spelling(&root)?;
         selections.push(file.clone());
-        let directory = spelling(root.parent().unwrap_or(Path::new("")))?;
+        let directory = spelling(root.parent().unwrap_or_else(|| Path::new("")))?;
         let context = builder.new_context(Context {
             id: 0,
             root: index,

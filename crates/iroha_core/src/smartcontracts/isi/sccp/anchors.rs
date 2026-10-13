@@ -43,8 +43,7 @@ pub fn lookup_anchor(
         anchor_chunk_position(parent_height).ok_or(SccpAnchorLookupError::InvalidHeight)?;
     if open.len() != expected_open_len
         || open.len()
-            >= usize::try_from(SCCP_ANCHOR_CHUNK)
-                .map_err(|_| SccpAnchorLookupError::InvalidHeight)?
+            >= usize::try_from(SCCP_ANCHOR_CHUNK).expect("4096-entry anchor chunk fits usize")
     {
         return Err(SccpAnchorLookupError::InvalidHeight);
     }
@@ -198,7 +197,11 @@ mod tests {
 
     #[test]
     fn last_height_of_open_chunk_stays_the_tip_until_the_next_append() {
-        let open = vec![anchor(1); SCCP_ANCHOR_CHUNK as usize - 1];
+        let open =
+            vec![
+                anchor(1);
+                usize::try_from(SCCP_ANCHOR_CHUNK).expect("4096-entry anchor chunk fits usize") - 1
+            ];
         assert_eq!(
             lookup_anchor(
                 SCCP_ANCHOR_CHUNK,

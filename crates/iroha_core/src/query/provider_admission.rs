@@ -183,8 +183,7 @@ fn active_record(
     if head.genesis_origin.is_some() {
         let material = authenticate_genesis_record(view, Some(provider), &head)?
             .ok_or(ProviderAdmissionErrorV1)?;
-        if envelope.policy_id != policy.policy_id
-            || envelope.policy_revision != policy.revision
+        if (envelope.policy_id, envelope.policy_revision) != (policy.policy_id, policy.revision)
             || envelope.policy_digest
                 != policy
                     .canonical_digest()

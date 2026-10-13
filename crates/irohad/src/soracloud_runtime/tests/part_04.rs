@@ -1,7 +1,7 @@
 #[test]
 fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_snapshot()
 -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut active_bundle = load_deployment_bundle_fixture()?;
     let mut canary_bundle = active_bundle.clone();
     canary_bundle.service.service_version = "2026.03.0".to_string();
@@ -84,8 +84,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
             build_runtime_snapshot(
                 &view,
                 registry,
-                &config.state_dir,
-                artifacts_root.clone(),
+                (&config.state_dir, &artifacts_root.clone()),
                 &config.cache_budgets,
                 None,
                 None,
@@ -106,7 +105,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
         let mut missing_current = registry.clone();
         missing_current.remove(&current_key);
         assert_report_contains(
-            build(&missing_current).expect_err("missing current authority"),
+            &build(&missing_current).expect_err("missing current authority"),
             "missing current admitted revision",
         );
         let mut substituted_current = registry.clone();
@@ -117,7 +116,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
             .artifacts[0]
             .artifact_hash = Hash::new(b"substituted-current-artifact");
         assert_report_contains(
-            build(&substituted_current).expect_err("current manifest binding"),
+            &build(&substituted_current).expect_err("current manifest binding"),
             "current_service_manifest_hash",
         );
         let mut aliased_baseline = registry.clone();
@@ -129,7 +128,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
             canary_bundle.clone(),
         );
         assert_report_contains(
-            build(&aliased_baseline).expect_err("valid bundle under another revision key"),
+            &build(&aliased_baseline).expect_err("valid bundle under another revision key"),
             "registry key does not match admitted revision identity",
         );
         let mut invalid_baseline = registry.clone();
@@ -143,7 +142,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
             .container
             .manifest_hash = Hash::new(b"substituted-baseline-container");
         assert_report_contains(
-            build(&invalid_baseline).expect_err("baseline admission binding"),
+            &build(&invalid_baseline).expect_err("baseline admission binding"),
             "service.container.manifest_hash",
         );
     }
@@ -202,7 +201,7 @@ fn reconcile_once_prunes_cache_buckets_by_authoritative_sequence_and_refreshes_s
 }
 #[test]
 fn reconcile_once_prunes_tied_cache_candidates_by_stable_key() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let journals_root = temp_dir.path().join("journals");
     fs::create_dir_all(&journals_root)?;
@@ -232,7 +231,7 @@ fn reconcile_once_prunes_tied_cache_candidates_by_stable_key() -> Result<()> {
 }
 #[test]
 fn reconcile_once_hydrates_missing_artifacts_from_committed_sorafs_store() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = simple_soracloud_contract_artifact(&["update", "ciphertext_update"]);
     let artifact_payloads =
@@ -293,7 +292,7 @@ fn reconcile_once_hydrates_missing_artifacts_from_committed_sorafs_store() -> Re
 }
 #[test]
 fn generic_ivm_hydration_preserves_committed_remote_sorafs_fallback() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.service.artifacts.truncate(1);
     let bundle_bytes = simple_soracloud_contract_artifact(&["update"]);
@@ -335,8 +334,7 @@ fn generic_ivm_hydration_preserves_committed_remote_sorafs_fallback() -> Result<
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             None,
             None,
@@ -353,8 +351,7 @@ fn generic_ivm_hydration_preserves_committed_remote_sorafs_fallback() -> Result<
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             None,
             None,
@@ -398,7 +395,7 @@ fn generic_ivm_hydration_preserves_committed_remote_sorafs_fallback() -> Result<
 }
 #[test]
 fn locally_assigned_inrou_hydration_rejects_remote_only_and_shared_cache_fallback() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = sample_inrou_test_bundle()?;
     bundle.service.artifacts.clear();
     let bundle_bytes = b"assigned-inrou-bundle-must-be-operator-preseeded".to_vec();
@@ -442,8 +439,7 @@ fn locally_assigned_inrou_hydration_rejects_remote_only_and_shared_cache_fallbac
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -467,7 +463,7 @@ fn locally_assigned_inrou_hydration_rejects_remote_only_and_shared_cache_fallbac
             .hydrate_missing_artifacts(&view, &snapshot)
             .expect_err("a remote provider must not satisfy an assigned Inrou artifact")
     };
-    assert_report_contains(error, "remote hydration fallback is forbidden");
+    assert_report_contains(&error, "remote hydration fallback is forbidden");
     let cache_path = temp_dir
         .path()
         .join("artifacts")
@@ -482,13 +478,13 @@ fn locally_assigned_inrou_hydration_rejects_remote_only_and_shared_cache_fallbac
             .hydrate_missing_artifacts(&view, &snapshot)
             .expect_err("an unqualified shared cache hit must not satisfy assigned Inrou")
     };
-    assert_report_contains(error, "remote hydration fallback is forbidden");
+    assert_report_contains(&error, "remote hydration fallback is forbidden");
     assert_eq!(fs::read(cache_path)?, bundle_bytes);
     Ok(())
 }
 #[test]
 fn reconcile_once_skips_remote_sorafs_payloads_that_do_not_match_expected_hash() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.service.artifacts.clear();
     let bundle_bytes = simple_soracloud_contract_artifact(&["update"]);
@@ -532,7 +528,7 @@ fn reconcile_once_skips_remote_sorafs_payloads_that_do_not_match_expected_hash()
 }
 #[test]
 fn reconcile_once_requires_completed_ingest_for_hash_matched_local_artifacts() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = simple_soracloud_contract_artifact(&["update"]);
     let artifact_payloads =
@@ -614,7 +610,7 @@ fn reconcile_once_requires_completed_ingest_for_hash_matched_local_artifacts() -
 #[test]
 fn restore_persisted_snapshot_rehydrates_missing_artifacts_from_committed_sorafs_store()
 -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = simple_soracloud_contract_artifact(&["update", "ciphertext_update"]);
     let artifact_payloads =
@@ -684,7 +680,7 @@ fn restore_persisted_snapshot_rehydrates_missing_artifacts_from_committed_sorafs
 }
 #[test]
 fn startup_rejects_invalid_persisted_snapshot_before_returning_handle() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     fs::write(
         temp_dir.path().join("runtime_snapshot.json"),
@@ -736,10 +732,12 @@ fn read_json_optional_treats_only_a_missing_file_as_absent() -> Result<()> {
 }
 #[test]
 fn restore_persisted_snapshot_rejects_non_v1_schema() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
-    let mut persisted = SoracloudRuntimeSnapshot::default();
-    persisted.schema_version = SORACLOUD_RUNTIME_SNAPSHOT_VERSION_V1 + 1;
+    let persisted = SoracloudRuntimeSnapshot {
+        schema_version: SORACLOUD_RUNTIME_SNAPSHOT_VERSION_V1 + 1,
+        ..Default::default()
+    };
     write_json_atomic_bounded(
         &temp_dir.path().join("runtime_snapshot.json"),
         &persisted,
@@ -794,7 +792,7 @@ fn hosted_http_runtime_state_rejects_non_v1_schema() {
 }
 #[test]
 fn production_startup_rejects_missing_or_unqualified_mutation_sink() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let mut config = test_runtime_manager_config(temp_dir.path().to_path_buf());
     config.production_mode = true;
@@ -825,7 +823,7 @@ fn production_startup_rejects_missing_or_unqualified_mutation_sink() -> Result<(
 }
 #[test]
 fn restore_persisted_snapshot_preserves_last_snapshot_if_reconcile_fails() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = load_deployment_bundle_fixture()?;
     {
         let world = &mut Arc::get_mut(&mut state).expect("unique test state").world;
@@ -933,7 +931,7 @@ fn restore_persisted_snapshot_preserves_last_snapshot_if_reconcile_fails() -> Re
 }
 #[test]
 fn execute_local_read_serves_hydrated_asset_with_committed_binding() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = b"ivm bundle bytes".to_vec();
     let asset_bytes = b"<html><body>portal</body></html>".to_vec();
@@ -1001,7 +999,7 @@ fn execute_local_read_serves_hydrated_asset_with_committed_binding() -> Result<(
 }
 #[test]
 fn execute_local_read_rejects_internal_service_route() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = b"ivm bundle bytes".to_vec();
     let asset_bytes = b"<html><body>portal</body></html>".to_vec();
@@ -1065,7 +1063,7 @@ fn execute_local_read_rejects_internal_service_route() -> Result<()> {
 }
 #[test]
 fn execute_local_read_runs_query_handler_from_admitted_ivm_bundle() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let query_entrypoint = bundle_handler(&bundle, "query").entrypoint;
     let query_json = Json::from_norito_value_ref(&norito::json!({ "ok": true }))?;
@@ -1176,7 +1174,7 @@ fn execute_local_read_runs_query_handler_from_admitted_ivm_bundle() -> Result<()
 }
 #[test]
 fn execute_local_read_passes_query_metadata_in_canonical_argument_table() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let query_entrypoint = bundle_handler(&bundle, "query").entrypoint;
     let bundle_bytes = soracloud_query_echo_artifact(query_entrypoint.as_str(), true);
@@ -1250,7 +1248,7 @@ fn execute_local_read_passes_query_metadata_in_canonical_argument_table() -> Res
 }
 #[test]
 fn execute_ordered_mailbox_requires_matching_authoritative_runtime_state() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let bundle = load_deployment_bundle_fixture()?;
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
@@ -1287,7 +1285,7 @@ fn execute_ordered_mailbox_requires_matching_authoritative_runtime_state() -> Re
 }
 #[test]
 fn execute_ordered_mailbox_runs_update_handler_from_admitted_ivm_bundle() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let artifact_bytes = soracloud_update_artifact(&["apply_update", "apply_ciphertext_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
@@ -1368,7 +1366,7 @@ fn execute_ordered_mailbox_runs_update_handler_from_admitted_ivm_bundle() -> Res
 }
 #[test]
 fn failed_ordered_mailbox_execution_returns_the_warmed_runtime() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let mut body = vec![
         // Admission succeeds before the deterministic guest trap.
@@ -1410,18 +1408,18 @@ fn failed_ordered_mailbox_execution_returns_the_warmed_runtime() -> Result<()> {
                 .health_status,
             SoraServiceHealthStatusV1::Degraded
         );
-        let stats = handle.ivm_runtime_cache_stats();
-        assert_eq!(stats.runtime_allocations, 1);
-        assert_eq!(stats.prepared_loads, 1);
-        assert_eq!(stats.runtime_reuses, expected_reuses);
-        assert_eq!(stats.idle_runtimes, 1);
+        let cache_stats = handle.ivm_runtime_cache_stats();
+        assert_eq!(cache_stats.runtime_allocations, 1);
+        assert_eq!(cache_stats.prepared_loads, 1);
+        assert_eq!(cache_stats.runtime_reuses, expected_reuses);
+        assert_eq!(cache_stats.idle_runtimes, 1);
     }
-    let stats = handle.ivm_runtime_cache_stats();
-    assert_eq!(stats.artifact_reads, 1);
-    assert_eq!(stats.artifact_hashes, 1);
-    assert_eq!(stats.contract_preparations, 1);
-    assert_eq!(stats.dirty_resets, 2);
-    assert_eq!(stats.runtime_returns, 2);
+    let cache_stats = handle.ivm_runtime_cache_stats();
+    assert_eq!(cache_stats.artifact_reads, 1);
+    assert_eq!(cache_stats.artifact_hashes, 1);
+    assert_eq!(cache_stats.contract_preparations, 1);
+    assert_eq!(cache_stats.dirty_resets, 2);
+    assert_eq!(cache_stats.runtime_returns, 2);
     Ok(())
 }
 #[test]
@@ -1731,7 +1729,7 @@ fn ivm_host_out_of_gas_does_not_query_or_allocate_public_input() -> Result<()> {
         PointerType::Name,
         &input_name_payload,
     )?;
-    assert_eq!(error, VMError::OutOfGas);
+    assert!(matches!(error, VMError::OutOfGas));
     assert_eq!(host.metering_query_count(), 0);
     assert_eq!(host.metering_allocation_count(), 0);
     assert!(host.local_read_bindings().is_empty());
@@ -1797,7 +1795,7 @@ fn ivm_host_out_of_gas_does_not_query_state_or_materialize_side_effects() -> Res
             PointerType::SoracloudRequest,
             &request_payload,
         )?;
-        assert_eq!(error, VMError::OutOfGas, "syscall {syscall:#x}");
+        assert!(matches!(error, VMError::OutOfGas), "syscall {syscall:#x}");
         assert_eq!(host.metering_query_count(), 0, "syscall {syscall:#x}");
         assert_eq!(host.metering_allocation_count(), 0, "syscall {syscall:#x}");
         assert!(host.local_read_bindings().is_empty());
@@ -1987,12 +1985,12 @@ fn inrou_qmp_usernet_parser_requires_one_exact_loopback_forward() -> Result<()> 
         "{valid}  TCP[HOST_FORWARD]  14  127.0.0.1       41232  10.0.2.15     8080 0     0\n"
     );
     assert_eyre_error_contains(
-        parse_inrou_qmp_usernet_forward(&duplicate, 8080)
+        &parse_inrou_qmp_usernet_forward(&duplicate, 8080)
             .expect_err("multiple forwards must fail closed"),
         "exactly one process-owned TCP host forward",
     );
     assert_eyre_error_contains(
-        parse_inrou_qmp_usernet_forward(
+        &parse_inrou_qmp_usernet_forward(
             "TCP[HOST_FORWARD] 13 0.0.0.0 41231 10.0.2.15 8080 0 0\n",
             8080,
         )
@@ -2000,7 +1998,7 @@ fn inrou_qmp_usernet_parser_requires_one_exact_loopback_forward() -> Result<()> 
         "outside its exact binding",
     );
     assert_eyre_error_contains(
-        parse_inrou_qmp_usernet_forward(valid, 8081)
+        &parse_inrou_qmp_usernet_forward(valid, 8081)
             .expect_err("a forward to the wrong guest port must fail closed"),
         "outside its exact binding",
     );
@@ -2117,7 +2115,7 @@ fn inrou_qemu_proc_status_requires_exact_sandboxed_identity() -> Result<()> {
     )?);
     validate_inrou_qemu_proc_status(valid, &identity)?;
     assert_eyre_error_contains(
-        validate_inrou_qemu_proc_status(
+        &validate_inrou_qemu_proc_status(
             &valid.replace("CapBnd:\t0000000000000000", "CapBnd:\t1"),
             &identity,
         )
@@ -2125,7 +2123,7 @@ fn inrou_qemu_proc_status_requires_exact_sandboxed_identity() -> Result<()> {
         "retained capabilities in `CapBnd`",
     );
     assert_eyre_error_contains(
-        validate_inrou_qemu_proc_status(
+        &validate_inrou_qemu_proc_status(
             &valid.replace("Groups:\t108 109", "Groups:\t108 110"),
             &identity,
         )
@@ -2133,7 +2131,7 @@ fn inrou_qemu_proc_status_requires_exact_sandboxed_identity() -> Result<()> {
         "exact supplementary groups",
     );
     assert_eyre_error_contains(
-        validate_inrou_qemu_proc_status(&valid.replace("Seccomp:\t2", "Seccomp:\t0"), &identity)
+        &validate_inrou_qemu_proc_status(&valid.replace("Seccomp:\t2", "Seccomp:\t0"), &identity)
             .expect_err("QEMU must enter seccomp filter mode before QMP is trusted"),
         "seccomp filter mode",
     );
@@ -2382,11 +2380,9 @@ fn durable_inrou_egress_checkpoint_recovers_precharge_and_rejects_deletion() -> 
     let durable = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
@@ -2419,11 +2415,9 @@ fn durable_inrou_egress_checkpoint_recovers_precharge_and_rejects_deletion() -> 
     let recovered = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         Some(HostedHttpReporterCheckpointState {
             lease_started_height: 11,
@@ -2438,11 +2432,9 @@ fn durable_inrou_egress_checkpoint_recovers_precharge_and_rejects_deletion() -> 
     InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         Some(HostedHttpReporterCheckpointState {
             lease_started_height: 11,
@@ -2462,11 +2454,9 @@ fn durable_inrou_egress_checkpoint_separates_leases_epochs_and_placements() -> R
     let first = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
@@ -2474,33 +2464,27 @@ fn durable_inrou_egress_checkpoint_separates_leases_epochs_and_placements() -> R
     let renewed = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        12,
-        17,
+        (12, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
     let second = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        18,
+        (11, 18),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
     let replacement = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-2"),
+        (1, &Hash::new(b"placement-2")),
         &ALICE_ID,
         None,
     )?;
@@ -2514,11 +2498,9 @@ fn durable_inrou_egress_checkpoint_separates_leases_epochs_and_placements() -> R
     InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        19,
+        (11, 19),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         Some(HostedHttpReporterCheckpointState {
             lease_started_height: 11,
@@ -2538,11 +2520,9 @@ fn durable_inrou_egress_persistence_failure_exposes_no_response_bytes() -> Resul
     let durable = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
@@ -2589,11 +2569,9 @@ fn durable_inrou_egress_checkpoint_rejects_rollback_and_corruption() -> Result<(
     let durable = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )?;
@@ -2604,11 +2582,9 @@ fn durable_inrou_egress_checkpoint_rejects_rollback_and_corruption() -> Result<(
     InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         Some(HostedHttpReporterCheckpointState {
             lease_started_height: 11,
@@ -2622,11 +2598,9 @@ fn durable_inrou_egress_checkpoint_rejects_rollback_and_corruption() -> Result<(
     InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         Some(HostedHttpReporterCheckpointState {
             lease_started_height: 11,
@@ -2652,11 +2626,9 @@ fn durable_inrou_egress_checkpoint_rejects_symlinked_state_ancestor() -> Result<
     let error = InrouDurableEgressCheckpoint::load_or_create(
         &state_link,
         "portal",
-        11,
-        17,
+        (11, 17),
         "1.0.0",
-        1,
-        &Hash::new(b"placement-1"),
+        (1, &Hash::new(b"placement-1")),
         &ALICE_ID,
         None,
     )
@@ -2673,7 +2645,7 @@ fn durable_inrou_egress_checkpoint_rejects_symlinked_state_ancestor() -> Result<
 }
 #[test]
 fn durable_inrou_egress_gc_rejects_active_rollout() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     let mut deployment = sample_deployment_state(&bundle);
     deployment.active_rollout = Some(SoraServiceRolloutStateV1 {
@@ -2718,7 +2690,7 @@ fn durable_inrou_egress_gc_rejects_active_rollout() -> Result<()> {
 #[cfg(unix)]
 #[test]
 fn durable_inrou_egress_gc_removes_retired_revision_reporter_file() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     let mut deployment = sample_deployment_state(&bundle);
     let lease = deployment
@@ -2764,11 +2736,9 @@ fn durable_inrou_egress_gc_removes_retired_revision_reporter_file() -> Result<()
     let retired = InrouDurableEgressCheckpoint::load_or_create(
         &state_dir,
         bundle.service.service_name.as_ref(),
-        1,
-        1,
+        (1, 1),
         retired_version,
-        1,
-        &placement_incarnation,
+        (1, &placement_incarnation),
         &ALICE_ID,
         None,
     )?;
@@ -3014,7 +2984,7 @@ fn soracloud_completed_json_decode_refusal_stays_unavailable_without_mailbox_fai
         )
         .expect_err("actual completed JSON output decoder must honor enclosing quota");
         assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
-        let error = ordered_mailbox_output_failure(request.clone(), error)
+        let error = ordered_mailbox_output_failure(&request, error)
             .expect_err("local decoder refusal must never create a deterministic mailbox receipt");
         assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
         assert_eq!(pool.reserved_bytes(), baseline);
@@ -3077,7 +3047,7 @@ fn soracloud_public_input_json_refusal_is_local_and_retryable() -> Result<()> {
             error,
             VMError::ExecutionDeferred(ivm::ExecutionDeferral::ActiveMemoryCapacity)
         ));
-        let error = ordered_mailbox_vm_failure(request.clone(), &error)
+        let error = ordered_mailbox_vm_failure(&request, &error)
             .expect_err("public-input refusal cannot create a deterministic mailbox receipt");
         assert_eq!(error.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
         assert_eq!(pool.reserved_bytes(), baseline);
@@ -3107,7 +3077,7 @@ fn soracloud_public_input_json_refusal_is_local_and_retryable() -> Result<()> {
         let invalid = ivm::pointer_abi::encode_tlv(PointerType::Json, &invalid_frame)?;
         let invalid = json_value_from_tlv(&invalid).expect_err("corrupt framing stays terminal");
         assert!(matches!(invalid, VMError::DecodeError));
-        assert!(ordered_mailbox_vm_failure(request.clone(), &invalid).is_ok());
+        assert!(ordered_mailbox_vm_failure(&request, &invalid).is_ok());
         Ok::<_, eyre::Report>(())
     })?;
     drop(context);

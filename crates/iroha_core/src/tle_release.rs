@@ -594,6 +594,10 @@ pub(crate) mod tests {
     use super::*;
     pub(crate) use iroha_core_timed_ovn::tle::test_fixtures::*;
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the authorized release context owns the supplied identity"
+    )]
     fn authorized_context(
         session: ValidatedTleKeySessionV1,
         identity: TleReleaseIdentityV1,
@@ -703,7 +707,7 @@ pub(crate) mod tests {
         };
         let crypto_session = session.rebuild(&tle_key).expect("timed-OVN session");
         let mut rng = StdRng::from_seed([0x74; 32]);
-        let participant_hashes = opening_attempt
+        let mut registrations = opening_attempt
             .body(&body_instance_id)
             .expect("fixture ballot body")
             .assignments()
@@ -711,9 +715,6 @@ pub(crate) mod tests {
             .map(|assignment| {
                 parliament_ballot_participant_hash_v1(ballot_attempt_id, &assignment.member)
             })
-            .collect::<Vec<_>>();
-        let mut registrations = participant_hashes
-            .into_iter()
             .map(|participant_hash| {
                 let (secret, registration) = TimedOvnRegistrationSecretV1::generate_with_rng(
                     &crypto_session,

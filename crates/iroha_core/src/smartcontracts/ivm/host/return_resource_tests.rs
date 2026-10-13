@@ -3,7 +3,9 @@
 use super::CoreHost;
 use crate::{
     execution_attempt::{ExecutionAttemptError, vm_attempt_error},
-    smartcontracts::ivm::return_value::resource_tests::{funded_return_vm, leave_read_slots},
+    smartcontracts::ivm::return_value::resource_tests::{
+        assert_same_return_error, funded_return_vm, leave_read_slots,
+    },
 };
 use iroha_data_model::smart_contract::entrypoint::{
     EntrypointValueTypeNodeV1, EntrypointValueTypeV1,
@@ -25,7 +27,7 @@ fn nested_return_capture_preserves_read_refusal_and_original_pool_retry() {
     let error = ivm::value_record::capture_completed_return_funded(&vm, &schema, &budget)
         .err()
         .expect("the original VM read capacity refuses capture");
-    assert_eq!(error, expected);
+    assert_same_return_error(&error, &expected);
     assert_eq!(vm.remaining_gas(), gas);
     let attempt = vm_attempt_error(VMError::metered(99, error), |_| {
         panic!("local refusal became rejection")
@@ -33,7 +35,10 @@ fn nested_return_capture_preserves_read_refusal_and_original_pool_retry() {
     let ExecutionAttemptError::Deferred(owner) = attempt else {
         panic!("nested return capacity must preserve an unfinished attempt");
     };
-    assert_eq!(owner.clone().into_vm_error(), expected);
+    let VMError::AllocationDeferred(expected_allocation) = &expected else {
+        panic!("fixture must report its actual pool refusal");
+    };
+    assert_eq!(owner.allocation_refusal(), Some(expected_allocation));
     budget.set_limit_bytes(128 * 1024 * 1024);
     assert_eq!(
         ivm::value_record::capture_completed_return_funded(&vm, &schema, &budget)
@@ -47,7 +52,7 @@ fn nested_return_capture_preserves_read_refusal_and_original_pool_retry() {
     // The retry receipt may outlive every physical allocation and the original
     // budget handle without replacing its release-observation owner.
     drop(budget);
-    assert_eq!(owner.into_vm_error(), expected);
+    assert_same_return_error(&owner.into_vm_error(), &expected);
 }
 
 fn assert_sticky_deferral(error: VMError) {
@@ -56,7 +61,11 @@ fn assert_sticky_deferral(error: VMError) {
         query::store::LiveQueryStore,
         state::{State, World},
     };
-    let expected = crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).unwrap();
+    let expected_reason = error.execution_deferral().unwrap();
+    let VMError::AllocationDeferred(expected) = error.as_unmetered() else {
+        panic!("syscall fixture must retain its original allocation refusal");
+    };
+    let expected = expected.clone();
     let state = State::new_for_testing(
         World::default(),
         Kura::blank_kura_for_testing(),
@@ -73,7 +82,18 @@ fn assert_sticky_deferral(error: VMError) {
     transaction.vm_error_to_validation_fail(VMError::metered(99, error), |_| {
         panic!("local syscall refusal became deterministic rejection")
     });
-    assert_eq!(transaction.execution_deferral(), Some(expected));
+    {
+        let retained = transaction.borrow_execution_deferral().unwrap();
+        assert_eq!(retained.reason(), expected_reason);
+        assert_eq!(retained.allocation_refusal(), Some(&expected));
+    }
+    let owner = transaction.take_execution_deferral().unwrap();
+    assert!(transaction.is_execution_deferred());
+    assert!(transaction.take_execution_deferral().is_none());
+    assert_same_return_error(
+        &owner.into_vm_error(),
+        &VMError::AllocationDeferred(expected),
+    );
     assert_eq!(transaction.last_tx_gas_used, 0);
 }
 
@@ -99,7 +119,7 @@ fn contract_lookup_syscall_preserves_both_actual_tlv_read_refusals() {
         let error = host
             .syscall(syscalls::SYSCALL_QUERY_GET_CONTRACT_INSTANCE, &mut vm)
             .unwrap_err();
-        assert_eq!(error, expected);
+        assert_same_return_error(&error, &expected);
         assert_eq!(vm.register(10), pointer);
         assert_eq!(vm.remaining_gas(), gas);
         assert_sticky_deferral(error);
@@ -136,10 +156,10 @@ fn contract_lookup_dispatch_preserves_current_shapes_and_semantic_errors() {
     ] {
         let envelope = CoreHost::encode_tlv_payload(pointer_type, &payload).unwrap();
         let pointer = vm.alloc_host_tlv(&envelope).unwrap();
-        assert_eq!(
-            CoreHost::decode_contract_instance_lookup(&vm, pointer).err(),
-            Some(expected)
-        );
+        let actual = CoreHost::decode_contract_instance_lookup(&vm, pointer)
+            .err()
+            .expect("malformed lookup must fail");
+        assert_same_return_error(&actual, &expected);
     }
 }
 

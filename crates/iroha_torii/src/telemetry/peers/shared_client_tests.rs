@@ -36,9 +36,11 @@ impl RecordingPeer {
         let stop = shutdown.clone();
         let worker = tokio::spawn(async move {
             let config = Arc::new(config);
-            let mut status = iroha_torii_shared::status::Status::default();
-            status.blocks = 2;
-            status.peers = 3;
+            let status = iroha_torii_shared::status::Status {
+                blocks: 2,
+                peers: 3,
+                ..Default::default()
+            };
             let status = Arc::new(norito::json::to_vec(&status).unwrap());
             let config_count = Arc::new(AtomicUsize::new(0));
             let status_count = Arc::new(AtomicUsize::new(0));

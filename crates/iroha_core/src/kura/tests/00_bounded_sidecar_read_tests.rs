@@ -1,3 +1,41 @@
+// The actual reader must mint this owner before the cumulative scope retires.
+fn bounded_sidecar_original_quota(error: super::Error) -> norito::core::DecodeLocalRefusal {
+    let super::Error::CodecAttempt(error) = error else {
+        panic!("observed sidecar codec refusal required: {error:?}");
+    };
+    let original = error
+        .local_refusal()
+        .expect("actual enclosing scope captured");
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert!(matches!(
+        original.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+    ));
+    let mut retained = None;
+    let allocations = crate::test_allocations::allocations_during(|| {
+        let attempt = crate::execution_attempt::kura_read_attempt_error::<()>(
+            super::Error::CodecAttempt(error),
+            |_| panic!("unfinished sidecar read cannot reject bytes"),
+        );
+        let crate::execution_attempt::ExecutionAttemptError::Deferred(owner) = attempt else {
+            panic!("actual sidecar local refusal");
+        };
+        assert_eq!(owner.decode_refusal(), Some(&original));
+        assert!(owner.allocation_refusal().is_none());
+        assert!(owner.allocator_refusal().is_none());
+        retained = Some(owner.into_vm_error());
+    });
+    assert_eq!(allocations, 0, "original sidecar transport cannot allocate");
+    let ivm::VMError::DecodeDeferred(retained) = retained.unwrap() else {
+        panic!("same original decoder owner crosses VM boundary");
+    };
+    assert_eq!(retained, original);
+    retained
+}
+
 #[test]
 fn stable_bounded_sidecar_read_rejects_post_admission_growth() {
     let root = tempfile::tempdir().expect("create bounded-read root");
@@ -61,29 +99,35 @@ fn stable_bounded_sidecar_read_prepays_exact_raw_buffer_cumulatively() {
         |bound| super::Kura::read_regular_sidecar_bytes_for(root.path(), &path, root.path(), bound);
     let limits =
         |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
-    norito::with_decode_limits_scope(limits(0), || {
-        assert!(matches!(
-            read(bytes.len()),
-            Err(super::Error::NoritoFrame(
-                norito::Error::TotalAllocationExceeded {
-                    attempted: 64,
-                    limit: 0,
-                }
-            ))
-        ));
+    let first = norito::with_decode_limits_scope(limits(0), || {
+        bounded_sidecar_original_quota(read(bytes.len()).unwrap_err())
     });
+    assert_eq!(
+        first.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted: 64,
+            limit: 0
+        }
+    );
+    let fresh = norito::with_decode_limits_scope(limits(0), || {
+        bounded_sidecar_original_quota(read(bytes.len()).unwrap_err())
+    });
+    assert_eq!(first.resource_error(), fresh.resource_error());
+    assert_ne!(
+        first, fresh,
+        "fresh reads retain distinct original scopes after retirement"
+    );
     norito::with_decode_limits_scope(limits(bytes.len()), || {
         assert!(read(bytes.len() - 1).is_err());
         assert_eq!(read(bytes.len()).unwrap().unwrap(), bytes);
-        assert!(matches!(
-            read(bytes.len()),
-            Err(super::Error::NoritoFrame(
-                norito::Error::TotalAllocationExceeded {
-                    attempted: 128,
-                    limit: 64,
-                }
-            ))
-        ));
+        let original = bounded_sidecar_original_quota(read(bytes.len()).unwrap_err());
+        assert_eq!(
+            original.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted: 128,
+                limit: 64
+            }
+        );
     });
     assert_eq!(read(bytes.len()).unwrap().unwrap(), bytes);
 }
@@ -91,7 +135,6 @@ fn stable_bounded_sidecar_read_prepays_exact_raw_buffer_cumulatively() {
 #[test]
 fn stable_bounded_sidecar_read_charges_original_commit_marker_before_decode() {
     const PROBE_LIMIT: usize = 1024 * 1024;
-
     let root = tempfile::tempdir().expect("create bounded-marker root");
     let mut store = super::BlockStore::new(root.path());
     store.create_files_if_they_do_not_exist().unwrap();
@@ -99,13 +142,15 @@ fn stable_bounded_sidecar_read_charges_original_commit_marker_before_decode() {
     let limits =
         |allocation| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64);
     norito::with_decode_limits_scope(limits(0), || {
-        assert!(matches!(
-            store.read_exact_durable_index_count(),
-            Err(super::Error::NoritoFrame(norito::Error::TotalAllocationExceeded {
-                attempted,
-                limit: 0,
-            })) if attempted == raw_length
-        ));
+        let original =
+            bounded_sidecar_original_quota(store.read_exact_durable_index_count().unwrap_err());
+        assert_eq!(
+            original.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted: raw_length,
+                limit: 0
+            }
+        );
     });
     // Measure the real typed marker decoder as well as its raw frame. The test must not
     // invent the current codec's allocation cost or reset the inherited budget per read.
@@ -121,20 +166,10 @@ fn stable_bounded_sidecar_read_charges_original_commit_marker_before_decode() {
     norito::with_decode_limits_scope(limits(exact * 2), || {
         assert_eq!(store.read_exact_durable_index_count().unwrap(), 0);
         assert_eq!(store.read_exact_durable_index_count().unwrap(), 0);
-        assert!(matches!(
-            store.read_exact_durable_index_count(),
-            Err(super::Error::NoritoFrame(
-                norito::Error::TotalAllocationExceeded { .. }
-            ))
-        ));
+        bounded_sidecar_original_quota(store.read_exact_durable_index_count().unwrap_err());
     });
     norito::with_decode_limits_scope(limits(exact - 1), || {
-        assert!(matches!(
-            store.read_exact_durable_index_count(),
-            Err(super::Error::NoritoFrame(
-                norito::Error::TotalAllocationExceeded { .. }
-            ))
-        ));
+        bounded_sidecar_original_quota(store.read_exact_durable_index_count().unwrap_err());
     });
     assert_eq!(store.read_exact_durable_index_count().unwrap(), 0);
 }

@@ -478,19 +478,22 @@ mod tests {
     use super::*;
     #[test]
     fn pow10_widths_pin_scale_boundaries() {
-        assert_eq!(pow10_bit_length(0), Ok(1));
-        assert_eq!(pow10_bit_length(19), Ok(64));
-        assert_eq!(pow10_bit_length(28), Ok(94));
-        assert_eq!(pow10_bit_length(56), Ok(187));
-        assert_eq!(pow10_limbs(28), Ok(2));
-        assert_eq!(pow10_limbs(56), Ok(3));
-        assert_eq!(pow10_bit_length(57), Err(VMError::GasCostOverflow));
-        assert_eq!(power_construction_work(0), Ok(0));
-        assert_eq!(power_construction_work(1), Ok(1));
-        assert_eq!(power_construction_work(19), Ok(19));
-        assert_eq!(power_construction_work(20), Ok(20));
-        assert_eq!(power_construction_work(28), Ok(36));
-        assert_eq!(power_construction_work(56), Ok(109));
+        assert!(matches!(pow10_bit_length(0), Ok(1)));
+        assert!(matches!(pow10_bit_length(19), Ok(64)));
+        assert!(matches!(pow10_bit_length(28), Ok(94)));
+        assert!(matches!(pow10_bit_length(56), Ok(187)));
+        assert!(matches!(pow10_limbs(28), Ok(2)));
+        assert!(matches!(pow10_limbs(56), Ok(3)));
+        assert!(matches!(
+            pow10_bit_length(57),
+            Err(VMError::GasCostOverflow)
+        ));
+        assert!(matches!(power_construction_work(0), Ok(0)));
+        assert!(matches!(power_construction_work(1), Ok(1)));
+        assert!(matches!(power_construction_work(19), Ok(19)));
+        assert!(matches!(power_construction_work(20), Ok(20)));
+        assert!(matches!(power_construction_work(28), Ok(36)));
+        assert!(matches!(power_construction_work(56), Ok(109)));
     }
     #[test]
     fn every_v1_limb_boundary_has_exact_monotonic_work() {
@@ -507,10 +510,14 @@ mod tests {
             let expected_additive_work = 3 * expected_limbs + 2;
             let expected_additive_gas = 12 * expected_limbs + 8;
             assert_eq!(
-                checked_int_additive_work(expected_limbs, 1),
-                Ok(expected_additive_work),
+                (checked_int_additive_work(expected_limbs, 1))
+                    .expect("expected successful fixture result"),
+                expected_additive_work
             );
-            assert_eq!(work_gas(expected_additive_work), Ok(expected_additive_gas));
+            assert_eq!(
+                (work_gas(expected_additive_work)).expect("expected successful fixture result"),
+                expected_additive_gas
+            );
             if let Some(previous) = previous_additive_work {
                 assert_eq!(expected_additive_work - previous, 3);
             }
@@ -524,172 +531,203 @@ mod tests {
             }
         }
         assert_eq!(MAX_VALUE_LIMBS, 8);
-        assert_eq!(scaled_limbs(511, 28), Ok(10));
-        assert_eq!(scaled_limbs(511, 56), Ok(11));
+        assert!(matches!(scaled_limbs(511, 28), Ok(10)));
+        assert!(matches!(scaled_limbs(511, 56), Ok(11)));
     }
     #[test]
     fn frame_validation_accounts_for_structural_and_body_passes_without_transport_double_counting()
     {
-        assert_eq!(numeric_frame_validation_work(0), Ok(2));
-        assert_eq!(numeric_frame_validation_phase_work(1), Ok((1, 1)));
-        assert_eq!(numeric_frame_validation_phase_work(8), Ok((1, 1)));
-        assert_eq!(numeric_frame_validation_phase_work(9), Ok((2, 1)));
-        assert_eq!(numeric_frame_validation_phase_work(44), Ok((6, 1)));
-        assert_eq!(numeric_frame_validation_work(44), Ok(7));
-        assert_eq!(numeric_frame_validation_phase_work(109), Ok((14, 9)));
-        assert_eq!(envelope_tail_bytes(44), Ok(76));
-        assert_eq!(payload_hash_gas(44), Ok(76));
-        assert_eq!(payload_hash_gas(108), Ok(140));
-        assert_eq!(output_serialization_gas(83, 44), Ok(171));
-        assert_eq!(output_serialization_gas(147, 108), Ok(363));
+        assert!(matches!(numeric_frame_validation_work(0), Ok(2)));
+        assert_eq!(
+            (numeric_frame_validation_phase_work(1)).expect("expected successful fixture result"),
+            (1, 1)
+        );
+        assert_eq!(
+            (numeric_frame_validation_phase_work(8)).expect("expected successful fixture result"),
+            (1, 1)
+        );
+        assert_eq!(
+            (numeric_frame_validation_phase_work(9)).expect("expected successful fixture result"),
+            (2, 1)
+        );
+        assert_eq!(
+            (numeric_frame_validation_phase_work(44)).expect("expected successful fixture result"),
+            (6, 1)
+        );
+        assert!(matches!(numeric_frame_validation_work(44), Ok(7)));
+        assert_eq!(
+            (numeric_frame_validation_phase_work(109)).expect("expected successful fixture result"),
+            (14, 9)
+        );
+        assert!(matches!(envelope_tail_bytes(44), Ok(76)));
+        assert!(matches!(payload_hash_gas(44), Ok(76)));
+        assert!(matches!(payload_hash_gas(108), Ok(140)));
+        assert!(matches!(output_serialization_gas(83, 44), Ok(171)));
+        assert!(matches!(output_serialization_gas(147, 108), Ok(363)));
     }
     #[test]
     fn scaled_limb_bound_covers_decimal_power_boundary_products() {
-        assert_eq!(scaled_limbs(0, 28), Ok(1));
-        assert_eq!(scaled_limbs(64, 0), Ok(1));
-        assert_eq!(scaled_limbs(65, 0), Ok(2));
+        assert!(matches!(scaled_limbs(0, 28), Ok(1)));
+        assert!(matches!(scaled_limbs(64, 0), Ok(1)));
+        assert!(matches!(scaled_limbs(65, 0), Ok(2)));
         // (2^61 - 1) * 10 has 65 bits. Using
         // `value_bits + bit_length(10) - 1` would incorrectly charge one limb.
-        assert_eq!(scaled_limbs(61, 1), Ok(2));
-        assert_eq!(scaled_limbs(60, 1), Ok(1));
+        assert!(matches!(scaled_limbs(61, 1), Ok(2)));
+        assert!(matches!(scaled_limbs(60, 1), Ok(1)));
     }
     #[test]
     fn multiplication_and_scale_intermediates_exceed_value_width() {
-        assert_eq!(multiplication_work(8, 8), Ok(64));
-        assert_eq!(aligned_work(511, 28, 10, 1, 0, 1), Ok(63));
-        assert_eq!(aligned_work(0, 28, 1, 1, 0, 1), Ok(3));
+        assert!(matches!(multiplication_work(8, 8), Ok(64)));
+        assert!(matches!(aligned_work(511, 28, 10, 1, 0, 1), Ok(63)));
+        assert!(matches!(aligned_work(0, 28, 1, 1, 0, 1), Ok(3)));
         assert_eq!(MAX_PRODUCT_SCALE, 56);
         assert_eq!(MAX_PRODUCT_LIMBS, 16);
     }
     #[test]
     fn division_formula_pins_all_width_branches() {
-        assert_eq!(division_work(1, 2), Ok(5));
-        assert_eq!(division_work(1, 1), Ok(3));
-        assert_eq!(division_work(8, 3), Ok(29));
-        assert_eq!(division_work(10, 8), Ok(42));
-        assert_eq!(division_attempt_work(511, 28, 10, 1, 0, 1), Ok(94));
-        assert_eq!(division_attempt_work(511, 56, 11, 1, 0, 1), Ok(179));
-        assert_eq!(division_attempt_work(0, 28, 1, 1, 0, 1), Ok(7));
+        assert!(matches!(division_work(1, 2), Ok(5)));
+        assert!(matches!(division_work(1, 1), Ok(3)));
+        assert!(matches!(division_work(8, 3), Ok(29)));
+        assert!(matches!(division_work(10, 8), Ok(42)));
+        assert!(matches!(
+            division_attempt_work(511, 28, 10, 1, 0, 1),
+            Ok(94)
+        ));
+        assert!(matches!(
+            division_attempt_work(511, 56, 11, 1, 0, 1),
+            Ok(179)
+        ));
+        assert!(matches!(division_attempt_work(0, 28, 1, 1, 0, 1), Ok(7)));
     }
     #[test]
     fn quotient_remainder_formula_covers_derived_remainder_work() {
-        assert_eq!(quotient_limb_bound(1, 2), Ok(1));
-        assert_eq!(quotient_limb_bound(8, 3), Ok(6));
-        assert_eq!(quotient_remainder_work(1, 2), Ok(8));
-        assert_eq!(quotient_remainder_work(1, 1), Ok(5));
-        assert_eq!(quotient_remainder_work(8, 3), Ok(55));
-        assert_eq!(quotient_remainder_work(10, 8), Ok(76));
-        assert_eq!(rounded_division_work(1, 1), Ok(13));
-        assert_eq!(rounded_division_work(2, 1), Ok(18));
-        assert_eq!(rounded_division_work(10, 8), Ok(114));
-        assert_eq!(rounded_division_work(11, 1), Ok(63));
-        assert_eq!(classification_prepare_work(8, 3), Ok(14));
+        assert!(matches!(quotient_limb_bound(1, 2), Ok(1)));
+        assert!(matches!(quotient_limb_bound(8, 3), Ok(6)));
+        assert!(matches!(quotient_remainder_work(1, 2), Ok(8)));
+        assert!(matches!(quotient_remainder_work(1, 1), Ok(5)));
+        assert!(matches!(quotient_remainder_work(8, 3), Ok(55)));
+        assert!(matches!(quotient_remainder_work(10, 8), Ok(76)));
+        assert!(matches!(rounded_division_work(1, 1), Ok(13)));
+        assert!(matches!(rounded_division_work(2, 1), Ok(18)));
+        assert!(matches!(rounded_division_work(10, 8), Ok(114)));
+        assert!(matches!(rounded_division_work(11, 1), Ok(63)));
+        assert!(matches!(classification_prepare_work(8, 3), Ok(14)));
         assert_eq!(finalization_work(16), 16);
     }
     #[test]
     fn integer_domain_and_wrapping_passes_are_pinned() {
-        assert_eq!(checked_int_unary_work(8), Ok(26));
-        assert_eq!(checked_int_additive_work(8, 8), Ok(26));
-        assert_eq!(checked_int_multiplication_work(8, 8), Ok(96));
-        assert_eq!(checked_int_division_work(10, 8), Ok(98));
-        assert_eq!(wrapping_unary_work(8), Ok(17));
-        assert_eq!(wrapping_additive_work(8, 8), Ok(17));
-        assert_eq!(wrapping_multiplication_work(8, 8), Ok(80));
-        assert_eq!(wrapping_reduction_work(9), Ok(41));
-        assert_eq!(wrapping_reduction_work(16), Ok(48));
+        assert!(matches!(checked_int_unary_work(8), Ok(26)));
+        assert!(matches!(checked_int_additive_work(8, 8), Ok(26)));
+        assert!(matches!(checked_int_multiplication_work(8, 8), Ok(96)));
+        assert!(matches!(checked_int_division_work(10, 8), Ok(98)));
+        assert!(matches!(wrapping_unary_work(8), Ok(17)));
+        assert!(matches!(wrapping_additive_work(8, 8), Ok(17)));
+        assert!(matches!(wrapping_multiplication_work(8, 8), Ok(80)));
+        assert!(matches!(wrapping_reduction_work(9), Ok(41)));
+        assert!(matches!(wrapping_reduction_work(16), Ok(48)));
     }
     #[test]
     fn observed_steps_map_to_stable_work_formulas() {
-        assert_eq!(
+        assert!(matches!(
             work_step_gas(NumericWorkStep::Compare {
                 lhs_limbs: 8,
                 rhs_limbs: 1
             }),
             Ok(32)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::CanonicalityProbe {
                 mantissa_limbs: 3,
                 scale: 28,
             }),
             Ok(52)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::ScaleByPowerOfTen {
                 value_limbs: 8,
                 exponent: 56,
             }),
             Ok(532)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::Materialize { value_limbs: 8 }),
             Ok(32)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::Multiply {
                 lhs_limbs: 8,
                 rhs_limbs: 8,
             }),
             Ok(256)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::Normalize {
                 mantissa_limbs: 3,
                 remaining_scale: 28,
             }),
             Ok(52)
-        );
-        assert_eq!(
-            work_step_gas(NumericWorkStep::Normalize {
-                mantissa_limbs: 16,
-                remaining_scale: 56,
-            }),
-            Ok(260),
+        ));
+        assert!(
+            matches!(
+                work_step_gas(NumericWorkStep::Normalize {
+                    mantissa_limbs: 16,
+                    remaining_scale: 56,
+                }),
+                Ok(260)
+            ),
             "a maximum-width multiplication intermediate is pinned explicitly"
         );
-        assert_eq!(
+        assert!(matches!(
             work_step_gas(NumericWorkStep::ExactDivisionAttempt {
                 numerator_limbs: 8,
                 denominator_limbs: 3,
                 output_scale: 28,
             }),
             Ok(220)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::RoundedDivision {
                 numerator_limbs: 2,
                 denominator_limbs: 1,
                 output_scale: 28,
             }),
             Ok(72)
-        );
-        assert_eq!(
-            work_step_gas(NumericWorkStep::RoundedDivision {
-                numerator_limbs: 11,
-                denominator_limbs: 1,
-                output_scale: 28,
-            }),
-            Ok(252),
+        ));
+        assert!(
+            matches!(
+                work_step_gas(NumericWorkStep::RoundedDivision {
+                    numerator_limbs: 11,
+                    denominator_limbs: 1,
+                    output_scale: 28,
+                }),
+                Ok(252)
+            ),
             "the maximum scale-adjusted dividend reaches eleven limbs"
         );
-        assert_eq!(
+        assert!(matches!(
             work_step_gas(NumericWorkStep::DivisionClassificationPrepare {
                 numerator_limbs: 8,
                 denominator_limbs: 3,
             }),
             Ok(56)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             work_step_gas(NumericWorkStep::Finalize { value_limbs: 16 }),
             Ok(64)
-        );
+        ));
     }
     #[test]
     fn checked_formulas_reject_host_integer_overflow() {
-        assert_eq!(checked_add(u64::MAX, 1), Err(VMError::GasCostOverflow));
-        assert_eq!(checked_mul(u64::MAX, 2), Err(VMError::GasCostOverflow));
-        assert_eq!(work_gas(u64::MAX), Err(VMError::GasCostOverflow));
-        assert_eq!(
+        assert!(matches!(
+            checked_add(u64::MAX, 1),
+            Err(VMError::GasCostOverflow)
+        ));
+        assert!(matches!(
+            checked_mul(u64::MAX, 2),
+            Err(VMError::GasCostOverflow)
+        ));
+        assert!(matches!(work_gas(u64::MAX), Err(VMError::GasCostOverflow)));
+        assert!(matches!(
             successful_call_gas(SuccessfulCallGas {
                 input_envelope_bytes: u64::MAX,
                 input_hash_frame_bytes: 1,
@@ -701,12 +739,12 @@ mod tests {
                 normalization_limb_work: 0,
             }),
             Err(VMError::GasCostOverflow)
-        );
+        ));
     }
     #[test]
     fn zero_work_is_not_artificially_rounded_up() {
-        assert_eq!(work_gas(0), Ok(0));
-        assert_eq!(
+        assert!(matches!(work_gas(0), Ok(0)));
+        assert!(matches!(
             successful_call_gas(SuccessfulCallGas {
                 input_envelope_bytes: 39,
                 input_hash_frame_bytes: 0,
@@ -718,6 +756,6 @@ mod tests {
                 normalization_limb_work: 0,
             }),
             Ok(423)
-        );
+        ));
     }
 }

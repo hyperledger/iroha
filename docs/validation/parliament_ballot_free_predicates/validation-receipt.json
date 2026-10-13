@@ -1,0 +1,47 @@
+{
+  "checks": [
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_free_predicates_test.py"
+      ],
+      "exit_code": 0,
+      "output": "tests.txt",
+      "output_sha256": "e6c680704f15ad8291019713db289ae8f4d61e948ea0f7a2d659f35ab39d4119"
+    },
+    {
+      "command": [
+        "/opt/homebrew/opt/python@3.11/bin/python3.11",
+        "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_free_predicates.py",
+        "--output",
+        "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_free_predicates/analysis"
+      ],
+      "exit_code": 0,
+      "output": "analysis.txt",
+      "output_sha256": "7228ba75df79d914a3c2c73ff86abf61e9cc5f1e1e4a73ea00d80ccf01190413"
+    }
+  ],
+  "complete_workspace_certificate": false,
+  "guarded_input_count": 43,
+  "helper_sha256": "f276c277f771b35a816906d573c7dde55588d0a9e183ba38c230b49e1ba0bea3",
+  "input_changes": {},
+  "observed_at_utc": "2026-10-13T09:28:07.987671+00:00",
+  "peer_review": {
+    "repaired_findings": [
+      "Preserve the allocator entry x0 before labeling a later copy as the ABI input pointer.",
+      "Prove that capacity and pointer loads use the original container base, including alternate capacity reloads."
+    ],
+    "reviewed_helper_sha256": "f276c277f771b35a816906d573c7dde55588d0a9e183ba38c230b49e1ba0bea3",
+    "reviewed_test_sha256": "d3cc3f50dc64d24e721e1ed44c755d29856a80dd3f1cd07ee36d580bb07ed948",
+    "reviewer": "independent sibling ownership agent",
+    "verdict": "No further actionable finding under the explicit local/ordinary-call scope."
+  },
+  "profile_qualified": false,
+  "report_sha256": "82a1a643841c67bd15bfba1bb86d0160264a89d43129329a3623453996676266",
+  "schema": "parliament-free-predicates-validation-v1",
+  "test_sha256": "d3cc3f50dc64d24e721e1ed44c755d29856a80dd3f1cd07ee36d580bb07ed948",
+  "unit_tests_passed": 32
+}

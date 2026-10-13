@@ -189,7 +189,6 @@ fn actual_alias_transfer_primary_change_insert_delete_noop_and_absent_history() 
                 .publication_identity()
         ]
     );
-    drop(original);
     drop(snapshot);
     drop(block);
     // Deletion leaves its real prior alias/account/bucket available for validation.

@@ -1836,7 +1836,7 @@ impl TransactionGossiper {
                         batch_public_keys,
                         &mut scratch,
                     )
-                    .map_or_else(|| (0, err.to_string()), |bad| bad)
+                    .unwrap_or_else(|| (0, err.to_string()))
                 });
                 match batch_result {
                     Ok(()) => prechecked_indices.extend(batch.iter().map(|item| item.idx)),
@@ -2048,21 +2048,21 @@ impl TransactionGossiper {
         let txs = &gossip.txs;
         let routes = &gossip.routes;
         let plans = &gossip.plans;
-        let plane = gossip.plane;
+        let gossip_plane = gossip.plane;
         iroha_logger::debug!(size = txs.len(), "received transaction gossip batch");
         let batch_txs = txs.len();
-        if self.reject_oversized_incoming_batch(plane, batch_txs) {
+        if self.reject_oversized_incoming_batch(gossip_plane, batch_txs) {
             return;
         }
         if routes.is_empty() {
             iroha_logger::warn!("dropping transaction gossip without routing metadata");
             self.record_drop_metric(
-                plane,
+                gossip_plane,
                 DataSpaceId::UNIVERSAL,
                 &[],
                 "missing_routes",
                 &[],
-                self.target_cap_for_plane(plane),
+                self.target_cap_for_plane(gossip_plane),
                 batch_txs,
                 0,
             );
@@ -2085,12 +2085,12 @@ impl TransactionGossiper {
                 "dropping transaction gossip with unpaired routing metadata"
             );
             self.record_drop_metric(
-                plane,
+                gossip_plane,
                 DataSpaceId::UNIVERSAL,
                 &[],
                 reason,
                 &[],
-                self.target_cap_for_plane(plane),
+                self.target_cap_for_plane(gossip_plane),
                 batch_txs,
                 0,
             );
@@ -2128,12 +2128,12 @@ impl TransactionGossiper {
             let Some(route) = routes.get(idx).copied() else {
                 iroha_logger::warn!("route metadata missing for transaction gossip entry");
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     DataSpaceId::UNIVERSAL,
                     &[],
                     "missing_route_entry",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2142,12 +2142,12 @@ impl TransactionGossiper {
             let Some(advertised_plan) = plans.get(idx).cloned() else {
                 iroha_logger::warn!("routing plan metadata missing for transaction gossip entry");
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "missing_plan_entry",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2166,12 +2166,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to route/plan coordinator mismatch"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "route_plan_mismatch",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2188,12 +2188,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to invalid route"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2212,12 +2212,12 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to invalid routing plan"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2237,64 +2237,66 @@ impl TransactionGossiper {
                     "dropping transaction gossip entry due to unknown dataspace"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "unknown_dataspace",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             };
-            if plane == GossipPlane::Restricted && route.dataspace_id == DataSpaceId::UNIVERSAL {
+            if gossip_plane == GossipPlane::Restricted
+                && route.dataspace_id == DataSpaceId::UNIVERSAL
+            {
                 iroha_logger::warn!(
                     lane_id = %route.lane_id,
                     "restricted plane reported universal dataspace; dropping entry"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "restricted_universal_dataspace",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             }
-            if expected_plane != plane {
+            if expected_plane != gossip_plane {
                 iroha_logger::warn!(
                     lane_id = %route.lane_id,
                     dataspace_id = %route.dataspace_id,
-                    plane = ?plane,
+                    plane = ?gossip_plane,
                     expected_plane = ?expected_plane,
                     "dropping transaction gossip entry due to plane mismatch"
                 );
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     "plane_mismatch",
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
                 continue;
             }
-            if plane == GossipPlane::Restricted
+            if gossip_plane == GossipPlane::Restricted
                 && let Err(reason) = self.validate_restricted_recipient(route)
             {
                 self.record_drop_metric(
-                    plane,
+                    gossip_plane,
                     route.dataspace_id,
                     &[route.lane_id],
                     reason,
                     &[],
-                    self.target_cap_for_plane(plane),
+                    self.target_cap_for_plane(gossip_plane),
                     1,
                     0,
                 );
@@ -2318,12 +2320,12 @@ impl TransactionGossiper {
                         "dropping transaction gossip entry due to invalid entrypoint payload"
                     );
                     self.record_drop_metric(
-                        plane,
+                        gossip_plane,
                         route.dataspace_id,
                         &[route.lane_id],
                         "invalid_entrypoint_payload",
                         &[],
-                        self.target_cap_for_plane(plane),
+                        self.target_cap_for_plane(gossip_plane),
                         1,
                         0,
                     );
@@ -2357,12 +2359,12 @@ impl TransactionGossiper {
                                     "dropping transaction gossip entry due to unresolved local route"
                                 );
                                 self.record_drop_metric(
-                                    plane,
+                                    gossip_plane,
                                     route.dataspace_id,
                                     &[route.lane_id],
                                     "route_unresolved",
                                     &[],
-                                    self.target_cap_for_plane(plane),
+                                    self.target_cap_for_plane(gossip_plane),
                                     1,
                                     0,
                                 );
@@ -2381,12 +2383,12 @@ impl TransactionGossiper {
                             "dropping transaction gossip entry due to routing mismatch"
                         );
                         self.record_drop_metric(
-                            plane,
+                            gossip_plane,
                             local_route.dataspace_id,
                             &[local_route.lane_id],
                             DROP_REASON_ROUTE_MISMATCH,
                             &[],
-                            self.target_cap_for_plane(plane),
+                            self.target_cap_for_plane(gossip_plane),
                             1,
                             0,
                         );
@@ -2400,12 +2402,12 @@ impl TransactionGossiper {
                             "dropping transaction gossip entry due to routing plan mismatch"
                         );
                         self.record_drop_metric(
-                            plane,
+                            gossip_plane,
                             local_route.dataspace_id,
                             &[local_route.lane_id],
                             DROP_REASON_ROUTE_MISMATCH,
                             &[],
-                            self.target_cap_for_plane(plane),
+                            self.target_cap_for_plane(gossip_plane),
                             1,
                             0,
                         );
@@ -2453,12 +2455,12 @@ impl TransactionGossiper {
                                 "Dropping gossiped transaction rejected by Nexus fee admission"
                             );
                             self.record_drop_metric(
-                                plane,
+                                gossip_plane,
                                 local_route.dataspace_id,
                                 &[local_route.lane_id],
                                 "nexus_fee_rejected",
                                 &[],
-                                self.target_cap_for_plane(plane),
+                                self.target_cap_for_plane(gossip_plane),
                                 1,
                                 0,
                             );
@@ -2475,12 +2477,12 @@ impl TransactionGossiper {
                                 "Dropping gossiped transaction due to invalid Nexus fee configuration"
                             );
                             self.record_drop_metric(
-                                plane,
+                                gossip_plane,
                                 local_route.dataspace_id,
                                 &[local_route.lane_id],
                                 "nexus_fee_config_invalid",
                                 &[],
-                                self.target_cap_for_plane(plane),
+                                self.target_cap_for_plane(gossip_plane),
                                 1,
                                 0,
                             );
@@ -2658,13 +2660,13 @@ fn decode_transaction_gossip_payload(
     let (txs, offset) = decode_bounded_len_prefixed_sequence::<GossipTransaction>(bytes, 0)?;
     let (routes, offset) = decode_bounded_len_prefixed_sequence::<GossipRoute>(bytes, offset)?;
     let (plans, offset) = decode_bounded_len_prefixed_sequence::<RoutingPlan>(bytes, offset)?;
-    let (plane, offset) = decode_len_prefixed_field::<GossipPlane>(bytes, offset)?;
+    let (gossip_plane, offset) = decode_len_prefixed_field::<GossipPlane>(bytes, offset)?;
     Ok((
         TransactionGossip {
             txs,
             routes,
             plans,
-            plane,
+            plane: gossip_plane,
         },
         offset,
     ))
@@ -2811,18 +2813,18 @@ thread_local! {
 }
 #[derive(Default)]
 struct GossipKnownEntrypointHashCache {
-    known: BTreeMap<HashOf<TransactionEntrypoint>, ()>,
+    known: BTreeSet<HashOf<TransactionEntrypoint>>,
 }
 impl GossipKnownEntrypointHashCache {
     fn contains(&self, entrypoint_hash: HashOf<TransactionEntrypoint>) -> bool {
-        self.known.contains_key(&entrypoint_hash)
+        self.known.contains(&entrypoint_hash)
     }
     fn remember(&mut self, entrypoint_hash: HashOf<TransactionEntrypoint>) {
         if self.known.len() >= GOSSIP_KNOWN_ENTRYPOINT_HASH_CACHE_LIMIT {
             // Simple bounded cache: clear when full to keep overhead predictable.
             self.known.clear();
         }
-        self.known.insert(entrypoint_hash, ());
+        self.known.insert(entrypoint_hash);
     }
 }
 thread_local! {
@@ -3099,7 +3101,7 @@ fn gossip_message_encoded_len(
     routes_payload_len: usize,
     plans_payload_len: usize,
 ) -> Option<usize> {
-    let plane_payload_len = gossip_plane_encoded_len()?;
+    let encoded_plane_len = gossip_plane_encoded_len()?;
     let mut total = ncore::len_prefix_len(txs_payload_len).checked_add(txs_payload_len)?;
     total = total
         .checked_add(ncore::len_prefix_len(routes_payload_len))?
@@ -3108,8 +3110,8 @@ fn gossip_message_encoded_len(
         .checked_add(ncore::len_prefix_len(plans_payload_len))?
         .checked_add(plans_payload_len)?;
     total = total
-        .checked_add(ncore::len_prefix_len(plane_payload_len))?
-        .checked_add(plane_payload_len)?;
+        .checked_add(ncore::len_prefix_len(encoded_plane_len))?
+        .checked_add(encoded_plane_len)?;
     Some(total)
 }
 #[allow(single_use_lifetimes)]
@@ -5215,10 +5217,12 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
             },
         ])
         .expect("dataspace catalog");
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.lane_catalog = lane_catalog.clone();
-        nexus.lane_config = LaneGeometry::from_catalog(&lane_catalog);
-        nexus.dataspace_catalog = dataspace_catalog.clone();
+        let nexus = iroha_config::parameters::actual::Nexus {
+            lane_catalog: lane_catalog.clone(),
+            lane_config: LaneGeometry::from_catalog(&lane_catalog),
+            dataspace_catalog: dataspace_catalog.clone(),
+            ..Default::default()
+        };
         let state = Arc::new(State::new_with_nexus_for_testing(
             World::new(),
             nexus,

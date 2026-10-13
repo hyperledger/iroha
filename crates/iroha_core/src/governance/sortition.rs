@@ -18,6 +18,16 @@ pub fn compute_seed(
     out.copy_from_slice(&digest);
     out
 }
+/// Build sortition input = domain || seed || `encode(account_id)`.
+pub fn build_input(domain: &[u8], seed: &[u8; 64], account_id: &AccountId) -> Vec<u8> {
+    use iroha_data_model::Encode;
+    let account_bytes = Encode::encode(account_id);
+    let mut buf = Vec::with_capacity(domain.len() + seed.len() + account_bytes.len());
+    buf.extend_from_slice(domain);
+    buf.extend_from_slice(seed);
+    buf.extend_from_slice(&account_bytes);
+    buf
+}
 #[cfg(test)]
 mod tests {
     use super::compute_seed;
@@ -35,14 +45,4 @@ mod tests {
         let second = compute_seed(&network_id(2), 7, &beacon, b"governance-test");
         assert_ne!(first, second);
     }
-}
-/// Build sortition input = domain || seed || `encode(account_id)`.
-pub fn build_input(domain: &[u8], seed: &[u8; 64], account_id: &AccountId) -> Vec<u8> {
-    use iroha_data_model::Encode;
-    let account_bytes = Encode::encode(account_id);
-    let mut buf = Vec::with_capacity(domain.len() + seed.len() + account_bytes.len());
-    buf.extend_from_slice(domain);
-    buf.extend_from_slice(seed);
-    buf.extend_from_slice(&account_bytes);
-    buf
 }

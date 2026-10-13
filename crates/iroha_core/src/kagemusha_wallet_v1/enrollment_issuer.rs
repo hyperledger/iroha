@@ -214,7 +214,7 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         // it unchanged needs no live provider, worker or signer dependency.
         let terminal = prior
             .as_ref()
-            .is_some_and(|prior| prior.refusal().or(prior.worker_refusal()).is_some());
+            .is_some_and(|prior| prior.refusal().or_else(|| prior.worker_refusal()).is_some());
         if !terminal {
             self.current(&dispatch)?;
         }

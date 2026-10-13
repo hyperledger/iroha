@@ -23,12 +23,20 @@ pub(super) enum ReadPhase {
     BeforeClosed,
     AfterClosed,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "The closed read phase moves its existing plan without another allocation before the native effect boundary"
+)]
 pub(super) enum PrepareNext {
     Reservation,
     Retirement,
     Closing(ClosurePlan),
     Ready,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Read phases return their original inline values without allocating inside bounded native admission"
+)]
 enum ReadResult {
     Prepare(PrepareNext),
     Verified(Option<ClosureFields>),
@@ -77,7 +85,7 @@ impl ClosureInspection<'_, '_> {
             _ => Err(invalid("unsigned publication selected another read phase")),
         }
     }
-    pub(super) fn into_closure(
+    pub(super) fn verify_into_closure(
         &mut self,
         mut history: History,
         successor: &dyn SemanticSuccessor,
@@ -285,14 +293,13 @@ impl UnsignedClosureReadPhase<'_> {
             self.history
                 .verify_unsigned_wallets_with_pass(inspect, pass)?;
             if let (Some(previous), Some(_last)) = (self.history.predecessor(), self.history.last())
+                && previous.retirement.is_none()
             {
-                if previous.retirement.is_none() {
-                    let (authorization, deadline) = self.authorization()?;
-                    authorization.check(self.history.purpose, deadline)?;
-                    self.successor.revalidate()?;
-                    self.history.require_current_with_pass(pass)?;
-                    return Ok(ReadResult::Prepare(PrepareNext::Retirement));
-                }
+                let (authorization, deadline) = self.authorization()?;
+                authorization.check(self.history.purpose, deadline)?;
+                self.successor.revalidate()?;
+                self.history.require_current_with_pass(pass)?;
+                return Ok(ReadResult::Prepare(PrepareNext::Retirement));
             }
         }
         self.after_retirement(inspect, pass)
@@ -350,7 +357,7 @@ impl History {
         successor: &dyn SemanticSuccessor,
         inspector: &mut NativeClosureInspector<'_>,
     ) -> Result<UnsignedClosureVerification> {
-        ClosureInspection::Native(inspector).into_closure(self, successor)
+        ClosureInspection::Native(inspector).verify_into_closure(self, successor)
     }
 }
 

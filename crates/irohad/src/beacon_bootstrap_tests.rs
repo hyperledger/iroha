@@ -14,7 +14,7 @@ fn test_network() -> NetworkId {
 #[test]
 fn rotation_rejects_unadmitted_evidence_before_opening_custody() {
     let mut limits = test_finality_limits();
-    limits.finality_allocated_bytes = 0;
+    limits.allocated_bytes = 0;
     let proof = RotationProofArgs {
         selection_evidence: PathBuf::from("/must-not-open/unadmitted-evidence"),
         network_id: test_network(),
@@ -34,10 +34,10 @@ fn rotation_rejects_unadmitted_evidence_before_opening_custody() {
 
 fn test_finality_limits() -> FinalityLimitsArgs {
     FinalityLimitsArgs {
-        finality_block_bytes: NATIVE_FINALITY_MAX_BLOCK_BYTES,
-        finality_journal_bytes: NATIVE_FINALITY_MAX_JOURNAL_BYTES,
-        finality_block_count: NATIVE_FINALITY_MAX_BLOCK_COUNT,
-        finality_allocated_bytes: 128 * 1024 * 1024,
+        block_bytes: NATIVE_FINALITY_MAX_BLOCK_BYTES,
+        journal_bytes: NATIVE_FINALITY_MAX_JOURNAL_BYTES,
+        block_count: NATIVE_FINALITY_MAX_BLOCK_COUNT,
+        allocated_bytes: 128 * 1024 * 1024,
     }
 }
 
@@ -45,13 +45,13 @@ fn test_finality_limits() -> FinalityLimitsArgs {
 fn finality_admission_rejects_zero_contradictory_and_over_protocol_limits() {
     assert!(test_finality_limits().checked().is_ok());
     let mut limits = test_finality_limits();
-    limits.finality_allocated_bytes = 0;
+    limits.allocated_bytes = 0;
     assert!(matches!(limits.checked(), Err(Error::InvalidInput)));
     let mut limits = test_finality_limits();
-    limits.finality_journal_bytes = limits.finality_block_bytes - 1;
+    limits.journal_bytes = limits.block_bytes - 1;
     assert!(matches!(limits.checked(), Err(Error::InvalidInput)));
     let mut limits = test_finality_limits();
-    limits.finality_block_count = NATIVE_FINALITY_MAX_BLOCK_COUNT + 1;
+    limits.block_count = NATIVE_FINALITY_MAX_BLOCK_COUNT + 1;
     assert!(matches!(limits.checked(), Err(Error::InvalidInput)));
 }
 
@@ -621,31 +621,22 @@ fn every_bootstrap_command_requires_one_explicit_positive_credential_limit() {
 
 #[test]
 fn bootstrap_session_refusal_retains_operation_source_and_last_credential_reader() {
-    use iroha_allocation::{AllocationBudget, AllocationRefusal, release::ReleaseRegistration};
-    use std::task::{Context, Waker};
-
-    let (public, components) = iroha_core::beacon::complete_beacon_dkg_fixture_for_seat_v1(
-        test_network(),
-        Hash::new(b"bootstrap-original-credential-pool").into(),
-        4,
-        4,
-    );
-    let encoded = norito::encode_canonical(&public).unwrap();
     use iroha_core::beacon::credential::{
         ConsensusThresholdCredentialHeaderV1, ConsensusThresholdSecretScalarTripleV1,
         GLOBAL_BEACON_PARTIAL_SIGNER_SLOT_WIRE_ID_V1, GlobalBeaconCredentialEncodeErrorV1,
         PreparedGlobalBeaconCredentialV1,
     };
     const HANDLE: &str = "software://taira/global-beacon/original-pool";
-    // This is the current canonical borrowed credential shape, with an inline
-    // zero scalar triple for length only. The real producer below must reproduce
-    // its exact length; no magic byte overhead or copied observed total is used.
     #[derive(norito::NoritoSerialize)]
     struct ShareShape<'a> {
         public_session: norito::core::PayloadRef<'a, GlobalThresholdBeaconKeySessionV1>,
         signer_index: u16,
         components: norito::core::PayloadRef<'a, ConsensusThresholdSecretScalarTripleV1>,
     }
+
+    use iroha_allocation::{AllocationBudget, AllocationRefusal, release::ReleaseRegistration};
+    use std::task::{Context, Waker};
+
     #[derive(norito::NoritoSerialize, norito::NoritoSchema)]
     #[norito_schema(
         name = "iroha_core::beacon::credential::RuntimeGlobalBeaconSignerCredentialWireV1",
@@ -655,6 +646,17 @@ fn bootstrap_session_refusal_retains_operation_source_and_last_credential_reader
         header: ConsensusThresholdCredentialHeaderV1,
         sessions: Vec<ShareShape<'a>>,
     }
+    let (public, components) = iroha_core::beacon::complete_beacon_dkg_fixture_for_seat_v1(
+        test_network(),
+        Hash::new(b"bootstrap-original-credential-pool").into(),
+        4,
+        4,
+    );
+    let encoded = norito::encode_canonical(&public).unwrap();
+    // This is the current canonical borrowed credential shape, with an inline
+    // zero scalar triple for length only. The real producer below must reproduce
+    // its exact length; no magic byte overhead or copied observed total is used.
+
     let digest =
         global_beacon_partial_signer_public_inventory_digest_v1(public.network_id, &[(&public, 4)])
             .unwrap();

@@ -270,7 +270,7 @@ impl GeneratedServicePolicies {
             .iter()
             .map(|p| p.gateway.qualification.gateway_id)
             .collect();
-        allowed_gateways.sort();
+        allowed_gateways.sort_unstable();
         let recorder = intent.network_role(NetworkRole::ReputationRecorder)?;
         let reputation = ReputationJournalAuthorityPolicyV1 {
             version: REPUTATION_JOURNAL_AUTHORITY_POLICY_VERSION_V1,

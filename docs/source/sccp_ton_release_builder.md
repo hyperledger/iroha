@@ -36,13 +36,24 @@ only a complete test invocation enforces the complete gas baseline.
 
 ## Native fixtures
 
-The builder renders `sccp-test-vectors.gen.tolk` and
-`sccp-cert-vectors.gen.tolk` from the committed `fixtures/sccp` data. These cover
+The builder renders `sccp-test-vectors.gen.tolk`,
+`sccp-cert-vectors.gen.tolk` and `sccp-boc-vectors.gen.tolk` from the committed `fixtures/sccp` data. These cover
 native BLS consensus keys/signatures, finality certificates, committee
 transitions, controls, payloads, commitment trees and history proofs. The
 renderer does not create an independent signature authority or derive a second
 set of expected results. Certificate replay checks use the same fixtures as the
 Rust and Solidity implementations.
+
+`ton_boc_v1.json` contains the actual Rust wallet encoder output: 28 native
+cell graphs and five malformed burn snakes. The Python renderer independently
+checks every cell hash, depth and canonical BoC serialization. The Tolk suite
+imports these BoCs unchanged, re-encodes their native types, and replays
+finalize/void (direct and historical, inline and checkpoint), control, rotation,
+init, bucket deployment, retry, frozen range and burn operations against the
+compiled contracts. Malformed snakes must fail before a wallet debit. Regenerate
+with `cargo test -p iroha_sccp_wallet regenerate_ton_boc_vectors -- --ignored`,
+then run `python3 scripts/ton_sccp_builder.py vectors`; the normal wallet tests
+and builder checks reject drift.
 
 `fixtures/sccp/ton_stateinit_v1.json` binds the compiled code hashes/depths and
 the exact canonical initial data for native committees of sizes 4 and 31. It
@@ -51,6 +62,14 @@ chunks, empty checkpoint storage and derived minter, wallet and bucket
 addresses. `generate_ton_sccp_stateinit_golden.py` independently recomputes cells
 in Python and compares them with the Tolk script's output. Regenerate after a
 contract change; update any affected Rust golden assertions in the same change.
+
+The Rust mirror reads the expected addresses from that fixture. The minter's
+maximum 512-operation graph is bounded by 2,380 cells/790,000 bits; destination
+wallet and bucket fixtures retain 512 receipts each. These admitted capacities
+are priced for 100 years at current TON storage rates. The canonical empty
+minter book is 139 bits; each mandatory child receipt cell is 11 bits. Native
+capacity, lost-ACK, stale-delete and full-graph tests accompany the layout and
+code-hash checks. Component checks do not qualify deployment.
 
 ## Emulator and gas checks
 

@@ -1063,7 +1063,6 @@ impl ProviderIngestFinalizedArchiveReconcileOutcomeV1 {
         self.insertion
     }
     /// Return the exact Kura-bound qualification.
-    #[must_use]
     pub const fn qualification(&self) -> &ProviderIngestFinalizedArchiveQualificationV1 {
         &self.qualification
     }
@@ -3858,7 +3857,9 @@ fn validate_order_transition(
             validated_replication_order_from_record(&previous_record.order_id, previous_record)?;
         let mut current_order =
             validated_replication_order_from_record(&current_record.order_id, current_record)?;
-        current_order.assignments = previous_order.assignments.clone();
+        current_order
+            .assignments
+            .clone_from(&previous_order.assignments);
         if current_order != previous_order {
             return Err(ProviderIngestFinalizedArchiveErrorV1::OrderSubstitution {
                 order_id: current_record.order_id,
@@ -4894,7 +4895,7 @@ fn reconstruct_provider_projection(
             .deltas
             .binary_search_by_key(&provider_id, |delta| delta.provider_id)
         {
-            provider = entry.record.material.deltas[delta_index].next.clone();
+            provider.clone_from(&entry.record.material.deltas[delta_index].next);
         }
         if entry.record.material.key.height == key.height {
             if &entry.record.material.key != key {
@@ -6085,10 +6086,10 @@ fn open_unix_directory_ancestry(
                 source,
             })?;
         if !opened.is_dir()
-            || before.st_dev as u64 != opened.dev()
-            || before.st_ino as u64 != opened.ino()
-            || after.st_dev as u64 != opened.dev()
-            || after.st_ino as u64 != opened.ino()
+            || crate::kura::unix_device_identity(before.st_dev) != opened.dev()
+            || before.st_ino != opened.ino()
+            || crate::kura::unix_device_identity(after.st_dev) != opened.dev()
+            || after.st_ino != opened.ino()
         {
             return Err(ProviderIngestFinalizedArchiveErrorV1::InvalidStorage {
                 path: path.to_path_buf(),
@@ -6536,8 +6537,8 @@ fn read_bounded_archive_file_at_unix(
     );
     let opened_before = file.metadata()?;
     verify_unix_named_file(directory, name, &opened_before, opened_before.len(), 1)?;
-    if before.st_dev as u64 != archive_file_identity(&opened_before).0
-        || before.st_ino as u64 != archive_file_identity(&opened_before).1
+    if crate::kura::unix_device_identity(before.st_dev) != archive_file_identity(&opened_before).0
+        || before.st_ino != archive_file_identity(&opened_before).1
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -6621,7 +6622,7 @@ fn open_writer_lock_file(path: &Path) -> Result<fs::File, ProviderIngestFinalize
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
         options.mode(0o600);
     }
     #[cfg(windows)]
@@ -6779,7 +6780,7 @@ fn read_bounded_archive_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>>
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
     }
     #[cfg(windows)]
     {

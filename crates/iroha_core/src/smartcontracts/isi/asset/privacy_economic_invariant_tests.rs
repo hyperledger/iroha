@@ -446,8 +446,9 @@ fn dropped_transaction_discards_a_faulty_pool_withdrawal() {
 }
 
 // TODO: the checks that follow a verifier call inline have no verifier-fault test: the Orchard,
-// FCMP++, Anonymous PGC and ZK-ACE apply arms of the proof handler, the PGC bootstrap handler
-// and the fee-sponsor allocation handler. Each needs an apply entry point that takes the
-// verified effect, which is a production change of its owner. Recorded in
-// specs/zk_economic_invariants.json as D-HARNESS-NO-SEAM-AFTER-VERIFIER (P.3, P.1) and
-// D-FEE-SPONSOR-NO-VERIFIER-FAULT-TEST (A.3, P.3).
+// FCMP++, Anonymous PGC and ZK-ACE apply arms of the proof handler and the PGC bootstrap handler
+// still need an apply entry point that takes the verified effect, which is a production
+// change of their owner. Recorded in specs/zk_economic_invariants.json as
+// D-HARNESS-NO-SEAM-AFTER-VERIFIER (P.3, P.1). The fee-sponsor capacity and lease
+// boundary is covered separately in world_fee_sponsor_ledger_effect_tests.rs; its
+// genuine proof integration and original codec-refusal propagation remain separate.

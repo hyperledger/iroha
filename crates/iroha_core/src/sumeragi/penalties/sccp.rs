@@ -114,7 +114,22 @@ pub(super) fn action_liability(
         ));
     }
     registration(world, offender, material.start_height)?;
-    Ok(ConsensusSlashLiability::Root(material.start_height))
+    Ok(ConsensusSlashLiability::Root(liability_height(material)))
+}
+
+fn liability_height(material: &SccpForgeryRecordV1) -> u64 {
+    #[cfg(all(test, sumeragi_core_mutation = "HC318"))]
+    {
+        return iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1::parse(
+            &material.evidence.header,
+        )
+        .expect("validated material")
+        .height();
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC318")))]
+    {
+        material.start_height
+    }
 }
 
 /// Plan all captured offenders in the same disposable ordered monetary overlay.
@@ -128,12 +143,21 @@ pub(super) fn plan(
     actions: &mut Vec<NposPenaltyAction>,
 ) -> Result<()> {
     let material = material(&original.key, &original.record)?;
-    let liability = ConsensusSlashLiability::Root(material.start_height);
+    let liability = ConsensusSlashLiability::Root(liability_height(material));
     for (offender, attributed) in material
         .offenders
         .iter()
         .zip(&original.record.attribution.offenders)
     {
+        #[cfg(all(test, sumeragi_core_mutation = "HC319"))]
+        let current = scratch
+            .world
+            .public_lane_validators()
+            .iter()
+            .find(|(_, row)| row.peer_id == attributed.peer_id)
+            .map(|(_, row)| row)
+            .ok_or_else(|| eyre!("late peer map has no registration"))?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC319")))]
         let current = registration(&scratch.world, offender, material.start_height)?;
         let share_keys = index.share_keys(offender.lane_id, &offender.validator);
         let exposure = indexed_slashable_validator_exposure(
@@ -141,7 +165,7 @@ pub(super) fn plan(
             offender.lane_id,
             &offender.validator,
             current,
-            liability,
+            &liability,
             share_keys,
         )
         .wrap_err("failed to compute original SCCP liable exposure")?;
@@ -173,7 +197,7 @@ pub(super) fn plan(
             action.slash_id,
             &action.amount,
             header.creation_time_ms,
-            liability,
+            &liability,
             share_keys,
         )
         .wrap_err("failed to plan original SCCP custody slash")?;

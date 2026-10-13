@@ -100,6 +100,7 @@ fn raw_bytes(bytes: &[u8]) -> Result<&[u8], norito::Error> {
 }
 // Re-encode the existing projection fields without decoding or allocating the unused lane DTO.
 // The zero-length alignment field preserves the original lane type on every architecture.
+#[repr(C)]
 struct LanePayload<'a> {
     bytes: &'a [u8],
     _alignment: [SumeragiLaneState; 0],

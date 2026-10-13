@@ -41,6 +41,7 @@ fn every_amx_coordinator_instruction_rejects_private_execution_before_proof_deco
                     })
                     .collect(),
                 deadline: 8,
+                expires_at_ms: 1_000_000,
                 nonce: [2; 32],
             },
         }

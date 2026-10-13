@@ -82,15 +82,18 @@ fn nested_option_checks_active_bool_and_string_before_return_publication() {
     vm.store_u64(sum, 1).unwrap();
     vm.store_u64(sum + 8, 2).unwrap();
     vm.store_u64(sum + 16, invalid).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     assert!(vm.call_result_word_count().is_err());
     vm.store_u64(sum + 8, 1).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::NoritoInvalid));
+    assert!(matches!(vm.finish_call(), Err(VMError::NoritoInvalid)));
     assert!(vm.call_result_word_count().is_err());
     let valid = blob(&mut vm, "日本語".as_bytes());
     vm.store_u64(sum + 16, valid).unwrap();
     vm.finish_call().unwrap();
-    assert_eq!(vm.public_call_result_word(0), Ok(sum));
+    assert_eq!(
+        (vm.public_call_result_word(0)).expect("expected successful fixture result"),
+        sum
+    );
 }
 
 #[test]
@@ -109,12 +112,12 @@ fn list_requires_exact_capacity_and_validates_only_logical_nested_elements() {
     vm.store_u64(list + 24, u64::MAX).unwrap();
     vm.store_u64(some, 1).unwrap();
     vm.store_u64(some + 8, 2).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     vm.store_u64(list + 8, 2).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     vm.store_u64(some + 8, 1).unwrap();
     vm.store_u64(list, 2).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     assert!(vm.call_result_word_count().is_err());
     vm.store_u64(list, 1).unwrap();
     let before = vm.remaining_gas();
@@ -151,10 +154,13 @@ fn recursive_return_exhausts_each_gas_stage_without_publishing_or_losing_ownersh
     let exact = stages.iter().sum::<u64>();
     for budget in 0..exact {
         vm.set_gas_limit(budget);
-        assert_eq!(vm.finish_call(), Err(VMError::OutOfGas));
+        assert!(matches!(vm.finish_call(), Err(VMError::OutOfGas)));
         assert!(vm.call_result_word_count().is_err());
-        assert_eq!(vm.memory.call_frames.entry_pc(), Ok(0));
-        assert_eq!(vm.memory.active_call_result(0), Ok((table, list)));
+        assert!(matches!(vm.memory.call_frames.entry_pc(), Ok(0)));
+        assert_eq!(
+            (vm.memory.active_call_result(0)).expect("expected successful fixture result"),
+            (table, list)
+        );
         let mut remaining = budget;
         for debit in stages {
             if remaining < debit {
@@ -167,7 +173,10 @@ fn recursive_return_exhausts_each_gas_stage_without_publishing_or_losing_ownersh
     vm.set_gas_limit(exact);
     vm.finish_call().unwrap();
     assert_eq!(vm.remaining_gas(), 0);
-    assert_eq!(vm.public_call_result_word(0), Ok(list));
+    assert_eq!(
+        (vm.public_call_result_word(0)).expect("expected successful fixture result"),
+        list
+    );
 }
 
 #[test]
@@ -178,9 +187,9 @@ fn recursive_return_faults_are_observed_only_after_their_validation_charge() {
     vm.store_u64(table, Memory::INPUT_START).unwrap();
     let header_work = NODE + 2 * WORD;
     vm.set_gas_limit(header_work - 1);
-    assert_eq!(vm.finish_call(), Err(VMError::OutOfGas));
+    assert!(matches!(vm.finish_call(), Err(VMError::OutOfGas)));
     vm.set_gas_limit(header_work);
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     assert_eq!(vm.remaining_gas(), 0);
     assert!(vm.call_result_word_count().is_err());
 
@@ -190,15 +199,18 @@ fn recursive_return_faults_are_observed_only_after_their_validation_charge() {
     vm.store_u64(some + 8, 2).unwrap();
     let active_work = header_work + NODE + WORD;
     vm.set_gas_limit(active_work - 1);
-    assert_eq!(vm.finish_call(), Err(VMError::OutOfGas));
+    assert!(matches!(vm.finish_call(), Err(VMError::OutOfGas)));
     vm.set_gas_limit(active_work);
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     assert_eq!(vm.remaining_gas(), 0);
     assert!(vm.call_result_word_count().is_err());
     vm.store_u64(some + 8, 1).unwrap();
     vm.set_gas_limit(active_work);
     vm.finish_call().unwrap();
-    assert_eq!(vm.public_call_result_word(0), Ok(some));
+    assert_eq!(
+        (vm.public_call_result_word(0)).expect("expected successful fixture result"),
+        some
+    );
 }
 
 #[test]
@@ -217,11 +229,11 @@ fn inactive_sum_and_empty_list_still_require_full_aligned_owned_footprints() {
         vm.store_u64(table, truncated).unwrap();
         vm.store_u64(truncated, 0).unwrap();
         vm.store_u64(truncated + 8, 2).unwrap();
-        assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+        assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
         vm.store_u64(table, truncated + 1).unwrap();
-        assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+        assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
         vm.store_u64(table, Memory::INPUT_START).unwrap();
-        assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+        assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
         assert!(vm.call_result_word_count().is_err());
     }
 }
@@ -251,7 +263,7 @@ fn result_binds_nominal_error_codes_and_success_branch_without_reading_slack() {
     vm.store_u64(sum, 0).unwrap();
     vm.store_u64(sum + 8, 8).unwrap();
     vm.store_u64(sum + 16, u64::MAX).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     vm.store_u64(sum + 8, 7).unwrap();
     vm.finish_call().unwrap();
     let (mut vm, table) = root(schema);
@@ -269,12 +281,12 @@ fn empty_product_requires_initialized_zero_word_and_node_work_is_prepaid() {
         name: "Fixture::Empty".into(),
         fields: vec![],
     }]);
-    assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+    assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
     vm.store_u64(table, 1).unwrap();
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     vm.store_u64(table, 0).unwrap();
     vm.set_gas_limit(crate::call_gas::NODE + crate::call_gas::WORD - 1);
-    assert_eq!(vm.finish_call(), Err(VMError::OutOfGas));
+    assert!(matches!(vm.finish_call(), Err(VMError::OutOfGas)));
     assert!(vm.call_result_word_count().is_err());
     vm.set_gas_limit(crate::call_gas::NODE + crate::call_gas::WORD);
     vm.finish_call().unwrap();
@@ -292,7 +304,7 @@ fn aggregate_headers_and_active_leaves_preserve_private_tags() {
     vm.store_u64(sum + 8, 1).unwrap();
     vm.preflight_memory_store_privacy(sum + 8, 8, true).unwrap();
     vm.record_memory_store_privacy(sum + 8, 8, true);
-    assert_eq!(vm.finish_call(), Err(VMError::PrivacyViolation));
+    assert!(matches!(vm.finish_call(), Err(VMError::PrivacyViolation)));
     assert!(vm.call_result_word_count().is_err());
     vm.store_u64(sum, 0).unwrap();
     vm.finish_call().unwrap();
@@ -329,16 +341,16 @@ fn nested_argument_fault_keeps_caller_frame_and_never_publishes_results() {
     ] {
         vm.registers.set(register, value);
     }
-    assert_eq!(vm.begin_child_call(4), Err(VMError::DecodeError));
-    assert_eq!(vm.memory.call_frames.entry_pc(), Ok(0));
+    assert!(matches!(vm.begin_child_call(4), Err(VMError::DecodeError)));
+    assert!(matches!(vm.memory.call_frames.entry_pc(), Ok(0)));
     assert!(vm.call_result_word_count().is_err());
     vm.store_u64(sum + 8, 1).unwrap();
     vm.begin_child_call(4).unwrap();
-    assert_eq!(vm.memory.call_frames.entry_pc(), Ok(4));
+    assert!(matches!(vm.memory.call_frames.entry_pc(), Ok(4)));
     vm.store_u64(caller + 8, 1).unwrap();
     vm.registers.set(10, caller + 8);
     vm.finish_call().unwrap();
-    assert_eq!(vm.memory.call_frames.entry_pc(), Ok(0));
+    assert!(matches!(vm.memory.call_frames.entry_pc(), Ok(0)));
     assert!(vm.call_result_word_count().is_err());
 }
 
@@ -368,7 +380,7 @@ fn maximum_schema_depth_and_repeated_list_subtrees_use_bounded_continuations() {
     for (index, word) in [2, 2, 1, 0, 0, 2].into_iter().enumerate() {
         vm.store_u64(list + index as u64 * 8, word).unwrap();
     }
-    assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+    assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
     vm.store_u64(list + 40, 1).unwrap();
     vm.finish_call().unwrap();
 }

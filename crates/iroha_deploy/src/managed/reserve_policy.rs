@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        read_optional, read_selected_peers, require_deadline, require_empty,
+        read_optional, read_selected_peers, require_deadline,
     },
     service_authority::{CheckpointImportScope, NetworkPurpose, ServiceAuthority},
 };
@@ -162,7 +162,7 @@ impl ManagedInitialReservePolicy {
     ) -> Result<ManagedReservePolicyProgress> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("set")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "set")?;
         let (original, _) = self.select_intent(&directory, policy, options.deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
@@ -190,12 +190,17 @@ impl ManagedInitialReservePolicy {
             Instant,
         ) -> Result<(FinalityVerifier, VerifiedReservePolicyStateV1)>,
     ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        journal::recover_intent(directory, |original| {
+            original.matches_policy(policy)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_policy(policy)?;
             self.validate_original(&original)?;
             return Ok((original, None));
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = observe(self, policy, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial reserve policy already exists"));
@@ -224,19 +229,21 @@ impl ManagedInitialReservePolicy {
             ));
         }
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("set")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "set")?;
         let (original, mut admission) = self.select_intent(&directory, policy, deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            Purpose::ReservePolicy,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose: Purpose::ReservePolicy,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_initial_reserve_policy_preparation_in_parent(
@@ -323,7 +330,7 @@ impl ManagedInitialReservePolicy {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;
@@ -427,7 +434,7 @@ impl ManagedInitialReservePolicy {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = observe_current
@@ -504,7 +511,7 @@ impl ManagedInitialReservePolicy {
         verify_custody()?;
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => Self::verify_wallet(&account, &directory, &original, deadline)?,
+            None => Self::verify_wallet(&account, directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -533,7 +540,7 @@ impl ManagedInitialReservePolicy {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -611,7 +618,7 @@ impl ManagedInitialReservePolicy {
             .map_err(|_| invalid("invalid original reserve checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())
@@ -788,3 +795,7 @@ mod epoch_test_support;
 #[cfg(test)]
 #[path = "reserve_policy/initial_admission_tests.rs"]
 mod initial_admission_tests;
+
+#[cfg(test)]
+#[path = "reserve_policy/metadata_recovery_tests.rs"]
+mod metadata_recovery_tests;

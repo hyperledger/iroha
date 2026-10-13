@@ -1,0 +1,17 @@
+Completed runs: 4 rows: 16 parity [{'row': 'candidate', 'proofs': 124, 'shake256_32_and_retry_counter_equal': True}, {'row': 'comparator', 'proofs': 12, 'shake256_32_and_retry_counter_equal': True}]
+accel candidate registration 31 prove med/p95/max ms 285.555 379.69 528.873 cold med/p95/max ms 136.056 367.247 384.6 cold heapmax 2519539 retrymax 931
+accel candidate vote3 31 prove med/p95/max ms 375.212 458.615 506.288 cold med/p95/max ms 175.68 220.08 276.453 cold heapmax 3713035 retrymax 997
+accel candidate vote500 31 prove med/p95/max ms 405.622 577.21 651.648 cold med/p95/max ms 204.964 278.848 306.822 cold heapmax 3903883 retrymax 1576
+accel candidate vote1000 31 prove med/p95/max ms 366.661 755.493 1199.533 cold med/p95/max ms 173.714 399.695 545.806 cold heapmax 4095883 retrymax 1549
+accel comparator registration 3 prove med/p95/max ms 439.594 440.19 440.19 cold med/p95/max ms 310.445 402.238 402.238 cold heapmax 6148730 retrymax 518
+accel comparator vote3 3 prove med/p95/max ms 583.378 605.357 605.357 cold med/p95/max ms 399.329 432.868 432.868 cold heapmax 6187442 retrymax 269
+accel comparator vote500 3 prove med/p95/max ms 598.841 602.325 602.325 cold med/p95/max ms 403.869 406.118 406.118 cold heapmax 6378290 retrymax 638
+accel comparator vote1000 3 prove med/p95/max ms 602.34 604.659 604.659 cold med/p95/max ms 410.5 410.865 410.865 cold heapmax 6570290 retrymax 760
+portable candidate registration 31 prove med/p95/max ms 396.943 405.606 426.108 cold med/p95/max ms 278.895 293.744 313.521 cold heapmax 2519545 retrymax 931
+portable candidate vote3 31 prove med/p95/max ms 581.758 592.898 603.875 cold med/p95/max ms 406.431 423.07 509.253 cold heapmax 3713041 retrymax 997
+portable candidate vote500 31 prove med/p95/max ms 595.23 600.699 623.414 cold med/p95/max ms 411.677 416.532 419.408 cold heapmax 3903889 retrymax 1576
+portable candidate vote1000 31 prove med/p95/max ms 617.381 666.424 667.892 cold med/p95/max ms 421.767 440.93 473.215 cold heapmax 4095889 retrymax 1549
+portable comparator registration 3 prove med/p95/max ms 2131.788 2154.259 2154.259 cold med/p95/max ms 1993.375 2016.847 2016.847 cold heapmax 6148736 retrymax 518
+portable comparator vote3 3 prove med/p95/max ms 2947.224 3282.073 3282.073 cold med/p95/max ms 2796.61 2904.773 2904.773 cold heapmax 6187448 retrymax 269
+portable comparator vote500 3 prove med/p95/max ms 2991.34 4736.605 4736.605 cold med/p95/max ms 2994.822 3504.087 3504.087 cold heapmax 6378296 retrymax 638
+portable comparator vote1000 3 prove med/p95/max ms 3010.7 5089.878 5089.878 cold med/p95/max ms 2790.874 2829.3 2829.3 cold heapmax 6570296 retrymax 760

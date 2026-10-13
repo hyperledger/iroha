@@ -113,7 +113,7 @@ impl fmt::Debug for OffenceKey {
 }
 impl PartialEq for OffenceKey {
     fn eq(&self, other: &Self) -> bool {
-        self.deref() == other.deref()
+        **self == **other
     }
 }
 impl Eq for OffenceKey {}
@@ -124,7 +124,7 @@ impl PartialOrd for OffenceKey {
 }
 impl Ord for OffenceKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.deref().cmp(other.deref())
+        (**self).cmp(&**other)
     }
 }
 impl OffenceKey {
@@ -334,12 +334,24 @@ pub type OffenceStorage = mv::storage::Storage<OffenceKey, [u8; 32], OffenceMode
 #[path = "sccp_forgery_custody/tests.rs"]
 mod tests;
 
+/// The predecessor value retained for rollback of the maximum generation cell.
+pub(crate) enum MaxGenerationPredecessor {
+    /// No prior value was recorded in the current block.
+    Unchanged,
+    /// The prior value was recorded, including an absent maximum.
+    Value(Option<u64>),
+}
+
 /// Admit the scalar cell's original current and undo controls; absent is not generation zero.
 pub(crate) fn initialize_max(
     current: Option<u64>,
-    previous: Option<Option<u64>>,
+    previous: MaxGenerationPredecessor,
     budget: &AllocationBudget,
 ) -> Result<mv::cell::Cell<Option<u64>, AllocationCharge>, AdmittedStorageError> {
+    let previous = match previous {
+        MaxGenerationPredecessor::Unchanged => None,
+        MaxGenerationPredecessor::Value(value) => Some(value),
+    };
     mv::cell::CellInitialization::try_reserve(budget)
         .map(|owner| owner.initialize(current, previous))
         .map_err(super::scalar_cell_custody::admission_error)

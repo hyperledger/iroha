@@ -1,0 +1,5 @@
+Current source check remains failing on the block-start sequence (exit 1).
+Diagnostic only: omit exactly one concurrent SCCP call IN MEMORY. No files or production guards are changed.
+SORA Parliament source/model contract: ok
+Counterfactual full guard return code: 0
+This isolates the known failure; it does not validate the SCCP hook or qualify production.

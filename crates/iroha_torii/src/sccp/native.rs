@@ -4,7 +4,7 @@ use std::{net::SocketAddr, num::NonZeroU64, sync::atomic::Ordering, time::Instan
 
 use axum::{
     Extension,
-    extract::{ConnectInfo, Path, State},
+    extract::{ConnectInfo, Path, RawQuery, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::Response,
 };
@@ -13,6 +13,7 @@ use iroha_core::smartcontracts::isi::sccp::read::native::{
     SccpNativeReadError,
 };
 use iroha_data_model::bridge::SccpNetworkV1;
+use iroha_sccp::api::{MAX_FORGERY_HOLD_PAGE, SccpForgeryHoldCursorV1, SccpForgeryHoldQuery};
 use iroha_torii_shared::route_catalog::{RouteDescriptor, sccp};
 
 use crate::{
@@ -23,10 +24,27 @@ use crate::{
     utils::ResponseFormat,
 };
 
+mod evidence;
+pub use evidence::{handler_evidence, handler_evidence_page};
+mod governance_metadata;
+pub use governance_metadata::{
+    handler_governance, handler_governance_proposal, handler_governance_proposals,
+    handler_governance_readiness, handler_registry,
+};
+mod light_client_metadata;
+pub use light_client_metadata::{
+    handler_light_client, handler_light_client_checkpoints, handler_light_client_sets,
+    handler_light_clients,
+};
+mod message_metadata;
+pub use message_metadata::{
+    handler_controls, handler_message, handler_messages_recent, handler_outbound,
+};
+
 /// `at=record|latest|<height>`; absent selects the record's own committed height.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ProofQuery {
+pub struct ProofQuery {
     #[norito(default)]
     /// Explicit certificate selector, without scalar JSON coercion.
     pub at: Option<String>,
@@ -35,7 +53,7 @@ pub(crate) struct ProofQuery {
 /// Catch-up starts with the destination's current generation's outgoing transition.
 #[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct RotationsQuery {
+pub struct RotationsQuery {
     #[norito(default)]
     /// Destination current generation; the first handoff is signed by this generation.
     pub after_generation: Option<String>,
@@ -44,8 +62,95 @@ pub(crate) struct RotationsQuery {
     pub limit: Option<String>,
 }
 
+/// Bounded scalar revision page with optional exact route selection.
+#[derive(Debug, Default, Clone, crate::json_macros::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+pub struct ForgeryHoldQuery {
+    /// Optional external network.
+    #[norito(default)]
+    pub network: Option<String>,
+    /// Optional nonzero revision; requires network.
+    #[norito(default)]
+    pub revision: Option<String>,
+    /// Cursor network; requires after_revision.
+    #[norito(default)]
+    pub after_network: Option<String>,
+    /// Cursor revision; requires after_network.
+    #[norito(default)]
+    pub after_revision: Option<String>,
+    /// Row limit in 1..=64, default 64.
+    #[norito(default)]
+    pub limit: Option<String>,
+}
+
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
+fn hold_query(query: &ForgeryHoldQuery) -> Result<SccpForgeryHoldQuery, Response> {
+    let network = query
+        .network
+        .as_deref()
+        .map(super::parse_network)
+        .transpose()?;
+    let revision = query
+        .revision
+        .as_deref()
+        .map(|text| {
+            u32::try_from(decimal(text)?)
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| invalid("revision must be a nonzero u32"))
+        })
+        .transpose()?;
+    if revision.is_some() && network.is_none() {
+        return Err(invalid("revision requires network"));
+    }
+    let after = match (
+        query.after_network.as_deref(),
+        query.after_revision.as_deref(),
+    ) {
+        (None, None) => None,
+        (Some(network), Some(revision)) => Some(SccpForgeryHoldCursorV1 {
+            network: super::parse_network(network)?,
+            revision: u32::try_from(decimal(revision)?)
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| invalid("after_revision must be a nonzero u32"))?,
+        }),
+        _ => {
+            return Err(invalid(
+                "after_network and after_revision must be supplied together",
+            ));
+        }
+    };
+    let limit = query
+        .limit
+        .as_deref()
+        .map(decimal)
+        .transpose()?
+        .unwrap_or(MAX_FORGERY_HOLD_PAGE as u64);
+    if !(1..=MAX_FORGERY_HOLD_PAGE as u64).contains(&limit) {
+        return Err(invalid("hold page limit must be in 1..=64"));
+    }
+    Ok(SccpForgeryHoldQuery {
+        network,
+        revision,
+        after,
+        limit: limit as usize,
+    })
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Selection {
+    Evidence(evidence::Selection),
+    Governance(governance_metadata::Selection),
+    LightClientMetadata(light_client_metadata::Selection),
+    Metadata(message_metadata::Selection),
+    Capabilities,
+    ForgeryHold(SccpForgeryHoldQuery),
+    FastPause,
+    Anchor(NonZeroU64),
     Message {
         id: [u8; 32],
         at: SccpNativeProofAt,
@@ -67,6 +172,14 @@ enum Selection {
 impl Selection {
     fn route(self) -> RouteDescriptor {
         match self {
+            Self::Evidence(selection) => selection.route(),
+            Self::Governance(selection) => selection.route(),
+            Self::LightClientMetadata(selection) => selection.route(),
+            Self::Metadata(selection) => selection.route(),
+            Self::Capabilities => sccp::CAPABILITIES,
+            Self::ForgeryHold(_) => sccp::FORGERY_HOLD,
+            Self::FastPause => sccp::FAST_PAUSE,
+            Self::Anchor(_) => sccp::EVIDENCE_ANCHOR,
             Self::Message { .. } => sccp::MESSAGE_PROOF,
             Self::Control { .. } => sccp::CONTROL_PROOF,
             Self::Finality(_) => sccp::FINALITY,
@@ -96,6 +209,10 @@ fn invalid(message: &'static str) -> Response {
     super::error(StatusCode::BAD_REQUEST, "sccp_invalid_query", message)
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decimal(text: &str) -> Result<u64, Response> {
     text.parse::<u64>()
         .ok()
@@ -103,6 +220,10 @@ fn decimal(text: &str) -> Result<u64, Response> {
         .ok_or_else(|| invalid("selector must be a canonical decimal u64"))
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn certificate_height(text: &str) -> Result<NonZeroU64, Response> {
     decimal(text).and_then(|height| {
         NonZeroU64::new(height)
@@ -111,12 +232,20 @@ fn certificate_height(text: &str) -> Result<NonZeroU64, Response> {
     })
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn generation_number(text: &str) -> Result<NonZeroU64, Response> {
     decimal(text).and_then(|number| {
         NonZeroU64::new(number).ok_or_else(|| invalid("generation must be nonzero"))
     })
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn proof_at(text: Option<&str>) -> Result<SccpNativeProofAt, Response> {
     match text.unwrap_or("record") {
         "record" => Ok(SccpNativeProofAt::Record),
@@ -125,6 +254,10 @@ fn proof_at(text: Option<&str>) -> Result<SccpNativeProofAt, Response> {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn finality_at(text: &str) -> Result<Option<NonZeroU64>, Response> {
     match text {
         "latest" => Ok(None),
@@ -132,6 +265,10 @@ fn finality_at(text: &str) -> Result<Option<NonZeroU64>, Response> {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn rotations(query: &RotationsQuery) -> Result<Selection, Response> {
     let after = query
         .after_generation
@@ -156,7 +293,7 @@ fn rotations(query: &RotationsQuery) -> Result<Selection, Response> {
     })
 }
 
-fn source_error(error: SccpNativeReadError) -> Response {
+pub(super) fn source_error(error: SccpNativeReadError) -> Response {
     use iroha_core::sumeragi::finality::NativeCommitCertificateReadErrorV1;
     use iroha_data_model::sumeragi_finality::{
         CommitmentError, certified_result::CertifiedResultError,
@@ -313,6 +450,79 @@ async fn serve(
                 let budget = owner.cold_frames();
                 // Encode while original response DATA and its reservation are still retained.
                 Ok(match selection {
+                    Selection::Evidence(selection) => evidence::produce(
+                        selection,
+                        view,
+                        budget,
+                        control,
+                        &owner,
+                        (format, maximum),
+                        &request_headers,
+                    )?,
+                    Selection::Governance(selection) => governance_metadata::produce(
+                        selection,
+                        view,
+                        budget,
+                        control,
+                        &owner,
+                        (format, maximum),
+                        &request_headers,
+                    )?,
+                    Selection::LightClientMetadata(selection) => light_client_metadata::produce(
+                        selection,
+                        view,
+                        budget,
+                        control,
+                        &owner,
+                        (format, maximum),
+                        &request_headers,
+                    )?,
+                    Selection::Metadata(selection) => message_metadata::produce(
+                        selection,
+                        view,
+                        budget,
+                        control,
+                        &owner,
+                        (format, maximum),
+                        &request_headers,
+                    )?,
+                    Selection::Capabilities => encode(
+                        iroha_core::smartcontracts::isi::sccp::read::capabilities(
+                            view,
+                            budget,
+                            control,
+                            sccp::ROUTES.iter().map(|route| route.path()),
+                        )?,
+                        &owner,
+                        format,
+                        maximum,
+                        false,
+                        &request_headers,
+                    ),
+                    Selection::FastPause => encode(
+                        read::fast_pause(view, budget, control)?,
+                        &owner,
+                        format,
+                        maximum,
+                        false,
+                        &request_headers,
+                    ),
+                    Selection::Anchor(height) => encode(
+                        read::anchor_witness(view, height, budget, control)?,
+                        &owner,
+                        format,
+                        maximum,
+                        false,
+                        &request_headers,
+                    ),
+                    Selection::ForgeryHold(query) => encode(
+                        read::forgery_hold(view, query, budget, control)?,
+                        &owner,
+                        format,
+                        maximum,
+                        false,
+                        &request_headers,
+                    ),
                     Selection::Committee(generation) => encode_value(
                         &match generation {
                             None => read::current_committee(view, control)?,
@@ -388,8 +598,79 @@ async fn serve(
     Ok(prepared.response)
 }
 
+/// Original current-generation collateral under the admitted request.
+pub async fn handler_capabilities(
+    State(app): State<SharedAppState>,
+    RawQuery(query): RawQuery,
+    Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
+    headers: HeaderMap,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+) -> Result<Response, Error> {
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Ok(invalid("capabilities accepts no query parameters"));
+    }
+    serve(app, Selection::Capabilities, deadline, headers, remote).await
+}
+
+/// Original standing panel and retained pause records under the admitted request.
+pub async fn handler_fast_pause(
+    State(app): State<SharedAppState>,
+    RawQuery(query): RawQuery,
+    Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
+    headers: HeaderMap,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+) -> Result<Response, Error> {
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Ok(invalid("fast-pause accepts no query parameters"));
+    }
+    serve(app, Selection::FastPause, deadline, headers, remote).await
+}
+
+/// Original completed anchor witnesses share the admitted response pool and deadline.
+pub async fn handler_evidence_anchor(
+    State(app): State<SharedAppState>,
+    Path(height): Path<String>,
+    RawQuery(query): RawQuery,
+    Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
+    headers: HeaderMap,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+) -> Result<Response, Error> {
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Ok(invalid("anchor witness accepts no query parameters"));
+    }
+    match decimal(&height).and_then(|height| {
+        NonZeroU64::new(height).ok_or_else(|| invalid("anchor height must be nonzero"))
+    }) {
+        Ok(height) => serve(app, Selection::Anchor(height), deadline, headers, remote).await,
+        Err(response) => Ok(response),
+    }
+}
+
+/// Bounded effective holds and reconciliation state under the original admitted request.
+pub async fn handler_forgery_hold(
+    State(app): State<SharedAppState>,
+    NoritoStringQuery(query): NoritoStringQuery<ForgeryHoldQuery>,
+    Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
+    headers: HeaderMap,
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+) -> Result<Response, Error> {
+    match hold_query(&query) {
+        Ok(query) => {
+            serve(
+                app,
+                Selection::ForgeryHold(query),
+                deadline,
+                headers,
+                remote,
+            )
+            .await
+        }
+        Err(response) => Ok(response),
+    }
+}
+
 /// Full current committee DATA from the captured committed view, never a trust pin.
-pub(crate) async fn handler_current_committee(
+pub async fn handler_current_committee(
     State(app): State<SharedAppState>,
     Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
     headers: HeaderMap,
@@ -399,7 +680,7 @@ pub(crate) async fn handler_current_committee(
 }
 
 /// One retained generation with liability computed from that same committed view.
-pub(crate) async fn handler_committee(
+pub async fn handler_committee(
     State(app): State<SharedAppState>,
     Path(generation): Path<String>,
     Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
@@ -422,7 +703,7 @@ pub(crate) async fn handler_committee(
 }
 
 /// Native original certificate at one explicit height or the durable tip.
-pub(crate) async fn handler_finality(
+pub async fn handler_finality(
     State(app): State<SharedAppState>,
     Path(height): Path<String>,
     Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,
@@ -436,7 +717,7 @@ pub(crate) async fn handler_finality(
 }
 
 /// Native proof of one outbound record, retaining its canonical payload.
-pub(crate) async fn handler_message_proof(
+pub async fn handler_message_proof(
     State(app): State<SharedAppState>,
     Path(id): Path<String>,
     NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
@@ -460,7 +741,7 @@ pub(crate) async fn handler_message_proof(
 }
 
 /// Native proof of a control record; an unavailable native producer refuses explicitly.
-pub(crate) async fn handler_control_proof(
+pub async fn handler_control_proof(
     State(app): State<SharedAppState>,
     Path((network, revision, nonce)): Path<(String, String, String)>,
     NoritoStringQuery(query): NoritoStringQuery<ProofQuery>,
@@ -490,7 +771,7 @@ pub(crate) async fn handler_control_proof(
 }
 
 /// Ordered original certificates for the destination's current generation catch-up.
-pub(crate) async fn handler_rotations(
+pub async fn handler_rotations(
     State(app): State<SharedAppState>,
     NoritoStringQuery(query): NoritoStringQuery<RotationsQuery>,
     Extension(RouteExecutionDeadline(deadline)): Extension<RouteExecutionDeadline>,

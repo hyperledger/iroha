@@ -1,4 +1,14 @@
 //! The web server of Iroha. `Torii` translates to gateway.
+// The shipping API's unit-test harness has over 2,048 descriptors. Rustc 1.93
+// generates their reference array at a dummy span, beyond Clippy's 16 KiB
+// threshold; application buffers are not the source of this diagnostic.
+#![cfg_attr(
+    all(test, feature = "node-api"),
+    expect(
+        clippy::large_stack_arrays,
+        reason = "rustc generates a test descriptor reference array larger than 16 KiB for the node API test harness"
+    )
+)]
 #![allow(unexpected_cfgs)]
 // Temporarily relax a curated set of clippy lints while the Torii refactor is in flight.
 // Trim this list further as the remaining call sites are cleaned up.
@@ -56,6 +66,7 @@
 //! - `app_api_wss` (on by default): enables WebSocket/WebSocket Secure webhook delivery
 #[cfg(feature = "app_api")]
 mod account_activity;
+mod amx_approval_proof;
 #[cfg(feature = "app_api")]
 mod app_api;
 mod authority_originals;
@@ -267,11 +278,11 @@ use iroha_core::{
         ToriiHostedHttpProxyRequestV1, ToriiProxyHttpResponseV1, ToriiProxyRequestKindV1,
         ToriiProxyRequestV1, ToriiProxyResponseFormatV1, ToriiProxyResponseV1, ToriiReadEndpointV1,
         ToriiReadFanoutMergeV1, ToriiReadFanoutProxyRequestV1, ToriiReadProxyRequestV1,
-        ToriiRouteHintV1, ToriiRoutingPlanHintV1,
+        ToriiRouteHintV1,
     },
     tx::{
         AcceptTransactionFail, DecodedVersionedSignedTransaction, SignatureRejectionCode,
-        SignatureVerificationFail, external_entrypoint_hash_from_signed_hash as entrypoint_hash,
+        SignatureVerificationFail,
     },
 };
 use iroha_crypto::{ExposedPrivateKey, Hash, HashOf, KeyPair, PublicKey, blake2::digest::Digest};
@@ -1119,13 +1130,11 @@ where
                     worker_failure = failure;
                 }
             }
-            if let Some(failure) = worker_failure {
-                Err(failure)
-            } else if server_result.is_ok() && !shutdown_was_sent {
+            worker_failure.map_or_else(|| if server_result.is_ok() && !shutdown_was_sent {
                 Err(ToriiCriticalWorkerFailure::ServerExitedUnexpectedly)
             } else {
                 Ok(server_result)
-            }
+            }, Err)
         }
         Some((name, result)) = workers.next() => {
             let shutdown_was_sent = shutdown_signal.is_sent();
@@ -1158,11 +1167,7 @@ where
                     later_failure = failure;
                 }
             }
-            if let Some(failure) = first_failure.or(later_failure) {
-                Err(failure)
-            } else {
-                Ok(server_result)
-            }
+            first_failure.or(later_failure).map_or(Ok(server_result), Err)
         }
     }
 }
@@ -1170,7 +1175,8 @@ where
 #[path = "tests/lib_tcp_listener_bind.rs"]
 mod tcp_listener_bind_tests;
 use crate::iso20022_bridge::{
-    Iso20022BridgeRuntime, IsoLifecycleApplyError, IsoMessageStatus, Pacs002Status,
+    Iso20022BridgeRuntime, IsoLifecycleApplyError, IsoMessageStatus, IsoSuccessfulExecution,
+    Pacs002Status,
 };
 use crate::{
     router::builder::{
@@ -2852,7 +2858,6 @@ impl PipelineStatusEntry {
                 let observed_at = self.observed_at;
                 *self = incoming;
                 self.observed_at = observed_at;
-                return;
             }
             std::cmp::Ordering::Equal => {
                 if self.block_height.is_none() {
@@ -2868,14 +2873,14 @@ impl PipelineStatusEntry {
 }
 // Only actual local retry owners belong in the pending event. No VM resource
 // category or allocation demand is manufactured for a physical State writer.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 enum PendingBlockDeferral {
     #[error("original State event capture is busy")]
     StateViewBusy(iroha_allocation::release::ReleaseWait),
     #[error(transparent)]
     Execution(#[from] iroha_core::execution_attempt::ExecutionDeferred),
 }
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PendingBlockStatus {
     kind: PipelineStatusKind,
     block_hash: HashOf<BlockHeader>,
@@ -2899,7 +2904,7 @@ struct PipelineStatusCache {
     event_hints_trustworthy: AtomicBool,
     prune_lock: parking_lot::Mutex<()>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum BlockRecordOutcome {
     Recorded,
     MissingBlock,
@@ -2971,7 +2976,7 @@ impl PipelineStatusCache {
         let now = Instant::now();
         match self.record_block_results(height, block_hash, kind, state, now) {
             BlockRecordOutcome::Recorded => {
-                self.remove_pending_by_height(&height);
+                self.remove_pending_by_height(height);
                 self.prune_if_needed(now);
             }
             outcome @ (BlockRecordOutcome::MissingBlock | BlockRecordOutcome::Deferred(_)) => {
@@ -3074,15 +3079,18 @@ impl PipelineStatusCache {
         let pending: Vec<_> = self
             .pending_blocks
             .iter()
-            .map(|entry| (*entry.key(), entry.value().clone()))
+            .map(|entry| {
+                let height = *entry.key();
+                if let Some(reason) = &entry.deferred {
+                    iroha_logger::trace!(height = height.get(), %reason, "retrying original deferred pipeline history read");
+                }
+                (height, entry.block_hash, entry.kind)
+            })
             .collect();
-        for (height, pending) in pending {
-            if let Some(reason) = &pending.deferred {
-                iroha_logger::trace!(height = height.get(), %reason, "retrying original deferred pipeline history read");
-            }
-            match self.record_block_results(height, pending.block_hash, pending.kind, state, now) {
+        for (height, block_hash, kind) in pending {
+            match self.record_block_results(height, block_hash, kind, state, now) {
                 BlockRecordOutcome::Recorded => {
-                    self.remove_pending_by_height(&height);
+                    self.remove_pending_by_height(height);
                 }
                 BlockRecordOutcome::MissingBlock => {}
                 BlockRecordOutcome::Deferred(reason) => {
@@ -3228,7 +3236,7 @@ impl PipelineStatusCache {
                     && now.saturating_duration_since(entry.observed_at) > ttl
             });
             if should_remove {
-                self.remove_pending_by_height(&height);
+                self.remove_pending_by_height(height);
             }
         }
     }
@@ -3276,7 +3284,7 @@ impl PipelineStatusCache {
                 .get(&height)
                 .is_some_and(|entry| entry.observed_at == observed_at);
             if should_remove {
-                self.remove_pending_by_height(&height);
+                self.remove_pending_by_height(height);
                 return true;
             }
         }
@@ -3339,8 +3347,8 @@ impl PipelineStatusCache {
             false
         }
     }
-    fn remove_pending_by_height(&self, height: &NonZeroU64) -> bool {
-        if self.pending_blocks.remove(height).is_some() {
+    fn remove_pending_by_height(&self, height: NonZeroU64) -> bool {
+        if self.pending_blocks.remove(&height).is_some() {
             Self::decrement_live_count(&self.pending_count);
             true
         } else {
@@ -3428,7 +3436,34 @@ fn reconcile_iso_bridge_transactions(
     runtime: &Iso20022BridgeRuntime,
     state: &CoreState,
 ) -> Result<(), Error> {
-    for transaction_hash in runtime.queued_transaction_hashes() {
+    for request in runtime.native_payment_requests().map_err(|error| {
+        pipeline_status_projection_error(format!("invalid retained ISO native intent: {error}"))
+    })? {
+        let attempted = request
+            .attempted_hash
+            .as_deref()
+            .map(|hash| {
+                let hash = parse_signed_transaction_hash(hash).map_err(|_| {
+                    pipeline_status_projection_error(
+                        "ISO native intent retains invalid attempted hash",
+                    )
+                })?;
+                canonical_transaction_outcome(state, &hash)
+            })
+            .transpose()?
+            .flatten();
+        let business = canonical_iso_business(state, &request)?;
+        publish_iso_native_outcomes(runtime, &request, attempted, business)?;
+    }
+    runtime.resolve_unsubmitted_return_reports().map_err(|error| pipeline_status_projection_error(format!(
+        "ISO bridge could not durably resolve locally unsubmitted original reports: {error:?}"
+    )))?;
+    let pending_returns = runtime.pending_return_transactions();
+    let mut transactions = runtime.queued_transaction_hashes();
+    transactions.extend(pending_returns.keys().cloned());
+    transactions.sort_unstable();
+    transactions.dedup();
+    for transaction_hash in transactions {
         let hash = parse_signed_transaction_hash(&transaction_hash).map_err(|_| {
             pipeline_status_projection_error(format!(
                 "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
@@ -3437,6 +3472,7 @@ fn reconcile_iso_bridge_transactions(
         let Some(outcome) = canonical_transaction_outcome(state, &hash)? else {
             continue;
         };
+        let applied = matches!(outcome, CanonicalTransactionOutcome::Applied { .. });
         match outcome {
             CanonicalTransactionOutcome::Applied { settled_at, .. } => {
                 let transitioned = runtime.mark_transaction_applied(&transaction_hash, settled_at);
@@ -3457,6 +3493,13 @@ fn reconcile_iso_bridge_transactions(
                     "rejection",
                 )?;
             }
+        }
+        if let Some(reports) = pending_returns.get(&transaction_hash) {
+            runtime
+                .resolve_pending_return_reports(&transaction_hash, reports, applied)
+                .map_err(|error| pipeline_status_projection_error(format!(
+                    "ISO bridge could not durably resolve reports for original transaction {transaction_hash}: {error:?}"
+                )))?;
         }
     }
     Ok(())
@@ -3509,13 +3552,20 @@ fn start_iso_bridge_projection_worker(
     reconcile_iso_bridge_transactions(&runtime, &state)?;
     Ok(tokio::spawn(async move {
         loop {
-            let received = tokio::select! {
+            let event_result = tokio::select! {
                 () = shutdown_signal.receive() => {
                     return ToriiCriticalWorkerExit::StoppedByShutdown;
                 }
+                () = runtime.projection_work_available() => {
+                    if let Err(error) = reconcile_iso_bridge_transactions(&runtime, &state) {
+                        iroha_logger::error!(?error, "ISO bridge notified projection failed closed");
+                        return ToriiCriticalWorkerExit::UnexpectedExit;
+                    }
+                    continue;
+                }
                 received = receiver.recv() => received,
             };
-            match received {
+            match event_result {
                 Ok(EventBox::Pipeline(event)) => {
                     if let Err(error) = process_iso_bridge_pipeline_event(&runtime, &state, &event)
                     {
@@ -3589,13 +3639,13 @@ fn start_pipeline_status_projection_worker(
     let mut receiver = events.subscribe();
     tokio::spawn(async move {
         loop {
-            let received = tokio::select! {
+            let event_result = tokio::select! {
                 () = shutdown_signal.receive() => {
                     return ToriiCriticalWorkerExit::StoppedByShutdown;
                 }
-                received = receiver.recv() => received,
+                event_result = receiver.recv() => event_result,
             };
-            match received {
+            match event_result {
                 Ok(EventBox::Pipeline(event)) => {
                     process_pipeline_status_event(&cache, &state, &event);
                 }
@@ -4450,6 +4500,10 @@ fn api_token_rejection_with_policy(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn authenticate_onboarding_api_token(
     app: &AppState,
     headers: &HeaderMap,
@@ -4480,7 +4534,7 @@ fn authenticate_onboarding_api_token(
         );
         append_vary_accept(response.headers_mut());
         return Err(response);
-    };
+    }
     let mut values = headers.get_all(HEADER_ONBOARDING_API_TOKEN).iter();
     let supplied = values.next().and_then(|value| value.to_str().ok());
     let one_value = values.next().is_none();
@@ -4772,9 +4826,11 @@ async fn enforce_soracloud_signed_mutation_request(
         &app.state,
         app.state.network_id_ref(),
         &parts.headers,
-        &parts.method,
-        &parts.uri,
-        body.as_ref(),
+        crate::app_auth::CanonicalRequestParts {
+            method: &parts.method,
+            uri: &parts.uri,
+            body: body.as_ref(),
+        },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -5685,8 +5741,8 @@ fn canonical_error_response(
     } else if !utils::is_valid_error_code(envelope.code()) {
         let rejected_code = std::mem::take(&mut envelope.code);
         let (code, message) = generic_error_for_status(parts.status);
-        envelope.code = code.to_owned();
-        envelope.message = message.to_owned();
+        code.clone_into(&mut envelope.code);
+        message.clone_into(&mut envelope.message);
         if utils::is_valid_reject_code(&rejected_code) {
             let details = envelope.details.get_or_insert_with(Default::default);
             if details.reject_code.is_none() {
@@ -5696,7 +5752,7 @@ fn canonical_error_response(
     }
     if !utils::is_valid_error_message(envelope.message()) {
         let (_, message) = generic_error_for_status(parts.status);
-        envelope.message = message.to_owned();
+        message.clone_into(&mut envelope.message);
     }
     // Finality reasons own their retry semantics. The canonical dedicated detail
     // stays sole; generic 503/429 errors retain their existing Retry-After fields.
@@ -5907,10 +5963,8 @@ impl ReviewedMcpJsonRpcError {
 fn response_boundary_accept_header(
     headers: &HeaderMap,
 ) -> Result<Option<HeaderValue>, &'static str> {
-    match coalesced_accept_header(headers)? {
-        Some(combined) => Ok(Some(combined)),
-        None => Ok(headers.get(axum::http::header::ACCEPT).cloned()),
-    }
+    Ok(coalesced_accept_header(headers)?
+        .or_else(|| headers.get(axum::http::header::ACCEPT).cloned()))
 }
 fn reviewed_protocol_native_error_code(
     route: Option<&MatchedRouteMetadata>,
@@ -6182,7 +6236,7 @@ async fn handler_route_not_found_or_sorafs_site(
     let raw_path = uri
         .path()
         .strip_prefix('/')
-        .unwrap_or(uri.path())
+        .unwrap_or_else(|| uri.path())
         .to_owned();
     if raw_path.is_empty() {
         sorafs::public_gateway::handle_get_sorafs_site_root(State(app), headers).await
@@ -6245,12 +6299,11 @@ async fn enforce_route_timeout(
     let deadline = Instant::now() + route_timeout_for_path(req.uri().path());
     req.extensions_mut()
         .insert(finality_interval::RouteExecutionDeadline(deadline));
-    match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), next.run(req)).await {
-        Ok(response) => Ok(response),
-        Err(_) => Ok(route_timeout_error_response(
-            utils::current_response_format(),
-        )),
-    }
+    Ok(
+        tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), next.run(req))
+            .await
+            .unwrap_or_else(|_| route_timeout_error_response(utils::current_response_format())),
+    )
 }
 async fn catch_handler_panics(
     req: axum::http::Request<Body>,
@@ -6353,12 +6406,11 @@ fn response_representation_label(response: &Response) -> &'static str {
     else {
         return "none";
     };
-    if content_type.eq_ignore_ascii_case("application/json") {
-        "json"
-    } else if content_type
-        .to_ascii_lowercase()
-        .starts_with("application/")
-        && content_type.to_ascii_lowercase().ends_with("+json")
+    if content_type.eq_ignore_ascii_case("application/json")
+        || (content_type
+            .to_ascii_lowercase()
+            .starts_with("application/")
+            && content_type.to_ascii_lowercase().ends_with("+json"))
     {
         "json"
     } else if content_type.eq_ignore_ascii_case(utils::NORITO_MIME_TYPE) {
@@ -6785,7 +6837,7 @@ async fn execute_prepared_ordinary_query(
         app.state.clone(),
         request,
         app.telemetry.clone(),
-        admitted.plan,
+        &admitted.plan,
         admitted.physical_admission,
         admitted.memory_lease,
     )
@@ -6905,6 +6957,10 @@ async fn rate_limit_requests_with_cost(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn negotiate_heavy_query_response_format(
     headers: &axum::http::HeaderMap,
 ) -> std::result::Result<utils::ResponseFormat, AxResponse> {
@@ -7166,15 +7222,21 @@ async fn handler_push_unregister_device(
             "push_storage_error",
             value,
         ),
-        Err(push::PushError::MissingCredentials { .. })
-        | Err(push::PushError::TooManyTopics { .. })
-        | Err(push::PushError::InvalidTopic { .. })
-        | Err(push::PushError::DuplicateTopic { .. })
-        | Err(push::PushError::TopicsTooLarge { .. })
-        | Err(push::PushError::InvalidEnvironment(_)) => StatusCode::ACCEPTED.into_response(),
+        Err(
+            push::PushError::MissingCredentials { .. }
+            | push::PushError::TooManyTopics { .. }
+            | push::PushError::InvalidTopic { .. }
+            | push::PushError::DuplicateTopic { .. }
+            | push::PushError::TopicsTooLarge { .. }
+            | push::PushError::InvalidEnvironment(_),
+        ) => StatusCode::ACCEPTED.into_response(),
     }
 }
 #[cfg(all(feature = "app_api", feature = "push"))]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn push_authenticate_device_request(
     app: &SharedAppState,
     method: &HttpMethod,
@@ -7183,7 +7245,7 @@ fn push_authenticate_device_request(
     body: &[u8],
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, AxResponse> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -7194,9 +7256,7 @@ fn push_authenticate_device_request(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -7210,6 +7270,10 @@ fn push_authenticate_device_request(
     }
 }
 #[cfg(all(feature = "app_api", feature = "push"))]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_push_bridge(app: &SharedAppState) -> Result<(), AxResponse> {
     if app.push.is_none() {
         return Err(push_error_response(
@@ -7221,6 +7285,10 @@ fn require_push_bridge(app: &SharedAppState) -> Result<(), AxResponse> {
     Ok(())
 }
 #[cfg(all(feature = "app_api", feature = "push"))]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn push_authorize_device_account(
     app: &SharedAppState,
     verified: &crate::app_auth::VerifiedCanonicalRequest,
@@ -7484,9 +7552,11 @@ async fn enforce_canonical_account_body_authentication(
         &state.app.state,
         &network_id,
         &parts.headers,
-        &parts.method,
-        &parts.uri,
-        body.as_ref(),
+        crate::app_auth::CanonicalRequestParts {
+            method: &parts.method,
+            uri: &parts.uri,
+            body: body.as_ref(),
+        },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -7541,20 +7611,18 @@ async fn enforce_optional_canonical_account_body_authentication(
         &state.app.state,
         &network_id,
         &parts.headers,
-        &parts.method,
-        &parts.uri,
-        body.as_ref(),
+        crate::app_auth::CanonicalRequestParts {
+            method: &parts.method,
+            uri: &parts.uri,
+            body: body.as_ref(),
+        },
         None,
         authentication_owner.allocation_context(),
     ) {
         Ok(Some(verified)) => ToriiAccountReadVisibility::Signed(verified.account),
         Ok(None) => ToriiAccountReadVisibility::None,
         Err(error) => {
-            return Error::AppUnauthorized {
-                code: "canonical_authentication_invalid",
-                message: error.to_string(),
-            }
-            .into_response();
+            return crate::app_auth::canonical_authentication_error(error).into_response();
         }
     };
     parts.extensions.insert(visibility);
@@ -8311,7 +8379,6 @@ async fn handler_gov_unlock_stats(
     norito::derive::NoritoDeserialize,
 )]
 /// Full canonical account state exposed only through the trusted internal read boundary.
-
 struct InternalAccountReadResponse {
     /// Canonical domainless account identifier.
     id: AccountId,
@@ -8558,7 +8625,7 @@ async fn account_history_collection_read(
             app,
             headers,
             Some(remote_ip),
-            &account_literal,
+            account_literal,
             enforce,
             cost,
         )
@@ -8570,7 +8637,7 @@ async fn account_history_collection_read(
     let (parsed_account_id, canonical_account_id) =
         match routing::parse_account_path_segment_with_state(
             app.state.as_ref(),
-            &account_literal,
+            account_literal,
             &telemetry,
             endpoint_label,
         ) {
@@ -8580,13 +8647,13 @@ async fn account_history_collection_read(
     let (target, endpoint) = match target {
         routing::collection_sources::CollectionTarget::AccountHistory(_) => (
             routing::collection_sources::CollectionTarget::AccountHistory(
-                canonical_account_id.to_string(),
+                canonical_account_id.clone(),
             ),
             ToriiReadEndpointV1::AccountHistoryQuery,
         ),
         _ => (
             routing::collection_sources::CollectionTarget::AccountTransactions(
-                canonical_account_id.to_string(),
+                canonical_account_id.clone(),
             ),
             ToriiReadEndpointV1::AccountTransactionsQuery,
         ),
@@ -8622,7 +8689,7 @@ async fn account_history_collection_read(
         route,
         route_scope,
         endpoint,
-        vec![canonical_account_id.to_string()],
+        vec![canonical_account_id.clone()],
         body,
         reservation,
     )
@@ -8702,9 +8769,7 @@ async fn handler_account_assets(
     // route must not answer it with an empty page.
     let (query, body, reservation) = prepare_collection_forward(
         &app,
-        &routing::collection_sources::CollectionTarget::AccountAssets(
-            canonical_account_id.to_string(),
-        ),
+        &routing::collection_sources::CollectionTarget::AccountAssets(canonical_account_id.clone()),
         query,
     )?;
     let caller = torii_visibility_account_from_headers(
@@ -8744,7 +8809,7 @@ async fn handler_account_assets(
         route,
         route_scope,
         ToriiReadEndpointV1::AccountAssetsQuery,
-        vec![canonical_account_id.to_string()],
+        vec![canonical_account_id.clone()],
         body,
         reservation,
     )
@@ -8812,7 +8877,7 @@ async fn account_permissions_collection_read(
     )?;
     let (query, body, reservation) = prepare_collection_forward(
         app,
-        &routing::collection_sources::CollectionTarget::AccountPermissions(canonical.to_string()),
+        &routing::collection_sources::CollectionTarget::AccountPermissions(canonical.clone()),
         query,
     )?;
     let use_target =
@@ -8833,7 +8898,7 @@ async fn account_permissions_collection_read(
             route,
             scope,
             ToriiReadEndpointV1::AccountPermissionsQuery,
-            vec![canonical.to_string()],
+            vec![canonical.clone()],
             body,
             reservation,
         )
@@ -8883,9 +8948,7 @@ async fn handler_account_assets_query(
     // route must not answer it with an empty page.
     let (query, body, reservation) = prepare_collection_forward(
         &app,
-        &routing::collection_sources::CollectionTarget::AccountAssets(
-            canonical_account_id.to_string(),
-        ),
+        &routing::collection_sources::CollectionTarget::AccountAssets(canonical_account_id.clone()),
         query,
     )?;
     let route_scope =
@@ -8917,7 +8980,7 @@ async fn handler_account_assets_query(
         route,
         route_scope,
         ToriiReadEndpointV1::AccountAssetsQuery,
-        vec![canonical_account_id.to_string()],
+        vec![canonical_account_id.clone()],
         body,
         reservation,
     )
@@ -10297,7 +10360,7 @@ fn parse_account_id_for_endpoint(
         &app.telemetry,
         endpoint,
     )
-    .map(|(account_id, _)| account_id.into())
+    .map(|(account_id, _)| account_id)
 }
 #[cfg(feature = "app_api")]
 fn identifier_normalization_label(
@@ -10487,8 +10550,7 @@ fn derive_identifier_request_draft(
     })?;
     resolver
         .derive_owner_prf(
-            policy,
-            program_policy,
+            (policy, program_policy),
             &request.normalized_input,
             &nonce,
             opening,
@@ -10544,7 +10606,7 @@ fn ram_lfe_receipt_attestation_dto(
             routing::RamLfeReceiptAttestationDto {
                 kind: "proof".to_owned(),
                 signature: None,
-                proof_backend: Some(proof.backend.to_string()),
+                proof_backend: Some(proof.backend.clone()),
                 proof_b64: Some(BASE64_STANDARD.encode(&proof.bytes)),
             }
         }
@@ -10627,9 +10689,9 @@ fn identifier_policy_summary_dto(
     program_policy: Option<&iroha_data_model::ram_lfe::RamLfeProgramPolicy>,
 ) -> routing::IdentifierPolicySummaryDto {
     let public_parameters = program_policy
-        .and_then(|policy| identifier_resolution::decode_bfv_public_parameters(policy).ok());
+        .and_then(|value| identifier_resolution::decode_bfv_public_parameters(value).ok());
     let ram_fhe_profile = program_policy
-        .and_then(|policy| identifier_resolution::decode_ram_fhe_profile(policy).ok())
+        .and_then(|value| identifier_resolution::decode_ram_fhe_profile(value).ok())
         .flatten();
     routing::IdentifierPolicySummaryDto {
         policy_id: policy.id.to_string(),
@@ -10712,13 +10774,12 @@ fn ram_lfe_receipt_verify_response(
 #[cfg(feature = "app_api")]
 fn identifier_receipt_response(
     receipt: &iroha_data_model::identifier::IdentifierResolutionReceipt,
-    _backend: &str,
-) -> Result<routing::IdentifierResolveResponseDto, Error> {
-    Ok(routing::IdentifierResolveResponseDto {
+) -> routing::IdentifierResolveResponseDto {
+    routing::IdentifierResolveResponseDto {
         payload: identifier_resolution_receipt_payload_dto(&receipt.payload),
         attestation: ram_lfe_receipt_attestation_dto(&receipt.attestation),
         phone_retail_canonicality: receipt.phone_retail_canonicality.clone(),
-    })
+    }
 }
 #[cfg(feature = "app_api")]
 fn identifier_claim_lookup_response(
@@ -10857,7 +10918,6 @@ async fn handler_explorer_metrics(
         app.telemetry.clone(),
         visibility.current_visibility(),
     )
-    .await
 }
 #[cfg(feature = "app_api")]
 #[axum::debug_handler]
@@ -12408,7 +12468,7 @@ async fn handler_nft_offer_capabilities(
         "v1/nft-offers/capabilities",
     )
     .await?;
-    nft_market::capabilities(&app)
+    Ok(nft_market::capabilities(&app))
 }
 /// Bounded public discovery of native NFT sale offers.
 async fn handler_nft_offer_list(
@@ -12418,7 +12478,7 @@ async fn handler_nft_offer_list(
     NoritoQuery(params): NoritoQuery<nft_market::NftOfferListParams>,
 ) -> Result<Response, Error> {
     check_access(&app, &headers, Some(remote.ip()), "v1/nft-offers").await?;
-    nft_market::list(&app, params)
+    Ok(nft_market::list(&app, params))
 }
 /// Exact immutable seller terms and retained terminal decision.
 async fn handler_nft_offer_get(
@@ -12437,7 +12497,7 @@ async fn handler_game_capabilities(
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Result<Response, Error> {
     check_access(&app, &headers, Some(remote.ip()), "v1/games/capabilities").await?;
-    game::capabilities(&app)
+    Ok(game::capabilities(&app))
 }
 /// Bounded public native game session discovery.
 async fn handler_game_list(
@@ -13324,7 +13384,7 @@ async fn check_status_access(
         headers,
         Some(remote),
         route_hint,
-        app.authenticated_api_token_principal(&headers),
+        app.authenticated_api_token_principal(headers),
     );
     let enforce =
         app.fee_policy.is_enabled() || app.queue.active_len() >= app.high_load_tx_threshold;
@@ -13393,7 +13453,7 @@ async fn handler_metrics(
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Result<String, Error> {
     if limits::is_allowed_by_cidr(&headers, Some(remote.ip()), &app.api_rate_limit_bypass_nets) {
-        return routing::handle_metrics(&app.telemetry).await;
+        return routing::handle_metrics(&app.telemetry);
     }
     validate_api_token(app.as_ref(), &headers)?;
     let key = rate_limit_key(
@@ -13409,7 +13469,7 @@ async fn handler_metrics(
             iroha_data_model::query::error::QueryExecutionFail::CapacityLimit,
         )));
     }
-    routing::handle_metrics(&app.telemetry).await
+    routing::handle_metrics(&app.telemetry)
 }
 fn soracloud_runtime_status_sections(
     app: &SharedAppState,
@@ -13607,9 +13667,7 @@ fn soracloud_hosted_http_topology_section(app: &SharedAppState) -> norito::json:
     ])
 }
 #[cfg(feature = "telemetry")]
-async fn soracloud_failed_admissions_section(
-    telemetry: &routing::MaybeTelemetry,
-) -> norito::json::Value {
+fn soracloud_failed_admissions_section(telemetry: &routing::MaybeTelemetry) -> norito::json::Value {
     if !telemetry.allows_metrics() {
         return json_object(vec![
             json_entry("available", false),
@@ -13618,7 +13676,7 @@ async fn soracloud_failed_admissions_section(
             json_entry("sorafs_provider_rejected", 0_u64),
         ]);
     }
-    let metrics = telemetry.metrics().await;
+    let metrics = telemetry.metrics();
     let governance_manifest_rejected: u64 = [
         "missing_manifest",
         "non_validator_authority",
@@ -13666,7 +13724,7 @@ async fn soracloud_failed_admissions_section(
     ])
 }
 #[cfg(not(feature = "telemetry"))]
-async fn soracloud_failed_admissions_section(
+fn soracloud_failed_admissions_section(
     _telemetry: &routing::MaybeTelemetry,
 ) -> norito::json::Value {
     json_object(vec![
@@ -13768,8 +13826,7 @@ fn soracloud_local_read_request_commitment(request: &SoracloudLocalReadRequest) 
 }
 #[cfg(feature = "app_api")]
 fn soracloud_public_ordered_mailbox_request_commitment(
-    observed_height: u64,
-    observed_block_hash: Option<Hash>,
+    (observed_height, observed_block_hash): (u64, Option<Hash>),
     route_match: &soracloud::OrderedMailboxRouteMatch,
     request_method: &str,
     request_path: &str,
@@ -14198,6 +14255,10 @@ fn torii_routes_for_dataspaces(
     }
     Ok(routes.into_values().collect())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_target_account_routes(
     app: &AppState,
     account_id: &AccountId,
@@ -14262,11 +14323,7 @@ fn resolve_torii_target_account_routes(
             dataspace_id,
         )?]);
     }
-    let account_scope = world.account_scope_entry(account_id).map_err(|_error| {
-        queue::RoutingResolveError::UnknownDataspace {
-            dataspace_id: DataSpaceId::UNIVERSAL,
-        }
-    })?;
+    let account_scope = world.account_scope_entry(account_id);
     let mut dataspaces: BTreeSet<_> = account_scope.map_or_else(
         || {
             // Fresh private-dataspace accounts can be queryable on another authoritative peer
@@ -14287,6 +14344,10 @@ fn resolve_torii_target_account_routes(
     dataspaces.extend(torii_public_dataspace_ids(app));
     torii_routes_for_dataspaces(app, dataspaces)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_target_alias_routes(
     app: &AppState,
     alias: &iroha_data_model::account::AccountAlias,
@@ -14305,6 +14366,10 @@ fn resolve_torii_target_alias_routes(
 ) -> Result<Vec<RoutingDecision>, queue::RoutingResolveError> {
     torii_routes_for_dataspaces(app, [alias.dataspace])
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_target_domain_routes(
     app: &AppState,
     domain_id: &iroha_model_base::domain::DomainId,
@@ -14688,12 +14753,6 @@ fn effective_proxy_routing_decision(
     resolved_route
 }
 #[cfg(feature = "connect")]
-fn validate_proxy_routing_plan_hint(
-    expected_plan: ToriiRoutingPlanHintV1,
-) -> Result<RoutingPlan, iroha_core::torii_proxy::ToriiRoutingPlanHintError> {
-    expected_plan.try_into_routing_plan()
-}
-#[cfg(feature = "connect")]
 fn effective_proxy_signed_query_routing_decision(
     resolved_route: RoutingDecision,
     ingress_hint: RoutingDecision,
@@ -14861,6 +14920,10 @@ fn should_execute_incoming_torii_proxy_request_locally(
     }
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_incoming_read_proxy_route(
     app: &AppState,
     routing_decision: RoutingDecision,
@@ -15227,7 +15290,7 @@ fn torii_visibility_account_from_headers(
     _endpoint: &'static str,
 ) -> Result<ToriiAccountReadVisibility, Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -15239,16 +15302,11 @@ fn torii_visibility_account_from_headers(
             &app.state,
             app.state.network_id_ref(),
             headers,
-            method,
-            uri,
-            body,
+            crate::app_auth::CanonicalRequestParts { method, uri, body },
             None,
             authentication_owner.allocation_context(),
         )
-        .map_err(|error| Error::AppUnauthorized {
-            code: "canonical_authentication_invalid",
-            message: error.to_string(),
-        })?;
+        .map_err(crate::app_auth::canonical_authentication_error)?;
         return Ok(
             verified.map_or(ToriiAccountReadVisibility::None, |request| {
                 ToriiAccountReadVisibility::Signed(request.account)
@@ -15385,6 +15443,10 @@ fn torii_dataspace_read_visibility(
     routing::DataspaceReadVisibility::new(visible_dataspaces, can_read_all)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_dataspace_read_visibility_for_scope(
     app: &AppState,
     scope: &ToriiFanoutRouteScopeV1,
@@ -15626,7 +15688,7 @@ fn torii_alias_lookup_permission_probe_alias(
     };
     let Ok(canonical_name) = iroha_data_model::alias_setup::AccountAliasName::try_new(
         "lookup",
-        domain.as_ref().map(|name| name.as_ref()),
+        domain.as_ref().map(std::convert::AsRef::as_ref),
         dataspace,
     ) else {
         return Ok(None);
@@ -15805,6 +15867,10 @@ fn torii_partition_alias_index_routes_by_permission(
     Ok((allowed_routes, denied_routes))
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_account_read_routes(
     app: &AppState,
     target_account: &AccountId,
@@ -15826,6 +15892,10 @@ fn torii_should_use_target_account_routes(
     caller.is_some_and(|caller| torii_same_account_read_identity(app, caller, target_account))
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_account_assets_read_routes(
     app: &AppState,
     target_account: &AccountId,
@@ -15858,6 +15928,10 @@ fn torii_account_assets_read_routes(
 }
 
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_account_assets_route_visibility(
     app: &AppState,
     scope: &ToriiFanoutRouteScopeV1,
@@ -15909,6 +15983,10 @@ fn torii_account_assets_route_visibility(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_account_permissions_read_routes(
     app: &AppState,
     target_account: &AccountId,
@@ -15925,6 +16003,10 @@ fn torii_account_permissions_route_scope(
 ) -> ToriiFanoutRouteScopeV1 {
     torii_account_read_route_scope(target_account, caller, use_target_account_routes)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_nexus_route(app: &AppState) -> Result<RoutingDecision, Response> {
     resolve_torii_route_for_dataspace_id(app, DataSpaceId::UNIVERSAL).map_err(|error| {
         torii_proxy_error_response(
@@ -15934,6 +16016,10 @@ fn torii_nexus_route(app: &AppState) -> Result<RoutingDecision, Response> {
         )
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_internal_fanout_account_id(
     account_id: &str,
     context: &'static str,
@@ -15954,6 +16040,10 @@ fn parse_internal_fanout_account_id(
     })
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_fanout_scope_routes(
     app: &AppState,
     scope: &ToriiFanoutRouteScopeV1,
@@ -16216,6 +16306,10 @@ async fn mark_torii_proxy_request_completed(app: &SharedAppState, request_id: Ha
     completed.record(request_id, Instant::now());
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn new_torii_proxy_request(
     app: &AppState,
     request: ToriiProxyRequestKindV1,
@@ -16367,6 +16461,10 @@ fn torii_intersect_signed_query_routes(
     }
     (allowed, denied)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_authorize_signed_query_routes(
     app: &AppState,
     request: &impl SignedQueryScopeInput,
@@ -16534,6 +16632,10 @@ where
     let query = <Query as norito::codec::Decode>::decode(&mut cursor).ok()?;
     (cursor.is_empty() && norito::codec::Encode::encode(&query) == payload).then_some(query)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_query_payload_bounded<Query>(
     payload: &[u8],
     memory_limits: QueryScopeMemoryLimits,
@@ -16815,31 +16917,29 @@ fn is_authority_routed_iterable_query(query: &iroha_data_model::query::QueryWith
     query.item == QueryItemKind::CommittedTransaction
         && payload_matches_query::<FindTransactions>(&query.query_payload)
 }
-fn is_trigger_inventory_query_bounded(
-    query: &iroha_data_model::query::QueryWithParams,
-    _memory_limits: QueryScopeMemoryLimits,
-) -> Result<bool, Response> {
+fn is_trigger_inventory_query_bounded(query: &iroha_data_model::query::QueryWithParams) -> bool {
     use iroha_data_model::query::QueryItemKind;
     let (item_kind, _, _, payload) = canonical_iterable_query_parts(query);
     match item_kind {
         QueryItemKind::Trigger | QueryItemKind::TriggerId => {
-            Ok(bounded_unit_query_payload_matches(payload))
+            bounded_unit_query_payload_matches(payload)
         }
-        _ => Ok(false),
+        _ => false,
     }
 }
-fn is_public_control_plane_query_bounded(
-    query: &iroha_data_model::query::QueryWithParams,
-    _memory_limits: QueryScopeMemoryLimits,
-) -> Result<bool, Response> {
+fn is_public_control_plane_query_bounded(query: &iroha_data_model::query::QueryWithParams) -> bool {
     use iroha_data_model::query::QueryItemKind;
     let (item_kind, _, _, payload) = canonical_iterable_query_parts(query);
     if item_kind == QueryItemKind::PeerId {
-        Ok(bounded_unit_query_payload_matches(payload))
+        bounded_unit_query_payload_matches(payload)
     } else {
-        Ok(false)
+        false
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn target_account_iterable_query_bounded(
     query: &iroha_data_model::query::QueryWithParams,
     memory_limits: QueryScopeMemoryLimits,
@@ -16900,6 +17000,10 @@ fn target_account_iterable_query_bounded(
         _ => None,
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn target_domain_iterable_query_for_app_bounded(
     app: &AppState,
     query: &iroha_data_model::query::QueryWithParams,
@@ -16926,14 +17030,13 @@ fn target_domain_iterable_query_for_app_bounded(
 }
 fn is_authority_routed_iterable_query_bounded(
     query: &iroha_data_model::query::QueryWithParams,
-    _memory_limits: QueryScopeMemoryLimits,
-) -> Result<bool, Response> {
+) -> bool {
     use iroha_data_model::query::QueryItemKind;
     let (item_kind, _, _, payload) = canonical_iterable_query_parts(query);
     if item_kind == QueryItemKind::CommittedTransaction {
-        Ok(bounded_unit_query_payload_matches(payload))
+        bounded_unit_query_payload_matches(payload)
     } else {
-        Ok(false)
+        false
     }
 }
 trait SignedQueryScopeInput {
@@ -17014,6 +17117,10 @@ fn signed_query_scope_for_app(
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn signed_query_scope_for_app_bounded(
     app: &AppState,
     request: &impl SignedQueryScopeInput,
@@ -17026,9 +17133,9 @@ fn signed_query_scope_for_app_bounded(
                 .unwrap_or(SignedQueryScope::CrossDataspaceFanout)
         }
         iroha_data_model::query::QueryRequest::Start(query) => {
-            if is_public_control_plane_query_bounded(query, memory_limits)? {
+            if is_public_control_plane_query_bounded(query) {
                 SignedQueryScope::PublicControlPlane
-            } else if is_trigger_inventory_query_bounded(query, memory_limits)? {
+            } else if is_trigger_inventory_query_bounded(query) {
                 SignedQueryScope::LocalReplicated
             } else if let Some(domain_id) =
                 target_domain_iterable_query_for_app_bounded(app, query, memory_limits)?
@@ -17038,7 +17145,7 @@ fn signed_query_scope_for_app_bounded(
                 target_account_iterable_query_bounded(query, memory_limits)?
             {
                 SignedQueryScope::TargetAccount(account_id)
-            } else if is_authority_routed_iterable_query_bounded(query, memory_limits)? {
+            } else if is_authority_routed_iterable_query_bounded(query) {
                 SignedQueryScope::AuthorityRouted
             } else {
                 SignedQueryScope::CrossDataspaceFanout
@@ -17069,6 +17176,10 @@ fn is_known_global_asset_balance_query(
             .asset_definition(query.id.definition())
             .is_ok_and(|definition| definition.balance_scope_policy() == AssetBalancePolicy::Global)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_authorized_signed_query_routes(
     app: &AppState,
     request: &impl SignedQueryScopeInput,
@@ -17147,6 +17258,10 @@ fn clone_verified_query_request(
     norito::decode_from_bytes(&bytes)
         .expect("verified routed query requests should decode deterministically")
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn verified_query_request_encoded_len(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<usize, Response> {
@@ -17158,6 +17273,10 @@ fn verified_query_request_encoded_len(
         )
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn exact_query_fanout_envelope(
     working_set_bytes: usize,
     signed_query_bytes: usize,
@@ -17170,6 +17289,10 @@ fn exact_query_fanout_envelope(
     )
 }
 include!("bounded_versioned_query_encoder.rs");
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn clone_verified_query_request_bounded(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
     envelope: QueryFanoutMemoryEnvelope,
@@ -17222,11 +17345,19 @@ fn clone_verified_query_request_bounded(
         })
 }
 #[cfg(test)]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn fanout_route_scan_query_request(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
     prepare_fanout_route_scan_query_request(clone_verified_query_request(request))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn fanout_route_scan_query_request_bounded(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
     envelope: QueryFanoutMemoryEnvelope,
@@ -17235,6 +17366,10 @@ fn fanout_route_scan_query_request_bounded(
         request, envelope,
     )?)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn prepare_fanout_route_scan_query_request(
     mut request: iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
@@ -17342,6 +17477,10 @@ impl BoundedCanonicalFanoutVariant {
         )
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn ensure_bounded_fanout_query(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<(), Response> {
@@ -17352,6 +17491,10 @@ enum BoundedFanoutQueryKind {
     Iterable(BoundedCanonicalFanoutVariant),
     Singular,
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn bounded_fanout_query_kind(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<BoundedFanoutQueryKind, Response> {
@@ -17367,11 +17510,19 @@ fn bounded_fanout_query_kind(
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn bounded_canonical_iterable_fanout_variant(
     _request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<BoundedCanonicalFanoutVariant, Response> {
     Err(unsupported_canonical_iterable_fanout_response())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn push_bounded_canonical_fanout_batch(
     accumulator: &mut iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator,
     expected_variant: BoundedCanonicalFanoutVariant,
@@ -17391,6 +17542,10 @@ fn incompatible_routed_query_response(expected: &'static str) -> Response {
         format!("routed query returned an incompatible response variant; expected {expected}"),
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn retain_matching_singular_fanout_output(
     retained: &mut Option<iroha_data_model::query::SingularQueryOutputBox>,
     current: iroha_data_model::query::SingularQueryOutputBox,
@@ -17409,6 +17564,10 @@ fn retain_matching_singular_fanout_output(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn encode_verified_singular_fanout_request_bounded(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
     envelope: QueryFanoutMemoryEnvelope,
@@ -17452,6 +17611,10 @@ fn encode_verified_singular_fanout_request_bounded(
     }
     Ok(bytes)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_verified_singular_fanout_request_bounded(
     bytes: &[u8],
     envelope: QueryFanoutMemoryEnvelope,
@@ -17474,6 +17637,10 @@ enum CanonicalFanoutBatchRef<'a> {
     TriggerId(&'a Vec<iroha_data_model::trigger::TriggerId>),
 }
 impl CanonicalFanoutBatchRef<'_> {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn from_batch(
         batch: &iroha_data_model::query::QueryOutputBatchBox,
         expected: BoundedCanonicalFanoutVariant,
@@ -17629,6 +17796,10 @@ impl norito::core::SerializePayload for CanonicalFanoutOutputRef<'_> {
 #[derive(Debug)]
 struct BoundedCanonicalIterableFanoutResponse(iroha_data_model::query::QueryResponse);
 impl BoundedCanonicalIterableFanoutResponse {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn new(
         response: iroha_data_model::query::QueryResponse,
         expected: BoundedCanonicalFanoutVariant,
@@ -18121,8 +18292,7 @@ async fn execute_torii_verified_query_route_scan_locally(
         app.telemetry.clone(),
         output_limits,
         envelope.execution_budget(),
-        admission,
-        fanout_reservation,
+        (admission, fanout_reservation),
     )
     .await
     .map_err(IntoResponse::into_response)
@@ -18172,8 +18342,7 @@ async fn execute_torii_singular_query_via_fanout_for_routes_admitted(
     verified_query: iroha_data_model::query::QueryRequestWithAuthority,
     routes: Vec<RoutingDecision>,
     format: ResponseFormat,
-    envelope: QueryFanoutMemoryEnvelope,
-    fanout_reservation: QueryFanoutMemoryReservation,
+    (envelope, fanout_reservation): (QueryFanoutMemoryEnvelope, QueryFanoutMemoryReservation),
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
     debug_assert!(matches!(
@@ -18283,8 +18452,7 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
     verified_query: iroha_data_model::query::QueryRequestWithAuthority,
     routes: Vec<RoutingDecision>,
     format: ResponseFormat,
-    envelope: QueryFanoutMemoryEnvelope,
-    fanout_reservation: QueryFanoutMemoryReservation,
+    (envelope, fanout_reservation): (QueryFanoutMemoryEnvelope, QueryFanoutMemoryReservation),
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
     debug_assert!(!routes.is_empty());
@@ -18309,8 +18477,7 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
             verified_query,
             routes,
             format,
-            envelope,
-            fanout_reservation,
+            (envelope, fanout_reservation),
             proxy_memory,
         )
         .await;
@@ -18462,6 +18629,10 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
     response
 }
 #[cfg(feature = "connect")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_signed_query_fanout_routes(
     app: &AppState,
     request: &iroha_data_model::query::QueryRequestWithAuthority,
@@ -18552,16 +18723,15 @@ async fn execute_torii_signed_query_fanout_proxy_request(
         Ok(envelope) => envelope,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
-    let response = execute_torii_query_via_fanout_for_routes_admitted(
+    let response = Box::pin(execute_torii_query_via_fanout_for_routes_admitted(
         app,
         Arc::<[u8]>::from(query_bytes),
         request,
         routes,
         format,
-        envelope,
-        permit.clone(),
+        (envelope, permit.clone()),
         proxy_memory,
-    )
+    ))
     .await;
     hold_query_fanout_memory_in_response_body(response, permit)
 }
@@ -18578,23 +18748,22 @@ async fn execute_torii_query_via_nexus_fanout(
     if let Err(response) = reject_proxy_client_continuation(&verified_query, "signed Nexus fanout")
     {
         return hold_query_fanout_memory_in_response_body(response, permit);
-    };
+    }
     let response_format = torii_proxy_response_format(format);
     let nexus_route = match torii_nexus_route(app.as_ref()) {
         Ok(route) => route,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
     let response = if should_execute_route_locally(app.as_ref(), nexus_route) {
-        execute_torii_query_via_fanout_for_routes_admitted(
+        Box::pin(execute_torii_query_via_fanout_for_routes_admitted(
             app,
             Arc::<[u8]>::from(query_bytes),
             verified_query,
             routes,
             response_format_from_torii_proxy(response_format),
-            envelope,
-            permit.clone(),
+            (envelope, permit.clone()),
             None,
-        )
+        ))
         .await
     } else {
         execute_torii_proxy_request_with_fallback(
@@ -19877,7 +20046,7 @@ where
         }
     }
     complete_request(request_id).await;
-    return last_retryable.unwrap_or_else(|| {
+    last_retryable.unwrap_or_else(|| {
         torii_proxy_error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             "route_unavailable",
@@ -19887,7 +20056,7 @@ where
                 routing_decision.dataspace_id.as_u64()
             ),
         )
-    });
+    })
 }
 
 #[cfg(feature = "connect")]
@@ -20052,6 +20221,10 @@ fn torii_read_http_method(endpoint: ToriiReadEndpointV1) -> reqwest::Method {
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_read_path_arg_encoded(
     request: &ToriiReadProxyRequestV1,
     index: usize,
@@ -20061,6 +20234,10 @@ fn torii_read_path_arg_encoded(
         .map(|value| urlencoding::encode(&value).into_owned())
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_external_read_path(request: &ToriiReadProxyRequestV1) -> Result<String, Response> {
     let path = match request.endpoint {
         ToriiReadEndpointV1::AccountGet => format!(
@@ -20336,6 +20513,10 @@ fn torii_proxy_accept_header(format: ToriiProxyResponseFormatV1) -> HeaderValue 
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_proxy_path_arg(
     request: &ToriiReadProxyRequestV1,
     index: usize,
@@ -20402,15 +20583,17 @@ fn execute_trusted_internal_account_transaction_local_read(
         transaction.entrypoint_hash() == &entrypoint_hash
             && routing::tx_references_account_id(transaction, &account_id)
     });
-    match transaction {
-        Some(transaction) => crate::utils::respond_with_format(transaction, format),
-        None => trusted_internal_read_error_response(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "no committed transaction with the exact hash references the exact account",
-            format,
-        ),
-    }
+    transaction.map_or_else(
+        || {
+            trusted_internal_read_error_response(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "no committed transaction with the exact hash references the exact account",
+                format,
+            )
+        },
+        |transaction| crate::utils::respond_with_format(transaction, format),
+    )
 }
 #[cfg(feature = "app_api")]
 fn execute_trusted_internal_account_asset_local_read(
@@ -21190,10 +21373,12 @@ async fn execute_torii_single_route_read(
     execute_torii_single_route_read_with_format(
         app,
         route,
-        endpoint,
-        path_args,
-        query_string,
-        body,
+        crate::ToriiReadPayload {
+            endpoint,
+            path_args,
+            query_string,
+            body,
+        },
         ToriiProxyResponseFormatV1::Json,
         None,
     )
@@ -21227,10 +21412,12 @@ async fn execute_torii_single_route_read_in_fanout(
 async fn execute_torii_single_route_read_with_format(
     app: &SharedAppState,
     route: RoutingDecision,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     response_format: ToriiProxyResponseFormatV1,
     caller: Option<&AccountId>,
 ) -> Response {
@@ -21427,8 +21614,9 @@ async fn sanitize_exact_alias_route_response(
                         ));
                     }
                 };
+            let alias_matches = dto.alias == expected.0;
             if dto.index != request.index
-                || dto.alias != expected.0
+                || !alias_matches
                 || canonical_account != expected.1
                 || canonical_account_literal != dto.account_id
                 || dto.source.as_deref() != Some("active_sns")
@@ -21680,40 +21868,37 @@ async fn execute_incoming_torii_proxy_request_with_admission(
         _ => None,
     };
     let deadline = budget_observed_at + remaining_budget;
-    match tokio::time::timeout_at(
+    tokio::time::timeout_at(
         deadline,
-        execute_incoming_torii_proxy_request_with_admission_inner(
+        Box::pin(execute_incoming_torii_proxy_request_with_admission_inner(
             app,
             proxy_request,
             immediate_sender_peer_id,
             pre_admitted_fanout,
             proxy_memory,
-        ),
+        )),
     )
     .await
-    {
-        Ok(response) => response,
-        Err(_) => {
-            let reason = format!(
-                "Torii proxy request `{request_id}` exhausted its authenticated absolute deadline"
-            );
-            if let Some((entrypoint_hash, signed_transaction_hash)) = transaction_identity {
-                // Physical queue admission can outlive a cancelled transport wait.
-                // Preserve the original transaction identity for status reconciliation.
-                transaction_dispatch_outcome_unknown_response(
-                    entrypoint_hash,
-                    signed_transaction_hash,
-                    reason,
-                )
-            } else {
-                torii_proxy_error_response(
-                    StatusCode::REQUEST_TIMEOUT,
-                    "proxy_deadline_exceeded",
-                    reason,
-                )
-            }
+    .unwrap_or_else(|_| {
+        let reason = format!(
+            "Torii proxy request `{request_id}` exhausted its authenticated absolute deadline"
+        );
+        if let Some((entrypoint_hash, signed_transaction_hash)) = transaction_identity {
+            // Physical queue admission can outlive a cancelled transport wait.
+            // Preserve the original transaction identity for status reconciliation.
+            transaction_dispatch_outcome_unknown_response(
+                entrypoint_hash,
+                signed_transaction_hash,
+                reason,
+            )
+        } else {
+            torii_proxy_error_response(
+                StatusCode::REQUEST_TIMEOUT,
+                "proxy_deadline_exceeded",
+                reason,
+            )
         }
-    }
+    })
 }
 
 #[cfg(feature = "connect")]
@@ -21856,13 +22041,13 @@ async fn execute_incoming_torii_proxy_request_with_admission_inner(
         else {
             unreachable!("signed fanout variant was checked above");
         };
-        return execute_torii_signed_query_fanout_proxy_request(
+        return Box::pin(execute_torii_signed_query_fanout_proxy_request(
             app,
             query_bytes,
             response_format,
             pre_admitted_fanout,
             proxy_memory.clone(),
-        )
+        ))
         .await;
     }
     // Split fixed forwarding metadata from the request arm and move the arm
@@ -21875,7 +22060,7 @@ async fn execute_incoming_torii_proxy_request_with_admission_inner(
             transaction,
             expected_plan,
         } => {
-            let ingress_plan = match validate_proxy_routing_plan_hint(expected_plan) {
+            let ingress_plan = match expected_plan.try_into_routing_plan() {
                 Ok(plan) => plan,
                 Err(error) => {
                     return torii_proxy_error_response(
@@ -22583,8 +22768,7 @@ fn hosted_http_runtime_state_matches_placement(
 #[cfg(feature = "app_api")]
 fn select_authoritative_hosted_http_replica(
     state_view: &iroha_core::state::StateView<'_>,
-    service_name: &str,
-    service_version: &str,
+    (service_name, service_version): (&str, &str),
     admitted_bundle_hash: &iroha_crypto::Hash,
     placements: &[iroha_data_model::soracloud::SoraInrouReplicaPlacementV1],
     remote_ip: Option<IpAddr>,
@@ -22902,15 +23086,14 @@ fn resolve_hosted_http_runtime_target(
     };
     let (placement, runtime_state) = select_authoritative_hosted_http_replica(
         &state_view,
-        &service_name,
-        &service_version,
+        (&service_name, &service_version),
         &admitted_bundle_hash,
         &placements,
         remote_ip,
         method,
         uri,
     )
-    .ok_or_else(|| no_healthy_replica())?;
+    .ok_or_else(&no_healthy_replica)?;
     let placement_is_local = app
         .local_peer_id
         .as_ref()
@@ -23356,7 +23539,7 @@ async fn proxy_soracloud_public_hosted_http_locally(
     };
     builder = builder.header(axum::http::header::HOST, host_header);
     for (name, value) in &headers {
-        if name == &axum::http::header::HOST || name == &axum::http::header::CONTENT_LENGTH {
+        if name == axum::http::header::HOST || name == axum::http::header::CONTENT_LENGTH {
             continue;
         }
         builder = builder.header(name, value);
@@ -23658,6 +23841,10 @@ fn soradns_public_gateway_error(status: StatusCode, message: impl Into<String>) 
     (status, message.into()).into_response()
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn resolve_active_soradns_gateway_host(
     app: &SharedAppState,
     fqdn: &str,
@@ -23701,6 +23888,10 @@ fn resolve_active_soradns_gateway_host(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn rewrite_soradns_public_runtime_headers(
     headers: &HeaderMap,
     host: &str,
@@ -23735,6 +23926,10 @@ fn soradns_alias_from_taira_mon_host(host: &str) -> Option<String> {
     (!alias.is_empty()).then(|| alias.to_owned())
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn rewrite_taira_mon_public_runtime_headers(
     app: &SharedAppState,
     headers: &HeaderMap,
@@ -23844,8 +24039,7 @@ async fn execute_soracloud_public_runtime_request(
             let request_headers = canonicalize_soracloud_local_read_headers(&headers);
             let request_body = body.to_vec();
             let request_commitment = soracloud_public_ordered_mailbox_request_commitment(
-                observed_height,
-                observed_block_hash,
+                (observed_height, observed_block_hash),
                 &route_match,
                 method.as_str(),
                 uri.path(),
@@ -23988,7 +24182,7 @@ async fn handler_soracloud_status(
             Ok(()) => ResponseFormat::Json,
             Err(response) => return Ok(response),
         };
-    let failed_admissions = soracloud_failed_admissions_section(&app.telemetry).await;
+    let failed_admissions = soracloud_failed_admissions_section(&app.telemetry);
     let backpressure = current_torii_backpressure(app.as_ref());
     let queue_active = u64::try_from(app.queue.active_len()).unwrap_or(u64::MAX);
     let queue_queued = u64::try_from(backpressure.queued()).unwrap_or(u64::MAX);
@@ -24534,7 +24728,7 @@ async fn handler_events_sse(
         app.kura.clone(),
         visibility,
         AxQuery(params),
-    )?
+    )
     .into_response())
 }
 #[cfg(feature = "app_api")]
@@ -24560,7 +24754,7 @@ async fn handler_contracts_events_sse(
         app.state.clone(),
         visibility,
         AxQuery(params),
-    )?
+    )
     .into_response())
 }
 #[cfg(feature = "app_api")]
@@ -24764,7 +24958,7 @@ async fn handler_subscription_ws(
     let preauth_guard = take_preauth_upgrade_guard(preauth_guard);
     let shutdown = app.shutdown_signal.clone();
     Ok(core::future::ready(ws.on_upgrade(move |ws| async move {
-        let _ = crate::panic_recovery::catch_async_recoverable(async move {
+        let _ = Box::pin(crate::panic_recovery::catch_async_recoverable(async move {
             let _preauth_guard = preauth_guard;
             let stream = routing::event::handle_events_stream_with_receiver_visible(
                 events_rx,
@@ -24783,7 +24977,7 @@ async fn handler_subscription_ws(
                     iroha_logger::error!(%error, "Failure during event streaming");
                 }
             }
-        })
+        }))
         .await;
     }))
     .await)
@@ -25909,9 +26103,7 @@ async fn handler_bridge_finality_attestation_inner(
     }
     let mut response = routing::handle_v1_bridge_finality_attestation(
         app.state.clone(),
-        status,
-        identity,
-        build_fingerprint,
+        (status, identity, build_fingerprint),
         height,
         challenge,
         app.torii_proxy_bridge_signer.clone(),
@@ -26174,7 +26366,7 @@ fn contract_call_response_after_admission(
     response.entrypoint_hash_hex = Some(entrypoint_hash_hex.clone());
     response.transaction_payload_b64 = None;
     response.signing_message_b64 = None;
-    response.operation_receipt.status = "submitted".to_owned();
+    "submitted".clone_into(&mut response.operation_receipt.status);
     response.operation_receipt.tx_hash_hex = Some(tx_hash_hex);
     response.operation_receipt.entrypoint_hash_hex = Some(entrypoint_hash_hex);
     JsonBody(response).into_response()
@@ -26310,10 +26502,12 @@ async fn handler_post_contract_view(
         return Ok(execute_torii_single_route_read_with_format(
             &app,
             route,
-            ToriiReadEndpointV1::ContractViewPost,
-            Vec::new(),
-            None,
-            body,
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::ContractViewPost,
+                path_args: Vec::new(),
+                query_string: None,
+                body,
+            },
             ToriiProxyResponseFormatV1::Json,
             Some(&verified.account),
         )
@@ -26414,10 +26608,12 @@ async fn handler_post_contract_view_batch(
         return Ok(execute_torii_single_route_read_with_format(
             &app,
             route,
-            ToriiReadEndpointV1::ContractViewBatchPost,
-            Vec::new(),
-            None,
-            body,
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::ContractViewBatchPost,
+                path_args: Vec::new(),
+                query_string: None,
+                body,
+            },
             ToriiProxyResponseFormatV1::Json,
             Some(&verified.account),
         )
@@ -27188,7 +27384,7 @@ async fn admitted_por_provider_key(
     let guard = cache.read().await;
     let advert = guard
         .record_by_provider(provider_id)
-        .map(|record| record.advert())
+        .map(sorafs::discovery::AdvertRecord::advert)
         .ok_or_else(|| Error::AppForbidden {
             code: "sorafs_por_provider_not_admitted",
             message: format!(
@@ -27299,10 +27495,8 @@ async fn handler_post_sorafs_capacity_por_verdict(
         app.sorafs_node.clone(),
         app.sorafs_limits.clone(),
         app.por_coordinator.clone(),
-        verdict,
-        authenticated_signer,
-        trusted_auditor_keys,
-        app.por_auditor_signature_threshold,
+        (verdict, authenticated_signer),
+        (trusted_auditor_keys, app.por_auditor_signature_threshold),
         &repair_handoff,
     )
     .await
@@ -27634,6 +27828,19 @@ macro_rules! iso_payment_submission_handlers {
                         }
                     }
                 };
+                if !runtime.update_message_context(&msg_id, context.clone()) {
+                    runtime.mark_rejected(
+                        &msg_id,
+                        Some("failed to retain admitted ISO message context".to_owned()),
+                        Some("PRTRY:DURABILITY_FAILURE"),
+                    );
+                    return Err(Error::Query(
+                        iroha_data_model::ValidationFail::NotPermitted(
+                            "failed to retain the admitted ISO message context before queue admission"
+                                .into(),
+                        ),
+                    ));
+                }
                 transaction_payload.fee_payment = match quote_internal_fee_payment(&app, &transaction_payload) {
                     Ok(intent) => intent,
                     Err(err) => {
@@ -27648,19 +27855,6 @@ macro_rules! iso_payment_submission_handlers {
                         return Err(Error::Query(map_iso_error(err)));
                     }
                 };
-                if !runtime.update_message_context(&msg_id, context.clone()) {
-                    runtime.mark_rejected(
-                        &msg_id,
-                        Some("failed to retain admitted ISO message context".to_owned()),
-                        Some("PRTRY:DURABILITY_FAILURE"),
-                    );
-                    return Err(Error::Query(
-                        iroha_data_model::ValidationFail::NotPermitted(
-                            "failed to retain the admitted ISO message context before queue admission"
-                                .into(),
-                        ),
-                    ));
-                }
                 let tx_hash = transaction.hash();
                 let tx_hash_str = format!("{}", tx_hash);
                 if !runtime.bind_transaction_hash(&msg_id, &tx_hash_str) {
@@ -27796,8 +27990,7 @@ async fn handler_iso_lifecycle_submit(
     query: HashMap<String, String>,
     remote: std::net::SocketAddr,
     body: axum::body::Bytes,
-    message_type: &'static str,
-    access_context: &'static str,
+    (message_type, access_context): (&'static str, &'static str),
 ) -> Result<(StatusCode, JsonBody<norito::json::native::Value>), Error> {
     let remote_ip = remote.ip();
     check_access(&app, &headers, Some(remote_ip), access_context).await?;
@@ -27828,26 +28021,91 @@ async fn handler_iso_lifecycle_submit(
     let settlement_transaction_hash = lifecycle_authorization
         .settlement_transaction_hash(message_type, &parsed)
         .map_err(|err| Error::Query(map_iso_error(err)))?;
-    let applied_transaction_hash = match settlement_transaction_hash {
-        Some(transaction_hash) => {
-            let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
+    let native_request =
+        if iso20022_bridge::IsoLifecycleAuthorization::requires_successful_execution(
+            message_type,
+            &parsed,
+        ) {
+            runtime
+                .native_payment_for_lifecycle(&lifecycle_authorization)
+                .map_err(|error| Error::Query(map_iso_error(error)))?
+        } else {
+            None
+        };
+    let mut native_evidence = None;
+    if let Some(request) = native_request.as_ref() {
+        let attempted = request
+            .attempted_hash
+            .as_deref()
+            .map(|hash| {
+                let hash = parse_signed_transaction_hash(hash).map_err(|_| {
+                    pipeline_status_projection_error("ISO native attempt has invalid signed hash")
+                })?;
+                reconcile_pending_pipeline_transaction(&app, &hash)
+            })
+            .transpose()?
+            .flatten();
+        let business = canonical_iso_business_for_request(&app, request)?;
+        if iso20022_bridge::IsoLifecycleAuthorization::requires_successful_execution(
+            message_type,
+            &parsed,
+        ) && business.is_none()
+        {
+            return Err(Error::AppServiceUnavailable {
+                code: "iso_settlement_outcome_pending",
+                message: "ISO settlement requires the original canonical business effect; retry after finality".into(),
+            });
+        }
+        if let Some(effect) = business
+            .as_ref()
+            .and_then(|outcome| outcome.settlement.as_ref())
+        {
+            let receipt = effect.receipt().ok_or_else(|| {
+                pipeline_status_projection_error("invalid canonical ISO receipt frame")
+            })?;
+            let at = UNIX_EPOCH
+                .checked_add(Duration::from_millis(receipt.executed_at_ms))
+                .ok_or_else(|| {
+                    pipeline_status_projection_error("ISO native carrier time exceeds SystemTime")
+                })?;
+            native_evidence = Some((effect.transaction_hash.clone(), at));
+        }
+        publish_iso_native_outcomes(&runtime, request, attempted, business)?;
+    }
+    let applied_transaction = if native_request.is_some() {
+        native_evidence
+            .as_ref()
+            .map(|(hash, settled_at)| IsoSuccessfulExecution {
+                transaction_hash: hash,
+                settled_at: *settled_at,
+            })
+    } else {
+        match settlement_transaction_hash {
+            Some(transaction_hash) => {
+                let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
                 pipeline_status_projection_error(format!(
                     "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
                 ))
             })?;
-            match reconcile_pending_pipeline_transaction(&app, &hash)? {
-                Some(CanonicalTransactionOutcome::Applied { .. }) => Some(transaction_hash),
-                Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
-                None => {
-                    return Err(Error::AppServiceUnavailable {
+                match reconcile_pending_pipeline_transaction(&app, &hash)? {
+                    Some(CanonicalTransactionOutcome::Applied { settled_at, .. }) => {
+                        Some(IsoSuccessfulExecution {
+                            transaction_hash,
+                            settled_at,
+                        })
+                    }
+                    Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
+                    None => {
+                        return Err(Error::AppServiceUnavailable {
                         code: "iso_settlement_outcome_pending",
                         message: "ISO settlement requires a canonical execution outcome; retry after finality"
                             .to_owned(),
                     });
+                    }
                 }
             }
+            None => None,
         }
-        None => None,
     };
     // A failed authenticated carrier read must leave this lifecycle identity retryable.
     runtime
@@ -27858,7 +28116,7 @@ async fn handler_iso_lifecycle_submit(
         message_type,
         &parsed,
         &lifecycle_authorization,
-        applied_transaction_hash,
+        applied_transaction,
     ) {
         Ok(result) => result,
         Err(error) => return Err(map_iso_lifecycle_apply_error(&runtime, &msg_id, error)),
@@ -27938,15 +28196,14 @@ macro_rules! iso_lifecycle_submission_handlers {
                 body: axum::body::Bytes,
             ) -> Result<(StatusCode, JsonBody<norito::json::native::Value>), Error> {
                 handler_iso_lifecycle_submit(
-                    app,
-                    authenticated_operator,
-                    headers,
-                    query,
-                    remote,
-                    body,
-                    $message_type,
-                    $access_context,
-                )
+app,
+authenticated_operator,
+headers,
+query,
+remote,
+body,
+($message_type, $access_context),
+)
                 .await
             }
         )+
@@ -28764,13 +29021,12 @@ fn iso_original_message_name(status: &IsoMessageStatus) -> &str {
         .unwrap_or("unknown.iso20022.message")
 }
 fn iso_original_transaction_id(status: &IsoMessageStatus) -> std::borrow::Cow<'_, str> {
-    if let Some(hash) = status.transaction_hash() {
-        std::borrow::Cow::Borrowed(hash)
-    } else if let Some(business_message_id) = status.metadata().business_message_id() {
-        std::borrow::Cow::Borrowed(business_message_id)
-    } else {
-        std::borrow::Cow::Borrowed(status.message_id())
-    }
+    std::borrow::Cow::Borrowed(
+        status
+            .transaction_hash()
+            .or_else(|| status.metadata().business_message_id())
+            .unwrap_or_else(|| status.message_id()),
+    )
 }
 fn iso_securities_transaction_id(status: &IsoMessageStatus) -> std::borrow::Cow<'_, str> {
     for prefix in ["sese.023:", "sese.024:", "sese.025:"] {
@@ -28871,6 +29127,8 @@ fn insert_iso_metadata_fields(
     payload: &mut norito::json::native::Map,
     status: &crate::iso20022_bridge::IsoMessageStatus,
 ) {
+    payload.insert("reported_return".into(), status.reported_return_json());
+    payload.insert("native_payment".into(), status.native_payment_json());
     let metadata = status.metadata();
     payload.insert(
         "profile_id".into(),
@@ -29596,9 +29854,11 @@ fn precheck_transaction_batch_ed25519(
         prechecks: &mut [TransactionBatchPrecheck],
         indices: &[usize],
         duplicate_groups: &[Vec<usize>],
-        messages: &[&'a [u8]],
-        signatures: &[&'a [u8]],
-        public_keys: &[iroha_crypto::Ed25519ParsedPublicKey],
+        (messages, signatures, public_keys): (
+            &[&'a [u8]],
+            &[&'a [u8]],
+            &[iroha_crypto::Ed25519ParsedPublicKey],
+        ),
         scratch: &mut iroha_crypto::Ed25519BatchScratch<'a>,
     ) {
         if indices.is_empty() {
@@ -29612,7 +29872,7 @@ fn precheck_transaction_batch_ed25519(
                     public_keys,
                     scratch,
                 )
-                .map_or_else(|| (0, err.to_string()), |bad| bad)
+                .unwrap_or_else(|| (0, err.to_string()))
             })
         };
         match batch_result {
@@ -29665,9 +29925,7 @@ fn precheck_transaction_batch_ed25519(
                 &mut prechecks,
                 &indices,
                 &duplicate_groups,
-                &messages,
-                &signatures,
-                &public_keys,
+                (&messages, &signatures, &public_keys),
                 &mut scratch,
             );
             indices.clear();
@@ -29683,14 +29941,13 @@ fn precheck_transaction_batch_ed25519(
         &mut prechecks,
         &indices,
         &duplicate_groups,
-        &messages,
-        &signatures,
-        &public_keys,
+        (&messages, &signatures, &public_keys),
         &mut scratch,
     );
     prechecks
 }
 include!("lib_pipeline_handlers.rs");
+include!("lib_iso_native_payment.rs");
 struct AdmittedSignedQuery {
     query: SignedQuery,
     query_bytes: Vec<u8>,
@@ -29842,7 +30099,7 @@ async fn handler_signed_query_admitted(
             Ok(envelope) => envelope,
             Err(response) => return Ok(response),
         };
-        return Ok(execute_torii_query_via_nexus_fanout(
+        return Ok(Box::pin(execute_torii_query_via_nexus_fanout(
             &app,
             query_bytes,
             verified_query,
@@ -29850,7 +30107,7 @@ async fn handler_signed_query_admitted(
             format,
             envelope,
             fanout_permit,
-        )
+        ))
         .await);
     }
     let routing_decision = authorized_routes.first().copied();
@@ -30176,10 +30433,12 @@ async fn handler_connect_session(
             sid,
             app_pk,
             nonce,
-            response.token_app.clone(),
-            response.token_wallet.clone(),
-            response.token_management.clone(),
-            response.token_relay.clone(),
+            crate::connect::SessionTokens {
+                app: response.token_app.clone(),
+                wallet: response.token_wallet.clone(),
+                management: response.token_management.clone(),
+                relay: response.token_relay.clone(),
+            },
         )
         .await
     {
@@ -30488,10 +30747,13 @@ async fn handler_connect_session_status(
         }
         Err(response) => return response,
     };
-    match app.connect_bus.session_status(sid, &token).await {
-        Some(status) => JsonBody(status).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+    app.connect_bus
+        .session_status(sid, &token)
+        .await
+        .map_or_else(
+            || StatusCode::NOT_FOUND.into_response(),
+            |value| JsonBody(value).into_response(),
+        )
 }
 #[cfg(feature = "connect")]
 async fn handler_connect_status(State(app): State<SharedAppState>) -> axum::response::Response {
@@ -30502,7 +30764,7 @@ async fn handler_connect_status(State(app): State<SharedAppState>) -> axum::resp
     #[cfg(feature = "telemetry")]
     {
         if app.telemetry.allows_metrics() {
-            let metrics = app.telemetry.metrics().await;
+            let metrics = app.telemetry.metrics();
             metrics
                 .torii_connect_sessions_total
                 .set(status.sessions_total as u64);
@@ -30560,7 +30822,7 @@ fn require_signed_account_request(
     error_message: &'static str,
 ) -> Result<AccountId, Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -30571,9 +30833,7 @@ fn require_signed_account_request(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     )? {
@@ -31738,15 +31998,13 @@ async fn handler_alias_lookup_by_account(
         ));
     }
     let collected = match COLLECTION_READ_MEMORY_RESERVATION.scope(reservation.clone(), collect_torii_alias_lookup_json_payloads(
-        &app,
-        &allowed_routes,
-        denied_routes,
-        "one or more dataspace routes denied the alias-by-account lookup and no allowed route returned aliases",
-        visibility.caller(),
-        &request,
-        admission.envelope.working_set_bytes,
-        app.torii_proxy_max_response_bytes,
-        |route| {
+&app,
+&allowed_routes,
+(denied_routes, "one or more dataspace routes denied the alias-by-account lookup and no allowed route returned aliases"),
+visibility.caller(),
+&request,
+(admission.envelope.working_set_bytes, app.torii_proxy_max_response_bytes),
+|route| {
             execute_torii_single_route_read_in_fanout(
                 &app,
                 route,
@@ -31757,7 +32015,7 @@ async fn handler_alias_lookup_by_account(
                 body.to_vec(),
             )
         },
-    ))
+))
     .await
     {
         Ok(collected) => collected,
@@ -31808,6 +32066,10 @@ struct RecipientLookupAccess {
     policy: FxCorridorPolicy,
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn recipient_lookup_configured_policy(app: &AppState) -> Result<FxCorridorPolicy, AxResponse> {
     let world = app.state.world_view();
     let Some(custom) = world
@@ -31920,6 +32182,10 @@ fn recipient_lookup_alias_allowed_by_policy(
         })
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn recipient_route_for_account(
     app: &AppState,
     account_id: &AccountId,
@@ -33299,10 +33565,7 @@ async fn handler_identifier_resolve(
     let receipt = resolver
         .sign_receipt(&policy, &program_policy, &draft, &claim)
         .map_err(identifier_execution_error)?;
-    let response = json_ok(identifier_receipt_response(
-        &receipt,
-        draft.backend.as_str(),
-    )?)?;
+    let response = json_ok(identifier_receipt_response(&receipt))?;
     let delivery_now_ms =
         identifier_resolution::owner_prf::owner_prf_now_ms().map_err(identifier_execution_error)?;
     identifier_resolution::owner_prf::validate_owner_prf_lease_at(
@@ -33492,10 +33755,7 @@ async fn handler_identifier_claim_receipt(
     let receipt = resolver
         .issue_claim_receipt(&policy, &program_policy, &draft, uaid, account_id)
         .map_err(identifier_execution_error)?;
-    let response = json_ok(identifier_receipt_response(
-        &receipt,
-        draft.backend.as_str(),
-    )?)?;
+    let response = json_ok(identifier_receipt_response(&receipt))?;
     identifier_resolution::owner_prf::validate_owner_prf_lease(
         receipt.payload.opening.payload.opened_at_ms,
         receipt.payload.opening.payload.expires_at_ms,
@@ -33679,7 +33939,7 @@ fn authenticate_full_ledger_carrier_reader(
     uri: &Uri,
 ) -> Result<AccountId, Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -33690,9 +33950,11 @@ fn authenticate_full_ledger_carrier_reader(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        &[],
+        crate::app_auth::CanonicalRequestParts {
+            method,
+            uri,
+            body: &[],
+        },
         None,
         authentication_owner.allocation_context(),
     )?
@@ -34282,7 +34544,6 @@ fn validate_account_onboarding_readiness(
             );
         }
     }
-    drop(blocked);
     let status = if diagnostics.is_empty() {
         AliasSetupStatusV1::Ready
     } else if !has_committed_block
@@ -34514,8 +34775,18 @@ pub trait SoraFsAppealFinanceTransactionSigner: Send + Sync {
     /// Stable opaque provider handle matching the non-secret configured binding.
     fn handle(&self) -> &str;
     /// Exact public key controlled by this provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider is unavailable, refuses the key lookup, or
+    /// its identity, revision, or public policy changes during the request.
     fn public_key(&self) -> Result<PublicKey, SoraFsAppealFinanceSigningError>;
     /// Qualify the active adapter and exact public-policy revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider is unavailable, refuses qualification,
+    /// or its identity, revision, or public policy changes.
     fn qualification(
         &self,
     ) -> Result<
@@ -34523,6 +34794,11 @@ pub trait SoraFsAppealFinanceTransactionSigner: Send + Sync {
         SoraFsAppealFinanceSigningError,
     >;
     /// Sign the exact transaction payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider is unavailable, refuses signing, or
+    /// its identity, revision, or public policy changes around the request.
     fn sign(
         &self,
         payload: TransactionPayload,
@@ -34623,6 +34899,11 @@ pub struct SoraFsAppealFinanceRuntimeSignersV1 {
 #[cfg(feature = "app_api")]
 impl SoraFsAppealFinanceRuntimeSignersV1 {
     /// Validate and construct one runtime signer registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid or duplicate handles, invalid qualifications,
+    /// non-Ed25519 keys, unavailable providers, or provider identity drift.
     pub fn new(
         signers: Vec<Arc<dyn SoraFsAppealFinanceTransactionSigner>>,
     ) -> Result<Self, SoraFsAppealFinanceRuntimeSignerRegistryError> {
@@ -34650,7 +34931,7 @@ impl SoraFsAppealFinanceRuntimeSignersV1 {
                 .map_err(|_| SoraFsAppealFinanceRuntimeSignerRegistryError::ProviderUnavailable)?;
             let public_key = public_key_result
                 .map_err(|_| SoraFsAppealFinanceRuntimeSignerRegistryError::ProviderUnavailable)?;
-            if signer.handle() != handle.as_str() || qualification_after_key != qualification {
+            if (signer.handle(), &qualification_after_key) != (handle.as_str(), &qualification) {
                 return Err(SoraFsAppealFinanceRuntimeSignerRegistryError::IdentityDrift);
             }
             if !matches!(
@@ -34814,23 +35095,8 @@ const SORAFS_EVIDENCE_VIEWER_INITIALIZATION_FAILED: &str = "initialization_faile
 #[cfg(feature = "app_api")]
 fn sorafs_evidence_viewer_dependency_error(
     policy_configured: bool,
-    webauthn_supplied: bool,
-    grants_supplied: bool,
-    receipt_signer_supplied: bool,
-    erasure_supplied: bool,
-    checkpoint_store_supplied: bool,
-    compaction_archive_supplied: bool,
-    transparency_publisher_supplied: bool,
+    supplied: [bool; 7],
 ) -> Option<&'static str> {
-    let supplied = [
-        webauthn_supplied,
-        grants_supplied,
-        receipt_signer_supplied,
-        erasure_supplied,
-        checkpoint_store_supplied,
-        compaction_archive_supplied,
-        transparency_publisher_supplied,
-    ];
     if policy_configured {
         (!supplied.iter().all(|present| *present))
             .then_some(SORAFS_EVIDENCE_VIEWER_MISSING_RUNTIME_DEPENDENCIES)
@@ -35015,7 +35281,6 @@ pub struct TestApiRouterRuntime {
 
 impl TestApiRouterRuntime {
     /// Clone the router handle owned by this runtime.
-    #[must_use]
     pub fn router(&self) -> axum::Router {
         self.router.clone()
     }
@@ -35065,6 +35330,10 @@ impl Drop for TestApiRouterRuntime {
 }
 
 /// Main network handler and the only entrypoint of Iroha's HTTP API.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "The node runtime retains independent configured capability and policy switches."
+)]
 pub struct Torii {
     build_identity: iroha_core::release_identity::BuildIdentity,
     chain_id: Arc<ChainId>,
@@ -35175,7 +35444,7 @@ pub struct Torii {
     #[cfg(feature = "app_api")]
     tx_history_access_policy: Arc<TxHistoryAccessPolicy>,
     da_receipt_signer: KeyPair,
-    torii_proxy_bridge_signer: KeyPair,
+    proxy_bridge_signer: KeyPair,
     vpn_operator_signer: Option<KeyPair>,
     #[cfg(feature = "app_api")]
     public_dataspace_upstreams: Arc<BTreeMap<DataSpaceId, String>>,
@@ -36167,7 +36436,7 @@ fn preflight_sorafs_governance_dag_signer(
         || storage_config.governance_dag_signer_qualification() != Some(qualification)
         || storage_config
             .governance_dag_publisher_peer_id()
-            .map(|value| value.as_bytes())
+            .map(std::string::String::as_bytes)
             != Some(signer.publisher_peer_id())
         || expected_public_key != Some(signer.public_key())
     {
@@ -36388,6 +36657,10 @@ fn validate_prebuilt_sorafs_quarantine_key_provider_binding(
     Ok(())
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "each flag records independent injection of one governed privacy provider and has its own rejection contract"
+)]
 fn validate_prebuilt_sorafs_privacy_provider_bindings(
     node: &sorafs_node::NodeHandle,
     storage_config: &sorafs_node::config::StorageConfig,
@@ -36877,7 +37150,8 @@ macro_rules! mount_local_catalog_route_rows {
 
 #[cfg(feature = "app_api")]
 enum MusubiSearchProjectionInput {
-    Event(EventBox),
+    Data(SharedDataEvent),
+    Ignored,
     Lagged(u64),
     Exit(ToriiCriticalWorkerExit),
 }
@@ -36903,8 +37177,9 @@ async fn next_musubi_search_projection_input(
         () = shutdown_signal.receive() => {
             MusubiSearchProjectionInput::Exit(ToriiCriticalWorkerExit::StoppedByShutdown)
         }
-        received = events.recv() => match received {
-            Ok(event) => MusubiSearchProjectionInput::Event(event),
+        event_result = events.recv() => match event_result {
+            Ok(EventBox::Data(data)) => MusubiSearchProjectionInput::Data(data),
+            Ok(_) => MusubiSearchProjectionInput::Ignored,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                 MusubiSearchProjectionInput::Lagged(skipped)
             }
@@ -36964,7 +37239,7 @@ impl Torii {
             loop {
                 match next_musubi_search_projection_input(&shutdown_signal, &mut events).await {
                     MusubiSearchProjectionInput::Exit(exit) => return exit,
-                    MusubiSearchProjectionInput::Event(EventBox::Data(data)) => {
+                    MusubiSearchProjectionInput::Data(data) => {
                         let DataEvent::Musubi(event) = data.as_ref() else {
                             continue;
                         };
@@ -37049,7 +37324,7 @@ impl Torii {
                             }
                         }
                     }
-                    MusubiSearchProjectionInput::Event(_) => {}
+                    MusubiSearchProjectionInput::Ignored => {}
                     MusubiSearchProjectionInput::Lagged(skipped) => {
                         iroha_logger::warn!(
                             skipped,
@@ -37240,13 +37515,8 @@ impl Torii {
         &self,
         shutdown_signal: ShutdownSignal,
     ) -> Option<EvidenceViewerCompactionWorkerHandle> {
-        let Some(service) = self.sorafs_evidence_viewer.clone() else {
-            return None;
-        };
-        let Some(transparency_producer) = self.sorafs_evidence_viewer_transparency_producer.clone()
-        else {
-            return None;
-        };
+        let service = self.sorafs_evidence_viewer.clone()?;
+        let transparency_producer = self.sorafs_evidence_viewer_transparency_producer.clone()?;
         let task = tokio::spawn(async move {
             let mut ticker =
                 tokio::time::interval(Duration::from_millis(service.compaction_interval_ms()));
@@ -37597,6 +37867,7 @@ impl Torii {
             COMMITTEE => public_get(sccp::handler_committee);
             GOVERNANCE => public_get(sccp::handler_governance);
             GOVERNANCE_PROPOSALS => public_get(sccp::handler_governance_proposals);
+            GOVERNANCE_READINESS => public_get(sccp::handler_governance_readiness);
             GOVERNANCE_PROPOSAL => public_get(sccp::handler_governance_proposal);
             HISTORY => public_get(sccp::handler_history);
             LIGHT_CLIENTS => public_get(sccp::handler_light_clients);
@@ -37604,6 +37875,11 @@ impl Torii {
             LIGHT_CLIENT_SETS => public_get(sccp::handler_light_client_sets);
             LIGHT_CLIENT_CHECKPOINTS => public_get(sccp::handler_light_client_checkpoints);
             REGISTRY => public_get(sccp::handler_registry);
+            FORGERY_HOLD => public_get(sccp::handler_forgery_hold);
+            FAST_PAUSE => public_get(sccp::handler_fast_pause);
+            EVIDENCE_ANCHOR => public_get(sccp::handler_evidence_anchor);
+            EVIDENCE => public_get(sccp::handler_evidence);
+            EVIDENCE_PAGE => public_get(sccp::handler_evidence_page);
             MESSAGES_RECENT => public_get(sccp::handler_messages_recent);
             MESSAGE => public_get(sccp::handler_message);
             OUTBOUND_BY_NONCE => public_get(sccp::handler_outbound);
@@ -37737,6 +38013,7 @@ impl Torii {
             SORAFS_ORDERBOOK_EVENTS_WS_GET => limited_canonical_account_get(sorafs::api::handle_get_sorafs_orderbook_events_ws, app_state, 0, 0);
             SORAFS_RESERVE_POLICY_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_policy);
             SORAFS_RESERVE_POLICY_PROOF_GET => canonical_signature_get(reserve_policy_proof::handler);
+            AMX_DEBIT_APPROVAL_PROOF_POST => limited_canonical_signature_post(amx_approval_proof::handler, iroha_data_model::sumeragi_amx::approval_proof::MAX_AMX_DEBIT_APPROVAL_PERMISSION_BYTES_V1);
             SORAFS_RESERVE_ACCOUNT_PROOF_GET => canonical_signature_get(reserve_account_proof::handler);
             KAGEMUSHA_LOAD_ISSUANCE_GET => limited_canonical_account_get(kagemusha_wallet::handler, app_state, 0, 0);
             KAGEMUSHA_ENROLLMENT_POST => limited_canonical_signature_post(kagemusha_enrollment::handler, iroha_torii_shared::kagemusha_enrollment::ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1);
@@ -37967,7 +38244,7 @@ impl Torii {
     }
     /// Iroha Connect routes (feature-gated)
     #[cfg(feature = "connect")]
-    fn add_connect_routes(&self, builder: &mut RouterBuilder) {
+    fn add_connect_routes(builder: &mut RouterBuilder) {
         const CONNECT_SESSION_BODY_MAX_BYTES: usize = 64 * 1024;
         let app_state = builder.state().clone();
         builder.route(
@@ -38841,6 +39118,11 @@ impl Torii {
     ///
     /// Embeddings that provide telemetry must use [`Self::new_with_handle`] and
     /// pass an explicit [`routing::MaybeTelemetry`] profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns a component-qualified error if configuration, runtime dependencies,
+    /// or durable component initialization fails; see [`Self::new_with_handle`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         build_identity: iroha_core::release_identity::BuildIdentity,
@@ -39450,7 +39732,7 @@ impl Torii {
             })?;
         #[cfg(all(feature = "app_api", feature = "telemetry"))]
         let peer_geo = telemetry::peers::GeoLookupConfig::from(&config.peer_geo);
-        let sorafs_admission = load_sorafs_admission(&config, Arc::clone(&state))?;
+        let sorafs_admission = load_sorafs_admission(&config, Arc::clone(&state));
         #[cfg(feature = "app_api")]
         let sorafs_potr_runtime_signers = require_sorafs_potr_finalized_reader_inputs(
             config.sorafs_por.enabled,
@@ -39678,13 +39960,15 @@ impl Torii {
         #[cfg(feature = "app_api")]
         let sorafs_evidence_viewer_dependency_error = sorafs_evidence_viewer_dependency_error(
             config.sorafs_storage.evidence_viewer.is_some(),
-            shared_sorafs_evidence_viewer_webauthn.is_some(),
-            shared_sorafs_evidence_viewer_grants.is_some(),
-            shared_sorafs_evidence_viewer_receipt_signer.is_some(),
-            shared_sorafs_evidence_viewer_erasure.is_some(),
-            shared_sorafs_evidence_viewer_checkpoint_store.is_some(),
-            shared_sorafs_evidence_viewer_compaction_archive.is_some(),
-            shared_sorafs_evidence_viewer_transparency_publisher.is_some(),
+            [
+                shared_sorafs_evidence_viewer_webauthn.is_some(),
+                shared_sorafs_evidence_viewer_grants.is_some(),
+                shared_sorafs_evidence_viewer_receipt_signer.is_some(),
+                shared_sorafs_evidence_viewer_erasure.is_some(),
+                shared_sorafs_evidence_viewer_checkpoint_store.is_some(),
+                shared_sorafs_evidence_viewer_compaction_archive.is_some(),
+                shared_sorafs_evidence_viewer_transparency_publisher.is_some(),
+            ],
         );
         #[cfg(feature = "app_api")]
         let (sorafs_evidence_viewer, sorafs_evidence_viewer_transparency_producer) = match (
@@ -39966,15 +40250,13 @@ impl Torii {
                     );
                     let submitter = Arc::new(
                         sorafs::moderation_runtime::ModerationTransactionSubmitterAdapterV1::try_new(
-                            *state.network_id_ref(),
-                            &config.transaction_signer_handle,
-                            transaction_signer_qualification,
-                            transaction_signer,
-                            fee_quoter,
-                            &config.strict_ingress_handle,
-                            strict_ingress_qualification,
-                            ingress,
-                        )
+*state.network_id_ref(),
+(&config.transaction_signer_handle, transaction_signer_qualification),
+transaction_signer,
+fee_quoter,
+(&config.strict_ingress_handle, strict_ingress_qualification),
+ingress,
+)
                         .map_err(|_| ())?,
                     );
                     let snapshot_reader = Arc::new(
@@ -40501,7 +40783,7 @@ impl Torii {
             #[cfg(feature = "app_api")]
             tx_history_access_policy,
             da_receipt_signer,
-            torii_proxy_bridge_signer,
+            proxy_bridge_signer: torii_proxy_bridge_signer,
             vpn_operator_signer,
             #[cfg(feature = "app_api")]
             public_dataspace_upstreams,
@@ -41420,7 +41702,7 @@ impl Torii {
             da_receipt_log: da_runtime.receipt_log,
             da_replay_lifecycle_lock: da_runtime.replay_lifecycle_lock,
             da_receipt_signer: self.da_receipt_signer.clone(),
-            torii_proxy_bridge_signer: self.torii_proxy_bridge_signer.clone(),
+            torii_proxy_bridge_signer: self.proxy_bridge_signer.clone(),
             vpn_operator_signer: self.vpn_operator_signer.clone(),
             #[cfg(feature = "app_api")]
             public_dataspace_upstreams: self.public_dataspace_upstreams.clone(),
@@ -41674,7 +41956,7 @@ impl Torii {
         Self::add_soradns_routes(&mut builder);
         // Iroha Connect (feature-gated)
         #[cfg(feature = "connect")]
-        self.add_connect_routes(&mut builder);
+        Self::add_connect_routes(&mut builder);
         Self::add_multisig_execution_evidence_routes(&mut builder);
         // App-facing JSON API
         #[cfg(feature = "app_api")]
@@ -42110,13 +42392,13 @@ impl Torii {
                 name: "webhook_event_ingest",
                 task: tokio::spawn(async move {
                     loop {
-                        let received = tokio::select! {
+                        let event_result = tokio::select! {
                             () = worker_shutdown.receive() => {
                                 return ToriiCriticalWorkerExit::StoppedByShutdown;
                             }
-                            received = rx.recv() => received,
+                            event_result = rx.recv() => event_result,
                         };
-                        match received {
+                        match event_result {
                             Ok(event) => {
                                 crate::webhook::enqueue_event_for_matching_webhooks(
                                     &event,
@@ -42478,8 +42760,9 @@ fn is_exact_rate_limited_cancellation(payload: &norito::json::Value) -> bool {
             params.get("requestId"),
             Some(
                 Value::String(_)
-                    | Value::Number(norito::json::native::Number::I64(_))
-                    | Value::Number(norito::json::native::Number::U64(_))
+                    | Value::Number(
+                        norito::json::native::Number::I64(_) | norito::json::native::Number::U64(_)
+                    )
             )
         )
     {
@@ -42865,13 +43148,13 @@ fn require_sorafs_potr_finalized_reader_inputs(
 fn load_sorafs_admission(
     config: &iroha_config::parameters::actual::Torii,
     state: Arc<CoreState>,
-) -> Result<Option<Arc<sorafs::AdmissionRegistry>>, ToriiBuildError> {
+) -> Option<Arc<sorafs::AdmissionRegistry>> {
     if !config.sorafs_discovery.discovery_enabled && config.sorafs_discovery.admission.is_none() {
-        return Ok(None);
+        return None;
     }
     // Admission and revocation are Parliament effects in the exact same State as Torii.
     // A configured directory is never a second authority or a fallback on finality outage.
-    Ok(Some(Arc::new(sorafs::AdmissionRegistry::from_state(state))))
+    Some(Arc::new(sorafs::AdmissionRegistry::from_state(state)))
 }
 
 #[derive(Clone)]
@@ -43545,8 +43828,10 @@ impl IntoResponse for Error {
                     code: Some(ctx.reason.code().to_owned()),
                     reason: Some(ctx.reason.label().to_owned()),
                     snapshot_version: ctx.snapshot_version,
-                    dataspace: ctx.dataspace.map(|dsid| dsid.as_u64()),
-                    lane: ctx.lane.map(|lane| lane.as_u32()),
+                    dataspace: ctx
+                        .dataspace
+                        .map(iroha_model_base::topology::DataSpaceId::as_u64),
+                    lane: ctx.lane.map(iroha_model_base::topology::LaneId::as_u32),
                     active_handle_era: ctx.active_handle_era,
                     next_handle_counter: ctx.next_handle_counter,
                 });

@@ -42,7 +42,7 @@ impl From<StateAdmissionError> for MergeLedgerCommitError {
 }
 
 /// Separate local acquisition refusal from the caller's deterministic start stage.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum StateBlockStartError<E: std::fmt::Debug> {
     /// The original committed scheduling policy is malformed.
     #[error("invalid committed block-start policy: {0}")]
@@ -59,6 +59,9 @@ pub enum StateBlockStartError<E: std::fmt::Debug> {
     /// Original source-route backing or a pre-effect routing read could not complete locally.
     #[error(transparent)]
     ExecutionDeferred(crate::execution_attempt::ExecutionDeferred),
+    /// The shared governance pass has no authenticated external predecessor receipt yet.
+    #[error(transparent)]
+    GovernanceDueUnavailable(crate::smartcontracts::isi::sccp::keepalive::DueWorkUnavailable),
     /// The caller's original pristine/after-start failure.
     #[error("block start stage failed: {0:?}")]
     Stage(E),
@@ -70,6 +73,9 @@ impl From<StateBlockStartError<MergeLedgerCommitError>> for MergeLedgerCommitErr
             StateBlockStartError::History(error) => Self::BlockHashAdmission(error),
             StateBlockStartError::Membership(error) => Self::MembershipAdmission(error),
             StateBlockStartError::ExecutionDeferred(error) => Self::ExecutionDeferred(error),
+            StateBlockStartError::GovernanceDueUnavailable(error) => Self::NativeControlValidation(
+                Box::new(crate::block::BlockValidationError::GovernanceDueUnavailable(error)),
+            ),
             StateBlockStartError::Stage(error) => error,
             StateBlockStartError::Policy(error) => Self::ExecutionStatePublication(error),
         }
@@ -187,7 +193,7 @@ impl<E: std::fmt::Debug> StateBlockStartError<E> {
                 }
                 _ => None,
             },
-            Self::Stage(_) | Self::Policy(_) => None,
+            Self::Stage(_) | Self::Policy(_) | Self::GovernanceDueUnavailable(_) => None,
         }
     }
 }

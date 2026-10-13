@@ -1,10 +1,11 @@
 //! Canonical storage benchmarks using an originally executed native certified chain.
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use iroha_core::{
     kura::BlockStore,
     state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
+use std::hint::black_box;
 
 fn native_canonical_storage(c: &mut Criterion) {
     let runtime = tokio::runtime::Builder::new_multi_thread()

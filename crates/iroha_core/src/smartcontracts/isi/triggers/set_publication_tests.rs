@@ -97,11 +97,11 @@ fn busy_at_each_trigger_component_returns_all_original_journals_and_releases_ear
     macro_rules! busy {
         ($field:ident) => {{
             let busy = set.$field.block();
-            let (returned, error, _cleanup) = journal
+            let (returned, error, cleanup) = journal
                 .try_prepare_publication(&set, |_, _| Ok::<_, ()>(()))
                 .err()
                 .expect("busy component");
-            drop(_cleanup);
+            drop(cleanup);
             assert!(
                 matches!(
                     error,

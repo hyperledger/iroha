@@ -173,7 +173,7 @@ async fn contract_feeds_project_rejected_contract_call_from_signed_invocation() 
     )
     .expect("derive fixture contract address");
     let code_hash = iroha_crypto::Hash::new(b"undeployed contract feed fixture");
-    let mut metadata = forged_contract_event_metadata(&contract_address.to_string());
+    let mut metadata = forged_contract_event_metadata(contract_address.as_ref());
     metadata.insert(
         "contract_code_hash".parse().unwrap(),
         dm::Json::new(code_hash.to_string()),

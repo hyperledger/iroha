@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::smartcontracts::isi::sccp::{
-    forgery::tests::{active_chain, active_member_chain, future, partial_member_chain, resign},
+    forgery::tests::{active_member_chain, future, resign},
     test_support::{blank_state, sample_route},
 };
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
@@ -155,7 +155,7 @@ fn duplicate_is_no_write_and_overlapping_quorum_records_only_new_registration() 
 
 #[test]
 fn unslashable_signer_is_reported_without_inventing_member_or_penalty() {
-    let (chain, keys) = partial_member_chain();
+    let (chain, keys) = active_member_chain();
     let mut evidence = future(&chain, &keys);
     let mut qc = QcFixedV1::parse(&evidence.qc).unwrap();
     qc.signers = 0b0111;
@@ -164,30 +164,98 @@ fn unslashable_signer_is_reported_without_inventing_member_or_penalty() {
     let header = next_header(&chain);
     let mut block = chain.state().block(header);
     let mut stx = block.transaction_for_callback_testing();
-    execute_forgery(&evidence, &mut stx).unwrap();
-    assert_eq!(stx.world.sccp_forgery_offences.len(), 2);
-    let events = sccp_events(&mut stx);
+    let prepared = prepare_execution(&evidence, &stx).unwrap();
+    let projection = prepared.record.canonical_projection();
+    let RecordedEvidenceV1::SccpForgery(mut record) = projection.evidence else {
+        panic!("genuine prepared SCCP record");
+    };
+    // DATA-only event projection: G1 forbids partially registered initial committees.
+    // This altered public record is never inserted, authenticated, or passed to publish.
+    record.offenders.truncate(2);
+    let events = prepare_events(
+        &*stx.world,
+        prepared.evidence_id,
+        header.height().get(),
+        &record,
+        1 << 2,
+    )
+    .unwrap();
     assert!(
         matches!(&events[0], SccpEvent::ForgeryOffenderUnslashable(e) if e.generation == 1 && e.signer == 2)
     );
     assert!(matches!(&events[1], SccpEvent::ForgeryEvidenceRecorded(e) if e.offenders.len() == 2));
     assert_eq!(events.len(), 2);
+    assert!(stx.world.consensus_evidence.is_empty());
+    assert!(stx.world.sccp_forgery_offences.is_empty());
+    assert_eq!(store::forgery_max_generation(&*stx.world), None);
+    assert!(
+        sccp_events(&mut stx).is_empty(),
+        "DATA projection emits nothing"
+    );
 }
 
 #[test]
-fn wholly_unslashable_claim_cannot_publish_a_success_or_hold() {
-    let (chain, keys) = active_chain();
-    let evidence = future(&chain, &keys);
+fn distinct_certificate_with_only_recorded_offenders_cannot_publish_a_success_or_hold() {
+    let (chain, keys) = active_member_chain();
+    let mut evidence = future(&chain, &keys);
     let header = next_header(&chain);
     let mut block = chain.state().block(header);
     let mut stx = block.transaction_for_callback_testing();
+    let route = sample_route(SccpNetworkV1::EthereumMainnet);
+    store::routes::insert(&mut stx, route.network, route).unwrap();
+    execute_forgery(&evidence, &mut stx).unwrap();
+    assert_eq!(sccp_events(&mut stx).len(), 2);
+    let original_records: Vec<_> = stx
+        .world
+        .consensus_evidence
+        .iter()
+        .map(|(id, record)| (*id, record.canonical_projection()))
+        .collect();
+    let original_offences: Vec<_> = stx
+        .world
+        .sccp_forgery_offences
+        .iter()
+        .map(|(key, id)| (key.clone(), *id))
+        .collect();
+    let original_maximum = store::forgery_max_generation(&*stx.world);
+    let original_route = store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet)
+        .unwrap()
+        .clone();
+    let first_certificate = evidence.clone();
+    let mut qc = QcFixedV1::parse(&evidence.qc).unwrap();
+    qc.result_body[0] ^= 1;
+    evidence.qc = qc.encode();
+    resign(&mut evidence, &keys, chain.instance());
+    assert_ne!(evidence.qc, first_certificate.qc);
+    assert_ne!(
+        evidence.aggregate_signature,
+        first_certificate.aggregate_signature
+    );
     assert!(matches!(
         execute_forgery(&evidence, &mut stx),
         Err(ForgeryExecutionError::EvidenceDuplicate)
     ));
-    assert!(stx.world.consensus_evidence.is_empty());
-    assert!(stx.world.sccp_forgery_offences.is_empty());
-    assert_eq!(store::forgery_max_generation(&*stx.world), None);
+    assert_eq!(
+        stx.world
+            .consensus_evidence
+            .iter()
+            .map(|(id, record)| (*id, record.canonical_projection()))
+            .collect::<Vec<_>>(),
+        original_records
+    );
+    assert_eq!(
+        stx.world
+            .sccp_forgery_offences
+            .iter()
+            .map(|(key, id)| (key.clone(), *id))
+            .collect::<Vec<_>>(),
+        original_offences
+    );
+    assert_eq!(store::forgery_max_generation(&*stx.world), original_maximum);
+    assert_eq!(
+        store::routes::get(&*stx.world, &SccpNetworkV1::EthereumMainnet),
+        Some(&original_route)
+    );
     assert!(sccp_events(&mut stx).is_empty());
 }
 

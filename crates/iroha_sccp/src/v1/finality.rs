@@ -2078,7 +2078,11 @@ mod tests {
                 let label = text(row, "label");
                 let odd_keys = matches!(
                     label,
-                    "signer_key_outside_g1"
+                    "key_flag_infinity_0xc0"
+                        | "key_flag_uncompressed"
+                        | "signer_x_ge_p"
+                        | "signer_zero_coordinates"
+                        | "signer_key_outside_g1"
                         | "aggregate_key_identity"
                         | "aggregate_key_identity_sigma_off_curve"
                 );
@@ -2223,14 +2227,18 @@ mod tests {
             }
 
             // The relation alone, over the keys of the committee that signed the row. A row
-            // about keys that are points but no valid keys is checked over the keys it pins.
+            // about malformed or invalid signer keys is checked over the keys it pins.
             let wire = wire_of(row);
             let Ok(signature) = <[u8; SIGNATURE_LEN]>::try_from(&wire.signature[..]) else {
                 continue;
             };
             let odd_keys = matches!(
                 label,
-                "signer_key_outside_g1"
+                "key_flag_infinity_0xc0"
+                    | "key_flag_uncompressed"
+                    | "signer_x_ge_p"
+                    | "signer_zero_coordinates"
+                    | "signer_key_outside_g1"
                     | "aggregate_key_identity"
                     | "aggregate_key_identity_sigma_off_curve"
             );
@@ -2269,8 +2277,8 @@ mod tests {
                 | "foreign_committee_root" => {
                     assert!(relation.is_ok(), "{label}");
                 }
-                // An EVM-only row whose signer keys sum to the identity: both forms of the
-                // relation refuse the aggregate.
+                // Signer keys sum to the identity: both forms of the relation refuse the
+                // aggregate before the EVM-only signature defect matters.
                 "aggregate_key_identity_sigma_off_curve" => {
                     assert_eq!(
                         relation,
@@ -2292,11 +2300,8 @@ mod tests {
                 }
             }
         }
-        // 50 rows: 17 exist on EVM only and 2 on TON only.
-        assert!(
-            evm_rows >= 48 && ton_rows >= 33,
-            "{evm_rows} EVM, {ton_rows} TON"
-        );
+        // 53 rows: 13 exist on EVM only and 2 on TON only.
+        assert_eq!((evm_rows, ton_rows), (51, 40));
         // Every error name of §5.1.3 occurs.
         assert_eq!(
             names.into_iter().collect::<Vec<_>>(),
@@ -2324,7 +2329,7 @@ mod tests {
             assert_eq!(label, "signer_keys_outside_g1_cancelling");
             let expected = field(row, "expected");
             assert_eq!(field(expected, "evm").as_str(), Some("ok"));
-            assert!(field(expected, "ton").is_null());
+            assert_eq!(field(expected, "ton").as_str(), Some("BadSignature"));
             assert_eq!(evm_outcome(&reference, row), "ok", "{label} (EVM)");
             // The reference reads the TON opcode as `KeyValidate` on every key.
             assert_eq!(

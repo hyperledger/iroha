@@ -289,9 +289,10 @@ fn typed_preimage_rejects_verified_digest_from_another_table() {
     let raw_key = norito::codec::encode_adaptive(&key);
     let value = vec![1_u8, 2, 3];
     let raw_value = norito::codec::encode_adaptive(&value);
-    let value_digest = digest_norito_value_frame_v1(raw_value.len() as u32, |writer| {
-        writer.write_all(&raw_value)
-    })
+    let value_digest = digest_norito_value_frame_v1(
+        u32::try_from(raw_value.len()).expect("fixture value fits u32"),
+        |writer| writer.write_all(&raw_value),
+    )
     .unwrap();
     let tree = NoritoKeyDigestRangeTreeV1::from_sorted_digests(
         source.selection.schema,

@@ -30,17 +30,19 @@ fn private_scope() -> SumeragiRootScope {
 
 fn state(world: World, scope: Option<SumeragiRootScope>) -> State {
     if let Some(SumeragiRootScope::Dataspace { dataspace_id, .. }) = scope {
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
-            DataSpaceMetadata::default(),
-            DataSpaceMetadata {
-                id: dataspace_id,
-                alias: "internal-private-root".into(),
-                description: None,
-                fault_tolerance: 1,
-            },
-        ])
-        .unwrap();
+        let nexus = iroha_config::parameters::actual::Nexus {
+            dataspace_catalog: DataSpaceCatalog::new(vec![
+                DataSpaceMetadata::default(),
+                DataSpaceMetadata {
+                    id: dataspace_id,
+                    alias: "internal-private-root".into(),
+                    description: None,
+                    fault_tolerance: 1,
+                },
+            ])
+            .unwrap(),
+            ..Default::default()
+        };
         State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test())
     } else {
         State::new_for_testing(

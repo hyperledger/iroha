@@ -435,26 +435,7 @@ fn execution_frame_storage_error(
         height: current,
         reason: error.to_string(),
     };
-    let attempt = match error {
-        crate::kura::Error::NoritoFrame(error) => norito_decode_attempt_error(error, |error| {
-            rejected(crate::kura::Error::NoritoFrame(error))
-        }),
-        crate::kura::Error::BlockDecode(error) => {
-            crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
-                rejected(crate::kura::Error::BlockDecode(error))
-            })
-        }
-        crate::kura::Error::NativeFrameAllocation(error) => {
-            let deferred = match error {
-                iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
-                iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into()
-                }
-            };
-            ExecutionAttemptError::Deferred(deferred)
-        }
-        completed => ExecutionAttemptError::Rejected(rejected(completed)),
-    };
+    let attempt = crate::execution_attempt::kura_read_attempt_error(error, rejected);
     match attempt {
         ExecutionAttemptError::Rejected(error) => error,
         ExecutionAttemptError::Deferred(local) => NativeExecutionReadError::Deferred(local),
@@ -716,11 +697,99 @@ fn select_execution_read_receipt(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::{
         state::World,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
+
+    #[test]
+    fn native_storage_mapper_retains_actual_scoped_and_physical_causes_without_allocating() {
+        use crate::test_allocations::{allocations_during, refuse_one_layout_during};
+        use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
+        use std::alloc::Layout;
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit(Vec::new());
+        let expected = chain.committed(2).block_hash();
+        // The actual Kura sidecar producer captures its refusal, before this scope retires.
+        let error = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || match chain.kura().native_frame_read(2, expected) {
+                Err(error) => error,
+                Ok(_) => panic!("actual durable metadata cannot fit a zero input allowance"),
+            },
+        );
+        let crate::kura::Error::CodecAttempt(ref codec) = error else {
+            panic!("actual observed input reservation: {error:?}");
+        };
+        let original = codec.local_refusal().expect("genuine retired scope owner");
+        let map = |error| match execution_frame_storage_error(error, 2) {
+            NativeExecutionReadError::Deferred(owner) => owner,
+            other => panic!("original unfinished reader: {other:?}"),
+        };
+        let mut moved = None;
+        let allocations = allocations_during(|| moved = Some(map(error)));
+        assert_eq!(allocations, 0);
+        let owner = moved.unwrap();
+        assert_eq!(owner.decode_refusal(), Some(&original));
+        assert!(owner.allocation_refusal().is_none());
+        assert!(owner.allocator_refusal().is_none());
+        let ivm::VMError::DecodeDeferred(exported) = owner.into_vm_error() else {
+            panic!("same original decoder owner");
+        };
+        assert_eq!(exported, original);
+        assert!(
+            chain
+                .kura()
+                .native_frame_read(2, expected)
+                .unwrap()
+                .is_some()
+        );
+
+        // A real lower null result must keep its exact typed cause through the same mapper.
+        // This checks transport; it does not claim the null occurred inside a Kura syscall.
+        let layout = Layout::array::<u64>(19).unwrap();
+        let pool = AllocationBudget::new(layout.size());
+        let (failed, denied) =
+            refuse_one_layout_during(layout, || ChargedBuffer::<u64>::new(19, &pool));
+        assert!(denied);
+        let error = match failed {
+            Err(original) => original,
+            Ok(_) => panic!("physical allocation denied"),
+        };
+        assert_eq!(pool.reserved_bytes(), 0);
+        let mut moved = None;
+        let allocations = allocations_during(|| {
+            moved = Some(map(crate::kura::Error::NativeFrameAllocation(error)))
+        });
+        assert_eq!(allocations, 0);
+        let owner = moved.unwrap();
+        assert_eq!(
+            owner.reason(),
+            ivm::error::ExecutionDeferral::AllocationUnavailable
+        );
+        assert!(owner.allocation_refusal().is_none());
+        let ivm::VMError::AllocatorDeferred(original) = owner.into_vm_error() else {
+            panic!("typed original allocator refusal");
+        };
+        assert!(
+            matches!(original.into_buffer_error().unwrap(), ChargedBufferError::Allocator { requested_bytes } if requested_bytes == layout.size())
+        );
+        drop(ChargedBuffer::<u64>::new(19, &pool).unwrap());
+        assert_eq!(pool.reserved_bytes(), 0);
+        let malformed = crate::kura::Error::CodecAttempt(
+            norito::core::classify_decode_attempt::<()>(|| {
+                Err(norito::Error::NonCanonicalEncoding)
+            })
+            .unwrap_err(),
+        );
+        assert!(matches!(
+            execution_frame_storage_error(malformed, 2),
+            NativeExecutionReadError::Storage { height: 2, .. }
+        ));
+    }
 
     #[test]
     fn signed_genesis_cannot_supply_execution_authority_without_h2() {
@@ -835,8 +904,9 @@ mod tests {
                 view.block_hashes(),
                 height,
                 NativeExecutionReadLimits {
-                    admitted_target_wire_bytes: frames[usize::try_from(height - 1).unwrap()].len()
-                        as u64,
+                    admitted_target_wire_bytes: frames
+                        [usize::try_from(height - 1).expect("fixture value fits usize")]
+                    .len() as u64,
                     ..limits
                 },
                 &chain.state().ivm_execution_budget(),
@@ -844,7 +914,7 @@ mod tests {
             .unwrap();
             assert_eq!(
                 read.wire.as_slice(),
-                frames[usize::try_from(height - 1).unwrap()]
+                frames[usize::try_from(height - 1).expect("fixture value fits usize")]
             );
             assert_eq!(read.authority.committed().height(), height);
             assert_eq!(read.source_blocks, 2);

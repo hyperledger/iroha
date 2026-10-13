@@ -1005,7 +1005,7 @@ where
         merge_access_log(&mut set, log);
     }
     for path in overlay.durable_state_overlay().keys() {
-        set.add_write(access_key_from_state_log(&path.to_string()));
+        set.add_write(access_key_from_state_log(path.as_ref()));
     }
     if conservative_if_empty && set.read_keys.is_empty() && set.write_keys.is_empty() {
         AccessSet::global()
@@ -1094,7 +1094,7 @@ fn with_stateful_admission_keys(
     set.add_write(key_tx_sequence(tx.authority()));
     match crate::tx::faucet_claim_consumption_marker(tx) {
         Ok(Some((path, _))) => {
-            set.add_write(access_key_from_state_log(&path.to_string()));
+            set.add_write(access_key_from_state_log(path.as_ref()));
         }
         Ok(None) => {}
         Err(_) => return (AccessSet::global(), source),
@@ -1325,14 +1325,8 @@ fn hint_access_set_with_dynamic_if_safe(
                     .any(|claim| state_claim_covers_key(claim, key))
         };
         let exact_claims_cover = static_state.complete
-            && static_state
-                .read_keys
-                .iter()
-                .all(|key| read_claims_cover(key))
-            && static_state
-                .write_keys
-                .iter()
-                .all(|key| write_claims_cover(key));
+            && static_state.read_keys.iter().all(read_claims_cover)
+            && static_state.write_keys.iter().all(write_claims_cover);
         let conservative_claims_cover =
             (!static_state.has_state_reads || state_read_wildcard || global_read)
                 && (!static_state.has_state_writes || state_write_wildcard || global_write);
@@ -2671,7 +2665,8 @@ mod tests {
     fn fixture_callable(code: &[u8], pc: u64) -> ivm::call::EmbeddedCallableV1 {
         use ivm::instruction::wide;
         let mut callable = crate::ivm_test_support::unit_callable(pc);
-        if let Some(bytes) = code.get(pc as usize..pc as usize + 4) {
+        let start = usize::try_from(pc).expect("fixture value fits usize");
+        if let Some(bytes) = code.get(start..start + 4) {
             let word = u32::from_le_bytes(bytes.try_into().expect("instruction word"));
             if wide::opcode(word) == wide::arithmetic::ADDI
                 && wide::rd(word) == 31
@@ -2949,7 +2944,7 @@ mod tests {
             .expect("valid marker")
             .expect("present marker")
             .0;
-        let expected = access_key_from_state_log(&marker_key.to_string());
+        let expected = access_key_from_state_log(marker_key.as_ref());
         for transaction in [&first, &second] {
             let (set, _) = with_stateful_admission_keys(transaction, AccessSet::new(), None);
             assert!(
@@ -4661,8 +4656,8 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
             bound_kind: "page".to_owned(),
             max_keys: 1,
         };
-        assert!(access_set_from_hint_keys(&[], &[], &[valid.clone()], &[]).is_some());
-        assert!(access_set_from_hint_keys(&[], &[], &[], &[valid.clone()]).is_some());
+        assert!(access_set_from_hint_keys(&[], &[], std::slice::from_ref(&valid), &[]).is_some());
+        assert!(access_set_from_hint_keys(&[], &[], &[], std::slice::from_ref(&valid)).is_some());
         let invalid = [
             DynamicAccessHint {
                 max_keys: 0,
@@ -4711,11 +4706,11 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
         ];
         for hint in invalid {
             assert!(
-                access_set_from_hint_keys(&[], &[], &[hint.clone()], &[]).is_none(),
+                access_set_from_hint_keys(&[], &[], std::slice::from_ref(&hint), &[]).is_none(),
                 "invalid dynamic read hint must reject: {hint:?}"
             );
             assert!(
-                access_set_from_hint_keys(&[], &[], &[], &[hint.clone()]).is_none(),
+                access_set_from_hint_keys(&[], &[], &[], std::slice::from_ref(&hint)).is_none(),
                 "invalid dynamic write hint must reject: {hint:?}"
             );
         }

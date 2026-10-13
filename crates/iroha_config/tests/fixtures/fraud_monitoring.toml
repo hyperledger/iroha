@@ -1,7 +1,6 @@
 extends = "base.toml"
 
 [fraud_monitoring]
-enabled = true
 service_endpoints = [
   "https://fraud.local/assess",
   "https://fraud.local/assess",
@@ -9,5 +8,3 @@ service_endpoints = [
 ]
 connect_timeout_ms = 0
 request_timeout_ms = 1_800
-missing_assessment_grace_secs = 5
-required_minimum_band = "medium"

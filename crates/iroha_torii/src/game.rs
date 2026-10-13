@@ -9,7 +9,7 @@ use iroha_crypto::Hash;
 use mv::storage::StorageReadOnly;
 /// Stable exclusive session-id pagination.
 #[derive(Default, Debug, crate::json_macros::JsonDeserialize)]
-pub(crate) struct GameListParams {
+pub struct GameListParams {
     /// Exclusive canonical session hash cursor.
     pub cursor: Option<String>,
     /// Optional exact application filter; filtering does not expand the scan budget.
@@ -79,11 +79,11 @@ fn execution_transport_ready(app: &SharedAppState) -> bool {
     }
 }
 /// Compiled application profiles and generic lifecycle limits bound to this network.
-pub(crate) fn capabilities(app: &SharedAppState) -> Result<Response, Error> {
+pub fn capabilities(app: &SharedAppState) -> Response {
     let transport_ready = execution_transport_ready(app);
     let view = app.state.view();
     let profiles = iroha_core_privacy::execution_proofs::compiled_execution_profiles_v1();
-    Ok(crate::utils::JsonBody(norito::json!({
+    crate::utils::JsonBody(norito::json!({
         "version":1,"current_height":(view.height().to_string()),"network_id":(view.network_id()),
         "fee_asset_id":(view.nexus().fees.fee_asset_id),
         "enabled":true,"native_game_sessions":true,"profiles":profiles,
@@ -94,10 +94,10 @@ pub(crate) fn capabilities(app: &SharedAppState) -> Result<Response, Error> {
         "max_resources_per_slot":(iroha_data_model::game_resources::GAME_MAX_RESOURCES_PER_PARTICIPANT_V1),
         "max_resource_records":(iroha_data_model::game_resources::GAME_MAX_RESOURCE_RECORDS_V1),
         "resource_return_policy":"return_to_original_owner_at_terminal"
-    })).into_response())
+    })).into_response()
 }
 /// A direct session record is node evidence until ledger finality is authenticated.
-pub(crate) fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
+pub fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
     let id: Hash = id
         .parse()
         .map_err(|_| crate::routing::conversion_error("invalid session hash".into()))?;
@@ -108,7 +108,7 @@ pub(crate) fn get(app: &SharedAppState, id: &str) -> Result<Response, Error> {
     Ok(crate::utils::JsonBody(session.clone()).into_response())
 }
 /// One compact receipt supplies the height and canonical proof-envelope commitment.
-pub(crate) fn verification(app: &SharedAppState, id: &str) -> Result<Response, Error> {
+pub fn verification(app: &SharedAppState, id: &str) -> Result<Response, Error> {
     let id: Hash = id
         .parse()
         .map_err(|_| crate::routing::conversion_error("invalid verification hash".into()))?;
@@ -119,7 +119,7 @@ pub(crate) fn verification(app: &SharedAppState, id: &str) -> Result<Response, E
     Ok(crate::utils::JsonBody(*receipt).into_response())
 }
 /// Scan at most 128 state keys and return at most 32 public summaries.
-pub(crate) fn list(app: &SharedAppState, params: GameListParams) -> Result<Response, Error> {
+pub fn list(app: &SharedAppState, params: GameListParams) -> Result<Response, Error> {
     let cursor = params
         .cursor
         .map(|s| {

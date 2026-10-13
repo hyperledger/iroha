@@ -1296,7 +1296,7 @@ mod tests {
                 .clone();
         assert_ne!(
             original,
-            configuration_fingerprint(4, &local, &driver, &[first.clone()])
+            configuration_fingerprint(4, &local, &driver, std::slice::from_ref(&first))
         );
         assert_eq!(
             configuration_fingerprint(4, &local, &driver, &[first.clone(), second.clone()]),
@@ -1916,7 +1916,7 @@ mod tests {
     /// The key of an account whose default route is the second of two shards (an elastic lane
     /// next to lane 0).
     fn second_shard_key() -> KeyPair {
-        (1u8..)
+        (1_u8..=u8::MAX)
             .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519))
             .find(|key| {
                 crate::sumeragi::lanes::routing::default_shard(
@@ -2507,7 +2507,6 @@ mod tests {
     #[test]
     fn replay_rejects_a_block_whose_certified_result_differs() {
         use iroha_sumeragi::crypto::{Crypto as _, Signer as _};
-
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);

@@ -1281,7 +1281,7 @@
     },
     "x_tail_len": 112
   },
-  "conventions": "byte strings are 0x-prefixed lowercase hex; field elements and scalars that exceed 2^53 are hex strings; `expected.evm`/`expected.ton` name the \u00a75.2.2 outcome of VerifyCertificate steps 1\u201312 on a fresh destination deployed with `pin` at `now_ms` (null where that flavor cannot express the vector). `now_ms` is the destination clock: block.timestamp (EVM) or now() (TON) in whole seconds, times 1000, so every `now_ms` is a multiple of 1000. `headers.invalid[].error` is the first violated check in the order Length, X1, X2 (inactive) or X3 (active), X4, X5, X6, X7; X6 includes the rule that a ROTATION header has height and generation at most 2^64 - 2, so that the successor's start height + 1 and its generation + 1 fit u64 (rows rotation_at_max_height and rotation_at_max_generation); the rows named `<a>_and_<b>` violate two checks and report the earlier one, one row per adjacent pair of that order. `headers.*[].destination` is what the destination model answers for a certificate that carries the header. A certificate row carries `forgery_evidence_id` only when its `m` (the message that was signed) is the `m` a verifier derives from its wire fields. The TON verification context is ton-mainnet with the placeholder minter account id 0x35\u202635. `flavor_specific_certificates` are certificates that one flavor accepts and the other does not pin (rows of the same shape, without the pairing details)",
+  "conventions": "byte strings are 0x-prefixed lowercase hex; field elements and scalars that exceed 2^53 are hex strings; `expected.evm`/`expected.ton` name the \u00a75.2.2 outcome of VerifyCertificate steps 1\u201312 on a fresh destination deployed with `pin` at `now_ms` (null where that flavor cannot express the vector). `now_ms` is the destination clock: block.timestamp (EVM) or now() (TON) in whole seconds, times 1000, so every `now_ms` is a multiple of 1000. `headers.invalid[].error` is the first violated check in the order Length, X1, X2 (inactive) or X3 (active), X4, X5, X6, X7; X6 includes the rule that a ROTATION header has height and generation at most 2^64 - 2, so that the successor's start height + 1 and its generation + 1 fit u64 (rows rotation_at_max_height and rotation_at_max_generation); the rows named `<a>_and_<b>` violate two checks and report the earlier one, one row per adjacent pair of that order. `headers.*[].destination` is what the destination model answers for a certificate that carries the header. A certificate row carries `forgery_evidence_id` only when its `m` (the message that was signed) is the `m` a verifier derives from its wire fields. The TON verification context is ton-mainnet with the placeholder minter account id 0x35\u202635. `flavor_specific_certificates` are certificates that one flavor accepts and the other rejects (rows of the same shape, without the pairing details)",
   "flavor_specific_certificates": [
     {
       "bitmap": "0x07",
@@ -1289,7 +1289,7 @@
       "commit_kind": 3,
       "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001ccb00000000000000006fd365ebd0afbd7f232ea9c41b48b010d210ab2cc76735e656d60d4ef11a63617d8cd17a736abb4ae0d61f59e580ca0355acac0af42fcc4b46bc32eb6fe5f0b0",
       "committee": "n4",
-      "description": "members 0 and 1 listed under keys shifted by T and \u2212T outside G1, with the genuine signature: neither key is in G1, the aggregate key is, and the pairing holds. EVM sees the aggregate only and accepts; the TON outcome rests on the per-key checks of BLS_FASTAGGREGATEVERIFY (null until the Acton harness pins them)",
+      "description": "members 0 and 1 listed under keys shifted by T and \u2212T outside G1, with the genuine signature: neither key is in G1, the aggregate key is, and the pairing holds. EVM sees the aggregate only and accepts; the TON opcode BLS_FASTAGGREGATEVERIFY rejects each key outside G1 with BadSignature",
       "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
       "evm": {
         "committee": "0x854b8885ee8320925ae236018a784b7d70a2f6fd242ff82e008d477295f6299f8967793f9c2e0df4b8129fbaa921fa8b98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90ab0d7b23703567d9f2c9b8d440ff657b02f7d2b2977f20539886a80ddbba709ca393baa807dab61d03fef0c03a459664b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
@@ -1300,7 +1300,7 @@
       },
       "expected": {
         "evm": "ok",
-        "ton": null
+        "ton": "BadSignature"
       },
       "forgery_evidence_id": "0x5c46ba2cfa6341442a1497530ef20a67cc28a7dcddd5a9639c24edba868565dd",
       "header_fields": {
@@ -3491,27 +3491,27 @@
       }
     },
     {
-      "bitmap": "0x07",
-      "checkpoint_id": "0x6d913b5131b4d52eaba807f11f628d2ec324911a548b3b01907b34573c6b4f21",
+      "bitmap": "0x0b",
+      "checkpoint_id": "0xd4f798cd6f13e58d15fa4b6921efeef01bececc61c926f257d0f78a9b42e752a",
       "commit_kind": 3,
-      "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb60000000000000000ef7135188b9a8cc3393cde4501eb4b2ad977fa74a7df7ca6cc672253a0c79b0b1488ae732b4e487d11474e1f8eeffd625bc5fc4c7a2c1009f9032d79ea29633c",
+      "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb60000000000000000d39f920787373fe373aba40253b2f5a87ce1ef3b008bea49fcf866ba9d517adfc51a3d8088100f224a593fde84fdb64871bdf7b4ea926e995809b98f69213fed",
       "committee": "n4",
-      "description": "committee key 0 with a bad flag byte, pinned under the root of those exact bytes",
+      "description": "a signer key with a bad flag byte, pinned under the root of those exact bytes",
       "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
       "evm": {
-        "committee": "0xc4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b148b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
-        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb6000001a0c455c330010000000275ea5a53f7aa98925887ba67e5df043e3f2322e38596f8ecd1ca7e41e92a744a0000000000000028cc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f810000000000000007f4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e4000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-        "qc": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000ef7135188b9a8cc3393cde4501eb4b2ad977fa74a7df7ca6cc672253a0c79b0b07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d00000007",
-        "signature": "0x06490502215b3a0b7a02e97d9904725584a3ddf279fa531524d8a9fa0eb44ee99267b9eaa3d0ce3fea67848490d0884f154400a17c77f52924bd3d6fbd34c4b022edebb9f9564f9edc4cc7072d6a4445ade71a3d0825eb9963f8db7859ff77a4072dafdf34afa0696ff515377647064767b8294394d770a818187a58d1327e194b25bc65c166ce1f866fa8ad295b6099176c818c648840ff36f2a35fb7d280bd91f133937dfe42720da943577fb7782b65b833f612b70aad0b42f302f278d8bd",
-        "signerYs": "0x06eaf00534679fb64796e5cc16179aa62dbe61e73a93db82e3911b1d419fe8a61d7d68ad2d0b8da14aec7c00516a5b0304993bb019a46cb0c276645a22c1cbc4c9f2fc733a99841d0fcec7786bc2efb96c971131c1af8e8187927932122a496a06fa68cbb86a5974271a65c0714c32dfe7ead3724e6900a962945b9db6188a96e1d4f38991905fe8663c56de8551f72e"
+        "committee": "0x8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470c4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14",
+        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb6000001a0c455c330010000000275ea5a53f7aa98925887ba67e5df043e3f2322e38596f8ecd1ca7e41e92a744a0000000000000028cc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f8100000000000000078ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb952011500000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "qc": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000d39f920787373fe373aba40253b2f5a87ce1ef3b008bea49fcf866ba9d517adf07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d0000000b",
+        "signature": "0x09aa224f170e920ac40477a3fbe79c24cd89d228508220ed5c2ddf344288aa4d2f0fb77d4b1e51782b4aad6c3d701d7a0d0001e527febfdc129a30e3ff55f8b6a0ad57e6419b93a01e6a1f1e007cd8774732a11d4c6ed48ab258aefa5c15c2620c8a087c645768ca12640a18418eb450c3003e8330c8f0fce42d99bc00e55156c4537ecc1ec3153e714e38ed16cc2bdf19739dd053ff817087082cf769613e01e0f221187d8c42dd5b10288b554149691506cf55abfd032b6d3610888bc535b4",
+        "signerYs": "0x04993bb019a46cb0c276645a22c1cbc4c9f2fc733a99841d0fcec7786bc2efb96c971131c1af8e8187927932122a496a06fa68cbb86a5974271a65c0714c32dfe7ead3724e6900a962945b9db6188a96e1d4f38991905fe8663c56de8551f72e06eaf00534679fb64796e5cc16179aa62dbe61e73a93db82e3911b1d419fe8a61d7d68ad2d0b8da14aec7c00516a5b03"
       },
       "expected": {
         "evm": "BadCommittee",
-        "ton": null
+        "ton": "BadSignature"
       },
-      "forgery_evidence_id": "0xfc3537a253d07f049b178883d0e064b622c9e10eebca982d7c04250176281d89",
+      "forgery_evidence_id": "0x699afef633a137d4e6a18a27aeb175312e3394f259441f17296e33202e6b6bcb",
       "header_fields": {
-        "committee_root": "0xf4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e40",
+        "committee_root": "0x8ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb9520115",
         "flags": 1,
         "generation": 7,
         "height": 7350,
@@ -3525,40 +3525,40 @@
         "validity_ms": 0
       },
       "label": "key_flag_infinity_0xc0",
-      "m": "0x583417fb92def903310e1128ec0cb614ceb8006c2f31a125b76792e550c3aa35",
+      "m": "0x23f7af246a3e7967e1cc79304ca7652e9f72e8a7dfb703fca4dee4d90d2bc27c",
       "now_ms": 1790003600000,
       "pin": {
-        "committee_root": "0xf4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e40",
+        "committee_root": "0x8ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb9520115",
         "generation": 7,
         "keys": [
-          "0xc4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14",
           "0x8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223",
           "0x98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90",
-          "0xb2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470"
+          "0xb2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
+          "0xc4c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b14"
         ],
         "start_height": 7000,
         "until_ms": 1791209600000
       },
       "qc_fixed_fields": {
-        "block_hash": "0xef7135188b9a8cc3393cde4501eb4b2ad977fa74a7df7ca6cc672253a0c79b0b",
+        "block_hash": "0xd39f920787373fe373aba40253b2f5a87ce1ef3b008bea49fcf866ba9d517adf",
         "epoch": 73,
         "epoch_context": "0x44c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf359",
         "result_body": "0x07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d",
-        "signers": 7,
+        "signers": 11,
         "view": 0
       },
-      "r": "0x1488ae732b4e487d11474e1f8eeffd625bc5fc4c7a2c1009f9032d79ea29633c",
+      "r": "0xc51a3d8088100f224a593fde84fdb64871bdf7b4ea926e995809b98f69213fed",
       "signer_indices": [
         0,
         1,
-        2
+        3
       ],
       "ton": {
-        "qc_fixed_cell": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000ef7135188b9a8cc3393cde4501eb4b2ad977fa74a7df7ca6cc672253a0c79b0b07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d",
-        "signature": "0xb54400a17c77f52924bd3d6fbd34c4b022edebb9f9564f9edc4cc7072d6a4445ade71a3d0825eb9963f8db7859ff77a406490502215b3a0b7a02e97d9904725584a3ddf279fa531524d8a9fa0eb44ee99267b9eaa3d0ce3fea67848490d0884f",
-        "signers": 7,
+        "qc_fixed_cell": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000d39f920787373fe373aba40253b2f5a87ce1ef3b008bea49fcf866ba9d517adf07e94b2a7b69e925e7cec962576f200d6570f30e18d6f1f9e018c4bf1936368d",
+        "signature": "0xad0001e527febfdc129a30e3ff55f8b6a0ad57e6419b93a01e6a1f1e007cd8774732a11d4c6ed48ab258aefa5c15c26209aa224f170e920ac40477a3fbe79c24cd89d228508220ed5c2ddf344288aa4d2f0fb77d4b1e51782b4aad6c3d701d7a",
+        "signers": 11,
         "x_head": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb6000001a0c455c330010000000275ea5a53f7aa98925887ba67e5df043e3f2322e38596f8ecd1ca7e41e92a744a0000000000000028",
-        "x_tail": "0xcc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f810000000000000007f4c24ec5195e7c1e1afa1c7690f8c0eab9a39132e16070569097435c60976e4000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "x_tail": "0xcc2daf4988546807cc2379a81eee0ff239e3232902bcc9b2a45ca157b0260f8100000000000000078ffdd60437140bf93eec66652750918e8542445ed936f9fa03b6b9fcb952011500000000000000000000000000000000000000000000000000000000000000000000000000000000"
       }
     },
     {
@@ -3567,7 +3567,7 @@
       "commit_kind": 3,
       "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb70000000000000000085f5d3f99f5b41cbf16649f9890690da8dcb1c6bc5df0cb2c6999e676245163f78f7358d54215e345a5474a5da52cb72f017cd6f6d5480cc31f784d76c9e45d",
       "committee": "n4",
-      "description": "committee key 0 with a bad flag byte, pinned under the root of those exact bytes",
+      "description": "a signer key with a bad flag byte, pinned under the root of those exact bytes",
       "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
       "evm": {
         "committee": "0x04c8b13b9e7bcff2dca2393b04e53e29037b5daf06f34758368cbd85b1fb9e4001e085b2dba5d1fb7b109fc4a38c1b148b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
@@ -3578,7 +3578,7 @@
       },
       "expected": {
         "evm": "BadCommittee",
-        "ton": null
+        "ton": "BadSignature"
       },
       "forgery_evidence_id": "0xff20662ea04bf3f8fdadcc9cd933a50ba1bc0c6dd65b3047be56da85d38d9369",
       "header_fields": {
@@ -3634,26 +3634,26 @@
     },
     {
       "bitmap": "0x07",
-      "checkpoint_id": "0x454911ce732cbda27fdd4b05df8d9198e01a077b9189d3607f7339abe2355aaf",
+      "checkpoint_id": "0x7e6ee8108872e75cbd84ccef2bc1236c08cf39a90ed99f0cba36b7db12c0608c",
       "commit_kind": 3,
-      "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb80000000000000000fc5e7da625f8b7a7b58d4ce037797859b2a621a2a6c2f7d408b0aa162199948dcb473fbe892673a320a4e58449041d93fd578a85ba0c35bd16462cc872a77269",
+      "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb800000000000000009925cfe115ec95a5f247d1b029a37d092a59ae1fe9759462897d593a1a7de18710842cbd8de585646c1643e0dcff090668f25c9dd220151807eada7fd9cb0ed4",
       "committee": "n4",
-      "description": "committee key 0 whose x (every coordinate bit set) is not below p, with its genuine y, pinned under the root of those exact bytes",
+      "description": "member 0 listed under a key whose x (every coordinate bit set) is not below p, with its genuine y, pinned under the root of those exact bytes",
       "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
       "evm": {
-        "committee": "0x9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
-        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb8000001a0c455cb000100000002be3f121c3a09327d1871016b51b7403f3bdc2f11c55ab4cae6c18913b94489910000000000000028ef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a4280000000000000007e15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe00000000000000000000000000000000000000000000000000000000000000000000000000000000",
-        "qc": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000fc5e7da625f8b7a7b58d4ce037797859b2a621a2a6c2f7d408b0aa162199948debf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e94346780699651300000007",
-        "signature": "0x0000ef116529444d03e6d839c2e68330cf1769f067155f869df697161176b01ec61302ee2fbd2594dcd80ed167889f110a8f2d4dab0eb94799413689129ad072f6edab56713050d6f3c411b632cd070b02fd1fd7633e4c4f6bcf32490c60c816029f013847369c94f0595f8d3d06fccc3aacadef5b7799603617e67f37fe14d0fa33c79cf7ba808b0c48d804f64dae59129b831c95bb7d6899f54abb28ba61ce4ace190abfdb74d029b7b799906f3c40b97bb73fa5789f2a39464b9c24a71955",
-        "signerYs": "0x06eaf00534679fb64796e5cc16179aa62dbe61e73a93db82e3911b1d419fe8a61d7d68ad2d0b8da14aec7c00516a5b0304993bb019a46cb0c276645a22c1cbc4c9f2fc733a99841d0fcec7786bc2efb96c971131c1af8e8187927932122a496a06fa68cbb86a5974271a65c0714c32dfe7ead3724e6900a962945b9db6188a96e1d4f38991905fe8663c56de8551f72e"
+        "committee": "0x8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d909fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
+        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb8000001a0c455cb000100000002be3f121c3a09327d1871016b51b7403f3bdc2f11c55ab4cae6c18913b94489910000000000000028ef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a42800000000000000071743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "qc": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf35900000000000000009925cfe115ec95a5f247d1b029a37d092a59ae1fe9759462897d593a1a7de187ebf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e94346780699651300000007",
+        "signature": "0x11905dba874269f74c531f709e369b1abfd3328ccbf4a9823764c435ec28daa3b21d022a081abd5f60f0e4af2741fe830a289095d6bf7d6913b0e3352f6a8e93615a2940eb0eb737534a8fb1d46634fc198d09cef90e66b3f6ff58fcb63085f200b91222bc691399c0cf63575c9cd74bbc9e9ca1980442e1f028587199f2b750908bfe125928d0b042729a30823dca0001b58a184112139c8b5e7d08221e9a8f0fe99ffc4d1d1f8e8e41f51bac56a98f3dee90d9f7cd88ada0c4dd01f26d4206",
+        "signerYs": "0x04993bb019a46cb0c276645a22c1cbc4c9f2fc733a99841d0fcec7786bc2efb96c971131c1af8e8187927932122a496a06fa68cbb86a5974271a65c0714c32dfe7ead3724e6900a962945b9db6188a96e1d4f38991905fe8663c56de8551f72e06eaf00534679fb64796e5cc16179aa62dbe61e73a93db82e3911b1d419fe8a61d7d68ad2d0b8da14aec7c00516a5b03"
       },
       "expected": {
         "evm": "BadCommittee",
-        "ton": null
+        "ton": "BadSignature"
       },
-      "forgery_evidence_id": "0xf73c3abd8531e9c9d8e41b7f06e52df5c2bf4fb9ba9c0209af80c8189ede82f3",
+      "forgery_evidence_id": "0x93be841d6a61bfb172c6351d0a2b5c6a4ebcf2f469ad1d20f36e16da70ccbebd",
       "header_fields": {
-        "committee_root": "0xe15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe",
+        "committee_root": "0x1743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee1",
         "flags": 1,
         "generation": 7,
         "height": 7352,
@@ -3667,40 +3667,40 @@
         "validity_ms": 0
       },
       "label": "signer_x_ge_p",
-      "m": "0x221cfa2049a9d2ad1ddf00a333f024f889220a1d42b2b712b99fd9cf9fb9b2f0",
+      "m": "0x82580b2cbb8d6aba2f52b72ae4cf439a5bbdad160bfd81980cdcc7f658a9273b",
       "now_ms": 1790003600000,
       "pin": {
-        "committee_root": "0xe15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe",
+        "committee_root": "0x1743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee1",
         "generation": 7,
         "keys": [
-          "0x9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "0x8b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc223",
           "0x98deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90",
+          "0x9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "0xb2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470"
         ],
         "start_height": 7000,
         "until_ms": 1791209600000
       },
       "qc_fixed_fields": {
-        "block_hash": "0xfc5e7da625f8b7a7b58d4ce037797859b2a621a2a6c2f7d408b0aa162199948d",
+        "block_hash": "0x9925cfe115ec95a5f247d1b029a37d092a59ae1fe9759462897d593a1a7de187",
         "epoch": 73,
         "epoch_context": "0x44c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf359",
         "result_body": "0xebf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e943467806996513",
         "signers": 7,
         "view": 0
       },
-      "r": "0xcb473fbe892673a320a4e58449041d93fd578a85ba0c35bd16462cc872a77269",
+      "r": "0x10842cbd8de585646c1643e0dcff090668f25c9dd220151807eada7fd9cb0ed4",
       "signer_indices": [
         0,
         1,
         2
       ],
       "ton": {
-        "qc_fixed_cell": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000000000fc5e7da625f8b7a7b58d4ce037797859b2a621a2a6c2f7d408b0aa162199948debf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e943467806996513",
-        "signature": "0xaa8f2d4dab0eb94799413689129ad072f6edab56713050d6f3c411b632cd070b02fd1fd7633e4c4f6bcf32490c60c8160000ef116529444d03e6d839c2e68330cf1769f067155f869df697161176b01ec61302ee2fbd2594dcd80ed167889f11",
+        "qc_fixed_cell": "0x000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf35900000000000000009925cfe115ec95a5f247d1b029a37d092a59ae1fe9759462897d593a1a7de187ebf3a95696a450c50db2be1f3d664734c5a2b856e1f017f4e943467806996513",
+        "signature": "0x8a289095d6bf7d6913b0e3352f6a8e93615a2940eb0eb737534a8fb1d46634fc198d09cef90e66b3f6ff58fcb63085f211905dba874269f74c531f709e369b1abfd3328ccbf4a9823764c435ec28daa3b21d022a081abd5f60f0e4af2741fe83",
         "signers": 7,
         "x_head": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001cb8000001a0c455cb000100000002be3f121c3a09327d1871016b51b7403f3bdc2f11c55ab4cae6c18913b94489910000000000000028",
-        "x_tail": "0xef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a4280000000000000007e15873f6851febe16adb3df726bf1500b537ca71bc587990f867ef2c3db667fe00000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        "x_tail": "0xef44bc856194a795fdd264819e33dbe540107c30a389db7bf6a6509d8c89a42800000000000000071743f3923fce11988461c3b1fd71e8871d21c7c245b96774ff324aab95b1eee100000000000000000000000000000000000000000000000000000000000000000000000000000000"
       }
     },
     {
@@ -3709,7 +3709,7 @@
       "commit_kind": 3,
       "commit_preimage": "0x73756d65726167692f736967037777777777777777777777777777777777777777777777777777777777777777000000000000004944c19bdf1e9224e4479846f1d3380093f71cd562c875d677166f2a93a2eaf3590000000000001cb90000000000000000ed3593daee27f738d11526d15fe789d89683c5b0ef8c36ff8daa69054d68cf0b8f26839e329fe08c28eb689ff09f0b5994a8b03192a46be8b4f75be232097399",
       "committee": "n4",
-      "description": "committee key 0 with x = 0 and signerYs[0] = 0: the coordinates (0, 0), pinned under the root of those exact bytes",
+      "description": "member 0 listed under a key with x = 0 and its signer y = 0: the coordinates (0, 0), pinned under the root of those exact bytes",
       "dst": "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_",
       "evm": {
         "committee": "0x8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b7e70568eec51b46670bf583c05b857c9c5e888d663e0af2606ab6613a600aaab2c0130733722409f77ee67d08bc22398deef4a5d6468f0725ea03a677415de205c1c90ad01044187029cb9ad00cc7285e9b1d7ebd7ff6b2e3bddc7fe110d90b2d3a715d3fa2670e31baeecd4210431a8f09f5210e4a2e68c67083e38f7ac6f61134a4a0d9eaecf3bdd465d4533e470",
@@ -3720,7 +3720,7 @@
       },
       "expected": {
         "evm": "BadCommittee",
-        "ton": null
+        "ton": "BadSignature"
       },
       "forgery_evidence_id": "0x2f631a54de1cb5e0bb5dc41fe426a6cdee9a8199a81fddfe6f29329dea74aad7",
       "header_fields": {
@@ -5043,7 +5043,7 @@
       },
       "expected": {
         "evm": "BadCommittee",
-        "ton": null
+        "ton": "BadSignature"
       },
       "forgery_evidence_id": "0x8a1f3a1ecedf9e0f784d31cfc48194c3b1065a37bbb60c78f4cebd3bef0d0049",
       "header_fields": {

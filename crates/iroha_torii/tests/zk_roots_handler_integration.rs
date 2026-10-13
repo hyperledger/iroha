@@ -14,7 +14,7 @@ use iroha_model_base::domain::DomainId;
 use iroha_torii::NoritoJson;
 use mv::storage::StorageReadOnly;
 use nonzero_ext::nonzero;
-use std::{collections::HashSet, num::NonZeroUsize, sync::Arc};
+use std::{collections::BTreeSet, num::NonZeroUsize, sync::Arc};
 use tower::ServiceExt as _;
 const ACCOUNT_SIGNATORY: &str =
     "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03";
@@ -178,7 +178,7 @@ fn seeded_zk_roots_state(
         zk_assets.insert(asset_def_id.clone(), zk_state);
         stx.apply();
         block.transactions.insert_block(
-            HashSet::<
+            BTreeSet::<
                 iroha_crypto::HashOf<iroha_data_model::transaction::TransactionEntrypoint>,
             >::new(),
             nonzero!(1_usize),

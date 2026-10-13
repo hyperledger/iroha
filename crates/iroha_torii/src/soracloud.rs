@@ -97,7 +97,7 @@ mod bounded_public_response;
 const CONTROL_PLANE_SCHEMA_VERSION: u16 = 1;
 const PUBLIC_SERVICE_DISCOVERY_CONFIG_NAME: &str = "soracloud/public_service_discovery";
 const PUBLIC_SERVICE_DISCOVERY_SCHEMA_VERSION_V1: u16 = 1;
-pub(crate) const PUBLIC_SERVICE_DISCOVERY_INDEX_DOCUMENT: &str = "index.json";
+pub const PUBLIC_SERVICE_DISCOVERY_INDEX_DOCUMENT: &str = "index.json";
 const DEFAULT_AUDIT_LIMIT: usize = 20;
 const MAX_AUDIT_LIMIT: usize = 500;
 const AGENT_AUTONOMY_RECENT_RUN_LIMIT: usize = 20;
@@ -106,9 +106,9 @@ const HEALTH_COMPLIANCE_REPORT_VERSION_V1: u16 = 1;
 const DEFAULT_HEALTH_COMPLIANCE_LIMIT: usize = 50;
 const MAX_HEALTH_COMPLIANCE_LIMIT: usize = 500;
 const TRAINING_JOB_STATUS_SCHEMA_VERSION_V1: u16 = 1;
-pub(crate) const VERIFIED_ACCOUNT_HEADER: &str = "x-iroha-internal-soracloud-account";
-pub(crate) const VERIFIED_SIGNER_HEADER: &str = "x-iroha-internal-soracloud-signer";
-pub(crate) const VERIFIED_SIGNERS_HEADER: &str = "x-iroha-internal-soracloud-signers";
+pub const VERIFIED_ACCOUNT_HEADER: &str = "x-iroha-internal-soracloud-account";
+pub const VERIFIED_SIGNER_HEADER: &str = "x-iroha-internal-soracloud-signer";
+pub const VERIFIED_SIGNERS_HEADER: &str = "x-iroha-internal-soracloud-signers";
 const TRAINING_MAX_IDENTIFIER_BYTES: usize = 128;
 const MODEL_WEIGHT_STATUS_SCHEMA_VERSION_V1: u16 = 1;
 const MODEL_ARTIFACT_STATUS_SCHEMA_VERSION_V1: u16 = 1;
@@ -136,7 +136,7 @@ const SCR_HOST_MAX_STOP_GRACE_SECS: u32 = 600;
 )]
 #[norito(tag = "action", content = "value")]
 #[norito(deny_unknown_fields)]
-pub(crate) enum SoracloudAction {
+pub enum SoracloudAction {
     Deploy,
     Upgrade,
     Rollback,
@@ -168,7 +168,7 @@ pub(crate) enum SoracloudAction {
 )]
 #[norito(tag = "status", content = "value")]
 #[norito(deny_unknown_fields)]
-pub(crate) enum AgentRuntimeStatus {
+pub enum AgentRuntimeStatus {
     Running,
     LeaseExpired,
 }
@@ -187,7 +187,7 @@ pub(crate) enum AgentRuntimeStatus {
 )]
 #[norito(tag = "status", content = "value")]
 #[norito(deny_unknown_fields)]
-pub(crate) enum TrainingJobStatus {
+pub enum TrainingJobStatus {
     Running,
     Completed,
     RetryPending,
@@ -202,8 +202,7 @@ enum MutationMode {
 #[norito_schema(name = "iroha_torii::soracloud::SignedBundleRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedBundleRequest {
+pub struct SignedBundleRequest {
     pub bundle: SoraDeploymentBundleV1,
     pub initial_service_configs: BTreeMap<String, Json>,
     pub initial_service_secrets: BTreeMap<String, SecretEnvelopeV1>,
@@ -214,8 +213,7 @@ pub(crate) struct SignedBundleRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAppInfraRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAppInfraRequest {
+pub struct SignedAppInfraRequest {
     pub deploy_services: Vec<SignedBundleRequest>,
     pub upgrade_services: Vec<SignedBundleRequest>,
     pub manifest: SoraAppInfraManifestV1,
@@ -226,7 +224,7 @@ pub(crate) struct SignedAppInfraRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AppInfraStatusQuery")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AppInfraStatusQuery {
+pub struct AppInfraStatusQuery {
     #[norito(default)]
     pub app_name: Option<String>,
     #[norito(default)]
@@ -235,7 +233,7 @@ pub(crate) struct AppInfraStatusQuery {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii::soracloud::AppInfraStatusResponse")]
 #[derive(Clone, Debug, JsonSerialize, NoritoSerialize)]
-pub(crate) struct AppInfraStatusResponse {
+pub struct AppInfraStatusResponse {
     pub schema_version: u16,
     pub app_count: u32,
     pub audit_event_count: u32,
@@ -246,7 +244,7 @@ pub(crate) struct AppInfraStatusResponse {
 #[norito_schema(name = "iroha_torii::soracloud::RollbackPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct RollbackPayload {
+pub struct RollbackPayload {
     pub service_name: String,
     pub target_version: String,
 }
@@ -254,8 +252,7 @@ pub(crate) struct RollbackPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedRollbackRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedRollbackRequest {
+pub struct SignedRollbackRequest {
     pub payload: RollbackPayload,
     pub provenance: ManifestProvenance,
 }
@@ -274,7 +271,7 @@ pub(crate) struct SignedRollbackRequest {
 )]
 #[norito(tag = "operation", content = "value")]
 #[norito(deny_unknown_fields)]
-pub(crate) enum StateMutationOperation {
+pub enum StateMutationOperation {
     Upsert,
     Delete,
 }
@@ -282,7 +279,7 @@ pub(crate) enum StateMutationOperation {
 #[norito_schema(name = "iroha_torii::soracloud::StateMutationRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct StateMutationRequest {
+pub struct StateMutationRequest {
     pub service_name: String,
     pub binding_name: String,
     pub key: String,
@@ -300,8 +297,7 @@ pub(crate) struct StateMutationRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedStateMutationRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedStateMutationRequest {
+pub struct SignedStateMutationRequest {
     pub payload: StateMutationRequest,
     pub provenance: ManifestProvenance,
 }
@@ -309,7 +305,7 @@ pub(crate) struct SignedStateMutationRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceConfigSetRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceConfigSetRequest {
+pub struct ServiceConfigSetRequest {
     pub service_name: String,
     pub config_name: String,
     pub value_json: Json,
@@ -318,8 +314,7 @@ pub(crate) struct ServiceConfigSetRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedServiceConfigSetRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedServiceConfigSetRequest {
+pub struct SignedServiceConfigSetRequest {
     pub payload: ServiceConfigSetRequest,
     pub provenance: ManifestProvenance,
 }
@@ -327,7 +322,7 @@ pub(crate) struct SignedServiceConfigSetRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceConfigDeleteRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceConfigDeleteRequest {
+pub struct ServiceConfigDeleteRequest {
     pub service_name: String,
     pub config_name: String,
 }
@@ -335,8 +330,7 @@ pub(crate) struct ServiceConfigDeleteRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedServiceConfigDeleteRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedServiceConfigDeleteRequest {
+pub struct SignedServiceConfigDeleteRequest {
     pub payload: ServiceConfigDeleteRequest,
     pub provenance: ManifestProvenance,
 }
@@ -344,7 +338,7 @@ pub(crate) struct SignedServiceConfigDeleteRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceSecretSetRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceSecretSetRequest {
+pub struct ServiceSecretSetRequest {
     pub service_name: String,
     pub secret_name: String,
     pub secret: SecretEnvelopeV1,
@@ -353,8 +347,7 @@ pub(crate) struct ServiceSecretSetRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedServiceSecretSetRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedServiceSecretSetRequest {
+pub struct SignedServiceSecretSetRequest {
     pub payload: ServiceSecretSetRequest,
     pub provenance: ManifestProvenance,
 }
@@ -362,7 +355,7 @@ pub(crate) struct SignedServiceSecretSetRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceSecretDeleteRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceSecretDeleteRequest {
+pub struct ServiceSecretDeleteRequest {
     pub service_name: String,
     pub secret_name: String,
 }
@@ -370,8 +363,7 @@ pub(crate) struct ServiceSecretDeleteRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedServiceSecretDeleteRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedServiceSecretDeleteRequest {
+pub struct SignedServiceSecretDeleteRequest {
     pub payload: ServiceSecretDeleteRequest,
     pub provenance: ManifestProvenance,
 }
@@ -390,7 +382,7 @@ pub(crate) struct SignedServiceSecretDeleteRequest {
 )]
 #[norito(tag = "stage", content = "value")]
 #[norito(deny_unknown_fields)]
-pub(crate) enum RolloutStage {
+pub enum RolloutStage {
     Canary,
     Promoted,
     RolledBack,
@@ -399,7 +391,7 @@ pub(crate) enum RolloutStage {
 #[norito_schema(name = "iroha_torii::soracloud::RolloutAdvancePayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct RolloutAdvancePayload {
+pub struct RolloutAdvancePayload {
     pub service_name: String,
     pub rollout_handle: String,
     pub healthy: bool,
@@ -411,8 +403,7 @@ pub(crate) struct RolloutAdvancePayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedRolloutAdvanceRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedRolloutAdvanceRequest {
+pub struct SignedRolloutAdvanceRequest {
     pub payload: RolloutAdvancePayload,
     pub provenance: ManifestProvenance,
 }
@@ -420,7 +411,7 @@ pub(crate) struct SignedRolloutAdvanceRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentDeployPayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentDeployPayload {
+pub struct AgentDeployPayload {
     pub manifest: AgentApartmentManifestV1,
     pub lease_blocks: u64,
     pub autonomy_budget_units: u64,
@@ -429,8 +420,7 @@ pub(crate) struct AgentDeployPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentDeployRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentDeployRequest {
+pub struct SignedAgentDeployRequest {
     pub payload: AgentDeployPayload,
     pub provenance: ManifestProvenance,
 }
@@ -438,7 +428,7 @@ pub(crate) struct SignedAgentDeployRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentLeaseRenewPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentLeaseRenewPayload {
+pub struct AgentLeaseRenewPayload {
     pub apartment_name: String,
     pub lease_blocks: u64,
 }
@@ -446,8 +436,7 @@ pub(crate) struct AgentLeaseRenewPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentLeaseRenewRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentLeaseRenewRequest {
+pub struct SignedAgentLeaseRenewRequest {
     pub payload: AgentLeaseRenewPayload,
     pub provenance: ManifestProvenance,
 }
@@ -455,7 +444,7 @@ pub(crate) struct SignedAgentLeaseRenewRequest {
 #[norito_schema(name = "iroha_torii::soracloud::HfSharedLeaseJoinPayload")]
 #[derive(Clone, Debug, JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HfSharedLeaseJoinPayload {
+pub struct HfSharedLeaseJoinPayload {
     pub repo_id: String,
     pub revision: String,
     pub service_name: String,
@@ -470,8 +459,7 @@ pub(crate) struct HfSharedLeaseJoinPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedHfSharedLeaseJoinRequest")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedHfSharedLeaseJoinRequest {
+pub struct SignedHfSharedLeaseJoinRequest {
     pub payload: HfSharedLeaseJoinPayload,
     pub provenance: ManifestProvenance,
 }
@@ -479,7 +467,7 @@ pub(crate) struct SignedHfSharedLeaseJoinRequest {
 #[norito_schema(name = "iroha_torii::soracloud::HfLeaseLeavePayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HfLeaseLeavePayload {
+pub struct HfLeaseLeavePayload {
     pub repo_id: String,
     pub revision: String,
     pub storage_class: StorageClass,
@@ -493,8 +481,7 @@ pub(crate) struct HfLeaseLeavePayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedHfLeaseLeaveRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedHfLeaseLeaveRequest {
+pub struct SignedHfLeaseLeaveRequest {
     pub payload: HfLeaseLeavePayload,
     pub provenance: ManifestProvenance,
 }
@@ -502,7 +489,7 @@ pub(crate) struct SignedHfLeaseLeaveRequest {
 #[norito_schema(name = "iroha_torii::soracloud::HfLeaseRenewPayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HfLeaseRenewPayload {
+pub struct HfLeaseRenewPayload {
     pub repo_id: String,
     pub revision: String,
     pub service_name: String,
@@ -517,8 +504,7 @@ pub(crate) struct HfLeaseRenewPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedHfLeaseRenewRequest")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedHfLeaseRenewRequest {
+pub struct SignedHfLeaseRenewRequest {
     pub payload: HfLeaseRenewPayload,
     pub provenance: ManifestProvenance,
 }
@@ -526,7 +512,7 @@ pub(crate) struct SignedHfLeaseRenewRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentRestartPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentRestartPayload {
+pub struct AgentRestartPayload {
     pub apartment_name: String,
     pub reason: String,
 }
@@ -534,8 +520,7 @@ pub(crate) struct AgentRestartPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentRestartRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentRestartRequest {
+pub struct SignedAgentRestartRequest {
     pub payload: AgentRestartPayload,
     pub provenance: ManifestProvenance,
 }
@@ -543,7 +528,7 @@ pub(crate) struct SignedAgentRestartRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentPolicyRevokePayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentPolicyRevokePayload {
+pub struct AgentPolicyRevokePayload {
     pub apartment_name: String,
     pub capability: String,
     #[norito(required)]
@@ -553,8 +538,7 @@ pub(crate) struct AgentPolicyRevokePayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentPolicyRevokeRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentPolicyRevokeRequest {
+pub struct SignedAgentPolicyRevokeRequest {
     pub payload: AgentPolicyRevokePayload,
     pub provenance: ManifestProvenance,
 }
@@ -562,7 +546,7 @@ pub(crate) struct SignedAgentPolicyRevokeRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentWalletSpendPayload")]
 #[derive(Clone, Debug, JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentWalletSpendPayload {
+pub struct AgentWalletSpendPayload {
     pub apartment_name: String,
     pub request_id: String,
     pub asset_definition: String,
@@ -572,8 +556,7 @@ pub(crate) struct AgentWalletSpendPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentWalletSpendRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentWalletSpendRequest {
+pub struct SignedAgentWalletSpendRequest {
     pub payload: AgentWalletSpendPayload,
     pub provenance: ManifestProvenance,
 }
@@ -581,7 +564,7 @@ pub(crate) struct SignedAgentWalletSpendRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentWalletApprovePayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentWalletApprovePayload {
+pub struct AgentWalletApprovePayload {
     pub apartment_name: String,
     pub request_id: String,
 }
@@ -589,8 +572,7 @@ pub(crate) struct AgentWalletApprovePayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentWalletApproveRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentWalletApproveRequest {
+pub struct SignedAgentWalletApproveRequest {
     pub payload: AgentWalletApprovePayload,
     pub provenance: ManifestProvenance,
 }
@@ -598,7 +580,7 @@ pub(crate) struct SignedAgentWalletApproveRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentMessageSendPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentMessageSendPayload {
+pub struct AgentMessageSendPayload {
     pub from_apartment: String,
     pub to_apartment: String,
     pub channel: String,
@@ -608,8 +590,7 @@ pub(crate) struct AgentMessageSendPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentMessageSendRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentMessageSendRequest {
+pub struct SignedAgentMessageSendRequest {
     pub payload: AgentMessageSendPayload,
     pub provenance: ManifestProvenance,
 }
@@ -617,7 +598,7 @@ pub(crate) struct SignedAgentMessageSendRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentMessageAckPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentMessageAckPayload {
+pub struct AgentMessageAckPayload {
     pub apartment_name: String,
     pub message_id: String,
 }
@@ -625,8 +606,7 @@ pub(crate) struct AgentMessageAckPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentMessageAckRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentMessageAckRequest {
+pub struct SignedAgentMessageAckRequest {
     pub payload: AgentMessageAckPayload,
     pub provenance: ManifestProvenance,
 }
@@ -634,7 +614,7 @@ pub(crate) struct SignedAgentMessageAckRequest {
 #[norito_schema(name = "iroha_torii::soracloud::AgentArtifactAllowPayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentArtifactAllowPayload {
+pub struct AgentArtifactAllowPayload {
     pub apartment_name: String,
     pub artifact_hash: String,
     #[norito(required)]
@@ -644,8 +624,7 @@ pub(crate) struct AgentArtifactAllowPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedAgentArtifactAllowRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedAgentArtifactAllowRequest {
+pub struct SignedAgentArtifactAllowRequest {
     pub payload: AgentArtifactAllowPayload,
     pub provenance: ManifestProvenance,
 }
@@ -653,7 +632,7 @@ pub(crate) struct SignedAgentArtifactAllowRequest {
 #[norito_schema(name = "iroha_torii::soracloud::FheJobRunPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct FheJobRunPayload {
+pub struct FheJobRunPayload {
     pub service_name: String,
     pub binding_name: String,
     pub job: FheJobSpecV1,
@@ -668,8 +647,7 @@ pub(crate) struct FheJobRunPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedFheJobRunRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedFheJobRunRequest {
+pub struct SignedFheJobRunRequest {
     pub payload: FheJobRunPayload,
     pub provenance: ManifestProvenance,
 }
@@ -677,7 +655,7 @@ pub(crate) struct SignedFheJobRunRequest {
 #[norito_schema(name = "iroha_torii::soracloud::TrainingJobStartPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobStartPayload {
+pub struct TrainingJobStartPayload {
     pub service_name: String,
     pub model_name: String,
     pub job_id: String,
@@ -693,8 +671,7 @@ pub(crate) struct TrainingJobStartPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedTrainingJobStartRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedTrainingJobStartRequest {
+pub struct SignedTrainingJobStartRequest {
     pub payload: TrainingJobStartPayload,
     pub provenance: ManifestProvenance,
 }
@@ -702,7 +679,7 @@ pub(crate) struct SignedTrainingJobStartRequest {
 #[norito_schema(name = "iroha_torii::soracloud::TrainingJobCheckpointPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobCheckpointPayload {
+pub struct TrainingJobCheckpointPayload {
     pub service_name: String,
     pub job_id: String,
     pub completed_step: u32,
@@ -713,8 +690,7 @@ pub(crate) struct TrainingJobCheckpointPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedTrainingJobCheckpointRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedTrainingJobCheckpointRequest {
+pub struct SignedTrainingJobCheckpointRequest {
     pub payload: TrainingJobCheckpointPayload,
     pub provenance: ManifestProvenance,
 }
@@ -722,7 +698,7 @@ pub(crate) struct SignedTrainingJobCheckpointRequest {
 #[norito_schema(name = "iroha_torii::soracloud::TrainingJobRetryPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobRetryPayload {
+pub struct TrainingJobRetryPayload {
     pub service_name: String,
     pub job_id: String,
     pub reason: String,
@@ -731,8 +707,7 @@ pub(crate) struct TrainingJobRetryPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedTrainingJobRetryRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedTrainingJobRetryRequest {
+pub struct SignedTrainingJobRetryRequest {
     pub payload: TrainingJobRetryPayload,
     pub provenance: ManifestProvenance,
 }
@@ -740,7 +715,7 @@ pub(crate) struct SignedTrainingJobRetryRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ModelWeightRegisterPayload")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightRegisterPayload {
+pub struct ModelWeightRegisterPayload {
     pub service_name: String,
     pub model_name: String,
     pub weight_version: String,
@@ -757,8 +732,7 @@ pub(crate) struct ModelWeightRegisterPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedModelWeightRegisterRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedModelWeightRegisterRequest {
+pub struct SignedModelWeightRegisterRequest {
     pub payload: ModelWeightRegisterPayload,
     pub provenance: ManifestProvenance,
 }
@@ -766,7 +740,7 @@ pub(crate) struct SignedModelWeightRegisterRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ModelWeightPromotePayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightPromotePayload {
+pub struct ModelWeightPromotePayload {
     pub service_name: String,
     pub model_name: String,
     pub weight_version: String,
@@ -777,8 +751,7 @@ pub(crate) struct ModelWeightPromotePayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedModelWeightPromoteRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedModelWeightPromoteRequest {
+pub struct SignedModelWeightPromoteRequest {
     pub payload: ModelWeightPromotePayload,
     pub provenance: ManifestProvenance,
 }
@@ -786,7 +759,7 @@ pub(crate) struct SignedModelWeightPromoteRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ModelWeightRollbackPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightRollbackPayload {
+pub struct ModelWeightRollbackPayload {
     pub service_name: String,
     pub model_name: String,
     pub target_version: String,
@@ -796,8 +769,7 @@ pub(crate) struct ModelWeightRollbackPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedModelWeightRollbackRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedModelWeightRollbackRequest {
+pub struct SignedModelWeightRollbackRequest {
     pub payload: ModelWeightRollbackPayload,
     pub provenance: ManifestProvenance,
 }
@@ -805,7 +777,7 @@ pub(crate) struct SignedModelWeightRollbackRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ModelArtifactRegisterPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelArtifactRegisterPayload {
+pub struct ModelArtifactRegisterPayload {
     pub service_name: String,
     pub model_name: String,
     pub training_job_id: String,
@@ -819,8 +791,7 @@ pub(crate) struct ModelArtifactRegisterPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedModelArtifactRegisterRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedModelArtifactRegisterRequest {
+pub struct SignedModelArtifactRegisterRequest {
     pub payload: ModelArtifactRegisterPayload,
     pub provenance: ManifestProvenance,
 }
@@ -828,7 +799,7 @@ pub(crate) struct SignedModelArtifactRegisterRequest {
 #[norito_schema(name = "iroha_torii::soracloud::UploadedModelRegisterPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct UploadedModelRegisterPayload {
+pub struct UploadedModelRegisterPayload {
     pub bundle: SoraUploadedModelBundleV1,
     pub model_name: String,
     pub artifact_id: String,
@@ -842,8 +813,7 @@ pub(crate) struct UploadedModelRegisterPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedUploadedModelRegisterRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedUploadedModelRegisterRequest {
+pub struct SignedUploadedModelRegisterRequest {
     pub payload: UploadedModelRegisterPayload,
     pub bundle_provenance: ManifestProvenance,
     pub finalize_provenance: ManifestProvenance,
@@ -852,7 +822,7 @@ pub(crate) struct SignedUploadedModelRegisterRequest {
 #[norito_schema(name = "iroha_torii::soracloud::DecryptionRequestPayload")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct DecryptionRequestPayload {
+pub struct DecryptionRequestPayload {
     pub service_name: String,
     pub policy: DecryptionAuthorityPolicyV1,
     pub request: DecryptionRequestV1,
@@ -861,8 +831,7 @@ pub(crate) struct DecryptionRequestPayload {
 #[norito_schema(name = "iroha_torii::soracloud::SignedDecryptionRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedDecryptionRequest {
+pub struct SignedDecryptionRequest {
     pub payload: DecryptionRequestPayload,
     pub provenance: ManifestProvenance,
 }
@@ -870,8 +839,7 @@ pub(crate) struct SignedDecryptionRequest {
 #[norito_schema(name = "iroha_torii::soracloud::SignedCiphertextQueryRequest")]
 #[derive(Clone, Debug, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct SignedCiphertextQueryRequest {
+pub struct SignedCiphertextQueryRequest {
     pub query: CiphertextQuerySpecV1,
     pub provenance: ManifestProvenance,
 }
@@ -879,14 +847,14 @@ pub(crate) struct SignedCiphertextQueryRequest {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceConfigStatusQuery")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceConfigStatusQuery {
+pub struct ServiceConfigStatusQuery {
     pub service_name: String,
     #[norito(default)]
     pub config_name: Option<String>,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceConfigStatusEntry {
+pub struct ServiceConfigStatusEntry {
     pub config_name: String,
     pub value_hash: Hash,
     pub value_json: norito::json::Value,
@@ -894,7 +862,7 @@ pub(crate) struct ServiceConfigStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceConfigStatusResponse {
+pub struct ServiceConfigStatusResponse {
     pub schema_version: u16,
     pub service_name: String,
     pub current_version: String,
@@ -906,14 +874,14 @@ pub(crate) struct ServiceConfigStatusResponse {
 #[norito_schema(name = "iroha_torii::soracloud::ServiceSecretStatusQuery")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceSecretStatusQuery {
+pub struct ServiceSecretStatusQuery {
     pub service_name: String,
     #[norito(default)]
     pub secret_name: Option<String>,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceSecretStatusEntry {
+pub struct ServiceSecretStatusEntry {
     pub secret_name: String,
     pub encryption: SecretEnvelopeEncryptionV1,
     pub key_id: String,
@@ -924,7 +892,7 @@ pub(crate) struct ServiceSecretStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServiceSecretStatusResponse {
+pub struct ServiceSecretStatusResponse {
     pub schema_version: u16,
     pub service_name: String,
     pub current_version: String,
@@ -934,20 +902,20 @@ pub(crate) struct ServiceSecretStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct CiphertextQueryResponse {
+pub struct CiphertextQueryResponse {
     pub action: SoracloudAction,
     pub response: CiphertextQueryResponseV1,
     pub signed_by: String,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobStatusResponse {
+pub struct TrainingJobStatusResponse {
     pub schema_version: u16,
     pub job: TrainingJobStatusEntry,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobStatusEntry {
+pub struct TrainingJobStatusEntry {
     pub service_name: String,
     pub model_name: String,
     pub job_id: String,
@@ -977,13 +945,13 @@ pub(crate) struct TrainingJobStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightStatusResponse {
+pub struct ModelWeightStatusResponse {
     pub schema_version: u16,
     pub model: ModelWeightStatusEntry,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightStatusEntry {
+pub struct ModelWeightStatusEntry {
     pub service_name: String,
     pub model_name: String,
     #[norito(required)]
@@ -993,7 +961,7 @@ pub(crate) struct ModelWeightStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightVersionEntry {
+pub struct ModelWeightVersionEntry {
     pub weight_version: String,
     #[norito(required)]
     pub parent_version: Option<String>,
@@ -1011,7 +979,7 @@ pub(crate) struct ModelWeightVersionEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelArtifactStatusResponse {
+pub struct ModelArtifactStatusResponse {
     pub schema_version: u16,
     pub service_name: String,
     pub model_name: String,
@@ -1021,7 +989,7 @@ pub(crate) struct ModelArtifactStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelArtifactStatusEntry {
+pub struct ModelArtifactStatusEntry {
     pub service_name: String,
     pub model_name: String,
     pub artifact_id: String,
@@ -1041,7 +1009,7 @@ pub(crate) struct ModelArtifactStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct UploadedModelStatusResponse {
+pub struct UploadedModelStatusResponse {
     pub schema_version: u16,
     pub bundle: SoraUploadedModelBundleV1,
     #[norito(required)]
@@ -1049,8 +1017,7 @@ pub(crate) struct UploadedModelStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct HfSharedLeaseStatusResponse {
+pub struct HfSharedLeaseStatusResponse {
     pub schema_version: u16,
     pub source: SoraHfSourceRecordV1,
     #[norito(required)]
@@ -1064,7 +1031,7 @@ pub(crate) struct HfSharedLeaseStatusResponse {
 }
 #[derive(Clone, Debug, Default, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthComplianceReportQuery {
+pub struct HealthComplianceReportQuery {
     #[norito(default)]
     pub service_name: Option<String>,
     #[norito(default)]
@@ -1074,19 +1041,19 @@ pub(crate) struct HealthComplianceReportQuery {
 }
 #[derive(Clone, Debug, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct TrainingJobStatusQuery {
+pub struct TrainingJobStatusQuery {
     pub service_name: String,
     pub job_id: String,
 }
 #[derive(Clone, Debug, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelWeightStatusQuery {
+pub struct ModelWeightStatusQuery {
     pub service_name: String,
     pub model_name: String,
 }
 #[derive(Clone, Debug, Default, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ModelArtifactStatusQuery {
+pub struct ModelArtifactStatusQuery {
     pub service_name: String,
     #[norito(default)]
     pub model_name: Option<String>,
@@ -1099,7 +1066,7 @@ pub(crate) struct ModelArtifactStatusQuery {
 }
 #[derive(Clone, Debug, Default, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct UploadedModelStatusQuery {
+pub struct UploadedModelStatusQuery {
     pub service_name: String,
     pub weight_version: String,
     #[norito(default)]
@@ -1111,7 +1078,7 @@ pub(crate) struct UploadedModelStatusQuery {
 }
 #[derive(Clone, Debug, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HfSharedLeaseStatusQuery {
+pub struct HfSharedLeaseStatusQuery {
     pub repo_id: String,
     pub revision: String,
     pub storage_class: String,
@@ -1122,23 +1089,23 @@ pub(crate) struct HfSharedLeaseStatusQuery {
 }
 #[derive(Clone, Debug, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentAutonomyStatusQuery {
+pub struct AgentAutonomyStatusQuery {
     pub apartment_name: String,
 }
 #[derive(Clone, Debug, Default, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentStatusQuery {
+pub struct AgentStatusQuery {
     #[norito(default)]
     pub apartment_name: Option<String>,
 }
 #[derive(Clone, Debug, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentMailboxStatusQuery {
+pub struct AgentMailboxStatusQuery {
     pub apartment_name: String,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ControlPlaneSnapshot {
+pub struct ControlPlaneSnapshot {
     pub schema_version: u16,
     pub service_count: u32,
     pub audit_event_count: u32,
@@ -1147,7 +1114,7 @@ pub(crate) struct ControlPlaneSnapshot {
     pub recent_audit_events: Vec<ControlPlaneAuditEvent>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct LocalReadRouteMatch {
+pub struct LocalReadRouteMatch {
     pub service_name: String,
     pub service_version: String,
     pub handler_name: String,
@@ -1155,13 +1122,13 @@ pub(crate) struct LocalReadRouteMatch {
     pub handler_path: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HostedHttpRouteMatch {
+pub struct HostedHttpRouteMatch {
     pub service_name: String,
     pub service_version: String,
     pub request_path: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OrderedMailboxRouteMatch {
+pub struct OrderedMailboxRouteMatch {
     pub service_name: String,
     pub service_version: String,
     pub handler_name: String,
@@ -1172,14 +1139,14 @@ pub(crate) struct OrderedMailboxRouteMatch {
     pub handler: iroha_data_model::soracloud::SoraServiceHandlerV1,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum PublicRouteMatch {
+pub enum PublicRouteMatch {
     LocalRead(LocalReadRouteMatch),
     HostedHttp(HostedHttpRouteMatch),
-    OrderedMailbox(OrderedMailboxRouteMatch),
+    OrderedMailbox(Box<OrderedMailboxRouteMatch>),
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthComplianceReportResponse {
+pub struct HealthComplianceReportResponse {
     pub schema_version: u16,
     #[norito(required)]
     pub service_name: Option<String>,
@@ -1198,7 +1165,7 @@ pub(crate) struct HealthComplianceReportResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthAccessAuditEntry {
+pub struct HealthAccessAuditEntry {
     pub sequence: u64,
     pub service_name: String,
     pub binding_name: String,
@@ -1215,14 +1182,14 @@ pub(crate) struct HealthAccessAuditEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthJurisdictionStat {
+pub struct HealthJurisdictionStat {
     pub jurisdiction_tag: String,
     pub access_event_count: u32,
     pub break_glass_event_count: u32,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthDataFlowAttestation {
+pub struct HealthDataFlowAttestation {
     pub service_name: String,
     pub current_version: String,
     pub binding_name: String,
@@ -1232,7 +1199,7 @@ pub(crate) struct HealthDataFlowAttestation {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct HealthPolicyDiffEntry {
+pub struct HealthPolicyDiffEntry {
     pub policy_name: String,
     pub jurisdiction_tag: String,
     pub policy_snapshot_hash: Hash,
@@ -1242,7 +1209,7 @@ pub(crate) struct HealthPolicyDiffEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct SoracloudPublicServiceDiscoveryV1 {
+pub struct SoracloudPublicServiceDiscoveryV1 {
     pub schema_version: u16,
     pub service_name: String,
     pub service_version: String,
@@ -1284,7 +1251,7 @@ struct SoracloudPublicServiceDiscoveryDocumentV1 {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct SoracloudPublicServiceDiscoveryRegistryV1 {
+pub struct SoracloudPublicServiceDiscoveryRegistryV1 {
     pub schema_version: u16,
     pub service_name: String,
     pub current_version: String,
@@ -1292,7 +1259,7 @@ pub(crate) struct SoracloudPublicServiceDiscoveryRegistryV1 {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ServicePublicDiscoveryResponse {
+pub struct ServicePublicDiscoveryResponse {
     pub schema_version: u16,
     pub service_name: String,
     pub current_version: String,
@@ -1301,14 +1268,14 @@ pub(crate) struct ServicePublicDiscoveryResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ControlPlaneServiceLeaseSnapshot {
+pub struct ControlPlaneServiceLeaseSnapshot {
     pub authoritative_state: SoraServiceLeaseStateV1,
     pub effective_status: SoraServiceLeaseStatusV1,
     pub remaining_runtime_balance: Quantity,
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ControlPlaneServiceSnapshot {
+pub struct ControlPlaneServiceSnapshot {
     pub service_name: String,
     pub current_version: String,
     pub revision_count: u32,
@@ -1352,7 +1319,7 @@ struct ScrHostAdmission {
 #[norito_schema(name = "iroha_torii::soracloud::ControlPlaneServiceRevision")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ControlPlaneServiceRevision {
+pub struct ControlPlaneServiceRevision {
     pub sequence: u64,
     pub action: SoracloudAction,
     pub service_version: String,
@@ -1426,7 +1393,7 @@ pub(crate) struct ControlPlaneServiceRevision {
 #[norito_schema(name = "iroha_torii::soracloud::ControlPlaneAuditEvent")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct ControlPlaneAuditEvent {
+pub struct ControlPlaneAuditEvent {
     pub sequence: u64,
     pub action: SoracloudAction,
     pub service_name: String,
@@ -1486,7 +1453,7 @@ struct CiphertextRuntimeRecord {
 #[norito_schema(name = "iroha_torii::soracloud::RolloutRuntimeState")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct RolloutRuntimeState {
+pub struct RolloutRuntimeState {
     pub rollout_handle: String,
     pub baseline_version: String,
     pub candidate_version: String,
@@ -1501,8 +1468,7 @@ pub(crate) struct RolloutRuntimeState {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-
-pub(crate) struct AgentStatusResponse {
+pub struct AgentStatusResponse {
     pub schema_version: u16,
     pub apartment_count: u32,
     pub event_count: u32,
@@ -1510,7 +1476,7 @@ pub(crate) struct AgentStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentApartmentStatusEntry {
+pub struct AgentApartmentStatusEntry {
     pub apartment_name: String,
     pub manifest_hash: Hash,
     pub status: AgentRuntimeStatus,
@@ -1545,7 +1511,7 @@ pub(crate) struct AgentApartmentStatusEntry {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentMailboxStatusResponse {
+pub struct AgentMailboxStatusResponse {
     pub schema_version: u16,
     pub apartment_name: String,
     pub status: AgentRuntimeStatus,
@@ -1555,7 +1521,7 @@ pub(crate) struct AgentMailboxStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentMailboxMessageEntry {
+pub struct AgentMailboxMessageEntry {
     pub message_id: String,
     pub from_apartment: String,
     pub channel: String,
@@ -1567,7 +1533,7 @@ pub(crate) struct AgentMailboxMessageEntry {
 #[norito_schema(name = "iroha_torii::soracloud::AgentRuntimeReceiptRecord")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentRuntimeReceiptRecord {
+pub struct AgentRuntimeReceiptRecord {
     pub receipt_id: Hash,
     pub service_name: String,
     pub service_version: String,
@@ -1590,7 +1556,7 @@ pub(crate) struct AgentRuntimeReceiptRecord {
 #[norito_schema(name = "iroha_torii::soracloud::AgentAutonomyExecutionAuditRecord")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentAutonomyExecutionAuditRecord {
+pub struct AgentAutonomyExecutionAuditRecord {
     pub sequence: u64,
     pub succeeded: bool,
     pub result_commitment: Hash,
@@ -1611,7 +1577,7 @@ pub(crate) struct AgentAutonomyExecutionAuditRecord {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentAutonomyStatusResponse {
+pub struct AgentAutonomyStatusResponse {
     pub apartment_name: String,
     pub sequence: u64,
     pub status: AgentRuntimeStatus,
@@ -1636,7 +1602,7 @@ pub(crate) struct AgentAutonomyStatusResponse {
 }
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentAutonomyAllowlistEntry {
+pub struct AgentAutonomyAllowlistEntry {
     pub artifact_hash: String,
     #[norito(required)]
     pub provenance_hash: Option<String>,
@@ -1646,7 +1612,7 @@ pub(crate) struct AgentAutonomyAllowlistEntry {
 #[norito_schema(name = "iroha_torii::soracloud::AgentAutonomyRunRecord")]
 #[derive(Clone, Debug, JsonSerialize, JsonDeserialize, NoritoDeserialize, NoritoSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct AgentAutonomyRunRecord {
+pub struct AgentAutonomyRunRecord {
     pub run_id: String,
     pub artifact_hash: String,
     #[norito(required)]
@@ -1675,7 +1641,7 @@ struct SoracloudErrorBody {
     message: String,
 }
 #[derive(Debug)]
-pub(crate) struct SoracloudError {
+pub struct SoracloudError {
     kind: SoracloudErrorKind,
     message: String,
 }
@@ -1850,7 +1816,7 @@ fn admit_scr_host_bundle(
             }
         }
     }
-    let network_policy = container.capabilities.network.to_owned();
+    let network_policy = container.capabilities.network.clone();
     let healthcheck_path = lifecycle.healthcheck_path.as_deref().map(str::to_owned);
     let sandbox_profile = (
         container.runtime,
@@ -2337,24 +2303,25 @@ fn build_ciphertext_inclusion_proof(
             && event.binding_name.as_deref() == Some(binding_name)
             && event.state_key.as_deref() == Some(state_key)
     });
-    let (leaf_hash, event_sequence) = if let Some(event) = maybe_event {
-        (audit_event_leaf_hash(event), event.sequence)
-    } else {
-        (
-            Hash::new(Encode::encode(&(
-                "soracloud.audit.synthetic_leaf.v1",
-                service_name,
-                binding_name,
-                state_key,
-                record.payload_bytes,
-                record.commitment,
+    let (leaf_hash, event_sequence) = maybe_event.map_or_else(
+        || {
+            (
+                Hash::new(Encode::encode(&(
+                    "soracloud.audit.synthetic_leaf.v1",
+                    service_name,
+                    binding_name,
+                    state_key,
+                    record.payload_bytes,
+                    record.commitment,
+                    record.last_update_sequence,
+                    record.governance_tx_hash,
+                    soracloud_action_label(record.source_action),
+                ))),
                 record.last_update_sequence,
-                record.governance_tx_hash,
-                soracloud_action_label(record.source_action),
-            ))),
-            record.last_update_sequence,
-        )
-    };
+            )
+        },
+        |event| (audit_event_leaf_hash(event), event.sequence),
+    );
     CiphertextInclusionProofV1 {
         schema_version: CIPHERTEXT_QUERY_PROOF_VERSION_V1,
         proof_scheme: CIPHERTEXT_QUERY_PROOF_SCHEME_V1.to_string(),
@@ -4476,8 +4443,8 @@ fn authoritative_public_service_discovery_artifact_for_content_cid(
                 validate_public_service_discovery_for_bundle(world, deployment, bundle, discovery)?;
             if let Some(existing) = authorized.as_ref() {
                 if existing.document_bytes.as_slice() != candidate.document_bytes.as_slice()
-                    || &existing.manifest_digest != &candidate.manifest_digest
-                    || &existing.root_cid != &candidate.root_cid
+                    || existing.manifest_digest != candidate.manifest_digest
+                    || existing.root_cid != candidate.root_cid
                 {
                     return Err(SoracloudError::internal(format!(
                         "canonical public discovery content CID `{content_cid}` has conflicting authoritative service revision bindings"
@@ -4498,7 +4465,7 @@ fn authoritative_public_service_discovery_artifact_for_content_cid(
 /// revision, and reference an exactly matching approved pin record. Returning the canonical bytes
 /// reconstructed from that state keeps public read availability independent of which validator
 /// receives the request while exposing no other preseeded or embedded-storage content.
-pub(crate) fn authoritative_public_discovery_document_for_content_cid(
+pub fn authoritative_public_discovery_document_for_content_cid(
     world: &impl WorldReadOnly,
     content_cid: &str,
 ) -> Result<Option<Vec<u8>>, SoracloudError> {
@@ -5150,7 +5117,7 @@ fn authoritative_health_compliance_report(
     limit: usize,
 ) -> Result<HealthComplianceReportResponse, SoracloudError> {
     let service_name = service_name
-        .map(|literal| parse_service_name(literal).map(|name| name.to_string()))
+        .map(|value| parse_service_name(value).map(|name| name.to_string()))
         .transpose()?;
     let jurisdiction_tag = jurisdiction_tag
         .map(|literal| parse_exact_nonempty_text("jurisdiction_tag", literal))
@@ -5547,7 +5514,7 @@ fn deployment_bundle_to_control_plane_revision(
     })
 }
 #[cfg(test)]
-pub(crate) fn resolve_public_local_read_route(
+pub fn resolve_public_local_read_route(
     app: &SharedAppState,
     host: &str,
     request_path: &str,
@@ -5645,7 +5612,7 @@ fn public_method_supports_handler(
         _ => false,
     }
 }
-pub(crate) fn resolve_public_route(
+pub fn resolve_public_route(
     app: &SharedAppState,
     host: &str,
     request_method: &str,
@@ -5785,16 +5752,17 @@ pub(crate) fn resolve_public_route(
                         continue;
                     };
                     let route_len = full_route.len();
-                    let route_match = PublicRouteMatch::OrderedMailbox(OrderedMailboxRouteMatch {
-                        service_name: service_name.clone(),
-                        service_version: deployment.current_service_version.clone(),
-                        handler_name: handler.handler_name.to_string(),
-                        handler_class: handler.class,
-                        handler_path,
-                        deployment: deployment.clone(),
-                        bundle: bundle.clone(),
-                        handler: handler.clone(),
-                    });
+                    let route_match =
+                        PublicRouteMatch::OrderedMailbox(Box::new(OrderedMailboxRouteMatch {
+                            service_name: service_name.clone(),
+                            service_version: deployment.current_service_version.clone(),
+                            handler_name: handler.handler_name.to_string(),
+                            handler_class: handler.class,
+                            handler_path,
+                            deployment: deployment.clone(),
+                            bundle: bundle.clone(),
+                            handler: handler.clone(),
+                        }));
                     (route_len, route_match)
                 }
             };
@@ -5854,7 +5822,7 @@ fn split_public_handler_path(request_path: &str, full_route: &str) -> Option<Str
     }
     None
 }
-pub(crate) fn control_plane_snapshot(
+pub fn control_plane_snapshot(
     app: &SharedAppState,
     service_name: Option<&str>,
     audit_limit: usize,
@@ -5876,8 +5844,8 @@ pub(crate) fn control_plane_snapshot(
     let active_inrou_hosts = world
         .soracloud_inrou_host_capabilities()
         .iter()
-        .filter_map(|(validator_account_id, capability)| {
-            (capability.validate().is_ok()
+        .filter(|&(validator_account_id, capability)| {
+            capability.validate().is_ok()
                 && capability.validator_account_id == *validator_account_id
                 && capability.can_host_replicas_at(now_ms)
                 && iroha_core::soracloud_runtime::soracloud_validator_has_active_peer_binding(
@@ -5886,9 +5854,9 @@ pub(crate) fn control_plane_snapshot(
                     &capability.peer_id,
                     current_height,
                     |lane_id| state_view.is_lane_active_for_authority(lane_id),
-                ))
-            .then(|| capability.clone())
+                )
         })
+        .map(|(_, capability)| capability.clone())
         .collect::<Vec<_>>();
 
     let mut services = Vec::new();
@@ -6089,7 +6057,7 @@ fn authoritative_app_infra_status_response(
         recent_audit_events,
     })
 }
-pub(crate) async fn handle_deploy(
+pub async fn handle_deploy(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6124,7 +6092,7 @@ pub(crate) async fn handle_deploy(
         )],
     )
 }
-pub(crate) async fn handle_upgrade(
+pub async fn handle_upgrade(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6159,7 +6127,7 @@ pub(crate) async fn handle_upgrade(
         )],
     )
 }
-pub(crate) async fn handle_app_deploy(
+pub async fn handle_app_deploy(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6208,7 +6176,7 @@ pub(crate) async fn handle_app_deploy(
     ));
     soracloud_draft_response(&signer, instructions)
 }
-pub(crate) async fn handle_app_upgrade(
+pub async fn handle_app_upgrade(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6257,7 +6225,7 @@ pub(crate) async fn handle_app_upgrade(
     ));
     soracloud_draft_response(&signer, instructions)
 }
-pub(crate) async fn handle_app_status(
+pub async fn handle_app_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6278,7 +6246,7 @@ pub(crate) async fn handle_app_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_named_app_status(
+pub async fn handle_named_app_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     Path(app_name): Path<String>,
@@ -6305,7 +6273,7 @@ pub(crate) async fn handle_named_app_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_rollback(
+pub async fn handle_rollback(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6339,7 +6307,7 @@ pub(crate) async fn handle_rollback(
         )],
     )
 }
-pub(crate) async fn handle_rollout(
+pub async fn handle_rollout(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6384,7 +6352,7 @@ pub(crate) async fn handle_rollout(
         )],
     )
 }
-pub(crate) async fn handle_state_mutation(
+pub async fn handle_state_mutation(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6435,7 +6403,7 @@ pub(crate) async fn handle_state_mutation(
         })],
     )
 }
-pub(crate) async fn handle_service_config_set(
+pub async fn handle_service_config_set(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6476,7 +6444,7 @@ pub(crate) async fn handle_service_config_set(
         )],
     )
 }
-pub(crate) async fn handle_service_config_delete(
+pub async fn handle_service_config_delete(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6516,7 +6484,7 @@ pub(crate) async fn handle_service_config_delete(
         )],
     )
 }
-pub(crate) async fn handle_service_config_status(
+pub async fn handle_service_config_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6555,7 +6523,7 @@ pub(crate) async fn handle_service_config_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_service_public_discovery(
+pub async fn handle_service_public_discovery(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6581,7 +6549,7 @@ pub(crate) async fn handle_service_public_discovery(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_service_revision_public_discovery(
+pub async fn handle_service_revision_public_discovery(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6615,7 +6583,7 @@ pub(crate) async fn handle_service_revision_public_discovery(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_service_secret_set(
+pub async fn handle_service_secret_set(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6656,7 +6624,7 @@ pub(crate) async fn handle_service_secret_set(
         )],
     )
 }
-pub(crate) async fn handle_service_secret_delete(
+pub async fn handle_service_secret_delete(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6696,7 +6664,7 @@ pub(crate) async fn handle_service_secret_delete(
         )],
     )
 }
-pub(crate) async fn handle_service_secret_status(
+pub async fn handle_service_secret_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6735,7 +6703,7 @@ pub(crate) async fn handle_service_secret_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_fhe_job_run(
+pub async fn handle_fhe_job_run(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6780,7 +6748,7 @@ pub(crate) async fn handle_fhe_job_run(
         })],
     )
 }
-pub(crate) async fn handle_decryption_request(
+pub async fn handle_decryption_request(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6820,7 +6788,7 @@ pub(crate) async fn handle_decryption_request(
         )],
     )
 }
-pub(crate) async fn handle_health_access_request(
+pub async fn handle_health_access_request(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6860,7 +6828,7 @@ pub(crate) async fn handle_health_access_request(
         )],
     )
 }
-pub(crate) async fn handle_ciphertext_query(
+pub async fn handle_ciphertext_query(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6882,7 +6850,7 @@ pub(crate) async fn handle_ciphertext_query(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_training_job_start(
+pub async fn handle_training_job_start(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6929,7 +6897,7 @@ pub(crate) async fn handle_training_job_start(
         )],
     )
 }
-pub(crate) async fn handle_training_job_checkpoint(
+pub async fn handle_training_job_checkpoint(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -6971,7 +6939,7 @@ pub(crate) async fn handle_training_job_checkpoint(
         )],
     )
 }
-pub(crate) async fn handle_training_job_retry(
+pub async fn handle_training_job_retry(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7011,7 +6979,7 @@ pub(crate) async fn handle_training_job_retry(
         )],
     )
 }
-pub(crate) async fn handle_training_job_status(
+pub async fn handle_training_job_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7033,7 +7001,7 @@ pub(crate) async fn handle_training_job_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_model_weight_register(
+pub async fn handle_model_weight_register(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7080,7 +7048,7 @@ pub(crate) async fn handle_model_weight_register(
         )],
     )
 }
-pub(crate) async fn handle_model_weight_promote(
+pub async fn handle_model_weight_promote(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7122,7 +7090,7 @@ pub(crate) async fn handle_model_weight_promote(
         )],
     )
 }
-pub(crate) async fn handle_model_weight_rollback(
+pub async fn handle_model_weight_rollback(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7163,7 +7131,7 @@ pub(crate) async fn handle_model_weight_rollback(
         )],
     )
 }
-pub(crate) async fn handle_model_weight_status(
+pub async fn handle_model_weight_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7185,7 +7153,7 @@ pub(crate) async fn handle_model_weight_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_model_artifact_register(
+pub async fn handle_model_artifact_register(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7230,7 +7198,7 @@ pub(crate) async fn handle_model_artifact_register(
         )],
     )
 }
-pub(crate) async fn handle_model_artifact_status(
+pub async fn handle_model_artifact_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7259,7 +7227,7 @@ pub(crate) async fn handle_model_artifact_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_uploaded_model_register(
+pub async fn handle_uploaded_model_register(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7310,7 +7278,7 @@ pub(crate) async fn handle_uploaded_model_register(
     ];
     soracloud_draft_response(&signer, instructions)
 }
-pub(crate) async fn handle_uploaded_model_status(
+pub async fn handle_uploaded_model_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7333,7 +7301,7 @@ pub(crate) async fn handle_uploaded_model_status(
     }
 }
 
-pub(crate) async fn handle_hf_shared_lease_join(
+pub async fn handle_hf_shared_lease_join(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7396,7 +7364,7 @@ pub(crate) async fn handle_hf_shared_lease_join(
     });
     soracloud_draft_response(&signer, vec![instruction])
 }
-pub(crate) async fn handle_hf_shared_lease_status(
+pub async fn handle_hf_shared_lease_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7446,7 +7414,7 @@ pub(crate) async fn handle_hf_shared_lease_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_hf_lease_leave(
+pub async fn handle_hf_lease_leave(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7509,7 +7477,7 @@ pub(crate) async fn handle_hf_lease_leave(
         )],
     )
 }
-pub(crate) async fn handle_hf_lease_renew(
+pub async fn handle_hf_lease_renew(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7572,7 +7540,7 @@ pub(crate) async fn handle_hf_lease_renew(
     });
     soracloud_draft_response(&signer, vec![instruction])
 }
-pub(crate) async fn handle_agent_deploy(
+pub async fn handle_agent_deploy(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7604,7 +7572,7 @@ pub(crate) async fn handle_agent_deploy(
         )],
     )
 }
-pub(crate) async fn handle_agent_lease_renew(
+pub async fn handle_agent_lease_renew(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7644,7 +7612,7 @@ pub(crate) async fn handle_agent_lease_renew(
         )],
     )
 }
-pub(crate) async fn handle_agent_restart(
+pub async fn handle_agent_restart(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7684,7 +7652,7 @@ pub(crate) async fn handle_agent_restart(
         )],
     )
 }
-pub(crate) async fn handle_agent_status(
+pub async fn handle_agent_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7701,7 +7669,7 @@ pub(crate) async fn handle_agent_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_agent_wallet_spend(
+pub async fn handle_agent_wallet_spend(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7752,7 +7720,7 @@ pub(crate) async fn handle_agent_wallet_spend(
         )],
     )
 }
-pub(crate) async fn handle_agent_wallet_approve(
+pub async fn handle_agent_wallet_approve(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7795,7 +7763,7 @@ pub(crate) async fn handle_agent_wallet_approve(
         )],
     )
 }
-pub(crate) async fn handle_agent_policy_revoke(
+pub async fn handle_agent_policy_revoke(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7836,7 +7804,7 @@ pub(crate) async fn handle_agent_policy_revoke(
         )],
     )
 }
-pub(crate) async fn handle_agent_message_send(
+pub async fn handle_agent_message_send(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7883,7 +7851,7 @@ pub(crate) async fn handle_agent_message_send(
         )],
     )
 }
-pub(crate) async fn handle_agent_message_ack(
+pub async fn handle_agent_message_ack(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7923,7 +7891,7 @@ pub(crate) async fn handle_agent_message_ack(
         )],
     )
 }
-pub(crate) async fn handle_agent_mailbox_status(
+pub async fn handle_agent_mailbox_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7945,7 +7913,7 @@ pub(crate) async fn handle_agent_mailbox_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_agent_autonomy_allow(
+pub async fn handle_agent_autonomy_allow(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -7986,7 +7954,7 @@ pub(crate) async fn handle_agent_autonomy_allow(
         )],
     )
 }
-pub(crate) async fn handle_agent_autonomy_status(
+pub async fn handle_agent_autonomy_status(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -8008,7 +7976,7 @@ pub(crate) async fn handle_agent_autonomy_status(
         Err(err) => err.into_response(),
     }
 }
-pub(crate) async fn handle_health_compliance_report(
+pub async fn handle_health_compliance_report(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
@@ -12477,7 +12445,6 @@ mod tests {
         assert!(length_mismatch_err.message.contains("content_length"));
     }
     #[test]
-
     fn uploaded_model_register_signature_rejects_signer_mismatch() {
         let key_pair = checked_test_keypair(0x81);
         let other_key_pair = checked_test_keypair(0x82);

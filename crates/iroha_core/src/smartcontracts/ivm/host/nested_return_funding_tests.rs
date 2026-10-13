@@ -14,7 +14,7 @@ seiyaku Caller {
 ",
         0,
     );
-    let callee = install_contract(
+    let target_contract = install_contract(
         &state,
         &authority,
         r"
@@ -36,19 +36,19 @@ seiyaku Callee { permission AssetOps;
         1,
     );
     grant_asset_ops_to_account(&state, &authority, caller.subject_id());
-    (state, authority, caller, callee)
+    (state, authority, caller, target_contract)
 }
 
 #[test]
 fn nested_call_funding_refuses_without_effects_then_retries() {
-    let (state, authority, caller, callee) = nested_return_funding_fixture();
+    let (state, authority, caller, target_contract) = nested_return_funding_fixture();
     let budget = iroha_allocation::AllocationBudget::new(0);
     let cache = PreparedContractCache::with_execution_budget(1, budget.clone());
     let (refused, vm, effects) = call_contract_syscall_with_prepared_cache(
         &state,
         &authority,
         &caller,
-        &callee,
+        &target_contract,
         "write",
         Json::new(()),
         cache.clone(),
@@ -63,7 +63,7 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
     assert_eq!(vm.remaining_gas(), 1_000_000);
     assert_eq!(
         vm.validate_tlv(vm.register(10)).unwrap().payload,
-        callee.as_ref().as_bytes()
+        target_contract.as_ref().as_bytes()
     );
     assert!(effects.is_empty());
     assert_eq!(
@@ -79,7 +79,7 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
         &state,
         &authority,
         &caller,
-        &callee,
+        &target_contract,
         "write",
         Json::new(()),
         cache.clone(),
@@ -105,7 +105,7 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
         &state,
         &authority,
         &caller,
-        &callee,
+        &target_contract,
         "write",
         Json::new(()),
         cache.clone(),
@@ -150,7 +150,7 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
     // The shared dispatcher also asserts all six input descriptors are unchanged.
     assert_eq!(
         vm.validate_tlv(vm.register(10)).unwrap().payload,
-        callee.as_ref().as_bytes()
+        target_contract.as_ref().as_bytes()
     );
     assert!(effects.is_empty());
     assert!(budget.reserved_bytes() <= idle_bytes);
@@ -160,7 +160,7 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
         &state,
         &authority,
         &caller,
-        &callee,
+        &target_contract,
         "write",
         Json::new(()),
         cache.clone(),
@@ -188,14 +188,14 @@ fn nested_call_funding_refuses_without_effects_then_retries() {
 
 #[test]
 fn prepaid_nested_return_is_released_when_child_effects_roll_back() {
-    let (state, authority, caller, callee) = nested_return_funding_fixture();
+    let (state, authority, caller, target_contract) = nested_return_funding_fixture();
     let budget = iroha_allocation::AllocationBudget::new(128 * 1024 * 1024);
     let cache = PreparedContractCache::with_execution_budget(1, budget.clone());
     let (result, vm, effects) = call_contract_syscall_with_prepared_cache(
         &state,
         &authority,
         &caller,
-        &callee,
+        &target_contract,
         "fail_after_write",
         Json::new(()),
         cache.clone(),
@@ -216,7 +216,7 @@ fn prepaid_nested_return_is_released_when_child_effects_roll_back() {
     assert!(effects.is_empty(), "failed child write is rolled back");
     assert_eq!(
         vm.validate_tlv(vm.register(10)).unwrap().payload,
-        callee.as_ref().as_bytes()
+        target_contract.as_ref().as_bytes()
     );
     drop(cache);
     assert_eq!(

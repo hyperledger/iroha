@@ -401,7 +401,7 @@ fn all_eight_original_native_owners_remain_part_of_the_final_identity_check() {
 #[test]
 fn actual_state_capture_retains_original_pool_refusal_and_checked_retry() {
     let state = State::new_for_testing(
-        *fixture(true),
+        fixture(true),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );

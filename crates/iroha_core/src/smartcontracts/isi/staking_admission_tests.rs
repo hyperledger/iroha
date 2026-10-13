@@ -585,9 +585,9 @@ fn candidate_requires_committed_schedule_and_rejects_expired_tenure_consent() {
     let (validator, _, _, _) = prepare_accounts(&mut stx);
     let peer_key = checked_keypair_with_algorithm(Algorithm::BlsNormal);
     let candidate = signed_candidate(&stx, &validator, &peer_key, 1000, LaneId::new(42));
-    let mut stale = candidate.clone();
-    stale.activation_height += 1;
-    let error = stale
+    let mut outdated = candidate.clone();
+    outdated.activation_height += 1;
+    let error = outdated
         .execute(&validator, &mut stx)
         .expect_err("consent for another boundary");
     assert!(

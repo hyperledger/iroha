@@ -418,9 +418,9 @@ mod signed_query_verification_tests {
         );
         let network_id = network_id(0x32);
         let admission = admission_for(network_id);
-        let mut signed = fresh_signed_find_abi_version(&signer, network_id, 2);
-        signed.payload.authority = AccountId::new(other.public_key().clone());
-        assert!(verify_signed_query_request_at(signed, &admission, NOW_MS).is_err());
+        let mut signed_payload = fresh_signed_find_abi_version(&signer, network_id, 2);
+        signed_payload.payload.authority = AccountId::new(other.public_key().clone());
+        assert!(verify_signed_query_request_at(signed_payload, &admission, NOW_MS).is_err());
     }
     #[test]
     fn verify_signed_query_rejects_multisig_authority_without_panicking() {
@@ -734,7 +734,7 @@ mod signed_query_verification_tests {
 }
 /// Immutable ordinary-query execution facts shared by admission and Core.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct OrdinaryQueryExecutionPlan {
+pub struct OrdinaryQueryExecutionPlan {
     mode: iroha_core::query::snapshot::CursorMode,
     limits: iroha_core::smartcontracts::isi::query::QueryLimits,
     ordinary_limits: iroha_core::smartcontracts::isi::query::OrdinaryQueryExecutionLimits,
@@ -754,7 +754,7 @@ impl OrdinaryQueryExecutionPlan {
     }
 }
 /// Capture one app-local ordinary policy before any weighted promotion.
-pub(crate) fn ordinary_query_execution_plan(
+pub fn ordinary_query_execution_plan(
     state: &CoreState,
     request: &iroha_data_model::query::QueryRequest,
     opts: &QueryOptions,
@@ -831,12 +831,12 @@ pub(crate) fn ordinary_query_execution_plan(
 }
 /// Execute an ordinary query while Core owns the server's weighted lease.
 #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-pub(crate) async fn execute_admitted_verified_query_with_server_owned_memory(
+pub async fn execute_admitted_verified_query_with_server_owned_memory(
     live_query_store: LiveQueryStoreHandle,
     state: Arc<CoreState>,
     query: iroha_data_model::query::QueryRequestWithAuthority,
     tel: MaybeTelemetry,
-    plan: OrdinaryQueryExecutionPlan,
+    plan: &OrdinaryQueryExecutionPlan,
     admission: crate::QueryAdmissionPermit,
     memory_lease: iroha_core::smartcontracts::isi::query::OrdinaryQueryMemoryLease,
 ) -> Result<iroha_core::query::snapshot::ServerOwnedQueryResponse> {
@@ -852,6 +852,13 @@ pub(crate) async fn execute_admitted_verified_query_with_server_owned_memory(
         iroha_data_model::query::QueryRequest::Start(_)
             | iroha_data_model::query::QueryRequest::Continue(_)
     );
+    let &OrdinaryQueryExecutionPlan {
+        mode,
+        limits,
+        stored_start_budget,
+        ordinary_limits,
+        ..
+    } = plan;
     let state_cloned = Arc::clone(&state);
     let store_cloned = live_query_store.clone();
     let response = crate::panic_recovery::join_recoverable(
@@ -864,10 +871,10 @@ pub(crate) async fn execute_admitted_verified_query_with_server_owned_memory(
                 &store_cloned,
                 &authority,
                 request,
-                plan.mode,
-                plan.limits,
-                plan.stored_start_budget,
-                plan.ordinary_limits,
+                mode,
+                limits,
+                stored_start_budget,
+                ordinary_limits,
                 memory_lease,
             )
         }),
@@ -912,7 +919,7 @@ pub(crate) async fn execute_admitted_verified_query_with_server_owned_memory(
 /// Execute a previously verified query request with the provided options.
 #[cfg(any(test, feature = "test-fixtures", feature = "bench"))]
 #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-pub(crate) async fn execute_verified_query_with_opts(
+pub async fn execute_verified_query_with_opts(
     live_query_store: LiveQueryStoreHandle,
     state: Arc<CoreState>,
     query: iroha_data_model::query::QueryRequestWithAuthority,
@@ -924,7 +931,7 @@ pub(crate) async fn execute_verified_query_with_opts(
 }
 /// Output-specific Core limits carried by one server-owned fanout execution.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum FanoutQueryOutputLimits {
+pub enum FanoutQueryOutputLimits {
     /// Canonical top-k retention limits for an admitted iterable query.
     Iterable(iroha_core::smartcontracts::isi::query::CanonicalQueryOutputLimits),
     /// Bounded producer/ownership limits for an admitted singular query.
@@ -936,15 +943,17 @@ pub(crate) enum FanoutQueryOutputLimits {
 /// deterministic scan-work budget and output-specific memory limits into Core
 /// before any query result is projected or materialized.
 #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-pub(crate) async fn execute_admitted_verified_query_for_fanout(
+pub async fn execute_admitted_verified_query_for_fanout(
     live_query_store: LiveQueryStoreHandle,
     state: Arc<CoreState>,
     query: iroha_data_model::query::QueryRequestWithAuthority,
     tel: MaybeTelemetry,
     output_limits: FanoutQueryOutputLimits,
     execution_budget: iroha_core::smartcontracts::isi::query::QueryExecutionBudget,
-    admission: crate::QueryAdmissionPermit,
-    fanout_reservation: crate::QueryFanoutMemoryReservation,
+    (admission, fanout_reservation): (
+        crate::QueryAdmissionPermit,
+        crate::QueryFanoutMemoryReservation,
+    ),
 ) -> Result<iroha_data_model::query::QueryResponse> {
     execute_verified_query_with_opts_inner(
         live_query_store,

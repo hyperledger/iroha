@@ -8,6 +8,17 @@
 
 use super::durable_deadline::DurableDeadline;
 use super::*;
+
+/// Original retained encoded frames for the accepted aggregate prefix.
+#[derive(Clone, Copy)]
+pub(super) struct AggregatePrefixFrames<'a> {
+    pub(super) head: &'a [u8],
+    pub(super) checkpoint: &'a [u8],
+    pub(super) marker: &'a [u8],
+    pub(super) intent: &'a [u8],
+    pub(super) output: &'a [u8],
+}
+
 use iroha_crypto::threshold_bls::checkpoint::{DkgCheckpointBindingV1, DkgCheckpointSourceV1};
 use norito::core::{
     CanonicalField, DecodeField, DecodeFromSlice, DecodeIntoError, DecodeRecordFields, Encoder,
@@ -545,6 +556,7 @@ impl PreparedDurableDkg {
     pub(super) fn tightened_deadline(&self, deadline: Instant) -> Result<Instant, AttemptError> {
         self.expiry.restore(deadline)
     }
+    #[cfg(test)]
     pub(super) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
         self.budget.same_pool(budget)
             && self.intents.iter().all(|b| b.belongs_to(budget))
@@ -565,13 +577,12 @@ impl PreparedDurableDkg {
         &mut self,
         operation: u16,
         context: &DkgCheckpointBindingV1,
-        claim_identity: [u64; 4],
-        claim_path_hash: [u8; 32],
-        fifo_identity: [u64; 4],
+        identity: AttemptSourceIdentity,
         continuation: Option<([u8; 32], DkgCheckpointSourceV1)>,
         source_hashes: [[u8; 32]; 2],
         stream_generations: [u64; 2],
     ) -> Result<(), AttemptError> {
+        let (claim_identity, claim_path_hash, fifo_identity) = identity;
         let index = intent_index(operation)?;
         let previous_head_hash = if operation == 1 {
             [0; 32]
@@ -687,8 +698,8 @@ impl PreparedDurableDkg {
         let index = usize::from(phase - 1);
         if !self.checkpoint_progress[index].complete()
             || self.checkpoint_terminal[index]
-            || !self.checkpoint_sources[index]
-                .is_some_and(|source| <[u8; 32]>::from(source.digest) == encrypted_hash)
+            || self.checkpoint_sources[index]
+                .is_none_or(|source| <[u8; 32]>::from(source.digest) != encrypted_hash)
         {
             return Err(AttemptError::Binding);
         }
@@ -757,12 +768,15 @@ impl PreparedDurableDkg {
         &mut self,
         intent: &super::aggregate_durable::AggregateIntent,
         binding: &iroha_crypto::threshold_bls::aggregate_checkpoint::DkgAggregateCheckpointBindingV1,
-        head_bytes: &[u8],
-        checkpoint_bytes: &[u8],
-        marker_bytes: &[u8],
-        intent_bytes: &[u8],
-        output_bytes: &[u8],
+        frames: AggregatePrefixFrames<'_>,
     ) -> Result<Head, AttemptError> {
+        let AggregatePrefixFrames {
+            head: head_bytes,
+            checkpoint: checkpoint_bytes,
+            marker: marker_bytes,
+            intent: intent_bytes,
+            output: output_bytes,
+        } = frames;
         self.workspace
             .decode_canonical_into::<Head, _>(
                 head_bytes,
@@ -912,9 +926,9 @@ impl PreparedDurableDkg {
         #[cfg(all(test, sumeragi_daemon_mutation = "HC105"))]
         let check_prefix = phase != 1;
         if check_prefix {
-            for index in 0..2 {
+            for (index, files) in LATER_FILES.iter().enumerate() {
                 let included = index < usize::from(phase - 1);
-                for (name, _) in LATER_FILES[index] {
+                for (name, _) in files {
                     if file_present(directory, name)? != included {
                         return Err(AttemptError::Binding);
                     }
@@ -1123,7 +1137,7 @@ impl PreparedDurableDkg {
     ) -> Result<(), AttemptError> {
         #[cfg(all(test, sumeragi_daemon_mutation = "HC109"))]
         return Ok(());
-        self.sync_restored_generation_with(directory, |file| file.sync_all())
+        self.sync_restored_generation_with(directory, std::fs::File::sync_all)
     }
     fn sync_restored_generation_with(
         &mut self,
@@ -1298,7 +1312,7 @@ impl PreparedDurableDkg {
         if head.context.public_output_hash != hash(0)?
             || head.checkpoint_hash != hash(1)?
             || intent.source_hashes != [hash(2)?, hash(3)?]
-            || intent.source_hashes.iter().any(|h| *h == [0; 32])
+            || intent.source_hashes.contains(&[0; 32])
         {
             return Err(AttemptError::Binding);
         }
@@ -1309,10 +1323,7 @@ impl PreparedDurableDkg {
         self.intent_records[marker_index] = Some(marker);
         Ok((intent, head))
     }
-    pub(super) fn later_sources(
-        &self,
-        phase: u16,
-    ) -> Result<(&[u8], &[u8], &[u8], &ChargedBuffer<u8>), AttemptError> {
+    pub(super) fn later_sources(&self, phase: u16) -> Result<LaterPhaseSources<'_>, AttemptError> {
         let index = usize::from(phase.checked_sub(2).ok_or(AttemptError::Phase)?);
         let later = self.later.get(index).ok_or(AttemptError::Phase)?;
         if later.record.is_none() {
@@ -1336,7 +1347,7 @@ impl PreparedDurableDkg {
         directory: &Directory,
         phase: u16,
     ) -> Result<(), AttemptError> {
-        self.sync_restored_later_with(directory, phase, |file| file.sync_all())
+        self.sync_restored_later_with(directory, phase, std::fs::File::sync_all)
     }
     fn sync_restored_later_with(
         &mut self,
@@ -1381,24 +1392,24 @@ impl PreparedDurableDkg {
     pub(super) fn retain_restored_later(
         &mut self,
         phase: u16,
-        intent: Intent,
-        head: Head,
+        intent: &Intent,
+        head: &Head,
     ) -> Result<(), AttemptError> {
         let index = usize::from(phase.checked_sub(1).ok_or(AttemptError::Phase)?);
         if index == 0
             || index >= 3
-            || self.later[index - 1].record != Some((intent, head))
+            || self.later[index - 1].record != Some((*intent, *head))
             || self.later[index - 1].files.iter().any(|file| !file.synced)
         {
             return Err(AttemptError::Binding);
         }
-        if self.intent_records[index].is_some_and(|old| old != intent)
-            || self.head_records[index].is_some_and(|old| old != head)
+        if self.intent_records[index].is_some_and(|old| old != *intent)
+            || self.head_records[index].is_some_and(|old| old != *head)
         {
             return Err(AttemptError::Binding);
         }
-        self.intent_records[index] = Some(intent);
-        self.head_records[index] = Some(head);
+        self.intent_records[index] = Some(*intent);
+        self.head_records[index] = Some(*head);
         Ok(())
     }
     #[cfg(test)]
@@ -1443,11 +1454,11 @@ impl PreparedDurableDkg {
     /// Called only after Core authenticated the private owners and complete original context.
     pub(super) fn retain_restored_generation(
         &mut self,
-        intent: Intent,
-        head: Head,
+        intent: &Intent,
+        head: &Head,
     ) -> Result<(), AttemptError> {
         if self.intent_records[0].is_some() || self.head_records[0].is_some() {
-            if self.intent_records[0] == Some(intent) && self.head_records[0] == Some(head) {
+            if self.intent_records[0] == Some(*intent) && self.head_records[0] == Some(*head) {
                 return Ok(());
             }
             return Err(AttemptError::Binding);
@@ -1458,12 +1469,15 @@ impl PreparedDurableDkg {
         self.heads[0]
             .append(self.read_head.as_slice())
             .map_err(|_| AttemptError::Phase)?;
-        self.intent_records[0] = Some(intent);
-        self.head_records[0] = Some(head);
+        self.intent_records[0] = Some(*intent);
+        self.head_records[0] = Some(*head);
         self.expiry = intent.expiry;
         Ok(())
     }
 }
+/// Borrowed original input, public frame, output and charged private checkpoint.
+type LaterPhaseSources<'a> = (&'a [u8], &'a [u8], &'a [u8], &'a ChargedBuffer<u8>);
+
 pub(super) fn file_present(directory: &Directory, name: &str) -> Result<bool, AttemptError> {
     match rustix::fs::statat(&directory.file, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
         Err(rustix::io::Errno::NOENT) => Ok(false),
@@ -1544,6 +1558,8 @@ pub(super) fn read_file(
     bytes: &mut ChargedBuffer<u8>,
     loaded: &mut Loaded,
 ) -> Result<(), AttemptError> {
+    use std::os::unix::fs::FileExt as _;
+
     seat_export::revalidate_directory(directory)?;
     if loaded.descriptor.is_none() {
         let file = File::from(
@@ -1589,7 +1605,6 @@ pub(super) fn read_file(
         return Err(AttemptError::Binding);
     }
     let len = usize::try_from(identity.len()).map_err(|_| AttemptError::Binding)?;
-    use std::os::unix::fs::FileExt as _;
     let mut scratch = [0u8; 4096];
     let mut offset = 0usize;
     while offset < len {
@@ -1697,7 +1712,11 @@ mod raw_field_adapter_tests {
     }
 
     fn hash(seed: u8) -> [u8; 32] {
-        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+        std::array::from_fn(|i| {
+            u8::try_from(i)
+                .expect("fixture index fits u8")
+                .wrapping_add(seed)
+        })
     }
 
     #[test]

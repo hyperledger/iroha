@@ -48,11 +48,10 @@ fn canonical_query_request_is_validated_before_not_implemented() {
     let ambient_guard = norito::core::DecodeFlagsGuard::enter(alternate_flags);
     let probe = vec!["ambient".to_owned(), "layout".to_owned()];
     let before = norito::to_bytes(&probe).expect("encode ambient probe");
-    assert_eq!(
-        execute_query(&mut host, &mut vm, PointerType::NoritoBytes, &canonical),
-        Err(VMError::NotImplemented {
+    assert!(
+        matches!((&(execute_query(&mut host, &mut vm, PointerType::NoritoBytes, &canonical)), &(VMError::NotImplemented {
             syscall: syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_QUERY,
-        })
+        })), (Err(VMError::NotImplemented { syscall: __actual_syscall }), VMError::NotImplemented { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall)
     );
     assert_eq!(
         norito::to_bytes(&probe).expect("re-encode ambient probe"),
@@ -75,24 +74,24 @@ fn alternate_wrong_nominal_wrong_pointer_and_malformed_queries_are_rejected() {
         norito::to_bytes(&request).expect("alternate-layout QueryRequest")
     };
     assert_ne!(alternate, canonical);
-    assert_eq!(
+    assert!(matches!(
         execute_query(&mut host, &mut vm, PointerType::NoritoBytes, &alternate),
         Err(VMError::NoritoInvalid)
-    );
+    ));
     let wrong_nominal = encode_canonical_norito(&Json::from(norito::json::Value::Object(
         norito::json::Map::new(),
     )))
     .expect("canonical wrong nominal value");
-    assert_eq!(
+    assert!(matches!(
         execute_query(&mut host, &mut vm, PointerType::NoritoBytes, &wrong_nominal),
         Err(VMError::NoritoInvalid)
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         execute_query(&mut host, &mut vm, PointerType::Json, &canonical),
         Err(VMError::NoritoInvalid)
-    );
-    assert_eq!(
+    ));
+    assert!(matches!(
         execute_query(&mut host, &mut vm, PointerType::NoritoBytes, &[0xFF]),
         Err(VMError::NoritoInvalid)
-    );
+    ));
 }

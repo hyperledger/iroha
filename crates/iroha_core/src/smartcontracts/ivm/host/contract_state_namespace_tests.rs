@@ -10,14 +10,16 @@ fn state_syscall_works_without_access_logging() {
     vm.set_register(10, path_ptr);
     vm.set_register(11, value_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-        Ok(test_state_value_gas(&path, value_bytes.len())),
+        (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_value_gas(&path, value_bytes.len()),
         "STATE_SET should succeed without access logging"
     );
     vm.set_register(10, path_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-        Ok(test_state_value_gas(&path, value_bytes.len())),
+        (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_value_gas(&path, value_bytes.len()),
         "STATE_GET should succeed without access logging"
     );
     let out_ptr = vm.register(10);
@@ -38,13 +40,12 @@ fn state_set_budget_exhaustion_traps_without_staging_a_write() {
     let value_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &value_bytes);
     vm.set_register(10, path_ptr);
     vm.set_register(11, value_ptr);
-    assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-        Err(ivm::VMError::HostOutputBudgetExceeded {
+    assert!(
+        matches!((&(host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm)), &(ivm::VMError::HostOutputBudgetExceeded {
             resource: ivm::HostOutputResource::Items,
             attempted: 1,
             limit: 0,
-        })
+        })), (Err(ivm::VMError::HostOutputBudgetExceeded{resource:__actual_0, attempted:__actual_1, limit:__actual_2}), ivm::VMError::HostOutputBudgetExceeded{resource:__expected_0, attempted:__expected_1, limit:__expected_2}) if __actual_0 == __expected_0 && __actual_1 == __expected_1 && __actual_2 == __expected_2)
     );
     assert!(
         host.durable_state_overlay.is_empty(),
@@ -76,9 +77,17 @@ fn reserve_namespace_syscalls_preserve_reads_but_refuse_raw_mutations() {
         for syscall in [ivm_sys::SYSCALL_STATE_SET, ivm_sys::SYSCALL_STATE_DEL] {
             vm.set_register(10, path_ptr);
             vm.set_register(11, value_ptr);
-            assert_eq!(
-                host.syscall(syscall, &mut vm),
-                Err(ivm::VMError::PermissionDenied),
+            assert!(
+                matches!(
+                    (
+                        &(host.syscall(syscall, &mut vm)),
+                        &(ivm::VMError::PermissionDenied)
+                    ),
+                    (
+                        Err(ivm::VMError::PermissionDenied),
+                        ivm::VMError::PermissionDenied
+                    )
+                ),
                 "{text} syscall {syscall}"
             );
             assert!(host.durable_state_overlay.is_empty());
@@ -148,12 +157,10 @@ fn reserve_namespace_retained_host_artifacts_refuse_before_any_effect() {
             ]);
             let artifacts = HostExecutionArtifacts {
                 queued: vec![QueuedEffect {
-            payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(SetKeyValue::account(
-                        authority.clone(),
-                        metadata.clone(),
-                        Json::new(true),
-                    )
-                    .into()),
+                    payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(
+                        SetKeyValue::account(authority.clone(), metadata.clone(), Json::new(true))
+                            .into(),
+                    ),
                     authority: authority.clone(),
                     contract_runtime_context: None,
                     entrypoint_authorization: None,
@@ -306,14 +313,30 @@ fn retail_daily_state_paths_reject_generic_read_write_and_delete_admission() {
         let path: StatePath = format!("{root}deadbeef/7")
             .parse()
             .expect("bounded native retail path");
-        assert_eq!(
-            CoreHost::ensure_contract_state_read_allowed(&path),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                (
+                    &(CoreHost::ensure_contract_state_read_allowed(&path)),
+                    &(ivm::VMError::PermissionDenied)
+                ),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ),
             "raw and contract-scoped STATE_GET/SCAN must hide {path}"
         );
-        assert_eq!(
-            CoreHost::ensure_contract_state_write_allowed(&path),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                (
+                    &(CoreHost::ensure_contract_state_write_allowed(&path)),
+                    &(ivm::VMError::PermissionDenied)
+                ),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ),
             "raw and contract-scoped STATE_SET/DEL must reject {path}"
         );
     }
@@ -368,15 +391,31 @@ fn verified_fee_sponsor_state_is_readable_but_not_generically_mutable() {
         let value_ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &forged);
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                (
+                    &(host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm)),
+                    &(ivm::VMError::PermissionDenied)
+                ),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ),
             "{path} must be native-authored"
         );
         vm.set_register(10, path_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm),
-            Err(ivm::VMError::PermissionDenied),
+        assert!(
+            matches!(
+                (
+                    &(host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm)),
+                    &(ivm::VMError::PermissionDenied)
+                ),
+                (
+                    Err(ivm::VMError::PermissionDenied),
+                    ivm::VMError::PermissionDenied
+                )
+            ),
             "{path} must not be deleted generically"
         );
     }
@@ -410,24 +449,26 @@ fn state_syscall_unscoped_overlay_overrides_base_value_without_context() {
     vm.set_register(10, path_ptr);
     vm.set_register(11, value_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-        Ok(test_state_value_gas(
+        (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_value_gas(
             &path,
             norito::to_bytes(&22_u64)
                 .expect("encode overlay state value")
                 .len()
-        )),
+        ),
         "STATE_SET should stage an unscoped overlay value without runtime context"
     );
     vm.set_register(10, path_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-        Ok(test_state_value_gas(
+        (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_value_gas(
             &path,
             norito::to_bytes(&22_u64)
                 .expect("encode overlay state value")
                 .len()
-        )),
+        ),
         "unscoped overlay should override the persisted base value"
     );
     let tlv = vm
@@ -465,14 +506,16 @@ fn state_syscall_unscoped_delete_shadows_base_value_without_context() {
     let path_ptr = store_state_path_tlv(&mut vm, &path);
     vm.set_register(10, path_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm),
-        Ok(test_state_path_gas(&path)),
+        (host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_path_gas(&path),
         "STATE_DEL should stage an unscoped tombstone without runtime context"
     );
     vm.set_register(10, path_ptr);
     assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-        Ok(test_state_path_gas(&path)),
+        (host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm))
+            .expect("expected successful VM operation"),
+        test_state_path_gas(&path),
         "unscoped tombstone should shadow the persisted base value"
     );
     assert_eq!(vm.register(10), 0);
@@ -509,28 +552,25 @@ fn generic_ivm_host_rejects_all_durable_state_access() {
         );
         vm.set_register(10, path_ptr);
         vm.set_register(11, value_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_SET,
-            }),
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}), ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
             "generic IVM must not write `{prefix}`"
         );
         assert!(host.durable_state_overlay.is_empty());
         vm.set_register(10, path_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_STATE_GET, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_GET,
-            }),
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}), ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
             "generic IVM must not read `{prefix}`"
         );
         vm.set_register(10, path_ptr);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_STATE_DEL, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_DEL,
-            }),
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}), ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
             "generic IVM must not tombstone `{prefix}`"
         );
         let reserved_prefix: StatePath = prefix.parse().expect("valid reserved state prefix");
@@ -538,11 +578,10 @@ fn generic_ivm_host_rejects_all_durable_state_access() {
         vm.set_register(10, prefix_ptr);
         vm.set_register(11, 0);
         vm.set_register(12, ivm_sys::STATE_SCAN_MAX_ITEMS_V1);
-        assert_eq!(
-            host.syscall(ivm_sys::SYSCALL_STATE_SCAN, &mut vm),
-            Err(ivm::VMError::GenericSyscallNotAllowed {
+        assert!(
+            matches!((&(host.syscall(ivm_sys::SYSCALL_STATE_SCAN, &mut vm)), &(ivm::VMError::GenericSyscallNotAllowed {
                 syscall: ivm_sys::SYSCALL_STATE_SCAN,
-            }),
+            })), (Err(ivm::VMError::GenericSyscallNotAllowed{syscall:__actual_0}), ivm::VMError::GenericSyscallNotAllowed{syscall:__expected_0}) if __actual_0 == __expected_0),
             "generic IVM must not enumerate `{prefix}`"
         );
     }
@@ -565,7 +604,7 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
     .expect("canonical state value");
     let syscall = encoding::wide::encode_sys(
         instruction::wide::system::SCALL,
-        ivm_sys::SYSCALL_STATE_GET as u8,
+        u8::try_from(ivm_sys::SYSCALL_STATE_GET).expect("fixture value fits u8"),
     );
     let program = build_authenticated_test_contract_program_with_states(
         &syscall.to_le_bytes(),
@@ -639,7 +678,10 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
                     assert_eq!(output, 0);
                 }
             } else {
-                assert_eq!(result, Err(ivm::VMError::OutOfGas));
+                assert!(matches!(
+                    (&(result), &(ivm::VMError::OutOfGas)),
+                    (Err(ivm::VMError::OutOfGas), ivm::VMError::OutOfGas)
+                ));
                 assert_eq!(vm.register(10), path_ptr);
                 assert_eq!(vm.register(11), 0xfeed);
                 assert!(host.state_access_log.read_keys.is_empty());

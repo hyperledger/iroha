@@ -785,7 +785,7 @@ mod tests {
                     .public_key()
                     .clone(),
                 1,
-                "https://checkpoint.example/release.nrt".into(),
+                "https://checkpoint.example/release.nrt",
             )
             .unwrap(),
         ])

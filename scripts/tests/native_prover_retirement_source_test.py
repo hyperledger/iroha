@@ -76,6 +76,19 @@ class NativeProverRetirementSourceTest(unittest.TestCase):
                 if runtime:
                     self.assertNotRegex(stripped, retired, f"{consumer}: {line}")
 
+    def test_retired_native_finality_circuits_are_absent(self) -> None:
+        """Native finality must not retain unused recursive source circuits."""
+        for module in ("bls12_381", "blake2b", "merkle"):
+            source = ROOT / "crates/iroha_plonk_gadgets/src" / module
+            self.assertFalse(source.exists(), str(source))
+            self.assertFalse(source.with_suffix(".rs").exists(), str(source))
+        library = (ROOT / "crates/iroha_plonk_gadgets/src/lib.rs").read_text(encoding="utf-8")
+        verifier = (ROOT / "crates/iroha_plonk_recursion/src/verifier/mod.rs").read_text(encoding="utf-8")
+        self.assertNotRegex(library, r"\b(?:mod|use)\s+(?:bls12_381|blake2b|merkle)\b")
+        self.assertNotRegex(verifier, r"\b(?:bls381|Bls381Chip|bls12_381)\b")
+        manifest = (ROOT / "crates/iroha_plonk_gadgets/Cargo.toml").read_text(encoding="utf-8")
+        self.assertNotRegex(manifest, r"(?m)^\s*(?:ark-(?:bls12-381|ff|ec|serialize)|iroha_crypto)\s*=")
+
     def test_native_engine_wire_discriminants_stay_closed(self) -> None:
         source = (ROOT / "crates/iroha_data_model/src/zk.rs").read_text(encoding="utf-8")
         match = re.search(r"pub enum BackendTag\s*\{([^}]+)\}", source)

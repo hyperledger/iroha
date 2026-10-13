@@ -1212,7 +1212,7 @@ mod tests {
             err.contains("duplicate-free"),
             "unexpected duplicate CRL DER error: {err}"
         );
-        let too_many_crls = vec!["\"not-base64\""; MAX_PROFILE_DER_BLOBS + 1].join(",");
+        let too_many_crls = ["\"not-base64\""; MAX_PROFILE_DER_BLOBS + 1].join(",");
         let value: Value =
             json::from_json(&format!(r#"{{"x509_crl_der_base64":[{too_many_crls}]}}"#))
                 .expect("over-limit CRL list JSON");
@@ -1224,7 +1224,7 @@ mod tests {
             err.contains("must not contain more than"),
             "unexpected over-limit CRL DER error: {err}"
         );
-        let too_many_ocsp = vec!["\"not-base64\""; MAX_PROFILE_DER_BLOBS + 1].join(",");
+        let too_many_ocsp = ["\"not-base64\""; MAX_PROFILE_DER_BLOBS + 1].join(",");
         let value: Value = json::from_json(&format!(
             r#"{{"x509_ocsp_response_der_base64":[{too_many_ocsp}]}}"#
         ))

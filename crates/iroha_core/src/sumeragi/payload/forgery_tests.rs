@@ -44,6 +44,7 @@ fn valid_forgery_keeps_exact_original_inputs_and_uses_canonical_candidate_time()
         parent: &parent,
         view: 4,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let evidence = future(&chain, &keys);
     let mut selected = vec![carrier(&chain, evidence, 3_100)];
@@ -85,6 +86,7 @@ fn genuine_after_tip_advance_is_dropped_before_any_empty_proposal() {
             parent: &old_parent,
             view: 0,
             cadence: Duration::from_millis(1_000),
+            proposed_time: std::time::Duration::ZERO,
         },
         &mut selected,
         &MergeProposal::default(),
@@ -97,6 +99,7 @@ fn genuine_after_tip_advance_is_dropped_before_any_empty_proposal() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     recheck_sccp_forgery_for_proposal(&current, assembly, &mut selected, &MergeProposal::default())
         .unwrap();
@@ -117,6 +120,7 @@ fn malformed_signature_drops_only_its_carrier_and_quota_keeps_fifo_order() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let evidence = future(&chain, &keys);
     let mut malformed = evidence.clone();
@@ -143,6 +147,7 @@ fn original_pool_refusal_retains_selected_work_and_retries_after_release() {
         parent: &parent,
         view: 0,
         cadence: Duration::from_millis(1_000),
+        proposed_time: std::time::Duration::ZERO,
     };
     let mut selected = vec![carrier(&chain, future(&chain, &keys), 2_100)];
     let hash = selected[0].hash_as_entrypoint();
@@ -193,6 +198,7 @@ fn foreign_parent_is_local_recovery_and_never_drops_signed_input() {
             parent: &foreign,
             view: 0,
             cadence: Duration::from_millis(1_000),
+            proposed_time: std::time::Duration::ZERO,
         },
         &mut selected,
         &MergeProposal::default(),
@@ -258,7 +264,7 @@ fn queued_genuine_then_future(
 fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease() {
     on_selection_stack("sccp-select-stale", || {
         let _retirement_pin = crossbeam_epoch::pin();
-        let (chain, queue, stale, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
+        let (chain, queue, outdated, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
         let state = chain.state();
         let view = state.view();
         assert_eq!(
@@ -266,10 +272,10 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             1
         );
         let budget = valid.encoded_len();
-        assert!(stale.encoded_len() <= budget, "first row fits by itself");
+        assert!(outdated.encoded_len() <= budget, "first row fits by itself");
         let original_bytes = valid.entrypoint_bytes();
         let resident = queue.retained_bytes();
-        let hashes = [stale.hash_as_entrypoint(), valid.hash_as_entrypoint()];
+        let hashes = [outdated.hash_as_entrypoint(), valid.hash_as_entrypoint()];
         let snapshot = queue
             .bounded_pending_snapshot(&view, MAX_QUEUE_SCAN)
             .unwrap();
@@ -281,7 +287,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
             hashes
         );
         assert!(std::sync::Arc::ptr_eq(
-            &stale.entrypoint_bytes(),
+            &outdated.entrypoint_bytes(),
             &snapshot[0].entrypoint_bytes()
         ));
         assert!(std::sync::Arc::ptr_eq(
@@ -299,7 +305,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 &queue,
                 budget,
                 &MergeProposal::default(),
-                iroha_primitives::time::TimeSource::new_system().now(),
+                Duration::from_millis(3_102),
             )
             .unwrap();
             assert_eq!(
@@ -316,6 +322,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1_000),
+                proposed_time: std::time::Duration::ZERO,
             };
             recheck_sccp_forgery_for_proposal(
                 &view,
@@ -348,7 +355,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
                 &queue,
                 budget - 1,
                 &MergeProposal::default(),
-                iroha_primitives::time::TimeSource::new_system().now()
+                Duration::from_millis(3_102)
             )
             .unwrap()
             .is_empty()
@@ -366,7 +373,7 @@ fn stale_fifo_forgery_spends_no_count_bytes_or_quota_and_retains_original_lease(
 fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_original_pool() {
     on_selection_stack("sccp-select-resource", || {
         let _retirement_pin = crossbeam_epoch::pin();
-        let (chain, queue, stale, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
+        let (chain, queue, outdated, valid) = queued_genuine_then_future(std::num::NonZeroU64::MIN);
         let view = chain.state().view();
         let parent = view.latest_block().unwrap().unwrap();
         let pool = view.execution_budget();
@@ -380,7 +387,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            Duration::from_millis(3_102),
         )
         .unwrap_err();
         match error {
@@ -398,7 +405,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
         assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
         assert_eq!(queue.retained_bytes(), resident);
         assert_eq!((queue.active_len(), queue.queued_len()), (2, 2));
-        assert!(queue.contains_entrypoint_hash(stale.hash_as_entrypoint()));
+        assert!(queue.contains_entrypoint_hash(outdated.hash_as_entrypoint()));
         assert!(queue.contains_entrypoint_hash(valid.hash_as_entrypoint()));
         drop(occupied);
         let selected = select(
@@ -406,7 +413,7 @@ fn proposal_selection_local_refusal_never_retires_queued_claims_and_retries_orig
             &queue,
             valid.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            Duration::from_millis(3_102),
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
@@ -444,7 +451,7 @@ fn current_parent_selection_keeps_exact_one_valid_forgery() {
             &queue,
             first.encoded_len() + second.encoded_len(),
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            clock.now(),
         )
         .unwrap();
         assert_eq!(
@@ -465,21 +472,21 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
         let state = std::sync::Arc::clone(chain.state());
         let lagging = state.view();
         chain.commit_at(3_000, Vec::new());
-        let stale = carrier(&chain, original(&chain), 3_100);
-        let hash = stale.hash_as_entrypoint();
+        let outdated = carrier(&chain, original(&chain), 3_100);
+        let hash = outdated.hash_as_entrypoint();
         let (_, clock) = TimeSource::new_mock(Duration::from_millis(3_101));
         let queue = std::sync::Arc::new(Queue::test(
             iroha_config::parameters::actual::Queue::default(),
             &clock,
         ));
-        queue.push(stale, lagging).unwrap();
+        queue.push(outdated, lagging).unwrap();
         let view = state.view();
         let selected = select(
             &view,
             &queue,
             1 << 20,
             &MergeProposal::default(),
-            iroha_primitives::time::TimeSource::new_system().now(),
+            clock.now(),
         )
         .unwrap();
         assert!(selected.is_empty());
@@ -490,7 +497,8 @@ fn only_now_genuine_queued_evidence_cannot_authorize_an_empty_proposal() {
                 Assembly {
                     parent: &parent,
                     view: 0,
-                    cadence: Duration::from_millis(1_000)
+                    cadence: Duration::from_millis(1_000),
+                    proposed_time: std::time::Duration::ZERO,
                 },
                 &selected
             ),

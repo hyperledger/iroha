@@ -816,7 +816,10 @@ mod tests {
             reader.accept_row(&[], &[]),
             Err(ProvenanceRefusal::Traversal)
         );
-        assert_eq!(reader.next_row(), Ok("aes"));
+        assert_eq!(
+            (reader.next_row()).expect("expected successful fixture result"),
+            "aes"
+        );
         assert_eq!(reader.next_row(), Err(ProvenanceRefusal::Traversal));
         assert_eq!(
             reader
@@ -931,21 +934,27 @@ mod tests {
             &fixture.trusted_fingerprint,
         )
         .unwrap();
-        assert_eq!(reader.next_row(), Ok("aes"));
+        assert_eq!(
+            (reader.next_row()).expect("expected successful fixture result"),
+            "aes"
+        );
         let oversized = vec![0; MAX_PTX_BYTES + 1];
         assert_eq!(
             reader.accept_row(b"// source for aes\n", &oversized),
             Err(ProvenanceRefusal::PtxLimit("aes"))
         );
-        assert_eq!(
+        assert!(matches!(
             reader.accept_row(b"// source for aes\n", &fixture.artifacts[0]),
             Ok(())
-        );
-        assert_eq!(reader.next_row(), Ok("vector"));
+        ));
         assert_eq!(
+            (reader.next_row()).expect("expected successful fixture result"),
+            "vector"
+        );
+        assert!(matches!(
             reader.accept_row(b"// source for vector\n", &fixture.artifacts[1]),
             Ok(())
-        );
+        ));
         assert_eq!(reader.next_row(), Err(ProvenanceRefusal::Traversal));
         assert!(
             reader

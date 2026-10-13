@@ -108,7 +108,10 @@ impl FinalityInput {
             check_rotation_phase_height(self.height, height, cutoff)
                 .map_err(|_| AttemptError::Height)?;
             if height > target
-                || self.clock.tip().map(|tip| tip.height()).unwrap_or(1) != self.height
+                || self.clock.tip().map_or(
+                    1,
+                    iroha_core::sumeragi::certified_chain::CommittedBlock::height,
+                ) != self.height
             {
                 return Err(AttemptError::Height);
             }
@@ -181,7 +184,11 @@ impl FinalityInput {
         if target <= self.height {
             return Err(AttemptError::Height);
         }
-        if self.clock.tip().map(|tip| tip.height()).unwrap_or(1) != self.height {
+        if self.clock.tip().map_or(
+            1,
+            iroha_core::sumeragi::certified_chain::CommittedBlock::height,
+        ) != self.height
+        {
             return Err(AttemptError::Height);
         }
         // Bind before decoder/native refusal so retry cannot substitute allocation

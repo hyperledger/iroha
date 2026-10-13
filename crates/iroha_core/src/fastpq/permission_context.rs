@@ -42,6 +42,13 @@ where
 /// refused even for a caller that violates that contract using interior state.
 /// The only new explicit allocation is the exact fixed sort backing, acquired
 /// from `budget` before construction and released before this function returns.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TODO: connect funded permission-context capture to finalized proof preparation; preserve exact original-pool sort admission"
+    )
+)]
 pub(crate) fn funded_permission_table_root<'a, I>(
     roles: impl Fn() -> I,
     budget: &AllocationBudget,
@@ -285,7 +292,7 @@ mod tests {
         }
         assert_eq!(forward, <[u8; 32]>::from(Hash::new(original)));
         assert_eq!(
-            funded_permission_table_root(|| std::iter::empty(), &AllocationBudget::new(0)).unwrap(),
+            funded_permission_table_root(std::iter::empty, &AllocationBudget::new(0)).unwrap(),
             [0; 32]
         );
     }

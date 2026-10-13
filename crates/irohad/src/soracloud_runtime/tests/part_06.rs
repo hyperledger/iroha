@@ -62,7 +62,7 @@ exec python3 /var/lib/soracloud/materialization/bundle/app/inrou-health.py
     );
     bundle.service.container.manifest_hash = bundle.container_manifest_hash();
     bundle.validate_for_admission()?;
-    let mut state = test_state()?;
+    let mut state = test_state();
     let deployment_state = sample_deployment_state(&bundle);
     let local_peer_id = canonical_inrou_test_peer_id();
     {

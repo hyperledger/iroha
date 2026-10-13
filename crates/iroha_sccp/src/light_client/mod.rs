@@ -28,8 +28,13 @@
 
 pub mod bsc;
 pub mod ethereum;
+mod initial;
+pub mod prepared;
 pub mod profile;
 pub mod proof;
+pub(crate) mod set_ref;
+mod shape;
+mod source_error;
 pub mod state;
 pub mod ton;
 
@@ -425,32 +430,42 @@ pub fn verify_bootstrap_with_profiles(
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
     ensure_supported(network)?;
     params.validate().map_err(SccpLcError::InvalidParams)?;
-    for found in [params.network, bootstrap.network] {
-        if found != network {
-            return Err(SccpLcError::NetworkMismatch {
-                expected: network,
-                found,
-            });
-        }
+    if params.network != network {
+        return Err(SccpLcError::NetworkMismatch {
+            expected: network,
+            found: params.network,
+        });
     }
     check_frame_len(
         "bootstrap",
         bootstrap.bytes.len(),
         SCCP_LC_BOOTSTRAP_MAX_BYTES_V1,
     )?;
-    let data = SccpLcBootstrapDataV1::from_frame(&bootstrap.bytes)?;
-    data.expect_network(network)?;
-    match data {
-        SccpLcBootstrapDataV1::Ethereum(bootstrap) => {
-            ethereum::verify_bootstrap(&profiles.ethereum, params, &bootstrap, taira_now_ms)
-        }
-        SccpLcBootstrapDataV1::Bsc(bootstrap) => {
-            bsc::verify_bootstrap(&profiles.bsc, params, &bootstrap, taira_now_ms)
-        }
-        SccpLcBootstrapDataV1::Ton(bootstrap) => {
-            ton::verify_bootstrap(&profiles.ton, params, &bootstrap, taira_now_ms)
-        }
+    if bootstrap.network != network {
+        return Err(SccpLcError::NetworkMismatch {
+            expected: network,
+            found: bootstrap.network,
+        });
     }
+    let decoded = SccpLcBootstrapDataV1::from_frame(&bootstrap.bytes)?;
+    let mut output = SccpLcDeltaV1::default();
+    let result = initial::bootstrap_into(
+        profiles,
+        network,
+        params,
+        &decoded,
+        taira_now_ms,
+        &prepared::LcMemory::detached(),
+        &mut output,
+    )
+    .map_err(|error| detached_attempt(&error))?;
+    Ok(SccpLcInitialStateV1 {
+        light_client: result.light_client,
+        purge: result.purge,
+        superseded_sets: output.superseded_sets,
+        sets: output.new_sets,
+        checkpoints: output.checkpoints,
+    })
 }
 
 /// Check an enacted `InitializeLightClient` with the newest compiled profiles.
@@ -510,57 +525,47 @@ pub fn initialize_light_client_with_profiles<V: SccpLcStateView + ?Sized>(
     taira_now_ms: u64,
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
     ensure_supported(network)?;
-    let unexpected = SccpLcError::UnexpectedLightClientState { network, expected };
-    let aged = match (expected, view.light_client(network)) {
-        (SccpLcInitExpectationV1::Absent, None) => None,
-        (SccpLcInitExpectationV1::Unusable, Some(installed)) if installed.is_frozen() => None,
-        (SccpLcInitExpectationV1::Unusable, Some(installed))
-            if is_installed_aged(profiles, view, &installed, network, taira_now_ms)? =>
-        {
-            Some(installed)
-        }
-        _ => return Err(unexpected),
-    };
-    let mut initial =
-        verify_bootstrap_with_profiles(profiles, network, params, bootstrap, taira_now_ms)?;
-    if let Some(installed) = aged {
-        initial.purge = SccpLcPurgeV1::KeepStored;
-        initial.superseded_sets = match network {
-            SccpNetworkV1::EthereumMainnet => {
-                ethereum::aged_supersessions(&profiles.ethereum, view, &installed)?
-            }
-            SccpNetworkV1::BscMainnet => bsc::aged_supersessions(view, &installed),
-            SccpNetworkV1::TonMainnet => ton::aged_supersessions(view, &installed),
-            SccpNetworkV1::SoraTaira => return Err(SccpLcError::UnsupportedNetwork(network)),
-        };
+    check_frame_len(
+        "bootstrap",
+        bootstrap.bytes.len(),
+        SCCP_LC_BOOTSTRAP_MAX_BYTES_V1,
+    )?;
+    if bootstrap.network != network {
+        return Err(SccpLcError::NetworkMismatch {
+            expected: network,
+            found: bootstrap.network,
+        });
     }
-    for checkpoint in &initial.checkpoints {
-        let height = checkpoint.data.source_height;
-        if let Some(stored) = view.checkpoint(network, height) {
-            let survives = initial.purge == SccpLcPurgeV1::KeepStored
-                || stored.origin == SccpLcCheckpointOriginV1::Parliament;
-            if survives && !state::same_checkpoint_block(&stored.data, &checkpoint.data) {
-                return Err(SccpLcError::ConflictsWithStoredData(
-                    SccpLcConflictV1::Checkpoint {
-                        source_height: height,
-                    },
-                ));
-            }
-        }
+    let decoded = SccpLcBootstrapDataV1::from_frame(&bootstrap.bytes)?;
+    let mut output = SccpLcDeltaV1::default();
+    let result = initial::initialize_into(
+        profiles,
+        view,
+        initial::InitialRequest {
+            network,
+            expected,
+            params,
+            decoded: &decoded,
+        },
+        taira_now_ms,
+        &prepared::LcMemory::detached(),
+        &mut output,
+    )
+    .map_err(|error| detached_attempt(&error))?;
+    Ok(SccpLcInitialStateV1 {
+        light_client: result.light_client,
+        purge: result.purge,
+        superseded_sets: output.superseded_sets,
+        sets: output.new_sets,
+        checkpoints: output.checkpoints,
+    })
+}
+
+fn detached_attempt(error: &prepared::SccpLcAttemptErrorV1) -> SccpLcError {
+    match error {
+        prepared::SccpLcAttemptErrorV1::Protocol(error) => *error,
+        _ => SccpLcError::MalformedFrame("native verifier resources unavailable"),
     }
-    if initial.purge == SccpLcPurgeV1::KeepStored {
-        for set in &initial.sets {
-            if view
-                .consensus_set(network, set.set_id)
-                .is_some_and(|stored| stored.set_bytes != set.set_bytes)
-            {
-                return Err(SccpLcError::ConflictsWithStoredData(
-                    SccpLcConflictV1::ConsensusSet { set_id: set.set_id },
-                ));
-            }
-        }
-    }
-    Ok(initial)
 }
 
 /// Apply an advance with the newest compiled profiles.

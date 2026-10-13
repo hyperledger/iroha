@@ -2685,7 +2685,7 @@ pub(in crate::smartcontracts::isi) fn moderation_challenge_rejected_slash_amount
         .try_mul_div_decimal_round(
             &Numeric::from(u64::from(rejected_slash_bps)),
             &Numeric::from(10_000_u64),
-            numeric_spec.scale().unwrap_or(amount.scale()),
+            numeric_spec.scale().unwrap_or_else(|| amount.scale()),
             RoundingMode::TowardZero,
         )
         .map_err(|_| corrupt_state("moderation challenge bond slash amount overflow"))
@@ -4968,7 +4968,7 @@ fn resolve_committed_event(
     })
 }
 fn checked_snapshot_limits(
-    query: &FindSorafsModerationSnapshot,
+    query: FindSorafsModerationSnapshot,
 ) -> Result<(usize, usize), QueryExecutionFail> {
     if !(1..=MODERATION_QUERY_MAX_CASES_V1).contains(&query.max_cases) {
         return Err(QueryExecutionFail::Conversion(format!(
@@ -5274,7 +5274,7 @@ fn sum_lengths_as_u64(
 }
 #[allow(clippy::too_many_lines)]
 fn query_moderation_snapshot(
-    query: &FindSorafsModerationSnapshot,
+    query: FindSorafsModerationSnapshot,
     state_ro: &impl crate::state::StateReadOnly,
 ) -> Result<ModerationFinalizedLedgerSnapshotV1, QueryExecutionFail> {
     let (max_cases, max_events) = checked_snapshot_limits(query)?;
@@ -6312,7 +6312,7 @@ impl ValidSingularQuery for FindSorafsModerationSnapshot {
         &self,
         state_ro: &impl crate::state::StateReadOnly,
     ) -> Result<ModerationFinalizedLedgerSnapshotV1, QueryExecutionFail> {
-        query_moderation_snapshot(self, state_ro)
+        query_moderation_snapshot(*self, state_ro)
     }
 }
 impl ValidSingularQuery for FindSorafsModerationEvents {

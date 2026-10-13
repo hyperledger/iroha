@@ -1314,7 +1314,7 @@ pub struct IVM {
     active_cycle_budget: Option<Arc<SharedVmCycleBudget>>,
     halted: bool,
     constraint_failed: bool,
-    contract_abort_error: Option<VMError>,
+    contract_abort_error: Option<CompletedContractAbort>,
     constraints: zk::ConstraintLog,
     mem_log: MemLog,
     reg_log: Option<zk::SharedRegLog>,
@@ -3087,7 +3087,7 @@ impl IVM {
     ) {
         self.halted = true;
         self.constraint_failed = true;
-        self.contract_abort_error = Some(VMError::ContractAbort {
+        self.contract_abort_error = Some(CompletedContractAbort {
             contract: contract.into_boxed_str(),
             name,
             error_type,
@@ -6187,7 +6187,7 @@ impl IVM {
             }
             self.commit_memory_after_run_if_needed();
             if let Some(error) = self.contract_abort_error.clone() {
-                Err(error)
+                Err(error.into_vm_error())
             } else if self.constraint_failed {
                 Err(VMError::AssertionFailed)
             } else {
@@ -6658,9 +6658,8 @@ mod tests {
             .try_insert(invalid..invalid + 1)
             .unwrap();
         let before = vm.private_memory_bytes.try_clone().unwrap();
-        assert_eq!(
-            vm.scrub_private_memory(),
-            Err(VMError::ExecutionDeferred(
+        assert!(
+            matches!(vm.scrub_private_memory(), Err(VMError::ExecutionDeferred(__actual_error_field)) if __actual_error_field == (
                 crate::error::ExecutionDeferral::LocalInvariantViolation
             ))
         );
@@ -6674,9 +6673,8 @@ mod tests {
             SyscallPolicy::AbiV1,
             number
         ));
-        assert_eq!(
-            require_registered_syscall_metering(number, None),
-            Err(VMError::UnknownSyscall(number))
+        assert!(
+            matches!(require_registered_syscall_metering(number, None), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
         );
     }
     #[test]
@@ -6743,9 +6741,8 @@ mod tests {
                 .extend_from_slice(&crate::encoding::wide::encode_syscallx(syscall).to_le_bytes());
             program.extend_from_slice(&crate::encoding::wide::encode_halt().to_le_bytes());
             let mut vm = IVM::new(u64::MAX);
-            assert_eq!(
-                vm.load_program(&program),
-                Err(VMError::GenericSyscallNotAllowed { syscall }),
+            assert!(
+                matches!((&(vm.load_program(&program)), &(VMError::GenericSyscallNotAllowed { syscall })), (Err(VMError::GenericSyscallNotAllowed { syscall: __actual_syscall }), VMError::GenericSyscallNotAllowed { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall),
                 "generic admission accepted durable-state syscall {syscall:#08x}"
             );
         }
@@ -6762,16 +6759,17 @@ mod tests {
         program.extend_from_slice(&crate::encoding::wide::encode_syscallx(syscall).to_le_bytes());
         program.extend_from_slice(&crate::encoding::wide::encode_halt().to_le_bytes());
         let mut admitted = IVM::new(u64::MAX);
-        assert_eq!(
-            admitted.load_program(&program),
-            Err(VMError::UnknownSyscall(syscall))
+        assert!(
+            matches!(admitted.load_program(&program), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (syscall))
         );
         let mut code = Vec::new();
         code.extend_from_slice(&crate::encoding::wide::encode_syscallx(syscall).to_le_bytes());
         code.extend_from_slice(&crate::encoding::wide::encode_halt().to_le_bytes());
         let mut raw = IVM::new(u64::MAX);
         raw.load_code(&code).expect("load raw generic program");
-        assert_eq!(raw.run(), Err(VMError::UnknownSyscall(syscall)));
+        assert!(
+            matches!(raw.run(), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (syscall))
+        );
     }
     #[test]
     fn raw_generic_execution_rejects_durable_state_before_host_dispatch() {
@@ -6814,9 +6812,8 @@ mod tests {
                 prepared: Cell::new(false),
                 dispatched: false,
             };
-            assert_eq!(
-                vm.run_with_host(&mut host),
-                Err(VMError::GenericSyscallNotAllowed { syscall })
+            assert!(
+                matches!((&(vm.run_with_host(&mut host)), &(VMError::GenericSyscallNotAllowed { syscall })), (Err(VMError::GenericSyscallNotAllowed { syscall: __actual_syscall }), VMError::GenericSyscallNotAllowed { syscall: __expected_syscall }) if __actual_syscall == __expected_syscall)
             );
             assert!(
                 !host.prepared.get(),
@@ -6863,9 +6860,8 @@ mod tests {
             prepared: Cell::new(false),
             dispatched: false,
         };
-        assert_eq!(
-            vm.run_with_host(&mut host),
-            Err(VMError::UnknownSyscall(number))
+        assert!(
+            matches!(vm.run_with_host(&mut host), Err(VMError::UnknownSyscall(__actual_error_field)) if __actual_error_field == (number))
         );
         assert!(!host.prepared.get());
         assert!(!host.dispatched);
@@ -6969,10 +6965,10 @@ mod tests {
         for register in 10..=12 {
             vm.registers.set_tag(register, true);
         }
-        assert_eq!(
+        assert!(matches!(
             vm.finalize_syscall_output_privacy(crate::syscalls::SYSCALL_STATE_SCAN),
             Err(VMError::PrivacyViolation)
-        );
+        ));
         for register in 10..=12 {
             assert!(
                 vm.registers.tag(register),
@@ -7597,8 +7593,14 @@ mod tests {
         let mut fresh = IVM::new(u64::MAX);
         fresh.load_code(&raw).expect("raw code loads in fresh VM");
         let fresh_result = fresh.run();
-        assert_eq!(reused_result, fresh_result);
-        assert_eq!(fresh_result, Err(VMError::VectorExtensionDisabled));
+        assert!(matches!(
+            reused_result,
+            Err(VMError::VectorExtensionDisabled)
+        ));
+        assert!(matches!(
+            fresh_result,
+            Err(VMError::VectorExtensionDisabled)
+        ));
     }
     #[test]
     fn deployable_contract_rejects_noncanonical_indirect_control_flow_at_admission() {
@@ -7608,9 +7610,8 @@ mod tests {
         let instruction_start = program.len() - WIDE_INSTRUCTION_LEN as usize;
         program[instruction_start..].copy_from_slice(&indirect.to_le_bytes());
         let mut vm = IVM::new(u64::MAX);
-        assert_eq!(
-            vm.load_program(&program),
-            Err(VMError::InvalidMetadata),
+        assert!(
+            matches!(vm.load_program(&program), Err(VMError::InvalidMetadata)),
             "unverifiable indirect control flow must fail before execution"
         );
     }
@@ -7681,9 +7682,8 @@ mod tests {
         assert_eq!(program.len(), crate::HEADER_SIZE);
         program[16] = 2;
         program.extend_from_slice(&crate::encoding::encode_halt().to_le_bytes());
-        assert_eq!(
-            vm.load_program(&program),
-            Err(VMError::UnsupportedProgramAbiVersion { version: 2 })
+        assert!(
+            matches!((&(vm.load_program(&program)), &(VMError::UnsupportedProgramAbiVersion { version: 2 })), (Err(VMError::UnsupportedProgramAbiVersion { version: __actual_version }), VMError::UnsupportedProgramAbiVersion { version: __expected_version }) if __actual_version == __expected_version)
         );
     }
     #[test]
@@ -7847,10 +7847,10 @@ mod tests {
         assert_eq!(vm.remaining_gas(), 60);
         assert!(vm.argument_decode_is_prepaid(40));
         assert!(!vm.argument_decode_is_prepaid(41));
-        assert_eq!(
+        assert!(matches!(
             vm.consume_prepaid_argument_decode(41),
             Err(VMError::DecodeError)
-        );
+        ));
         assert!(
             vm.argument_decode_is_prepaid(40),
             "a mismatched consumer must not discard the valid escrow"
@@ -7919,7 +7919,7 @@ seiyaku Demo {
         vm.set_program_counter(entrypoint_pc)
             .expect("select hajimari entrypoint");
         let err = vm.run().expect_err("zero gas should trap");
-        assert_eq!(err, VMError::OutOfGas);
+        assert!(matches!(err, VMError::OutOfGas));
         let diag = vm.last_diagnostic().expect("diagnostic should be captured");
         assert_eq!(diag.trap_kind, VmTrapKind::OutOfGas);
         assert_eq!(diag.budget.gas_limit, 0);
@@ -8234,7 +8234,7 @@ seiyaku Demo {
         );
         assert_eq!(
             vm.contract_abort_error,
-            Some(VMError::ContractAbort {
+            Some(CompletedContractAbort {
                 contract: "Test".into(),
                 name: "Rejected".to_owned(),
                 error_type: "test::Error".to_owned(),
@@ -8249,3 +8249,26 @@ seiyaku Demo {
 #[cfg(test)]
 #[path = "vm_cycle_budget_tests.rs"]
 mod vm_cycle_budget_tests;
+
+/// Completed contract abort details; local attempt failures can never enter this cache.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CompletedContractAbort {
+    contract: Box<str>,
+    name: String,
+    error_type: String,
+    schema_hash: [u8; 32],
+    code: u32,
+    message: Option<Box<str>>,
+}
+impl CompletedContractAbort {
+    fn into_vm_error(self) -> VMError {
+        VMError::ContractAbort {
+            contract: self.contract,
+            name: self.name,
+            error_type: self.error_type,
+            schema_hash: self.schema_hash,
+            code: self.code,
+            message: self.message,
+        }
+    }
+}

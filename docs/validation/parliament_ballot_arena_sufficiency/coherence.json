@@ -1,0 +1,24 @@
+{
+  "observed_utc": "2026-10-13T06:58:05.613204+00:00",
+  "checks": {
+    "oracle_compiled_source_reconstructed": 232,
+    "oracle-test-receipt.json_log_bindings": 1,
+    "oracle-build-receipt.json_log_bindings": 2,
+    "validation-receipt.json_log_bindings": 6,
+    "source-model.json_source_and_scope": true,
+    "native-oracle.json_source_and_scope": true,
+    "native_oracle_binary_and_checker": true,
+    "earlier_checker_versions_reconstructed": 3,
+    "stack_manifest_entries": 17,
+    "layout_binary_and_extracts": true,
+    "production_gates": {
+      "available": false,
+      "qualified_latency_ms": null,
+      "source_sha256": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+      "no_experimental_ballot_core_dependency": true
+    },
+    "local_document_links_checked": 116
+  },
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

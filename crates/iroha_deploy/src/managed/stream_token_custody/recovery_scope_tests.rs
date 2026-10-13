@@ -1,7 +1,6 @@
 //! Genuine Configure/Enroll recovery sources and original active-owner admission equality.
 
 use super::*;
-use crate::managed::native_operation::test_support::UnavailablePeers;
 use crate::managed::stream_token_custody::renewal_tests::Fixture;
 use std::path::PathBuf;
 
@@ -33,7 +32,7 @@ fn recover(
     }
 }
 
-fn assert_same(actual: ManagedCustodyProgress, expected: &ManagedCustodyProgress) {
+fn assert_same(actual: &ManagedCustodyProgress, expected: &ManagedCustodyProgress) {
     assert_eq!(actual.transaction_status, expected.transaction_status);
     assert_eq!(actual.finalized, expected.finalized);
     assert!(actual.current.is_none() && expected.current.is_none());
@@ -73,7 +72,7 @@ fn retained_paths(
 fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_retry() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     for purpose in [CustodyPurpose::Configure, CustodyPurpose::InitialEnroll] {
         let expected = recover(&mut fixture, purpose, false, deadline)
@@ -89,7 +88,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
             }
         );
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &expected,
@@ -115,7 +114,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
                 .unwrap();
             assert_eq!(directory.read(name, maximum).unwrap(), before);
             assert_same(
-                recover(&mut fixture, purpose, true, deadline)
+                &recover(&mut fixture, purpose, true, deadline)
                     .unwrap()
                     .unwrap(),
                 &expected,
@@ -131,7 +130,7 @@ fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_r
             Err(crate::managed::Error::NativeDeadline)
         ));
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &expected,
@@ -156,7 +155,7 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
     }
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let ceiling = 256 * 1024 * 1024;
     for purpose in [CustodyPurpose::Configure, CustodyPurpose::InitialEnroll] {
@@ -176,9 +175,9 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
             .unwrap()
             .unwrap();
         assert_eq!(exact_budget.consumed_allocated_bytes(), charge);
-        assert_same(actual, &expected);
+        assert_same(&actual, &expected);
         assert_same(
-            recover(&mut fixture, purpose, true, deadline)
+            &recover(&mut fixture, purpose, true, deadline)
                 .unwrap()
                 .unwrap(),
             &warm,
@@ -202,7 +201,7 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
             );
             assert!(!norito::core::decode_limits_active());
             assert_same(
-                recover(&mut fixture, purpose, true, deadline)
+                &recover(&mut fixture, purpose, true, deadline)
                     .unwrap()
                     .unwrap(),
                 &warm,

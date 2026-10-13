@@ -24,19 +24,21 @@ fn fixture(owned: bool) -> Fixture {
     let (temporary, prepared, launch) = super::launch();
     let launch = if owned {
         let GeneratedLaunch {
-            owner, revision, ..
+            owner: renderer,
+            revision,
+            ..
         } = Arc::try_unwrap(launch)
             .ok()
             .expect("one actual launch owner");
-        drop(owner);
+        drop(renderer);
         let revision = Arc::try_unwrap(revision)
             .ok()
             .expect("one actual catalog revision");
         let construction = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-        let owner = construction
+        let renderer = construction
             .with(|| GeneratedServiceRuntime::open(&prepared))
             .unwrap();
-        GeneratedLaunch::new(Arc::new(owner), revision, &prepared).unwrap()
+        GeneratedLaunch::new(Arc::new(renderer), revision, &prepared).unwrap()
     } else {
         launch
     };
@@ -155,7 +157,7 @@ fn discovery_tail_original_selection_closes_errors_and_refuses_source_or_owner_c
     let expected = retained(&fixture).unwrap();
     let mut foreign = fixture.prepared.clone();
     foreign.context.name.push_str("-other");
-    let (_, captures) = count_profile_validations(|| {
+    let ((), captures) = count_profile_validations(|| {
         assert!(
             fixture.gateways[0]
                 .original_provider_plan(&foreign)
@@ -219,11 +221,11 @@ fn discovery_tail_original_selection_closes_errors_and_refuses_source_or_owner_c
     let runtime = generation.open_child("runtime").unwrap();
     let operations = runtime.open_child("service-operations").unwrap();
     let network = operations.open_child("network").unwrap();
-    let owner = network.open_child("generated-service-runtime").unwrap();
-    let lock = owner.path().join("operation.lock");
-    let displaced = owner.path().join("displaced.lock");
+    let renderer = network.open_child("generated-service-runtime").unwrap();
+    let lock = renderer.path().join("operation.lock");
+    let displaced = renderer.path().join("displaced.lock");
     std::fs::rename(&lock, &displaced).unwrap();
-    let replacement = owner.open_lock("operation.lock").unwrap();
+    let replacement = renderer.open_lock("operation.lock").unwrap();
     assert!(retained(&fixture).is_err());
     drop(replacement);
     std::fs::remove_file(&lock).unwrap();

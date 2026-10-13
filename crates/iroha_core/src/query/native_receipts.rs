@@ -10,23 +10,31 @@
 mod amx_begins;
 pub use amx_begins::{
     NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
-    begin_amx_relay,
+    begin_amx_relay, expire_amx_relay,
 };
 mod amx_decisions;
 mod amx_discovery;
+mod amx_expiry_read;
 pub use amx_discovery::{
     NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1,
-    amx_relays,
+    amx_relays, amx_relays_to,
 };
+pub use amx_expiry_read::{
+    NativeAmxExpiryDecisionCursorV1, NativeAmxExpiryDecisionErrorV1, NativeAmxExpiryDecisionPollV1,
+    NativeAmxExpiryDecisionReadV1, VerifiedNativeAmxExpiryDecisionV1, expiry_amx_decision,
+};
+mod amx_handoffs;
 mod amx_intents;
 pub use amx_decisions::{
     NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,
     decision_amx_relay,
 };
+pub use amx_handoffs::NativeAmxHandoffRelayErrorV1;
 mod amx_read;
 pub use amx_intents::{
     NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
-    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, prepared_amx_relays,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, NativeAmxRelaySourceV1,
+    prepared_amx_relays,
 };
 mod ordinary_writes;
 mod reward_history;
@@ -369,9 +377,12 @@ pub fn parliament_casting_proof(
     else {
         return Ok(None);
     };
-    let tree = MerkleTree::<CastingBinding>::from_iter(
-        source.casting_bindings.as_slice().iter().map(HashOf::new),
-    );
+    let tree = source
+        .casting_bindings
+        .as_slice()
+        .iter()
+        .map(HashOf::new)
+        .collect::<MerkleTree<CastingBinding>>();
     let leaf_index = u32::try_from(index).map_err(|_| "casting leaf index exceeds u32")?;
     let membership_proof = ParliamentTimedOvnCastingContextMembershipProofV1::new(
         tree.get_proof(leaf_index)

@@ -5,7 +5,7 @@
 //! as [`SccpSourceProofBytesV1`]: an opaque headered Norito frame of the per-chain proof that
 //! only `iroha_sccp::light_client` decodes.
 
-use super::{bounded_bytes::impl_sccp_bounded_bytes, outbound::SccpStatusHeightV1};
+use super::bounded_bytes::impl_sccp_bounded_bytes;
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, bridge::SccpNetworkV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
@@ -129,6 +129,10 @@ pub enum SccpPendingReasonV1 {
     #[codec(index = 6)]
     #[norito(rename = "held")]
     Held,
+    /// A void deferred a creditable refund to an explicit settlement transaction.
+    #[codec(index = 7)]
+    #[norito(rename = "refund_deferred")]
+    RefundDeferred,
 }
 
 /// Payload of [`SccpInboundStatusV1::Pending`].
@@ -157,6 +161,34 @@ pub struct SccpPendingStatusV1 {
     pub reason: SccpPendingReasonV1,
 }
 
+/// Final height and the actual released or stranded amount, after any reconciliation haircut.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(no_fast_from_json)]
+#[norito(decode_from_slice)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_data_model::sccp::inbound::SccpInboundSettledV1")]
+pub struct SccpInboundSettledV1 {
+    /// Executing block height.
+    pub height: u64,
+    /// Actual value settled; the rest of the payload's face amount is void.
+    pub payout: u128,
+}
+
 /// Payload of [`SccpInboundStatusV1::Bounced`].
 #[derive(
     Debug,
@@ -181,6 +213,8 @@ pub struct SccpPendingStatusV1 {
 pub struct SccpBounceStatusV1 {
     /// Outbound message that returns the value to the source-chain sender.
     pub bounce_message_id: [u8; 32],
+    /// Actual value of the bounce after any reconciliation haircut.
+    pub payout: u128,
 }
 
 /// Lifecycle of one inbound record (§4.12).
@@ -213,11 +247,15 @@ pub enum SccpInboundStatusV1 {
     /// Released to the recipient.
     #[codec(index = 1)]
     #[norito(rename = "released")]
-    Released(SccpStatusHeightV1),
+    Released(SccpInboundSettledV1),
     /// Returned to the source-chain sender by an outbound bounce.
     #[codec(index = 2)]
     #[norito(rename = "bounced")]
     Bounced(SccpBounceStatusV1),
+    /// Quarantined fallback moved value to the route stranded balance.
+    #[codec(index = 3)]
+    #[norito(rename = "stranded")]
+    Stranded(SccpInboundSettledV1),
 }
 
 impl SccpInboundStatusV1 {
@@ -281,7 +319,7 @@ mod tests {
     use crate::sccp::test_support::{assert_rejects_unknown_field, roundtrip};
     use norito::{codec::DecodeAll as _, core::DecodeFromSlice as _};
 
-    const REASONS: [SccpPendingReasonV1; 7] = [
+    const REASONS: [SccpPendingReasonV1; 8] = [
         SccpPendingReasonV1::Disabled,
         SccpPendingReasonV1::RevisionNotSettleable,
         SccpPendingReasonV1::LiabilityShortfall,
@@ -289,16 +327,25 @@ mod tests {
         SccpPendingReasonV1::FeeSinkUnavailable,
         SccpPendingReasonV1::BlockLeavesFull,
         SccpPendingReasonV1::Held,
+        SccpPendingReasonV1::RefundDeferred,
     ];
 
-    fn statuses() -> [SccpInboundStatusV1; 5] {
+    fn statuses() -> [SccpInboundStatusV1; 6] {
         [
             SccpInboundStatusV1::pending(SccpPendingReasonV1::Disabled),
             SccpInboundStatusV1::pending(SccpPendingReasonV1::RevisionNotSettleable),
             SccpInboundStatusV1::pending(SccpPendingReasonV1::LiabilityShortfall),
-            SccpInboundStatusV1::Released(SccpStatusHeightV1 { height: 5 }),
+            SccpInboundStatusV1::Released(SccpInboundSettledV1 {
+                height: 5,
+                payout: 100,
+            }),
             SccpInboundStatusV1::Bounced(SccpBounceStatusV1 {
                 bounce_message_id: [6; 32],
+                payout: 100,
+            }),
+            SccpInboundStatusV1::Stranded(SccpInboundSettledV1 {
+                height: 5,
+                payout: 80,
             }),
         ]
     }
@@ -366,12 +413,20 @@ mod tests {
 
     #[test]
     fn status_helpers() {
-        let [disabled, not_settleable, shortfall, released, bounced] = statuses();
+        let [
+            disabled,
+            not_settleable,
+            shortfall,
+            released,
+            bounced,
+            stranded,
+        ] = statuses();
         for status in [disabled, not_settleable, shortfall] {
             assert!(status.is_pending());
         }
         assert!(!released.is_pending());
         assert!(!bounced.is_pending());
+        assert!(!stranded.is_pending());
         assert_eq!(
             disabled,
             SccpInboundStatusV1::Pending(SccpPendingStatusV1 {

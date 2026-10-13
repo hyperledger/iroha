@@ -55,7 +55,6 @@ impl Crypto for ReplaceAfterAuthenticating {
 #[test]
 fn completed_restoration_retains_its_exact_body_before_switching_requested_heights() {
     use crate::sumeragi::driver::traits::BlockStore as _;
-
     let root = tempfile::tempdir().unwrap();
     let (body, qc, source, budget, crypto) = fixture(1025);
     let concrete = Arc::new(ReplaceAfterAuthenticating {

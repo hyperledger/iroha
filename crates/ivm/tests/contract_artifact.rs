@@ -970,7 +970,7 @@ seiyaku ContractArtifactFixture { permission Entry;
     );
     let mut vm = ivm::IVM::new(u64::MAX);
     vm.load_program(&bytes).expect("load artifact");
-    assert_eq!(vm.run(), Err(ivm::VMError::DecodeError));
+    assert!(matches!(vm.run(), Err(ivm::VMError::DecodeError)));
     assert!(
         vm.call_result_word_count().is_err(),
         "unselected root cannot complete"
@@ -1300,7 +1300,7 @@ fn strict_return_integrity_traps_view_return_address_poisoning_before_the_write(
     let error = vm
         .run()
         .expect_err("a poisoned canonical return must trap before the write");
-    assert_eq!(error, ivm::VMError::AssertionFailed);
+    assert!(matches!(error, ivm::VMError::AssertionFailed));
     assert_eq!(vm.pc(), entry_pc + 4, "the hidden write was not reached");
 }
 #[test]
@@ -1329,11 +1329,11 @@ fn strict_outer_return_cannot_redirect_to_an_in_code_halt() {
     vm.load_prepared(&prepared).expect("prepared view loads");
     vm.set_register(2, entry_pc + 12);
     vm.set_program_counter(entry_pc).expect("select view");
-    assert_eq!(
+    assert!(matches!(
         vm.run()
             .expect_err("outer return must remain bound to the end of code"),
         ivm::VMError::AssertionFailed
-    );
+    ));
     assert_eq!(vm.pc(), entry_pc + 4);
 }
 #[test]
@@ -1373,13 +1373,13 @@ fn strict_return_integrity_allows_nested_direct_calls_for_raw_and_prepared_loads
     raw.load_program(&bytes).expect("cold contract loads");
     raw.set_program_counter(entry).unwrap();
     raw.run().expect("cold nested table calls return");
-    assert_eq!(raw.public_call_result_word(0), Ok(1));
+    assert!(matches!(raw.public_call_result_word(0), Ok(1)));
     let mut warm = ivm::IVM::new(u64::MAX);
     warm.load_prepared(&prepared)
         .expect("prepared contract loads");
     warm.set_program_counter(entry).unwrap();
     warm.run().expect("prepared nested table calls return");
-    assert_eq!(warm.public_call_result_word(0), Ok(1));
+    assert!(matches!(warm.public_call_result_word(0), Ok(1)));
     assert_eq!(raw.remaining_gas(), warm.remaining_gas());
 }
 #[test]

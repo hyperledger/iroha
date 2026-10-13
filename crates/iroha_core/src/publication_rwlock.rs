@@ -35,6 +35,7 @@ pub struct PublicationRwLockWriteGuard<'lock, T> {
 
 impl<T> PublicationRwLock<T> {
     /// Observe this lock's actual release without acquiring a guard or allocating.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn observe_release(&self) -> ReleaseWait {
         self.released.observe()
     }

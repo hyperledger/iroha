@@ -408,7 +408,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
             record.dataspace,
         ));
         let original = tx;
-        let original = if cfg!(all(test, sumeragi_core_mutation = "HC276")) {
+        let original = if cfg!(all(test, sumeragi_core_mutation = "HC344")) {
             match original {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     TransactionEntrypoint::External(reveal.signed_transaction)

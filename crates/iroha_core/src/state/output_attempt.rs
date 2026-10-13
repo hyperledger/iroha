@@ -5,7 +5,7 @@ use crate::state::StateStorageAdmissionError;
 
 /// Failure before the common output owner can retain or seal complete effects.
 /// A discarded maintenance journal cannot erase either original local owner.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum ExecutionOutputAttemptError {
     /// Execution completed with inconsistent source, policy or output ownership.
     Owner(String),

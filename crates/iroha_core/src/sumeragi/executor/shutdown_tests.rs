@@ -109,10 +109,10 @@ fn chain_drop_waits_for_original_worker_and_removes_temporary_storage() {
             let kura = Arc::downgrade(chain.kura());
             assert!(storage.is_dir());
             let (done, completed) = mpsc::channel();
-            let (begin, begun) = mpsc::channel();
+            let (begin, started) = mpsc::channel();
             let owner = super::super::threads::sumeragi_thread_builder("executor-chain-owner-drop")
                 .spawn(move || {
-                    let _ = begun.recv();
+                    let _ = started.recv();
                     drop(chain);
                     let _ = done.send(());
                 })

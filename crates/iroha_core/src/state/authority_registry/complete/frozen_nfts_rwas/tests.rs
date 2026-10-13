@@ -588,7 +588,7 @@ fn canonical_storages(world: &World) -> [String; 7] {
     ]
 }
 fn restored_world(world: &World) -> World {
-    let mut recovered = World::default();
+    let mut recovered = World::new();
     recovered.nfts = restored(&world.nfts);
     recovered.nfts_by_owner = restored(&world.nfts_by_owner);
     recovered.nfts_by_domain = restored(&world.nfts_by_domain);

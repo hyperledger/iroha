@@ -105,6 +105,10 @@ pub(crate) fn required(
 
 /// Verify presence/absence and actual threshold proof at the immutable committed cut.
 /// This function consumes no node-local certificate signer subset or aggregator state.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the supplied pulse is validated and transferred into the retained native schedule result"
+)]
 pub(crate) fn capture(
     scope: SumeragiRootScope,
     world: &impl WorldReadOnly,

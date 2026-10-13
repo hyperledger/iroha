@@ -44,7 +44,7 @@ fn check(deadline: Instant) -> Result<(), ProofDestinationError> {
 // Field drop order reclaims the proof's actual Vec allocations before refunding their charges.
 pub(super) struct OwnedProof {
     pub(super) proof: SumeragiFinalityProof,
-    _charges: ChargedBuffer<AllocationCharge>,
+    charges: ChargedBuffer<AllocationCharge>,
 }
 impl OwnedProof {
     pub(super) fn new(
@@ -117,7 +117,7 @@ impl ProofPreparation {
                         block_wire: Vec::new(),
                         committee: Vec::new(),
                     },
-                    _charges: charges,
+                    charges,
                 },
                 block: block.clone(),
                 members_address: members.as_ptr() as usize,
@@ -133,7 +133,7 @@ impl ProofPreparation {
         if !std::ptr::eq(original.block.as_ref(), block.as_ref())
             || original.members_address != members.as_ptr() as usize
             || original.member_count != members.len()
-            || !original.owned._charges.belongs_to(budget)
+            || !original.owned.charges.belongs_to(budget)
         {
             return Err(ProofDestinationError::Source);
         }
@@ -159,7 +159,7 @@ impl Construction {
         } = self;
         if !*wire_complete {
             if owned.proof.block_wire.capacity() == 0 {
-                owned.proof.block_wire = charged_vec::<u8>(*wire_len, budget, &mut owned._charges)?;
+                owned.proof.block_wire = charged_vec::<u8>(*wire_len, budget, &mut owned.charges)?;
             }
             check(deadline)?;
             // A rejected partial encoder can retry without allocating or appending twice.
@@ -181,7 +181,7 @@ impl Construction {
         check(deadline)?;
         if owned.proof.committee.capacity() == 0 {
             owned.proof.committee =
-                charged_vec::<FinalityValidator>(members.len(), budget, &mut owned._charges)?;
+                charged_vec::<FinalityValidator>(members.len(), budget, &mut owned.charges)?;
         }
         while owned.proof.committee.len() < members.len() {
             check(deadline)?;
@@ -190,7 +190,7 @@ impl Construction {
                 let mut original = charged_vec::<u8>(
                     member.proof_of_possession.len(),
                     budget,
-                    &mut owned._charges,
+                    &mut owned.charges,
                 )?;
                 original.extend_from_slice(&member.proof_of_possession);
                 *pop = Some(original);
@@ -226,7 +226,7 @@ impl Construction {
                 // SAFETY: the compact key moves directly into this private owned proof.
                 // Its graph and pending PoP retire before this exact original charge ledger.
                 let (key, charge) = unsafe { retained.into_allocation_parts() };
-                owned._charges.push_reserved(charge);
+                owned.charges.push_reserved(charge);
                 key
             };
             owned.proof.committee.push(FinalityValidator {

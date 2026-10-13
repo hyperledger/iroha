@@ -7,6 +7,18 @@ use crate::managed::{
 };
 use std::time::Instant;
 
+/// Original operation context shared by generated native dispatch callbacks.
+#[derive(Clone, Copy)]
+pub(in crate::managed) struct GeneratedSelection<'a> {
+    pub operation: &'a PrivateDirectory,
+    pub purpose: Purpose,
+    pub semantic: [u8; 32],
+    pub scope: &'a HistoryScope,
+    pub authorization: &'a dyn DispatchAuthorization,
+    pub deadline: Instant,
+    pub body_expiry: Option<u64>,
+}
+
 /// Concrete prerequisite request at the sole generated transition's original boundary.
 /// An optional first reservation is a native owner, never a scalar native-state approval.
 pub(in crate::managed) struct GeneratedPrerequisite<'a> {
@@ -178,13 +190,7 @@ pub(in crate::managed) fn initial(
 /// owner's authenticated prerequisite; it cannot be supplied by an external caller. The wallet
 /// retainer is purpose-closed and performs no HTTP, fee quote, payload creation or signing.
 pub(in crate::managed) fn generated(
-    operation: &PrivateDirectory,
-    purpose: Purpose,
-    semantic: [u8; 32],
-    scope: &HistoryScope,
-    authorization: &dyn DispatchAuthorization,
-    deadline: Instant,
-    body_expiry: Option<u64>,
+    selection: GeneratedSelection<'_>,
     mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
     retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
     retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
@@ -192,13 +198,7 @@ pub(in crate::managed) fn generated(
     observation_usable: impl FnMut(&Attempt) -> Result<bool>,
 ) -> Result<()> {
     generated_with_inspection(
-        operation,
-        purpose,
-        semantic,
-        scope,
-        authorization,
-        deadline,
-        body_expiry,
+        selection,
         GeneratedInspection::Generic(&mut inspect),
         retire,
         retain_request,
@@ -210,13 +210,7 @@ pub(in crate::managed) fn generated(
 /// Concrete enrollment inspector may consolidate only the empty read-only prefix.
 /// Every existing-attempt callback and effect remains in the shared generated owner.
 pub(in crate::managed) fn generated_native(
-    operation: &PrivateDirectory,
-    purpose: Purpose,
-    semantic: [u8; 32],
-    scope: &HistoryScope,
-    authorization: &dyn DispatchAuthorization,
-    deadline: Instant,
-    body_expiry: Option<u64>,
+    selection: GeneratedSelection<'_>,
     native: &crate::managed::stream_token_custody::body_history::NativeClosureInspector<'_>,
     mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
     retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
@@ -225,13 +219,7 @@ pub(in crate::managed) fn generated_native(
     observation_usable: impl FnMut(&Attempt) -> Result<bool>,
 ) -> Result<()> {
     generated_with_inspection(
-        operation,
-        purpose,
-        semantic,
-        scope,
-        authorization,
-        deadline,
-        body_expiry,
+        selection,
         GeneratedInspection::Native(native, &mut inspect),
         retire,
         retain_request,
@@ -259,19 +247,22 @@ impl GeneratedInspection<'_, '_> {
 }
 
 fn generated_with_inspection(
-    operation: &PrivateDirectory,
-    purpose: Purpose,
-    semantic: [u8; 32],
-    scope: &HistoryScope,
-    authorization: &dyn DispatchAuthorization,
-    deadline: Instant,
-    body_expiry: Option<u64>,
+    selection: GeneratedSelection<'_>,
     mut inspection: GeneratedInspection<'_, '_>,
     mut retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
     mut retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
     mut fresh: impl FnMut(GeneratedPrerequisite<'_>, Instant) -> Result<Observation>,
     mut observation_usable: impl FnMut(&Attempt) -> Result<bool>,
 ) -> Result<()> {
+    let GeneratedSelection {
+        operation,
+        purpose,
+        semantic,
+        scope,
+        authorization,
+        deadline,
+        body_expiry,
+    } = selection;
     authorization.check(purpose, deadline)?;
     scope.require_active()?;
     let history = History::read(operation, purpose, semantic, scope)?;

@@ -1,0 +1,107 @@
+{
+  "accel_build_exit_code": 0,
+  "accel_build_log": "android-build-accel.txt",
+  "accel_build_log_sha256": "dceabf9627d022d2c8ab2afbc8c0b38ba79870ddb9cfefb2a2f3caf399ff7a36",
+  "android_mac_matching_pairs": 272,
+  "android_portable_accel_matching_pairs": 136,
+  "binaries": [
+    {
+      "configuration": "accel",
+      "host_saved_binary": "/tmp/ballot-b6-android-accel",
+      "remote_sha256_verified": true,
+      "sha256": "1235d160e38b2c72dd6febafc7680eb594dbd8906a5af5b690fc4ca093432cbd"
+    },
+    {
+      "configuration": "portable",
+      "host_saved_binary": "/tmp/ballot-b6-android-portable",
+      "remote_sha256_verified": true,
+      "sha256": "3e1e1ffd854b3ab728517f9d2f3d92bce186254fc43ba7596cfe77a1e0b15e5c"
+    }
+  ],
+  "build_command_template": "env CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=<ndk-bin>/aarch64-linux-android23-clang CC_aarch64_linux_android=<ndk-bin>/aarch64-linux-android23-clang AR_aarch64_linux_android=<ndk-bin>/llvm-ar scripts/cargo_fast.sh --target-slot parliament-android --incremental -- build --release --target aarch64-linux-android -p iroha_parliament_ballot_proof <feature-args> --example qualify",
+  "build_feature_args": {
+    "accel": [
+      "--features",
+      "accel"
+    ],
+    "portable": []
+  },
+  "comparison_summary": "android-summary.json",
+  "completed_at_utc": "2026-10-13T03:00:48.463918+00:00",
+  "device_baseline_match": false,
+  "execution_context": "adb shell native executable, not an Android application or Pixel baseline",
+  "final_source_check": {
+    "all_match": true,
+    "at_utc": "2026-10-13T03:00:48.463801+00:00",
+    "files": 223,
+    "manifest_sha256": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+    "mismatches": [],
+    "stage": "complete"
+  },
+  "measured_root_lockfile": "measured-root-Cargo.lock.template",
+  "measured_root_lockfile_recovery_provenance": "post-measurement-lock-change.json",
+  "measured_root_lockfile_sha256": "ecfb0f0635527e68e3e329bfbde338e051912e10986839d66d8e384011e9e303",
+  "portable_build_exit_code": 0,
+  "portable_build_log": "android-build-portable.txt",
+  "portable_build_log_sha256": "eeccb3369415272c6d1684704ae34fac78738ddcec88158c37e97dc2ee7c2f67",
+  "postrun_checkout_observation": "android-postrun-source-check.json",
+  "production_approved": false,
+  "qualification": false,
+  "remote_directory": "/data/local/tmp/parliament-b6-20261013-bbea7df9",
+  "runs": [
+    {
+      "adb_shell_command": "echo $$ > /data/local/tmp/parliament-b6-20261013-bbea7df9/accel-candidate31.pid; exec /data/local/tmp/parliament-b6-20261013-bbea7df9/qualify-accel --row candidate --samples 31 --source-id 044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb --run-id samsung-sm-s942b-accel-candidate31",
+      "configuration": "accel",
+      "data_file": "android-accel-candidate31.jsonl",
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T02:50:08.124619+00:00",
+      "row": "candidate",
+      "samples_per_case": 31,
+      "sha256": "9c870e1e0d0fdd6f4e74ed0ba4c82cdc3ce0e0640c947c7298042598feac267b",
+      "started_at_utc": "2026-10-13T02:47:32.503919+00:00",
+      "stderr_bytes": 0,
+      "stderr_file": "android-accel-candidate31.stderr.txt"
+    },
+    {
+      "adb_shell_command": "echo $$ > /data/local/tmp/parliament-b6-20261013-bbea7df9/accel-comparator3.pid; exec /data/local/tmp/parliament-b6-20261013-bbea7df9/qualify-accel --row comparator --samples 3 --source-id 044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb --run-id samsung-sm-s942b-accel-comparator3",
+      "configuration": "accel",
+      "data_file": "android-accel-comparator3.jsonl",
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T02:50:45.716310+00:00",
+      "row": "comparator",
+      "samples_per_case": 3,
+      "sha256": "4e9a0266c96dfd591dd1ec0c5d00e8e28b4e10ec80f6e6141c68a24c7ccba700",
+      "started_at_utc": "2026-10-13T02:50:08.155290+00:00",
+      "stderr_bytes": 0,
+      "stderr_file": "android-accel-comparator3.stderr.txt"
+    },
+    {
+      "adb_shell_command": "echo $$ > /data/local/tmp/parliament-b6-20261013-bbea7df9/portable-candidate31.pid; exec /data/local/tmp/parliament-b6-20261013-bbea7df9/qualify-portable --row candidate --samples 31 --source-id 044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb --run-id samsung-sm-s942b-portable-candidate31",
+      "configuration": "portable",
+      "data_file": "android-portable-candidate31.jsonl",
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T02:57:09.357403+00:00",
+      "row": "candidate",
+      "samples_per_case": 31,
+      "sha256": "2634b56a7eb0cef032b401d5eb3f3efc697998cf775b170df75bfc7b162e98eb",
+      "started_at_utc": "2026-10-13T02:51:08.195299+00:00",
+      "stderr_bytes": 0,
+      "stderr_file": "android-portable-candidate31.stderr.txt"
+    },
+    {
+      "adb_shell_command": "echo $$ > /data/local/tmp/parliament-b6-20261013-bbea7df9/portable-comparator3.pid; exec /data/local/tmp/parliament-b6-20261013-bbea7df9/qualify-portable --row comparator --samples 3 --source-id 044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb --run-id samsung-sm-s942b-portable-comparator3",
+      "configuration": "portable",
+      "data_file": "android-portable-comparator3.jsonl",
+      "exit_code": 0,
+      "finished_at_utc": "2026-10-13T03:00:48.440837+00:00",
+      "row": "comparator",
+      "samples_per_case": 3,
+      "sha256": "79d5508dc17e3f2c99f71e099f5e31fc30c30d04255ab476cd47b750747ca65c",
+      "started_at_utc": "2026-10-13T02:57:09.372940+00:00",
+      "stderr_bytes": 0,
+      "stderr_file": "android-portable-comparator3.stderr.txt"
+    }
+  ],
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "stable_local_metadata": false
+}

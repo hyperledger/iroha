@@ -318,10 +318,10 @@ fn checker_rejects_extra_missing_and_out_of_range_register_paths() {
             path: &path,
             ..event
         };
-        assert_eq!(
+        assert!(matches!(
             super::super::register_authentication::check(altered),
             Err(VMError::AssertionFailed)
-        );
+        ));
     }
 }
 

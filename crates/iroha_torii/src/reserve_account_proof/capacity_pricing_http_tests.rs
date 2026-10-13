@@ -142,6 +142,7 @@ fn signed_sdk_capacity_and_pricing_are_exact_native_facts_before_service_activat
         key_pair: f.manager_key.clone(),
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: format!("http://{}/", server.address).parse().unwrap(),
         torii_request_timeout: Duration::from_secs(10),
         transaction_ttl: Duration::from_secs(30),

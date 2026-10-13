@@ -60,7 +60,7 @@ fn fetch_hosted_http_text_accepts_paths_without_a_leading_slash() -> Result<()> 
 }
 #[test]
 fn execute_ordered_mailbox_retries_when_local_bundle_cache_is_missing() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let artifact_bytes = simple_soracloud_contract_artifact(&["apply_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
@@ -96,14 +96,39 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
         VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::DemandOverflow);
     for (error, label) in [
         (active, "execution_deferred"),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::VerificationCancelled),
+            "execution_deferred",
+        ),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::NativeVerificationMemoryUnavailable),
+            "execution_deferred",
+        ),
+        (
+            VMError::ExecutionDeferred(ExecutionDeferral::VerifierInitializationUnavailable),
+            "execution_deferred",
+        ),
         (allocation, "allocation_deferred"),
+        // Typed boundary control; actual allocator refusal is exercised by Core's
+        // existing global allocator in the native World-cut publication tests.
+        (
+            VMError::AllocatorDeferred(
+                iroha_allocation::AllocatorRefusal::try_from(
+                    iroha_allocation::ChargedBufferError::Allocator {
+                        requested_bytes: 73,
+                    },
+                )
+                .unwrap(),
+            ),
+            "allocator_deferred",
+        ),
     ] {
         assert_eq!(vm_error_label(&error), label);
         assert_eq!(
             vm_error_kind(&error),
             SoracloudRuntimeExecutionErrorKind::Unavailable,
         );
-        let result = ordered_mailbox_vm_failure(request.clone(), &error)
+        let result = ordered_mailbox_vm_failure(&request, &error)
             .expect_err("local deferral must not produce a durable mailbox result");
         assert_eq!(result.kind, SoracloudRuntimeExecutionErrorKind::Unavailable);
     }
@@ -112,7 +137,7 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
         vm_error_kind(&VMError::OutOfGas),
         SoracloudRuntimeExecutionErrorKind::Internal,
     );
-    let deterministic = ordered_mailbox_vm_failure(request, &VMError::OutOfGas)
+    let deterministic = ordered_mailbox_vm_failure(&request, &VMError::OutOfGas)
         .expect("guest gas exhaustion is a deterministic runtime result");
     assert_eq!(
         deterministic
@@ -153,7 +178,7 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
         gas: 41,
         source: Box::new(VMError::Metered {
             gas: 19,
-            source: Box::new(direct.clone()),
+            source: Box::new(VMError::DecodeDeferred(original.clone())),
         }),
     };
     for error in [direct, nested] {
@@ -164,7 +189,7 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
         );
         assert_eq!(error.fault_kind(), None);
         assert_eq!(error.metered_gas(), None);
-        let failure = ordered_mailbox_vm_failure(request.clone(), &error)
+        let failure = ordered_mailbox_vm_failure(&request, &error)
             .expect_err("original local decoder refusal must not create a durable mailbox result");
         assert_eq!(
             failure.kind,
@@ -174,10 +199,12 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
             panic!("daemon inspection must preserve the original decoder owner");
         };
         assert_eq!(retained, &original);
-        assert_eq!(
-            error.split_metered(),
-            (None, VMError::DecodeDeferred(original.clone()))
-        );
+        let (gas, unmetered) = error.split_metered();
+        assert_eq!(gas, None);
+        let VMError::DecodeDeferred(retained) = unmetered else {
+            panic!("consuming split must move the original decoder owner");
+        };
+        assert_eq!(retained, original);
     }
     assert_eq!(
         norito::decode_canonical_for_admission::<Vec<u8>>(
@@ -191,6 +218,79 @@ fn vm_decode_deferral_retains_original_owner_and_refuses_durable_mailbox_results
 }
 
 #[test]
+fn vm_verification_deferral_moves_original_owner_and_refuses_mailbox_results() -> Result<()> {
+    // A real canonical read supplies the original shared owner; this test does not
+    // pretend that an MSM allocator failed or perform cryptographic verification.
+    let bytes = norito::encode_canonical(&vec![53_u8; 16]).unwrap();
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "update",
+        sample_mailbox_message(&bundle, "update", b"verification-retry".to_vec()),
+    );
+    for nested in [false, true] {
+        let original = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = original.clone();
+        let mut error = VMError::VerificationDeferred(
+            iroha_core_zk::VerificationRefusal::from_decode_refusal(original),
+        );
+        if nested {
+            error = VMError::Metered {
+                gas: 17,
+                source: Box::new(VMError::Metered {
+                    gas: 29,
+                    source: Box::new(error),
+                }),
+            };
+        }
+        assert_eq!(vm_error_label(&error), "verification_deferred");
+        assert_eq!(
+            vm_error_kind(&error),
+            SoracloudRuntimeExecutionErrorKind::Unavailable
+        );
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(error.metered_gas(), None);
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ivm::ExecutionDeferral::ActiveMemoryCapacity)
+        );
+        let refusal = ordered_mailbox_vm_failure(&request, &error)
+            .expect_err("unfinished verification cannot produce durable mailbox output");
+        assert_eq!(
+            refusal.kind,
+            SoracloudRuntimeExecutionErrorKind::Unavailable
+        );
+        let (gas, moved) = error.split_metered();
+        assert_eq!(gas, None);
+        let VMError::VerificationDeferred(owner) = moved else {
+            panic!("lost original verification cause");
+        };
+        assert_eq!(owner.decode_refusal(), Some(&expected));
+        assert_eq!(owner.into_decode_refusal().unwrap(), expected);
+    }
+    assert_eq!(
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len())
+        )
+        .unwrap(),
+        vec![53_u8; 16]
+    );
+    Ok(())
+}
+
+#[test]
 fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered() -> Result<()> {
     let bundle = load_deployment_bundle_fixture()?;
     let request = sample_ordered_mailbox_request(
@@ -199,17 +299,18 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
         sample_mailbox_message(&bundle, "update", b"nested-call".to_vec()),
     );
     let permission = deterministic_mailbox_failure_result(
-        request.clone(),
+        &request.clone(),
         "permission_denied",
         SoraServiceHealthStatusV1::Degraded,
     );
     let mut commitments = Vec::new();
-    for (error, label) in [
-        (VMError::ReentrantCall, "reentrant_call"),
-        (VMError::CallDepthExceeded, "call_depth_exceeded"),
-    ] {
+    let cases: [(fn() -> VMError, &str); 2] = [
+        (|| VMError::ReentrantCall, "reentrant_call"),
+        (|| VMError::CallDepthExceeded, "call_depth_exceeded"),
+    ];
+    for (make_error, label) in cases {
         let expected = deterministic_mailbox_failure_result(
-            request.clone(),
+            &request.clone(),
             label,
             SoraServiceHealthStatusV1::Degraded,
         );
@@ -219,7 +320,8 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
             "distinct canonical faults must not collapse into a coarse permission label"
         );
         commitments.push(expected.runtime_receipt.result_commitment);
-        let metered = VMError::metered(7, error.clone());
+        let error = make_error();
+        let metered = VMError::metered(7, make_error());
         assert_eq!(metered.metered_gas(), Some(7));
         for error in [error, metered] {
             assert_eq!(vm_error_label(&error), label);
@@ -228,7 +330,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
                 SoracloudRuntimeExecutionErrorKind::Internal,
             );
             assert!(error.execution_deferral().is_none());
-            let actual = ordered_mailbox_vm_failure(request.clone(), &error)
+            let actual = ordered_mailbox_vm_failure(&request, &error)
                 .expect("nested-call refusal is a deterministic runtime result");
             assert_eq!(actual, expected);
             assert_eq!(
@@ -252,7 +354,7 @@ fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered
 }
 #[test]
 fn warmed_ordered_mailbox_invalidates_a_changed_bundle_file() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let artifact_bytes = simple_soracloud_contract_artifact(&["apply_update"]);
     bundle.container.bundle_hash = Hash::new(&artifact_bytes);
@@ -289,19 +391,19 @@ fn warmed_ordered_mailbox_invalidates_a_changed_bundle_file() -> Result<()> {
             .health_status,
         SoraServiceHealthStatusV1::Degraded
     );
-    let stats = handle.ivm_runtime_cache_stats();
-    assert_eq!(stats.artifact_reads, 2);
-    assert_eq!(stats.artifact_hashes, 2);
-    assert_eq!(stats.contract_preparations, 1);
-    assert_eq!(stats.runtime_allocations, 1);
-    assert_eq!(stats.invalidations, 1);
-    assert_eq!(stats.prepared_entries, 0);
-    assert_eq!(stats.idle_runtimes, 0);
+    let cache_stats = handle.ivm_runtime_cache_stats();
+    assert_eq!(cache_stats.artifact_reads, 2);
+    assert_eq!(cache_stats.artifact_hashes, 2);
+    assert_eq!(cache_stats.contract_preparations, 1);
+    assert_eq!(cache_stats.runtime_allocations, 1);
+    assert_eq!(cache_stats.invalidations, 1);
+    assert_eq!(cache_stats.prepared_entries, 0);
+    assert_eq!(cache_stats.idle_runtimes, 0);
     Ok(())
 }
 #[test]
 fn execute_local_read_fails_closed_when_runtime_snapshot_is_behind() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = b"ivm bundle bytes".to_vec();
     bundle.container.bundle_hash = Hash::new(&bundle_bytes);

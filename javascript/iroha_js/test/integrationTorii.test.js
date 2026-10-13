@@ -4709,10 +4709,12 @@ function buildIsoPacs008Fields(overrides) {
       suite: "js-integration",
     },
   };
-  if (!overrides) {
-    return base;
-  }
-  return deepMerge(base, overrides);
+  const fields = deepMerge(base, overrides);
+  fields.nexusSettlement = {
+    ...fields.nexusSettlement,
+    networkId: NetworkId.parse(fields.nexusSettlement?.networkId),
+  };
+  return fields;
 }
 
 function buildIsoPacs009Fields(overrides) {
@@ -4736,10 +4738,12 @@ function buildIsoPacs009Fields(overrides) {
       suite: "js-integration",
     },
   };
-  if (!overrides) {
-    return base;
-  }
-  return deepMerge(base, overrides);
+  const fields = deepMerge(base, overrides);
+  fields.nexusSettlement = {
+    ...fields.nexusSettlement,
+    networkId: NetworkId.parse(fields.nexusSettlement?.networkId),
+  };
+  return fields;
 }
 
 function deepMerge(target, source) {

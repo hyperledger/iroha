@@ -39,7 +39,9 @@ impl ServeRequest {
     /// Convert a released Core action, returning unrelated actions unchanged.
     ///
     /// # Errors
-    /// Returns the original action when neither block serving nor the payload worker owns it.
+    ///
+    /// Returns the original action unchanged when it is neither block serving
+    /// nor payload work.
     pub fn from_action(action: Action) -> Result<Self, Action> {
         match action {
             Action::ServeBlocks {
@@ -299,7 +301,7 @@ impl ServeSched {
         None
     }
     /// Release this turn, charge actual responses and schedule only actual retained work.
-    pub fn done(&mut self, now: Millis, served: &Served) {
+    pub fn done(&mut self, now: Millis, served: Served) -> Vec<Event> {
         self.in_flight = false;
         self.in_flight_refusal = None;
         for (key, bytes) in &served.charges {
@@ -315,13 +317,10 @@ impl ServeSched {
                 .retry
                 .then_some(now.saturating_add(if served.refused { 10 } else { 0 }));
         }
-        if let Some(request) = &served.retry_request {
-            self.failed = Some((
-                now.saturating_add(10),
-                request.clone(),
-                served.deferred.clone(),
-            ));
+        if let Some(request) = served.retry_request {
+            self.failed = Some((now.saturating_add(10), request, served.deferred));
         }
+        served.events
     }
     /// Earliest retained-job retry; no timer for jobs awaiting remote rows.
     pub fn wakeup(&self) -> Millis {
@@ -355,7 +354,9 @@ impl ServeSched {
 /// Read errors are propagated; they never produce an empty successful response.
 ///
 /// # Errors
-/// Returns the original store refusal or read error when a requested entry cannot be read.
+///
+/// Propagates the original block-store rejection or resource deferral while
+/// reading consecutive entries.
 pub fn entries(
     blocks: &(impl BlockStore + ?Sized),
     from_height: u64,
@@ -394,7 +395,7 @@ pub fn frame(msg: &WireMessage) -> Option<Frame> {
     }
 }
 /// Actual worker completion; no successful default is substituted on panic or corruption.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default)]
 pub struct Served {
     /// This turn progressed the retained payload worker.
     pub payload: bool,
@@ -546,8 +547,10 @@ fn deliver(worker: &mut PayloadWorker, net: &dyn Net, served: &mut Served) -> io
 /// Exact encoded frames and recoverable post receipts survive every pressure retry.
 ///
 /// # Errors
-/// Propagates terminal storage, payload, encoding and transport errors. Recoverable
-/// refusal returns retained retry work in the successful result.
+///
+/// Returns an I/O error for unrecoverable block reads, metadata encoding,
+/// invalid delivery receipts, or payload-worker failures. Recoverable local
+/// refusals retain the original request in the returned progress.
 pub fn serve(
     request: ServeRequest,
     instance: Hash32,

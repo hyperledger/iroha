@@ -1,8 +1,9 @@
 //! Funding absence checks retain original profile and fresh native child custody.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
-    native_operation::test_support::UnavailablePeers,
+    Error, native_operation::test_support::UnavailablePeers,
     service_authority::profile_validation_test_support as checks,
 };
 use iroha_fs::{FileIdentity, PrivateDirectory, PublishMode};
@@ -18,7 +19,7 @@ fn purpose() -> ProviderPurpose {
 fn probe(owner: &ProviderFundingBootstrap) -> Result<()> {
     owner.require_empty_child(purpose(), "install")
 }
-// The exact former constructor and unchanged absence tail are a test-only baseline.
+// The exact former constructor and canonical no-intent tail are a test-only baseline.
 // This invokes the real profile producer; no wire/proof decoder is duplicated.
 fn ordinary(owner: &ProviderFundingBootstrap) -> Result<()> {
     let Some(child) = ServiceAuthority::open_provider_existing(
@@ -40,10 +41,10 @@ fn ordinary(owner: &ProviderFundingBootstrap) -> Result<()> {
             "later funding purpose contains unknown retained material",
         ));
     }
-    match child.directory.open_child_optional("install")? {
-        Some(directory) => require_empty(&directory),
-        None => Ok(()),
-    }
+    child.directory.open_child_optional("install")?.map_or_else(
+        || Ok(()),
+        |directory| metadata::require_unselected(&directory),
+    )
 }
 fn child(owner: &ProviderFundingBootstrap) -> ServiceAuthority {
     ServiceAuthority::open_provider(
@@ -113,15 +114,35 @@ fn funding_absence_census_reuses_original_without_creating_or_retaining_children
     let later = child(&owner);
     let directory = later.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&later._lock).unwrap();
+    let lock_identity = FileIdentity::of(&later.lock).unwrap();
     assert_eq!(
         outcome(probe(&owner)),
         outcome(ordinary(&owner)),
         "held child still refuses"
     );
     drop(later);
+    // An existing raw-empty operation lost its mandatory image; neither constructor
+    // repairs it or treats that missing record as a valid unselected operation.
+    let empty = directory.create_child("install").unwrap();
+    let names = directory.entries(2).unwrap();
+    for result in [probe(&owner), ordinary(&owner)] {
+        assert!(
+            matches!(&result, Err(Error::Invalid(message)) if message == "operation metadata image is absent"),
+            "{:?}",
+            result.as_ref().err()
+        );
+    }
+    require_empty(&empty).unwrap();
+    assert_eq!(directory.entries(2).unwrap(), names);
+    assert_eq!(directory.identity().unwrap(), identity);
+    assert_eq!(
+        FileIdentity::of(&directory.open_read("operation.lock").unwrap()).unwrap(),
+        lock_identity
+    );
+    drop(empty);
+    std::fs::remove_dir(directory.path().join("install")).unwrap();
     for installed in [false, true] {
-        let install = installed.then(|| directory.ensure_child("install").unwrap());
+        let install = installed.then(|| metadata::ensure_operation(&directory, "install").unwrap());
         let names = directory.entries(2).unwrap();
         let ((actual, parses), validations) = checks::count(|| parsed(|| probe(&owner)));
         actual.unwrap();
@@ -205,10 +226,10 @@ fn funding_absence_keeps_original_parent_entry_and_all_result_exit_precedence() 
                             lock.try_lock().is_err(),
                             "actual child Result retains its exclusive lock through parent exit"
                         ),
-                        Err(error) => {
-                            assert!(cfg!(windows));
-                            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-                        }
+                        #[cfg(windows)]
+                        Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+                        #[cfg(not(windows))]
+                        Err(error) => panic!("retained operation lock must open: {error}"),
                     }
                 }
                 2 => assert_eq!(
@@ -255,9 +276,9 @@ fn funding_absence_observes_appeared_child_material_and_native_substitution() {
     let mut peers = UnavailablePeers::start(&prepared);
     let later = child(&owner);
     let directory = later.directory.retain().unwrap();
-    let install = directory.ensure_child("install").unwrap();
+    let install = metadata::ensure_operation(&directory, "install").unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&later._lock).unwrap();
+    let lock_identity = FileIdentity::of(&later.lock).unwrap();
     drop(later);
     let appeared = install.retain().unwrap();
     let hook = checks::on_existing_child_exit(move |result| {

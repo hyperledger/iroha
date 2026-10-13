@@ -130,13 +130,9 @@ fn fraud_monitoring_new_dedup_and_defaults() {
     use url::Url;
     let url = Url::parse("https://risk.example/api").expect("url");
     let cfg = FraudMonitoring::new(
-        true,
         vec![url.clone(), url.clone()],
         Duration::from_millis(0),
         Duration::from_millis(0),
-        5,
-        Some(FraudRiskBand::High),
-        Vec::new(),
     );
     assert_eq!(cfg.service_endpoints.len(), 1);
     assert_eq!(cfg.service_endpoints[0], url);
@@ -148,13 +144,15 @@ fn fraud_monitoring_new_dedup_and_defaults() {
         cfg.request_timeout,
         defaults::fraud_monitoring::REQUEST_TIMEOUT
     );
-    assert_eq!(cfg.missing_assessment_grace, Duration::from_secs(5));
-    assert_eq!(cfg.required_minimum_band, Some(FraudRiskBand::High));
+    assert!(!cfg.policy.missing_assessment_permitted);
+    assert!(cfg.policy.required_minimum_band.is_none());
+    assert!(!cfg.policy.enabled);
+    assert!(cfg.policy.attesters.is_empty());
 }
 #[test]
 fn fraud_monitoring_default_matches_defaults() {
     let cfg = FraudMonitoring::default();
-    assert!(!cfg.enabled);
+    assert!(!cfg.policy.enabled);
     assert!(cfg.service_endpoints.is_empty());
     assert_eq!(
         cfg.connect_timeout,
@@ -164,12 +162,9 @@ fn fraud_monitoring_default_matches_defaults() {
         cfg.request_timeout,
         defaults::fraud_monitoring::REQUEST_TIMEOUT
     );
-    assert_eq!(
-        cfg.missing_assessment_grace,
-        Duration::from_secs(defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,)
-    );
-    assert!(cfg.required_minimum_band.is_none());
-    assert!(cfg.attesters.is_empty());
+    assert!(!cfg.policy.missing_assessment_permitted);
+    assert!(cfg.policy.required_minimum_band.is_none());
+    assert!(cfg.policy.attesters.is_empty());
 }
 #[test]
 fn lane_config_derives_display_and_cache_labels() {

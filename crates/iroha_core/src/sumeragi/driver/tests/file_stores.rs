@@ -60,7 +60,7 @@ impl crate::sumeragi::records::Faults for Flaky {
             FsStep::CreateTemp | FsStep::WriteTempRest | FsStep::SyncFile | FsStep::Rename
         );
         if write
-            && n % self.every == 0
+            && n.is_multiple_of(self.every)
             && self
                 .budget
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |b| b.checked_sub(1))

@@ -8,5 +8,8 @@ use iroha_data_model::proof::ProofBox;
 fn removed_generic_ipa_poly_open_route_fails_closed() {
     let removed = "halo2/ipa/poly-open";
     let proof = ProofBox::new(removed.into(), vec![0xA5; 64]);
-    assert!(!verify_backend(removed, &proof, None));
+    assert!(
+        !verify_backend(removed, &proof, None)
+            .expect("verification attempt must complete for this semantic fixture")
+    );
 }

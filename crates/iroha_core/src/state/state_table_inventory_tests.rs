@@ -350,9 +350,12 @@ fn evidence_list(items: &[(&str, &str)]) -> String {
 }
 
 /// State-level canonical cells whose Rust owner is a node configuration value, read from
-/// the registry declaration itself.
+/// the registry declaration itself and joined to its compiled authority classification.
+/// A derived projection can retain that Rust type without retaining policy authority.
 fn node_configuration_cells() -> Vec<String> {
     const REGISTRY: &str = "crates/iroha_core/src/state/authority_registry/state.rs";
+    let mut fields = Vec::new();
+    flatten(STATE_FIELDS, &mut fields);
     source(REGISTRY)
         .lines()
         .filter(|line| line.contains("iroha_config::parameters::actual::"))
@@ -364,6 +367,20 @@ fn node_configuration_cells() -> Vec<String> {
                 .expect("registry identity is a string literal")
                 .0
                 .to_owned()
+        })
+        .filter(|id| {
+            let field = fields
+                .iter()
+                .find(|field| field.id == id.as_str())
+                .unwrap_or_else(|| panic!("unclassified node-configuration owner {id}"));
+            match field.role {
+                Role::Canonical(Canonical::Cell(_)) => true,
+                Role::Derived {
+                    sources: &["world.parameters"],
+                    check: DerivationCheck::Rebuild(_),
+                } => false,
+                _ => panic!("node-configuration owner {id} lacks reviewed policy authority"),
+            }
         })
         .collect()
 }
@@ -583,7 +600,7 @@ const ROOTS: &[Root] = &[
             ),
             (
                 "crates/iroha_core/src/sumeragi/genesis_meta.rs",
-                "staged.execution_policy_digest_v1().map(Hash::prehashed)",
+                ".genesis_execution_policy_digest_v1()",
             ),
             (
                 "crates/iroha_data_model/src/block/consensus.rs",
@@ -1734,6 +1751,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Accumulator("sccp_message_accumulator"),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/keeper.rs",
+        uses: &[("anchor_node", 2)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
         uses: &[("HistoryAccumulator", 2)],
         owner: UseOwner::Roots(&["sccp_certified_history_root"]),
@@ -1861,7 +1883,7 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         uses: &[("MerkleTree", 1)],
         owner: UseOwner::Other(
             Use::Test,
-            "Inline telemetry corruption fixture substitutes an empty output Merkle tree to prove counter classification rejects a stale block-result commitment; it defines no State root",
+            "Inline telemetry test replaces the output tree to verify rejection of a stale classified-result cache",
         ),
     },
     ConstructionUse {
@@ -2006,7 +2028,10 @@ fn rust_sources(scope: &[&str]) -> Vec<String> {
     fn walk(root: &Path, relative: &str, out: &mut Vec<String>) {
         let path = root.join(relative);
         if path.is_file() {
-            if relative.ends_with(".rs") {
+            if std::path::Path::new(relative)
+                .extension()
+                .is_some_and(|extension| extension == "rs")
+            {
                 out.push(relative.to_owned());
             }
             return;
@@ -7133,10 +7158,12 @@ fn tracked_inventory_matches_the_source() {
 #[test]
 #[ignore = "writes specs/state_table_inventory.json; run it to accept an intended change"]
 fn regenerate_state_table_inventory() {
-    assert!(
-        cfg!(feature = "telemetry"),
-        "regenerate with the node feature set: the tracked inventory lists state.telemetry"
-    );
+    const {
+        assert!(
+            cfg!(feature = "telemetry"),
+            "regenerate with the node feature set: the tracked inventory lists state.telemetry"
+        );
+    }
     let path = repository().join(INVENTORY_PATH);
     let generated = generate();
     // A canonical no-op must preserve the fixture timestamp and Cargo's input
@@ -7870,10 +7897,23 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
             .all(|id| id.starts_with("state.") || id.starts_with("runtime."))
     );
     let configured = node_configuration_cells();
-    assert_eq!(configured.len(), 9);
+    assert_eq!(configured.len(), 8);
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");
     }
+    let fraud = rows
+        .iter()
+        .find(|row| row.field.id == "state.fraud_monitoring")
+        .expect("fraud projection remains inventoried");
+    assert!(matches!(
+        fraud.field.role,
+        Role::Derived {
+            sources: &["world.parameters"],
+            check: DerivationCheck::Rebuild(_),
+        }
+    ));
+    assert_eq!(fraud.commitment, Commitment::Derived);
+    assert!(!configured.iter().any(|id| id == fraud.field.id));
     // No execution-witness family carries a State-level field, so the witnessed roots
     // cannot depend on one either.
     let witnessed = witnessed_fields();
@@ -8652,11 +8692,6 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "capture_frozen_action_authority_table",
             "state_table_substrate",
         ),
-        (
-            "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
-            "original_begin",
-            "execution_witness_roots",
-        ),
     ] {
         let listed = STATE_HASH_FUNCTIONS
             .iter()
@@ -8667,6 +8702,18 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "{name}"
         );
     }
+    // Borrowing the retained Begin proof graph creates no new root or authority.
+    let original_begin = STATE_HASH_FUNCTIONS
+        .iter()
+        .find(|listed| {
+            listed.path == "crates/iroha_core/src/query/native_receipts/amx_begins.rs"
+                && listed.name == "original_begin"
+        })
+        .expect("the original Begin record reader is listed");
+    assert!(matches!(
+        original_begin.owner,
+        UseOwner::Other(Use::Record, reason) if !reason.is_empty()
+    ));
     for (header, target) in [
         ("impl<'a> A for B<'a> where B: C", Some("B<'a>")),
         ("impl<T: X<Y>> Holder<T>", Some("Holder<T>")),
@@ -8876,24 +8923,22 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
     let path = "crates/iroha_core/src/query/native_receipts/amx_read.rs";
     let text = source(path);
     let (_, code) = split_source(&text);
-    let matched: Vec<_> = fn_signatures(&code)
+    let matched = fn_signatures(&code)
         .into_iter()
         .filter(|signature| {
             signature.name == "complete" && signature.reads_state && signature.returns_hash
         })
-        .collect();
+        .count();
     assert_eq!(
-        matched.len(),
-        1,
+        matched, 1,
         "original AMX complete State-reader must remain scanned"
     );
-    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+    let listed = STATE_HASH_FUNCTIONS
         .iter()
         .filter(|listed| listed.path == path && listed.name == "complete")
-        .collect();
+        .count();
     assert_eq!(
-        listed.len(),
-        1,
+        listed, 1,
         "original AMX complete must retain its exact registry entry"
     );
 }

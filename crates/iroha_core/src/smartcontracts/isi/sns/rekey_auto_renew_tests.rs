@@ -328,8 +328,8 @@ fn original_rekey_fixture_with_source_policy(
             valid_until_ms: 120_000,
         },
     );
-    let signed = chain.sign(&admin_key, [ensure.into()], 1_020);
-    let accepted = chain.commit(vec![signed]);
+    let signed_payload = chain.sign(&admin_key, [ensure.into()], 1_020);
+    let accepted = chain.commit(vec![signed_payload]);
     assert_eq!(
         accepted,
         vec![true],

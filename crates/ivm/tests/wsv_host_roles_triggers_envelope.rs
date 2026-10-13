@@ -42,9 +42,11 @@ fn json_admin_envelopes_are_rejected_for_every_a0_tag_without_mutation() {
         99,
     ] {
         vm.set_register(11, tag);
-        assert_eq!(
-            host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
-            Err(VMError::NoritoInvalid),
+        assert!(
+            matches!(
+                host.syscall(syscalls::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm),
+                Err(VMError::NoritoInvalid)
+            ),
             "JSON pointer must be rejected before interpreting tag {tag}"
         );
     }

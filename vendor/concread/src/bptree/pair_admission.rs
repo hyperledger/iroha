@@ -255,6 +255,6 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "pair_admission_tests.rs"]
 mod tests;

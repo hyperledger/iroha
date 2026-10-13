@@ -39,12 +39,131 @@ pub enum SccpRestoreError {
     /// Generation graph admission refused; original allocation identity is retained.
     #[error("sccp_committee_generations: {0}")]
     Generation(#[from] GenerationRecordError),
+    /// Stored validator bytes retain the original native decode or allocation refusal.
+    #[error("SCCP validator set: {0}")]
+    LightClient(#[from] iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1),
     /// Open-anchor graph admission refused; original allocation identity is retained.
     #[error("sccp_anchor_open: {0}")]
     Anchors(#[from] AnchorRecordError),
     /// Pause, panel or endorsement graph failed without discarding its original refusal.
     #[error("SCCP pause State: {0}")]
     Pause(#[from] PauseRecordError),
+    /// Fixed reconciliation snapshot decoder refused its original local resources.
+    #[error("SCCP reconciliation snapshot decoder: {0}")]
+    ReconciliationDecode(norito::core::DecodeResourceError),
+}
+
+/// Check the exact refund reserve in both restored cuts before either becomes visible.
+/// One original-pool scalar scratch map groups the outbound rows of each cut; no
+/// message payload or historical graph is copied during this restore-time check.
+fn validate_pending_refunds(
+    outbound: &mut Storage<[u8; 32], iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1>,
+    refunds: &mut crate::smartcontracts::isi::sccp::reconciliation_store::Refunds,
+    budget: &AllocationBudget,
+) -> Result<(), SccpRestoreError> {
+    use crate::smartcontracts::isi::sccp::reconciliation_store::{Key, Refunds};
+    use iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1;
+
+    fn invalid() -> SccpRestoreError {
+        json::Error::InvalidField {
+            field: "sccp_pending_refund_amount".into(),
+            message: "refund amounts differ from exact current or predecessor pending records"
+                .into(),
+        }
+        .into()
+    }
+    fn image<'a>(
+        outbound: impl Iterator<Item = (&'a [u8; 32], &'a SccpOutboundMessageRecordV1)>,
+        refunds: impl Iterator<Item = (&'a Key, &'a u128)>,
+        budget: &AllocationBudget,
+    ) -> Result<(), SccpRestoreError> {
+        let sums = Refunds::try_new_admitted(budget.clone())?;
+        sums.try_with_admitted_block(|block| {
+            for (_, record) in outbound {
+                if !record.status.is_refund_pending() {
+                    continue;
+                }
+                let key = (record.network, record.revision);
+                let sum = block
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(0_u128)
+                    .checked_add(record.amount)
+                    .ok_or_else(invalid)?;
+                if sum != 0 {
+                    block
+                        .try_insert_admitted(key, sum)
+                        .map_err(|(_, error)| SccpRestoreError::Storage(error))?;
+                }
+            }
+            if !block
+                .iter()
+                .map(|(key, value)| (*key, *value))
+                .eq(refunds.map(|(key, value)| (*key, *value)))
+            {
+                return Err(invalid());
+            }
+            Ok(())
+        })
+        .map_err(|error| match error {
+            mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+            mv::storage::AdmittedBlockError::Callback(original) => original,
+        })
+    }
+    let outbound = outbound.history();
+    let refunds = refunds.history();
+    image(outbound.current().iter(), refunds.current().iter(), budget)?;
+    image(
+        outbound.iter_before_block(),
+        refunds.iter_before_block(),
+        budget,
+    )
+}
+
+/// Authenticate each reconciliation's quarantine and open-window supply bound in both cuts.
+/// A fixed rate names historical backing, so a closed window imposes no bound on today's
+/// remaining liability after claims and refunds have consumed it.
+fn validate_reconciliation_routes(
+    records: &mut crate::smartcontracts::isi::sccp::reconciliation_store::Records,
+    routes: &mut Storage<SccpNetworkV1, iroha_data_model::sccp::registry::SccpRouteV1>,
+) -> Result<(), SccpRestoreError> {
+    let records = records.history();
+    let routes = routes.history();
+    let current = records.current().iter().map(|(key, record)| {
+        (
+            record,
+            routes
+                .current()
+                .get(&key.0)
+                .and_then(|route| route.revisions.get(&key.1)),
+        )
+    });
+    let previous = records.iter_before_block().map(|(key, record)| {
+        (
+            record,
+            routes
+                .get_before_block(&key.0)
+                .and_then(|route| route.revisions.get(&key.1)),
+        )
+    });
+    for (record, revision) in current.chain(previous) {
+        if !revision.is_some_and(|revision| {
+            revision.quarantine.is_some()
+                && (record.rho.is_some()
+                    || revision
+                        .liability
+                        .checked_add(record.forged_supply)
+                        .is_some())
+        }) {
+            return Err(json::Error::InvalidField {
+                field: "sccp_reconciliations".into(),
+                message: "reconciliation lacks its exact quarantined revision or open supply bound"
+                    .into(),
+            }
+            .into());
+        }
+    }
+    Ok(())
 }
 
 /// Preserve both exact MV cuts in original-pool immutable anchor map nodes.
@@ -133,9 +252,7 @@ use iroha_data_model::{
         generation::{SCCP_ANCHOR_CHUNK_SIZE_V1, SccpAnchorV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        light_client::{
-            SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcProfileActivationV1, SccpLightClientV1,
-        },
+        light_client::{SccpLcCheckpointV1, SccpLcProfileActivationV1, SccpLightClientV1},
         outbound::SccpOutboundMessageRecordV1,
         params::SccpParametersV1,
         registry::SccpRouteV1,
@@ -287,6 +404,9 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_governance_revisions: snapshot_storage::SnapshotStorage,
     pub(super) sccp_inbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_pending_counts: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_reconciliations: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_reconciliation_proven: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_pending_refund_amount: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_clients: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_sets: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_checkpoints: snapshot_storage::SnapshotStorage,
@@ -344,6 +464,9 @@ macro_rules! serialize_sccp_fields {
             store sccp_governance_revisions,
             store sccp_inbound_messages,
             store sccp_pending_counts,
+            store sccp_reconciliations,
+            store sccp_reconciliation_proven,
+            store sccp_pending_refund_amount,
             store sccp_light_clients,
             store sccp_light_client_sets,
             store sccp_light_client_checkpoints,
@@ -411,14 +534,14 @@ fn validate_cell<T: mv::Value>(
     Ok(())
 }
 
-fn valid_parameters(parameters: &Option<SccpParametersV1>) -> Result<(), String> {
-    parameters.as_ref().map_or(Ok(()), |parameters| {
+fn valid_parameters(parameters: Option<&SccpParametersV1>) -> Result<(), String> {
+    parameters.map_or(Ok(()), |parameters| {
         parameters.validate().map_err(|error| error.to_string())
     })
 }
 
-fn valid_reset_nonce(nonce: &Option<[u8; 32]>) -> Result<(), String> {
-    if nonce.is_some_and(|nonce| nonce == [0; 32]) {
+fn valid_reset_nonce(nonce: Option<&[u8; 32]>) -> Result<(), String> {
+    if nonce.is_some_and(|nonce| *nonce == [0; 32]) {
         return Err("the reset nonce must be nonzero".to_owned());
     }
     Ok(())
@@ -447,12 +570,12 @@ impl SnapshotSccpState {
         world: &mut World,
         budget: &AllocationBudget,
     ) -> Result<(), StateRestoreError> {
-        validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
-        validate_cell(
-            &self.sccp_reset_nonce,
-            "sccp_reset_nonce",
-            valid_reset_nonce,
-        )?;
+        validate_cell(&self.sccp_parameters, "sccp_parameters", |value| {
+            valid_parameters(value.as_ref())
+        })?;
+        validate_cell(&self.sccp_reset_nonce, "sccp_reset_nonce", |value| {
+            valid_reset_nonce(value.as_ref())
+        })?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
         validate_cell(&self.sccp_anchor_open, "sccp_anchor_open", |value| {
             valid_anchor_open(value)
@@ -621,8 +744,14 @@ impl SnapshotSccpState {
             .into());
         }
         // Fund replacement scalar controls under the same original offence pool before publication.
-        let forgery_max_generation =
-            sccp_forgery_custody::initialize_max(max_current, max_previous, budget)?;
+        let forgery_max_generation = sccp_forgery_custody::initialize_max(
+            max_current,
+            match max_previous {
+                Some(value) => sccp_forgery_custody::MaxGenerationPredecessor::Value(value),
+                None => sccp_forgery_custody::MaxGenerationPredecessor::Unchanged,
+            },
+            budget,
+        )?;
         drop(snapshot);
         let anchor_chunks = self
             .sccp_anchor_chunks
@@ -640,7 +769,7 @@ impl SnapshotSccpState {
         let history_leaves = self
             .sccp_history_leaves
             .decode::<u64, (u64, [u8; 32])>("sccp_history_leaves", |_, _| true)?;
-        let outbound_messages = self
+        let mut outbound_messages = self
             .sccp_outbound_messages
             .decode::<[u8; 32], SccpOutboundMessageRecordV1>("sccp_outbound_messages", |_, _| {
                 true
@@ -671,7 +800,7 @@ impl SnapshotSccpState {
                 "sccp_fast_pause_rounds",
                 |key, value| key.0.is_external() && value.has_valid_shape(),
             )?;
-        let routes = self
+        let mut routes = self
             .sccp_routes
             .decode::<SccpNetworkV1, SccpRouteV1>("sccp_routes", store::routes::valid_entry)?;
         let destination_words = self
@@ -692,15 +821,41 @@ impl SnapshotSccpState {
                 "sccp_pending_counts",
                 store::pending_counts::valid_entry,
             )?;
+        use crate::smartcontracts::isi::sccp::reconciliation_store as reconciliation;
+        let mut reconciliations = self.sccp_reconciliations.decode_reconciliation_fixed::<
+            reconciliation::Key, iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1,
+        >("sccp_reconciliations", budget, reconciliation::valid_record)?;
+        let mut reconciliation_proven = self
+            .sccp_reconciliation_proven
+            .decode_reconciliation_fixed::<reconciliation::ProofKey, u128>(
+                "sccp_reconciliation_proven",
+                budget,
+                |key, amount| reconciliation::valid_key(&(key.0, key.1)) && *amount > 0,
+            )?;
+        let mut pending_refund_amount = self
+            .sccp_pending_refund_amount
+            .decode_reconciliation_fixed::<reconciliation::Key, u128>(
+                "sccp_pending_refund_amount",
+                budget,
+                |key, amount| reconciliation::valid_key(key) && *amount > 0,
+            )?;
+        let reconciliation_due = reconciliation::rebuild_due(&reconciliations, budget)?;
+        if !reconciliation::validate_proof_sums(&mut reconciliations, &mut reconciliation_proven) {
+            return Err(json::Error::InvalidField {
+                field: "sccp_reconciliation_proven".into(),
+                message: "proof amounts differ from exact current or predecessor forged supply"
+                    .into(),
+            }
+            .into());
+        }
+        validate_pending_refunds(&mut outbound_messages, &mut pending_refund_amount, budget)?;
+        validate_reconciliation_routes(&mut reconciliations, &mut routes)?;
         let light_clients = self
             .sccp_light_clients
             .decode::<SccpNetworkV1, SccpLightClientV1>("sccp_light_clients", |_, _| true)?;
         let light_client_sets = self
             .sccp_light_client_sets
-            .decode::<(SccpNetworkV1, u64), SccpLcConsensusSetV1>(
-                "sccp_light_client_sets",
-                |_, _| true,
-            )?;
+            .decode_light_client_sets(budget)?;
         let light_client_checkpoints = self
             .sccp_light_client_checkpoints
             .decode::<(SccpNetworkV1, u64), SccpLcCheckpointV1>(
@@ -773,6 +928,10 @@ impl SnapshotSccpState {
         world.sccp_governance_revisions = governance_revisions;
         world.sccp_inbound_messages = inbound_messages;
         world.sccp_pending_counts = pending_counts;
+        world.sccp_reconciliations = reconciliations;
+        world.sccp_reconciliation_proven = reconciliation_proven;
+        world.sccp_pending_refund_amount = pending_refund_amount;
+        world.sccp_reconciliation_due = reconciliation_due;
         world.sccp_light_clients = light_clients;
         world.sccp_light_client_sets = light_client_sets;
         world.sccp_light_client_checkpoints = light_client_checkpoints;

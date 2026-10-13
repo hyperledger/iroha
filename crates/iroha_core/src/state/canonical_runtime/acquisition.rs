@@ -78,6 +78,7 @@ macro_rules! runtime_cells {
             $(pub(in crate::state) $field: CellBlock<'state, $value, $charge>,)+
             pub(in crate::state) projection: CanonicalRuntimeProjection,
             pub(in crate::state) block_hashes: BlockHashesBlock<'state>,
+            #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
             pub(in crate::state) da_rewind_releases: Option<da_hydration::DaRewindReleases<'state>>,
         }
 
@@ -121,6 +122,7 @@ macro_rules! runtime_cells {
                             $($field: cells.$field.take().expect("original State Cell"),)+
                             projection: projection.take().expect("original prepared runtime projection"),
                             block_hashes: original.block_hashes.take().expect("original funded hash successor"),
+                            #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                             da_rewind_releases: None,
                         }),
                     }
@@ -157,6 +159,7 @@ impl<'state> AcquiredRuntimeBlock<'state> {
     }
 
     /// Retain the actual rewind notices before entering its fallible engine.
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     pub(in crate::state) fn rewind_da_indexes_to_height(
         &mut self,
         target_height: u64,

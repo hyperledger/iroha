@@ -138,7 +138,9 @@ mod public_key_input;
 use core::{fmt, str::FromStr};
 pub use public_key_allocation::{ChargedPublicKey, PublicKeyAllocationError};
 pub use public_key_input::PublicKeyEnvelopeError;
-pub use signature::admission::{SignatureVerificationError, verify_signature_borrowed};
+pub use signature::admission::{
+    SignatureVerificationError, verify_ed25519_signature_borrowed, verify_signature_borrowed,
+};
 #[cfg(feature = "bls")]
 pub use signature::admission::{
     verify_bls_normal_pop_borrowed, verify_bls_normal_signature_borrowed,

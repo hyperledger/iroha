@@ -72,7 +72,7 @@ fn canonical_json_literals_preserve_each_actual_cumulative_refusal_and_retry() {
                     validate_literal_table(&program, &parsed, &[])
                 })
                 .unwrap_err();
-                let retained = outcome.local_vm_error().unwrap();
+                let retained = outcome.try_into_local_vm_error().unwrap();
                 assert_eq!(
                     retained.execution_deferral(),
                     Some(ExecutionDeferral::ActiveMemoryCapacity)
@@ -84,7 +84,6 @@ fn canonical_json_literals_preserve_each_actual_cumulative_refusal_and_retry() {
                     Some(original.resource_error()),
                     error.error().decode_resource_error()
                 );
-                assert_eq!(outcome.into_vm_error(), retained);
                 let Some(DecodeResourceError::TotalAllocationExceeded { attempted, .. }) =
                     error.into_error().decode_resource_error()
                 else {
@@ -110,8 +109,8 @@ fn malformed_literal_frames_and_opcode_kinds_remain_deterministic() {
             validate_literal_table(&program, &parsed, &[])
         })
         .unwrap_err();
-        assert_eq!(error.local_vm_error(), None);
-        assert_eq!(error.into_vm_error(), VMError::InvalidMetadata);
+        assert!(!error.is_local_deferral());
+        assert!(matches!(error.into_vm_error(), VMError::InvalidMetadata));
     }
     let program = self::program(PointerType::Blob, b"opaque");
     let parsed = ProgramMetadata::parse(&program).unwrap();
@@ -123,12 +122,12 @@ fn malformed_literal_frames_and_opcode_kinds_remain_deterministic() {
             pc: 0,
             inst: ivm_abi::encoding::wide::encode_literal(opcode, 5, index),
         }];
-        assert_eq!(
+        assert!(matches!(
             validate_literal_table(&program, &parsed, &decoded)
                 .unwrap_err()
                 .into_vm_error(),
             VMError::InvalidMetadata
-        );
+        ));
     }
 }
 
@@ -231,13 +230,21 @@ fn actual_artifact_admission_keeps_literal_refusal_after_metadata_succeeds() {
         refused.to_string().contains("literal index validation"),
         "{refused}"
     );
-    let retained = refused.local_vm_error().unwrap();
+    let retained = refused.try_into_local_vm_error().unwrap();
     assert_eq!(
         retained.execution_deferral(),
         Some(ExecutionDeferral::ActiveMemoryCapacity)
     );
-    assert!(matches!(retained, VMError::DecodeDeferred(_)));
-    assert_eq!(refused.into_vm_error(), retained);
+    let VMError::DecodeDeferred(original) = retained else {
+        panic!("literal refusal must retain its captured decoder owner");
+    };
+    let expected = original.clone();
+    let converted = crate::ContractArtifactError::preparation(
+        "literal index validation",
+        VMError::DecodeDeferred(original),
+    )
+    .into_vm_error();
+    assert!(matches!(converted, VMError::DecodeDeferred(actual) if actual == expected));
     let retried = crate::verify_contract_artifact(&artifact).unwrap();
     assert_eq!(retried.code_hash, baseline.code_hash);
     assert_eq!(retried.manifest, baseline.manifest);

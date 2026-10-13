@@ -211,6 +211,84 @@ fn begun(state: &mut GlobalState, height: u64, tx: &AmxTx) {
 }
 
 #[test]
+fn det_amx_time_sensitive_carriers_refuse_stale_time_but_certified_replay_is_exempt() {
+    use crate::sim::{
+        driver::{encode_time, fixture_body, payload_due},
+        scenario::{ClockGuard, Scenario},
+    };
+
+    let mut scenario = Scenario::base("AMX-time-sensitive-carriers", 0, 4);
+    scenario.instances = 3;
+    scenario.clock_guard = Some(ClockGuard {
+        max_clock_drift_ms: 500,
+        due_work_max_lag_ms: 5_000,
+        ..Default::default()
+    });
+    scenario.amx = Some(AmxConfig {
+        submit_loss_ppm: 0,
+        ..Default::default()
+    });
+    let mut world = World::new(scenario);
+    world.now = 20_000;
+    let r = world.machines[0].replicas[GLOBAL].unwrap();
+    let wall = u64::try_from(world.wall_ms(0)).unwrap();
+    let (dataspaces, _) = global();
+    let transaction = tx(&[D1, D2], 50, 1);
+    let proof = vote(
+        &dataspaces,
+        D1,
+        transaction.id(),
+        Vote::Yes(Hash32([4; 32])),
+    );
+    // The generic fixture author uses TEST_EPOCH; the vote proof above belongs
+    // to its independent dataspace epoch and is only an input to this carrier.
+    let header = BlockHeader {
+        instance: Hash32::ZERO,
+        epoch: crate::testing::TEST_EPOCH.id,
+        height: 1,
+        origin_view: 0,
+        parent_hash: Hash32::ZERO,
+        parent_result: Hash32::ZERO,
+        payload_hash: Hash32::ZERO,
+        availability_digest: Hash32::ZERO,
+        payload_len: 0,
+        proposer: 0,
+        skipped_leaders: Vec::new(),
+        control_witness: ControlWitness::empty(),
+    };
+    let inputs = [
+        Input::Begin(transaction.clone()),
+        Input::Vote(Box::new(proof)),
+        Input::Expire(transaction.id()),
+    ];
+    for input in inputs {
+        let id = world.amx.as_mut().unwrap().register(GLOBAL, input);
+        world.amx_submit(GLOBAL, id);
+        let submitted = world.replicas[r].txs.get(&id).unwrap().clone();
+        assert!(
+            payload_due(&submitted),
+            "Begin and Vote carriers must enforce certified-time freshness alongside Expire"
+        );
+        for (lag, expected) in [(5_000, None), (5_001, Some("StaleDueWork"))] {
+            let bytes = encode_time(wall - lag)
+                .into_iter()
+                .chain(submitted.iter().copied())
+                .collect::<Vec<_>>();
+            let body = fixture_body(header.clone(), &bytes);
+            assert_eq!(
+                world.clock_guard_refusal(r, &body, &Hash32::ZERO, false),
+                expected.map(|cause| ExecOutcome::Failed(cause.to_owned()))
+            );
+            assert_eq!(
+                world.clock_guard_refusal(r, &body, &Hash32::ZERO, true),
+                None,
+                "time-sensitive application inputs cannot invalidate already certified replay"
+            );
+        }
+    }
+}
+
+#[test]
 fn det_amx_commit_needs_every_yes() {
     let (dataspaces, mut state) = global();
     let t = tx(&[D1, D2, D3], 50, 1);

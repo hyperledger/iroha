@@ -303,7 +303,7 @@ impl Debug for BlockStore {
             .field("mmap_len", &self.data_mmap_len)
             .field("commit_marker_count", &self.commit_marker_count)
             .field("commit_marker_pending", &self.commit_marker_pending)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl BlockStore {

@@ -197,18 +197,12 @@ fn scratch_is_funded_with_zero_retention_and_reclaimed_on_error_or_unwind() {
     }
     let empty_budget = AllocationBudget::new(0);
     let original = empty_budget.try_reserve_bytes(1).unwrap_err();
-    assert_eq!(
-        buffer_error(PrepaidBufferError::Allocation(
+    assert!(matches!(buffer_error(PrepaidBufferError::Allocation(
             ChargedBufferError::Admission(original.clone())
-        )),
-        VMError::AllocationDeferred(original),
-    );
-    assert_eq!(
-        buffer_error(PrepaidBufferError::Allocation(
+        )), VMError::AllocationDeferred(__actual_error_field) if __actual_error_field == (original)));
+    assert!(matches!(buffer_error(PrepaidBufferError::Allocation(
             ChargedBufferError::Allocator { requested_bytes: 7 }
-        )),
-        VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
-    );
+        )), VMError::ExecutionDeferred(__actual_error_field) if __actual_error_field == (ExecutionDeferral::AllocationUnavailable)));
 }
 
 #[test]

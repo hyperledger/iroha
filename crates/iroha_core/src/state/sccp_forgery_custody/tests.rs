@@ -187,7 +187,8 @@ fn snapshot_claim() -> (String, String, [u8; 32]) {
         .sccp_forgery_offences
         .try_with_admitted_block(|b| b.try_insert_admitted(key, id).map_err(|(_, e)| e))
         .unwrap();
-    world.sccp_forgery_max_generation = initialize_max(Some(7), Some(None), &original).unwrap();
+    world.sccp_forgery_max_generation =
+        initialize_max(Some(7), MaxGenerationPredecessor::Value(None), &original).unwrap();
     let mut encoded = String::new();
     serialize_envelope(&world, &mut encoded);
     (encoded, text, id)

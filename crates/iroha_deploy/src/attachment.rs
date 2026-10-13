@@ -209,7 +209,7 @@ impl AttachmentStore {
                 .ok_or(AttachmentError::Invalid("attachment path"))?,
         )?;
         let initial_record = Record {
-            identity: identity.clone(),
+            identity,
             confirmed: None,
             pending: None,
         };
@@ -237,7 +237,7 @@ impl AttachmentStore {
                 norito::canonical_decode_limits(bytes.len()),
             )
             .map_err(|_| AttachmentError::Invalid("invalid retained attachment"))?;
-            if record.identity != identity {
+            if record.identity != initial_record.identity {
                 return Err(AttachmentError::Invalid(
                     "retained attachment differs from selected identity",
                 ));
@@ -432,35 +432,32 @@ impl AttachmentStore {
         }
         proof.verify(identity.dataspace_id(), &parent.verified_tip()?)?;
         validate_record_identity(identity, &proof)?;
-        if let Some(previous) = &self.record.confirmed {
-            if previous.proof.parent_height == proof.parent_height {
-                let retained = SumeragiFinalityCheckpoint::decode_canonical(&previous.checkpoint)
-                    .map_err(|_| {
-                    AttachmentError::Invalid("invalid retained parent checkpoint")
-                })?;
-                if retained.block_hash() != parent.checkpoint().block_hash()
-                    || previous.proof.parent_result != proof.parent_result
-                {
-                    return Err(AttachmentError::Invalid(
-                        "parent equivocated at the retained carrier",
-                    ));
-                }
+        if let Some(previous) = &self.record.confirmed
+            && previous.proof.parent_height == proof.parent_height
+        {
+            let retained = SumeragiFinalityCheckpoint::decode_canonical(&previous.checkpoint)
+                .map_err(|_| AttachmentError::Invalid("invalid retained parent checkpoint"))?;
+            if retained.block_hash() != parent.checkpoint().block_hash()
+                || previous.proof.parent_result != proof.parent_result
+            {
+                return Err(AttachmentError::Invalid(
+                    "parent equivocated at the retained carrier",
+                ));
             }
         }
         let next = ConfirmedAnchor {
             parent_height: proof.parent_height,
             child: proof.record.anchor.cursor(),
         };
-        if let Some(previous) = self.confirmed() {
-            if next.parent_height < previous.parent_height
+        if let Some(previous) = self.confirmed()
+            && (next.parent_height < previous.parent_height
                 || next.child.height < previous.child.height
                 || (next.child.height == previous.child.height && next.child != previous.child)
-                || (next.parent_height == previous.parent_height && next != previous)
-            {
-                return Err(AttachmentError::Invalid(
-                    "parent receipt regresses or forks retained progress",
-                ));
-            }
+                || (next.parent_height == previous.parent_height && next != previous))
+        {
+            return Err(AttachmentError::Invalid(
+                "parent receipt regresses or forks retained progress",
+            ));
         }
         let receipt = ConfirmedReceipt {
             checkpoint: parent

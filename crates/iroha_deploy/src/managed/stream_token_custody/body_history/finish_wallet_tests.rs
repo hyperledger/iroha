@@ -98,7 +98,7 @@ fn finish_wallet_reparses_reuse_readers_and_keep_every_actual_callback() {
             Ok(())
         }
     };
-    let (_, original_accounts) = count_wallet_constructions(|| {
+    let ((), original_accounts) = count_wallet_constructions(|| {
         parser_handle_tests::with_hook(observe(), || {
             for _ in 0..4 {
                 same_history(&history.read_current(&fixture.owner).unwrap(), &history);

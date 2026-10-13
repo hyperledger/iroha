@@ -107,7 +107,7 @@ fn deterministic_session_v1(
         attempt_id: session_id,
         authority_generation: 0,
         roster_hash,
-        committee_size: EXACT_TEST_VALIDATORS_V1 as u16,
+        committee_size: u16::try_from(EXACT_TEST_VALIDATORS_V1).expect("fixture value fits u16"),
         threshold: EXACT_TEST_THRESHOLD_V1,
         start_height: 1,
         commitments_end_height: 2,

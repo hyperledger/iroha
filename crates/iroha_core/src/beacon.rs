@@ -1068,7 +1068,7 @@ impl std::fmt::Debug for GlobalThresholdBeaconDkgStateV1 {
             )
             .field("aborted", &self.aborted)
             .field("last_updated_height", &self.last_updated_height)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -1667,18 +1667,17 @@ fn validate_adaptive_dkg_geometry(
     let transcript = &record.adaptive_dkg;
     validate_dkg_session(&transcript.session)?;
     let session = &transcript.session;
+    let finalized_after_acceptances =
+        transcript.finalized_at_height >= session.acceptances_end_height;
+    let contribution_matches = transcript.event_hash == record.dkg_contribution_hash;
     if session.version != record.version
         || session.network_id != record.network_id
         || session.session_id != record.session_id
         || session.roster_hash != record.roster_hash
         || session.committee_size != record.committee_size
         || session.threshold != record.threshold
-    {
-        return Err(GlobalThresholdBeaconError::InvalidDkgSession);
-    }
-    // Finalization follows the acceptance deadline; the retained contribution is this event hash.
-    if transcript.finalized_at_height < session.acceptances_end_height
-        || transcript.event_hash != record.dkg_contribution_hash
+        || !finalized_after_acceptances
+        || !contribution_matches
         || is_zero(&transcript.generator_h)
         || is_zero(&transcript.generator_v)
         || transcript.generator_h == transcript.generator_v
@@ -2059,6 +2058,12 @@ pub struct RuntimeGlobalThresholdBeaconShareCustodyV1 {
 impl RuntimeGlobalThresholdBeaconShareCustodyV1 {
     /// Construct an empty, fail-closed runtime custody registry.
     #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the adaptive protocol is not ready, committee or
+    /// threshold bounds are invalid, the pulse context is invalid, or the anchor
+    /// is not the nonzero-hash predecessor of a positive pulse height.
     pub fn new() -> Self {
         Self {
             sessions: RwLock::new(BTreeMap::new()),

@@ -161,7 +161,6 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
     let raw = material.ok_or_else(|| json::Error::missing_field("evidence"))?;
     // The selected exact decoder validates the whole source; this pass stops at
     // the discriminator so later fields cannot pre-empt earlier semantic errors.
-    drop(map);
     let mut p = Parser::new(raw);
     let mut map = MapVisitor::new(&mut p)?;
     let mut kind = None;

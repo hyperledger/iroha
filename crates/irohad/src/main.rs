@@ -3,10 +3,10 @@
 compile_error!(
     "the feature-isolated Parliament fixture signers cannot be compiled into an optimized daemon"
 );
-/// Metadata derived from the authenticated and executed native genesis.
-pub mod authenticated_genesis;
 /// Durable, independently verified native AMX relay delivery.
 mod amx_relay;
+/// Metadata derived from the authenticated and executed native genesis.
+pub mod authenticated_genesis;
 /// Per-seat authenticated global-beacon DKG and exact-quorum rotation provisioning.
 #[cfg(unix)]
 pub mod beacon_bootstrap;
@@ -788,15 +788,17 @@ fn ensure_operator_node_key_allowlisted(config: &mut Config) {
 }
 #[cfg(feature = "beep")]
 fn startup_beep(enable_beep: bool) -> bool {
-    if !enable_beep {
-        return false;
-    }
-    IVM::beep_music();
     const SHA256_ABC_EXPECTED: [u8; 32] = [
         0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22,
         0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00,
         0x15, 0xad,
     ];
+
+    if !enable_beep {
+        return false;
+    }
+    IVM::beep_music();
+
     let _ = SHA256_ABC_EXPECTED;
     true
 }
@@ -826,7 +828,7 @@ pub struct StartupArgs {
     /// `--check-config`).
     #[arg(long, conflicts_with = "check_config")]
     pub check_storage: bool,
-    /// Require this registered account to retain SoraCloud deployment authority
+    /// Require this registered account to retain `SoraCloud` deployment authority
     /// after executing the exact signed genesis during offline validation.
     #[arg(long, value_name = "ACCOUNT_ID", requires = "check_config")]
     pub require_genesis_inrou_deployment_authority: Option<String>,
@@ -1067,7 +1069,9 @@ impl std::fmt::Display for StartError {
             StartError::InitKura => "error.init_kura",
             StartError::ListenOsSignal => "error.listen_os_signal",
             StartError::StartTorii => "error.start_torii",
-            StartError::StartAmxRelay => return f.write_str("failed to initialize native AMX relay"),
+            StartError::StartAmxRelay => {
+                return f.write_str("failed to initialize native AMX relay");
+            }
         };
         write!(f, "{}", i18n::t(key))
     }
@@ -1127,7 +1131,7 @@ fn apply_state_runtime_config_before_snapshot_auth(
     install_node_pipeline_config(state, config)?;
     state.set_crypto(config.crypto.clone());
     state.set_oracle(config.oracle.clone());
-    state.set_fraud_monitoring(config.fraud_monitoring.clone());
+    state.install_node_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement);
@@ -1158,20 +1162,7 @@ fn apply_state_geometry_config_before_kura_replay(
     state: &mut State,
     policies: &StartupLanePolicies,
 ) -> ReportResult<(), StartError> {
-    if !state.nexus_runtime_restored_from_snapshot() {
-        state
-            .prepare_configured_primary_geometry_anchor(&policies.nexus.configured_lane_catalog)
-            .map_err(|err| Report::new(err).change_context(StartError::InitKura))
-            .map_err(|report| {
-                report.attach("failed to anchor authenticated primary lane geometry at startup")
-            })?;
-        state
-            .restore_kura_lane_segments_before_startup_replay()
-            .map_err(|err| Report::new(err).change_context(StartError::InitKura))
-            .map_err(|report| {
-                report.attach("failed to restore primary geometry before startup replay")
-            })?;
-    } else {
+    if state.nexus_runtime_restored_from_snapshot() {
         state
             .prepare_restored_configured_primary_geometry_anchor(
                 &policies.nexus.configured_lane_catalog,
@@ -1187,6 +1178,19 @@ fn apply_state_geometry_config_before_kura_replay(
             .map_err(|err| Report::new(err).change_context(StartError::InitKura))
             .map_err(|report| {
                 report.attach("failed to restore snapshot Nexus lane storage at startup")
+            })?;
+    } else {
+        state
+            .prepare_configured_primary_geometry_anchor(&policies.nexus.configured_lane_catalog)
+            .map_err(|err| Report::new(err).change_context(StartError::InitKura))
+            .map_err(|report| {
+                report.attach("failed to anchor authenticated primary lane geometry at startup")
+            })?;
+        state
+            .restore_kura_lane_segments_before_startup_replay()
+            .map_err(|err| Report::new(err).change_context(StartError::InitKura))
+            .map_err(|report| {
+                report.attach("failed to restore primary geometry before startup replay")
             })?;
     }
     sccp_staking_policy::validate(&state.world_view(), &policies.nexus.staking)
@@ -2222,15 +2226,15 @@ impl Iroha {
         ),
         StartError,
     > {
-        let prepared = PreparedStartup::prepare(config, genesis).await?;
-        Self::activate_with_runtime_deps(
+        let prepared = Box::pin(PreparedStartup::prepare(config, genesis)).await?;
+        Box::pin(Self::activate_with_runtime_deps(
             build,
             prepared,
             logger,
             shutdown_signal,
             runtime_deps,
             musubi_publication_factory,
-        )
+        ))
         .await
     }
 
@@ -2360,7 +2364,9 @@ impl Iroha {
             .map_err(|message| Report::new(StartError::StartTorii).attach(message))?;
         }
         #[cfg(any(unix, windows))]
-        let native_provider_ingest = if !emergency_fast {
+        let native_provider_ingest = if emergency_fast {
+            None
+        } else {
             config
                 .torii
                 .sorafs_storage
@@ -2427,8 +2433,6 @@ impl Iroha {
                     Report::new(StartError::StartTorii)
                         .attach(format!("native provider ingest rejected: {error}"))
                 })?
-        } else {
-            None
         };
         #[cfg(not(any(unix, windows)))]
         if config
@@ -2743,16 +2747,13 @@ impl Iroha {
         }?;
         // Peers admit each other by the consensus mode, the Sumeragi protocol version and the
         // instance id (`I`: the genesis block and the chain id) as the consensus fingerprint.
-        let consensus_fingerprint = match prepared_sumeragi.as_ref() {
-            Some(prepared) => prepared.instance(),
-            None => {
-                let genesis = effective_genesis.ok_or_else(|| {
-                    Report::new(StartError::InitKura)
-                        .attach("emergency Fast startup found no signed genesis block")
-                })?;
-                iroha_core::sumeragi::node::root_instance(genesis, &config.common.chain.to_string())
-                    .map_err(|error| Report::new(StartError::InitKura).attach(error))?
-            }
+        let consensus_fingerprint = if let Some(prepared) = prepared_sumeragi.as_ref() { prepared.instance() } else {
+            let genesis = effective_genesis.ok_or_else(|| {
+                Report::new(StartError::InitKura)
+                    .attach("emergency Fast startup found no signed genesis block")
+            })?;
+            iroha_core::sumeragi::node::root_instance(genesis, config.common.chain.as_ref())
+                .map_err(|error| Report::new(StartError::InitKura).attach(error))?
         };
         config_caps.native_config_fingerprint = match prepared_sumeragi.as_ref() {
             Some(prepared) => prepared.config_fingerprint().into(),
@@ -2900,6 +2901,48 @@ impl Iroha {
         // Recovery: scan recent persisted pipeline sidecars and log DAG fingerprint mismatches (best-effort).
         #[cfg(feature = "dag-recovery-verify")]
         if !emergency_fast {
+            fn fp_from_access(
+                key_count: usize,
+                access: &[iroha_core::pipeline::access::AccessSet],
+                call_hashes: &[iroha_crypto::HashOf<
+                    iroha_data_model::transaction::signed::TransactionEntrypoint,
+                >],
+            ) -> [u8; 32] {
+                use std::collections::BTreeMap;
+                let mut map: BTreeMap<&str, u32> = BTreeMap::new();
+                for aset in access {
+                    for k in &aset.read_keys {
+                        map.entry(k.as_str()).or_insert(u32::MAX);
+                    }
+                    for k in &aset.write_keys {
+                        map.entry(k.as_str()).or_insert(u32::MAX);
+                    }
+                }
+                let mut next: u32 = 0;
+                for v in map.values_mut() {
+                    *v = next;
+                    next = next.saturating_add(1);
+                }
+                let mut hasher = Sha256::new();
+                hasher.update((key_count as u64).to_le_bytes());
+                for aset in access {
+                    hasher.update((aset.read_keys.len() as u64).to_le_bytes());
+                    for k in &aset.read_keys {
+                        let id = *map.get(k.as_str()).expect("interned");
+                        hasher.update(id.to_le_bytes());
+                    }
+                    hasher.update((aset.write_keys.len() as u64).to_le_bytes());
+                    for k in &aset.write_keys {
+                        let id = *map.get(k.as_str()).expect("interned");
+                        hasher.update(id.to_le_bytes());
+                    }
+                }
+                for ch in call_hashes {
+                    hasher.update(ch.as_ref());
+                }
+                hasher.finalize().into()
+            }
+
             use iroha_core::pipeline::access::{IvmStrategy, derive_for_transaction};
             use sha2::{Digest, Sha256};
             // Choose strategy based on configured pipeline prepass
@@ -2911,47 +2954,7 @@ impl Iroha {
                 IvmStrategy::Conservative
             };
             // Deterministic fingerprint over interned access ids + call hashes
-            fn fp_from_access(
-                key_count: usize,
-                access: &[iroha_core::pipeline::access::AccessSet],
-                call_hashes: &[iroha_crypto::HashOf<
-                    iroha_data_model::transaction::signed::TransactionEntrypoint,
-                >],
-            ) -> [u8; 32] {
-                use std::collections::BTreeMap;
-                let mut map: BTreeMap<&str, u32> = BTreeMap::new();
-                for aset in access.iter() {
-                    for k in aset.read_keys.iter() {
-                        map.entry(k.as_str()).or_insert(u32::MAX);
-                    }
-                    for k in aset.write_keys.iter() {
-                        map.entry(k.as_str()).or_insert(u32::MAX);
-                    }
-                }
-                let mut next: u32 = 0;
-                for v in map.values_mut() {
-                    *v = next;
-                    next = next.saturating_add(1);
-                }
-                let mut hasher = Sha256::new();
-                hasher.update(&(key_count as u64).to_le_bytes());
-                for aset in access.iter() {
-                    hasher.update(&(aset.read_keys.len() as u64).to_le_bytes());
-                    for k in aset.read_keys.iter() {
-                        let id = *map.get(k.as_str()).expect("interned");
-                        hasher.update(&id.to_le_bytes());
-                    }
-                    hasher.update(&(aset.write_keys.len() as u64).to_le_bytes());
-                    for k in aset.write_keys.iter() {
-                        let id = *map.get(k.as_str()).expect("interned");
-                        hasher.update(&id.to_le_bytes());
-                    }
-                }
-                for ch in call_hashes.iter() {
-                    hasher.update(ch.as_ref());
-                }
-                hasher.finalize().into()
-            }
+
             // Scan recent blocks for persisted sidecars and compare fingerprints
             let scan_n: usize = 16;
             let total = block_count.0;
@@ -2959,26 +2962,28 @@ impl Iroha {
             for h in start..=total {
                 if let Some(sidecar) = kura.read_pipeline_metadata(h as u64) {
                     let exp = sidecar.dag.fingerprint;
-                    if let Some(height) = std::num::NonZeroUsize::new(h) {
-                        if let Some(block) = kura
+                    if let Some(height) = std::num::NonZeroUsize::new(h)
+                        && let Some(block) = kura
                             .get_block(height, &view.execution_budget())
                             .map_err(|error| {
                                 Report::new(error).change_context(StartError::InitKura)
                             })?
                         {
+                            use std::collections::BTreeSet;
+
+
                             let txs: Vec<&iroha_data_model::transaction::SignedTransaction> =
                                 block.external_transactions().collect();
                             let access: Vec<_> = txs
                                 .iter()
                                 .map(|tx| derive_for_transaction(tx, Some(&view), strategy))
                                 .collect();
-                            use std::collections::BTreeSet;
                             let mut keys = BTreeSet::new();
-                            for aset in access.iter() {
-                                for k in aset.read_keys.iter() {
+                            for aset in &access {
+                                for k in &aset.read_keys {
                                     keys.insert(k.as_str());
                                 }
-                                for k in aset.write_keys.iter() {
+                                for k in &aset.write_keys {
                                     keys.insert(k.as_str());
                                 }
                             }
@@ -2995,7 +3000,6 @@ impl Iroha {
                                 );
                             }
                         }
-                    }
                 }
             }
         }
@@ -3011,7 +3015,7 @@ impl Iroha {
                 }
             }
         }
-        let state: Arc<State> = Arc::from(state);
+        let state: Arc<State> = state;
         #[cfg(any(unix, windows))]
         if let Some(native) = native_provider_ingest.as_ref() {
             native.bind_state(Arc::clone(&state)).map_err(|error| {
@@ -3527,7 +3531,7 @@ impl Iroha {
         if !emergency_fast {
             sorafs_native_software_signers::install_native_software_signers(
                 &config.torii.sorafs_storage.native_transaction_signers,
-                Arc::clone(&state),
+                &state,
                 config.common.key_pair.public_key(),
                 &mut runtime_deps,
             )
@@ -4297,15 +4301,16 @@ impl Iroha {
         };
         // The relay only receives the authenticated replayed State. Emergency inspection
         // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
-        if !emergency_fast
-            && let Some(child) = amx_relay::start(
+        if !emergency_fast {
+            let children = amx_relay::start(
                 Arc::clone(&state),
                 config.amx_relay.clone(),
                 supervisor.shutdown_signal(),
             )
-            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?
-        {
-            supervisor.monitor(child);
+            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?;
+            for child in children {
+                supervisor.monitor(child);
+            }
         }
         // The SCCP keeper is a supervised task of its own and never aborts the node: its
         // public RPC delays neither block production nor any other task.
@@ -4654,12 +4659,12 @@ impl Iroha {
         } else {
             runtime_deps
         };
-        let runtime_deps = if let Some(runtime) = sorafs_hedging_billing_torii_runtime {
+
+        if let Some(runtime) = sorafs_hedging_billing_torii_runtime {
             runtime_deps.with_sorafs_hedging_billing_runtime(runtime)
         } else {
             runtime_deps
-        };
-        runtime_deps
+        }
         })();
         let queue_backpressure = queue.backpressure_handle();
         // Start proof lanes before Torii begins accepting submissions so one-time GPU setup happens
@@ -5869,7 +5874,7 @@ fn read_config_and_genesis_with_filesystem_space(
     // available hardware; config can cap GPUs or disable specific backends. This does not
     // change outputs, only performance characteristics.
     if config.kura.init_mode == InitMode::Fast {
-        let mut acceleration = config.accel.clone();
+        let mut acceleration = config.accel;
         acceleration.enable_simd = false;
         acceleration.enable_metal = false;
         acceleration.enable_cuda = false;
@@ -7160,6 +7165,12 @@ metadata = {}
 }
 #[cfg(test)]
 mod accel_tests {
+    const SHA256_ABC_EXPECTED: [u8; 32] = [
+        0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22,
+        0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00,
+        0x15, 0xad,
+    ];
+
     fn sha256_abc_digest() -> [u8; 32] {
         let mut state = [
             0x6a09_e667_u32,
@@ -7184,11 +7195,7 @@ mod accel_tests {
         }
         digest
     }
-    const SHA256_ABC_EXPECTED: [u8; 32] = [
-        0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22,
-        0x23, 0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00,
-        0x15, 0xad,
-    ];
+
     struct AccelTestGuard {
         original_config: ivm::AccelerationConfig,
         original_simd_override: Option<ivm::SimdChoice>,
@@ -8215,10 +8222,10 @@ fn run_main_with_config_guard(
             );
             IrohaRuntimeDeps::default()
         } else if node_secrets_launch {
-            resolve_node_secrets_runtime_deps(&config)?
+            resolve_node_secrets_runtime_deps(config)?
         } else {
             let stock_runtime_provider_registry = if runtime_provider_registry.is_none() {
-                let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(&config)
+                let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(config)
                     .map_err(Report::new)
                     .change_context(MainError::Config)
                     .attach("failed to project deployment runtime-provider bindings")?;
@@ -8236,7 +8243,7 @@ fn run_main_with_config_guard(
                     registry
                 })
             });
-            runtime_provider_registry::resolve_runtime_deps(&config, runtime_provider_registry)
+            runtime_provider_registry::resolve_runtime_deps(config, runtime_provider_registry)
                 .map_err(Report::new)
                 .change_context(MainError::Config)
                 .attach("failed to resolve deployment runtime-provider bindings")?
@@ -8997,7 +9004,7 @@ fn verify_genesis_metadata(
             continue;
         }
         if meta.consensus_fingerprint.into_bytes() == consensus_caps.consensus_fingerprint {
-            matched_meta = Some(meta.clone());
+            matched_meta = Some(*meta);
             break;
         }
     }
@@ -9204,11 +9211,11 @@ async fn run_node(
 ) -> ReportResult<(), MainError> {
     let setup = (|| -> ReportResult<_, MainError> {
         let config = prepared.config();
-        validate_startup_config(&config).change_context(MainError::Config)?;
+        validate_startup_config(config).change_context(MainError::Config)?;
         set_banner_enabled(config.ivm.banner.show);
         // Print a retro Norito banner with applied settings when enabled.
         if config.ivm.banner.show {
-            log_norito_banner(&config);
+            log_norito_banner(config);
         }
         iroha_logger::info!(
             version = build.version(),
@@ -9277,20 +9284,19 @@ async fn run_node(
         .change_context(MainError::IrohaStart)?;
     // Never leave a detached stdin watcher after a provider or startup-admission failure.
     // Successful runtime ownership retains the established EOF lifetime contract.
-    if exit_on_stdin_close {
-        if let Err(error) = spawn_input_close_shutdown(std::io::stdin(), shutdown_on_panic.clone())
-        {
-            shutdown_on_panic.send();
-            let error = Report::new(MainError::IrohaStart).attach(format!(
-                "failed to watch standard input for lifecycle.exit_on_stdin_close: {error}"
-            ));
-            return match supervisor_fut.await {
-                Ok(()) => Err(error),
-                Err(cleanup) => {
-                    Err(error.attach(format!("startup activation cleanup failed: {cleanup:?}")))
-                }
-            };
-        }
+    if exit_on_stdin_close
+        && let Err(error) = spawn_input_close_shutdown(std::io::stdin(), shutdown_on_panic.clone())
+    {
+        shutdown_on_panic.send();
+        let error = Report::new(MainError::IrohaStart).attach(format!(
+            "failed to watch standard input for lifecycle.exit_on_stdin_close: {error}"
+        ));
+        return match supervisor_fut.await {
+            Ok(()) => Err(error),
+            Err(cleanup) => {
+                Err(error.attach(format!("startup activation cleanup failed: {cleanup:?}")))
+            }
+        };
     }
     supervisor_fut.await.change_context(MainError::IrohaRun)
 }
@@ -11497,6 +11503,8 @@ mod tests {
 
         #[test]
         fn check_config_node_identity_binds_resolved_local_settings_and_retired_keys() {
+            use norito::codec::Encode as _;
+
             let _registry_guard = instruction_registry_test_guard();
             iroha_genesis::init_instruction_registry();
             let fixture = offline_semantic_genesis_fixture([]);
@@ -11530,7 +11538,6 @@ mod tests {
                 identity.node_id,
                 PeerId::new(fixture.config.common.key_pair.public_key().clone())
             );
-            use norito::codec::Encode as _;
             assert_eq!(
                 identity.node_fingerprint,
                 hex::encode(Hash::new(identity.node_id.encode()).as_ref())
@@ -11832,8 +11839,7 @@ mod tests {
                     fixture.cadence_ms,
                     Some(&authority),
                 )
-                .err()
-                .expect("same-named malformed token must never qualify");
+                .expect_err("same-named malformed token must never qualify");
                 let startup = error
                     .downcast_ref::<iroha_core::sumeragi::startup::StartupError>()
                     .expect("offline failure retains the native startup error");
@@ -11938,8 +11944,7 @@ mod tests {
                 fixture.cadence_ms,
                 None,
             )
-            .err()
-            .expect("duplicate genesis registration must fail semantic execution");
+            .expect_err("duplicate genesis registration must fail semantic execution");
             let startup = error
                 .downcast_ref::<iroha_core::sumeragi::startup::StartupError>()
                 .expect("offline failure retains the native startup error");
@@ -12545,7 +12550,7 @@ mod authenticated_roster_capacity_tests {
             let npos = authenticated_maximum_validator_roster_len(
                 ConsensusMode::Npos,
                 4,
-                Some(size as u32),
+                Some(u32::try_from(size).expect("fixture committee fits u32")),
             );
             assert_eq!(permissioned.is_ok(), valid, "permissioned {size}");
             assert_eq!(npos.is_ok(), valid, "NPoS {size}");

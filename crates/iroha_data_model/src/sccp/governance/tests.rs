@@ -101,8 +101,9 @@ fn checkpoint() -> SccpLcCheckpointDataV1 {
     }
 }
 
-/// One valid action of every kind, in variant order, with pairwise distinct destination words.
-fn every_action() -> Vec<SccpGovernanceActionV1> {
+/// Route, control, light-client and parameter actions in variant order.
+/// Native hold/reconciliation actions have separate fixtures to respect the 16-action limit.
+fn lifecycle_actions() -> Vec<SccpGovernanceActionV1> {
     vec![
         register(ETH, evm([0x22; 20])),
         SccpGovernanceActionV1::ActivateRevision(revision(ETH, 1)),
@@ -135,6 +136,111 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
         }),
         activate_profile(BSC, 2),
     ]
+}
+
+#[test]
+fn reconciliation_opening_has_a_nonempty_exact_json_window() {
+    let opening = |revision, window_ms| {
+        SccpGovernanceActionV1::OpenSccpReconciliation(SccpOpenReconciliationActionV1 {
+            network: ETH,
+            revision,
+            window_ms,
+        })
+    };
+    for window in [1, JSON_MAX] {
+        let action = opening(1, window);
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&17_u32.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    assert!(matches!(
+        validate(vec![opening(1, 0)]),
+        Err(SccpGovernanceStaticError::ZeroReconciliationWindow { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(0, 1)]),
+        Err(SccpGovernanceStaticError::ZeroRevision { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(1, JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+}
+
+#[test]
+fn native_hold_actions_bind_subjects_wire_shapes_and_exact_json_generations() {
+    let progress = |generation, committee_root| {
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Generation {
+                generation,
+                committee_root,
+            },
+        })
+    };
+    let frozen = SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+        SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Frozen,
+        },
+    );
+    let quarantine = SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 1));
+    for (action, index) in [
+        (progress(JSON_MAX, [3; 32]), 15_u32),
+        (frozen, 15),
+        (quarantine, 16),
+    ] {
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&index.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    roundtrip(&SccpGovernanceSubjectV1::ForgeryHold(ETH));
+    assert!(
+        SccpGovernanceSubjectV1::ForgeryHold(ETH)
+            .encode()
+            .starts_with(&5_u32.encode())
+    );
+    for bad in [progress(0, [3; 32]), progress(1, [0; 32])] {
+        assert!(matches!(
+            validate(vec![bad]),
+            Err(SccpGovernanceStaticError::InvalidDeploymentProgress { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![progress(JSON_MAX + 1, [3; 32])]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+    for action in [
+        SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 0)),
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+            SccpAttestDeploymentProgressActionV1 {
+                network: ETH,
+                revision: 0,
+                at: SccpDeploymentProgressV1::Frozen,
+            },
+        ),
+    ] {
+        assert!(matches!(
+            validate(vec![action]),
+            Err(SccpGovernanceStaticError::ZeroRevision { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![SccpGovernanceActionV1::QuarantineSccpRevision(
+            revision(TAIRA, 1)
+        )]),
+        Err(SccpGovernanceStaticError::TairaNetwork { .. })
+    ));
 }
 
 fn activate_profile(network: SccpNetworkV1, version: u32) -> SccpGovernanceActionV1 {
@@ -180,7 +286,7 @@ fn constants_match_the_spec() {
 }
 
 #[test]
-fn every_action_maps_to_its_spec_subject() {
+fn lifecycle_actions_map_to_their_spec_subject() {
     let expected = [
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(ETH),
@@ -197,7 +303,7 @@ fn every_action_maps_to_its_spec_subject() {
         SccpGovernanceSubjectV1::Parameters,
         SccpGovernanceSubjectV1::LightClient(BSC),
     ];
-    let actions = every_action();
+    let actions = lifecycle_actions();
     assert_eq!(actions.len(), expected.len());
     for (action, subject) in actions.iter().zip(expected) {
         assert_eq!(action.subject(), subject, "{action:?}");
@@ -206,7 +312,7 @@ fn every_action_maps_to_its_spec_subject() {
 
 #[test]
 fn action_network_is_the_subject_network() {
-    let networks: Vec<_> = every_action()
+    let networks: Vec<_> = lifecycle_actions()
         .iter()
         .map(SccpGovernanceActionV1::network)
         .collect();
@@ -259,7 +365,7 @@ fn subject_order_is_variant_then_value() {
 
 #[test]
 fn subjects_are_sorted_and_deduplicated() {
-    let full = proposal(every_action());
+    let full = proposal(lifecycle_actions());
     assert_eq!(
         full.subjects(),
         vec![
@@ -312,7 +418,7 @@ fn base_revision_from_pair() {
 
 #[test]
 fn valid_proposals_pass_static_validation() {
-    assert_eq!(validate(every_action()), Ok(()));
+    assert_eq!(validate(lifecycle_actions()), Ok(()));
     let full: Vec<_> = (0..16)
         .map(|index| {
             SccpGovernanceActionV1::SetTairaPaused(SccpSetTairaPausedActionV1 {
@@ -322,7 +428,7 @@ fn valid_proposals_pass_static_validation() {
         })
         .collect();
     assert_eq!(validate(full), Ok(()));
-    let mut with_revisions = proposal(every_action());
+    let mut with_revisions = proposal(lifecycle_actions());
     for (index, entry) in with_revisions.base_revisions.iter_mut().enumerate() {
         entry.revision = u64::try_from(index).expect("small index") * 3;
     }
@@ -332,7 +438,7 @@ fn valid_proposals_pass_static_validation() {
 #[test]
 fn network_id_and_action_count_are_checked() {
     assert_eq!(
-        proposal(every_action()).validate_static(&network_id(2)),
+        proposal(lifecycle_actions()).validate_static(&network_id(2)),
         Err(SccpGovernanceStaticError::NetworkIdMismatch)
     );
     assert_eq!(
@@ -721,7 +827,7 @@ fn set_parameters_is_checked() {
 #[test]
 fn base_revisions_must_equal_the_sorted_subject_list() {
     let live = network_id(1);
-    let valid = proposal(every_action());
+    let valid = proposal(lifecycle_actions());
     assert_eq!(valid.validate_static(&live), Ok(()));
 
     let mut missing = valid.clone();
@@ -767,7 +873,7 @@ fn base_revisions_must_equal_the_sorted_subject_list() {
 #[test]
 fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
     let live = network_id(1);
-    let mut at = proposal(every_action());
+    let mut at = proposal(lifecycle_actions());
     for entry in &mut at.base_revisions {
         entry.revision = JSON_MAX;
     }
@@ -831,7 +937,7 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
         );
     }
     // Actions without u64 fields never report a violation.
-    for action in every_action() {
+    for action in lifecycle_actions() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }
     // Validation reports the JSON bound when no earlier rule catches the value.
@@ -859,7 +965,7 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
 
 #[test]
 fn every_type_roundtrips_through_binary_and_json() {
-    for action in every_action() {
+    for action in lifecycle_actions() {
         roundtrip(&action);
         roundtrip(&action.subject());
     }
@@ -871,7 +977,7 @@ fn every_type_roundtrips_through_binary_and_json() {
     roundtrip(&register(TON, ton([0x33; 32])));
     roundtrip(&register(BSC, evm([0x34; 20])));
     roundtrip(&release(u128::MAX, "\u{3042} memo"));
-    let mut proposal = proposal(every_action());
+    let mut proposal = proposal(lifecycle_actions());
     proposal.base_revisions[0].revision = 11;
     roundtrip(&proposal);
     roundtrip(&SccpGovernanceProposalV1 {
@@ -904,7 +1010,7 @@ fn proposal_json_is_closed_and_amounts_are_decimal_strings() {
 #[test]
 fn unknown_action_and_subject_tags_are_rejected() {
     // 13 was the bridge-key fault clearing; it stays unassigned.
-    for unsupported_tag in [13_u32, 15, 16, u32::MAX] {
+    for unsupported_tag in [13_u32, 19, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -916,7 +1022,7 @@ fn unknown_action_and_subject_tags_are_rejected() {
         );
     }
     // 4 was the bridge-key fault subject; it stays unassigned.
-    for unsupported_tag in [4_u32, 5, u32::MAX] {
+    for unsupported_tag in [4_u32, 8, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -958,7 +1064,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
         );
     }
     // Every action that survives keeps its codec index: the freed 13 is a hole, not a shift.
-    let actions = every_action();
+    let actions = lifecycle_actions();
     let indices: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
     assert_eq!(actions.len(), indices.len());
     for (action, index) in actions.iter().zip(indices) {
@@ -1139,4 +1245,57 @@ fn register_route_native_pin_checks_each_exact_json_u64_boundary() {
             }
         }
     }
+}
+
+#[test]
+fn fast_pause_suspension_subjects_duration_bound_and_json_precision() {
+    let maximum = 3 * super::super::params::SCCP_MAX_FAST_PAUSE_MS_V1;
+    for duration in [0, maximum] {
+        let action =
+            SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+                network: ETH,
+                duration_ms: duration,
+            });
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &["payload"]);
+        assert_eq!(
+            action.subject(),
+            SccpGovernanceSubjectV1::FastPauseControl(ETH)
+        );
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(validate(vec![action.clone()]), Ok(()));
+        assert!(action.encode().starts_with(&18_u32.encode()));
+    }
+    let action = |duration_ms| {
+        SccpGovernanceActionV1::SetFastPauseSuspended(SccpSetFastPauseSuspendedActionV1 {
+            network: ETH,
+            duration_ms,
+        })
+    };
+    assert_eq!(
+        validate(vec![action(maximum + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    assert!(action(JSON_MAX).first_json_u64_violation().is_none());
+    assert!(action(JSON_MAX + 1).first_json_u64_violation().is_some());
+    assert_eq!(
+        validate(vec![action(JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::FastPauseSuspensionTooLong { action: 0 })
+    );
+    for (subject, index) in [
+        (SccpGovernanceSubjectV1::FastHold(ETH), 6_u32),
+        (SccpGovernanceSubjectV1::FastPauseControl(ETH), 7),
+    ] {
+        roundtrip(&subject);
+        assert!(subject.encode().starts_with(&index.encode()));
+    }
+    let mut wrong_network = action(0);
+    let SccpGovernanceActionV1::SetFastPauseSuspended(ref mut payload) = wrong_network else {
+        unreachable!()
+    };
+    payload.network = TAIRA;
+    assert_eq!(
+        validate(vec![wrong_network]),
+        Err(SccpGovernanceStaticError::TairaNetwork { action: 0 })
+    );
 }

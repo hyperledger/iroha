@@ -27,7 +27,10 @@ fn original_allocation_refusal(error: &StateRestoreError) -> &AllocationRefusal 
         | StateRestoreError::Sccp(
             SccpRestoreError::Storage(mv::storage::AdmittedStorageError::Allocation(original))
             | SccpRestoreError::Admission(original)
-            | SccpRestoreError::Generation(GenerationRecordError::Admission(original)),
+            | SccpRestoreError::Generation(GenerationRecordError::Admission(original))
+            | SccpRestoreError::LightClient(
+                iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1::Admission(original),
+            ),
         ) => original,
         _ => panic!("original local allocation refusal must retain its type: {error:?}"),
     }
@@ -57,10 +60,260 @@ fn every_sccp_member_is_serialized_in_field_order() {
     let json::Value::Object(members) = &value else {
         panic!("the envelope is an object");
     };
-    assert_eq!(members.len(), 31, "one member per SCCP world field");
+    assert_eq!(
+        members.len(),
+        34,
+        "one member per canonical SCCP world field"
+    );
     let mut restored = World::default();
     restore(&text, &mut restored).expect("an empty envelope restores");
     assert_eq!(encoded(&restored), text);
+}
+
+fn refund_record(
+    amount: u128,
+    pending: bool,
+) -> iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1 {
+    use iroha_data_model::sccp::{
+        inbound::SccpPendingReasonV1,
+        outbound::{
+            SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpVoidKindV1, SccpVoidStatusV1,
+        },
+    };
+    SccpOutboundMessageRecordV1 {
+        network: SccpNetworkV1::EthereumMainnet,
+        revision: 1,
+        nonce: 0,
+        height: 1,
+        commitment_index: 0,
+        deadline_ms: 1,
+        sender: crate::smartcontracts::isi::sccp::test_support::authority(4),
+        amount,
+        payload: Vec::new(),
+        leaf: [0; 32],
+        status: SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            kind: SccpVoidKindV1::Expired,
+            proven_at_height: 2,
+            refund_pending: pending.then_some(SccpPendingReasonV1::LiabilityShortfall),
+        }),
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_refuses_inexact_refund_counters_in_either_cut() {
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    for corrupt_undo in [false, true] {
+        let world = World::default();
+        {
+            let mut block = world.block();
+            block
+                .sccp_outbound_messages
+                .insert([1; 32], refund_record(2, true));
+            block
+                .sccp_outbound_messages
+                .insert([2; 32], refund_record(3, true));
+            block
+                .sccp_pending_refund_amount
+                .try_insert_admitted(key, 4)
+                .unwrap();
+            block.commit();
+        }
+        if corrupt_undo {
+            // The current cut is repaired, while the exact predecessor still understates it.
+            let mut block = world.block();
+            block
+                .sccp_pending_refund_amount
+                .try_insert_admitted(key, 5)
+                .unwrap();
+            block.commit();
+        }
+        let mut restored = World::default();
+        let before = encoded(&restored);
+        let error = restore(&encoded(&world), &mut restored)
+            .expect_err("refund reserve must match both cuts");
+        assert!(
+            error.to_string().contains("sccp_pending_refund_amount"),
+            "{error}"
+        );
+        assert_eq!(
+            encoded(&restored),
+            before,
+            "failed restoration must not publish any field"
+        );
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_refuses_refund_sum_overflow() {
+    let world = World::default();
+    let mut block = world.block();
+    block
+        .sccp_outbound_messages
+        .insert([1; 32], refund_record(u128::MAX, true));
+    block
+        .sccp_outbound_messages
+        .insert([2; 32], refund_record(1, true));
+    block
+        .sccp_pending_refund_amount
+        .try_insert_admitted((SccpNetworkV1::EthereumMainnet, 1), u128::MAX)
+        .unwrap();
+    block.commit();
+    let mut restored = World::default();
+    let error = restore(&encoded(&world), &mut restored)
+        .expect_err("overflow cannot produce a refund reserve");
+    assert!(
+        error.to_string().contains("sccp_pending_refund_amount"),
+        "{error}"
+    );
+}
+
+#[test]
+fn reconciliation_snapshot_requires_quarantine_and_open_supply_bound_in_both_cuts() {
+    use iroha_data_model::sccp::{
+        native::SccpQuarantineV1, reconciliation::SccpReconciliationStateV1,
+    };
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    for (corrupt_undo, missing, overflowing) in [
+        (false, true, false),
+        (false, false, false),
+        (true, false, false),
+        (false, false, true),
+        (true, false, true),
+    ] {
+        let world = World::default();
+        let route = |valid| {
+            let mut route = crate::smartcontracts::isi::sccp::test_support::sample_route(key.0);
+            let revision = route.revisions.get_mut(&key.1).unwrap();
+            revision.quarantine = (valid || overflowing).then_some(SccpQuarantineV1 {
+                certificate_id: [8; 32],
+                since_height: 1,
+            });
+            revision.liability = if overflowing && !valid { u128::MAX } else { 8 };
+            route
+        };
+        {
+            let mut block = world.block();
+            block
+                .sccp_reconciliations
+                .try_insert_admitted(
+                    key,
+                    SccpReconciliationStateV1 {
+                        opened_at_ms: 1,
+                        closes_at_ms: 10,
+                        forged_supply: 7,
+                        rho: None,
+                        settled_face: 0,
+                    },
+                )
+                .unwrap();
+            block
+                .sccp_reconciliation_proven
+                .try_insert_admitted((key.0, key.1, [1; 32]), 7)
+                .unwrap();
+            if !missing {
+                block.sccp_routes.insert(key.0, route(false));
+            }
+            block.commit();
+        }
+        if corrupt_undo {
+            let mut block = world.block();
+            block.sccp_routes.insert(key.0, route(true));
+            block.commit();
+        }
+        let mut restored = World::default();
+        let before = encoded(&restored);
+        let error = restore(&encoded(&world), &mut restored)
+            .expect_err("reconciliation must keep its exact quarantined source in both cuts");
+        assert!(
+            error.to_string().contains("sccp_reconciliations"),
+            "{error}"
+        );
+        assert_eq!(encoded(&restored), before);
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_preserves_original_current_undo_and_rebuilds_due_order() {
+    use crate::smartcontracts::isi::sccp::reconciliation_store as records;
+    use iroha_data_model::sccp::reconciliation::{
+        SccpReconciliationRatioV1, SccpReconciliationStateV1,
+    };
+    let world = World::default();
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    let first = SccpReconciliationStateV1 {
+        opened_at_ms: 1,
+        closes_at_ms: 10,
+        forged_supply: 7,
+        rho: None,
+        settled_face: 0,
+    };
+    {
+        let mut block = world.block();
+        let mut route = crate::smartcontracts::isi::sccp::test_support::sample_route(key.0);
+        let revision = route.revisions.get_mut(&key.1).unwrap();
+        revision.quarantine = Some(iroha_data_model::sccp::native::SccpQuarantineV1 {
+            certificate_id: [8; 32],
+            since_height: 1,
+        });
+        revision.liability = 8;
+        block.sccp_routes.insert(key.0, route);
+        block
+            .sccp_reconciliations
+            .try_insert_admitted(key, first)
+            .unwrap();
+        block
+            .sccp_reconciliation_proven
+            .try_insert_admitted((key.0, key.1, [1; 32]), 7)
+            .unwrap();
+        block
+            .sccp_pending_refund_amount
+            .try_insert_admitted(key, 5)
+            .unwrap();
+        block
+            .sccp_outbound_messages
+            .insert([2; 32], refund_record(5, true));
+        block.commit();
+    }
+    {
+        let mut block = world.block();
+        let mut route = block.sccp_routes.get(&key.0).unwrap().clone();
+        route.revisions.get_mut(&key.1).unwrap().liability = 0;
+        block.sccp_routes.insert(key.0, route);
+        block
+            .sccp_reconciliations
+            .try_insert_admitted(
+                key,
+                SccpReconciliationStateV1 {
+                    rho: Some(SccpReconciliationRatioV1 {
+                        backing: 3,
+                        denominator: 10,
+                    }),
+                    ..first
+                },
+            )
+            .unwrap();
+        block
+            .sccp_pending_refund_amount
+            .try_remove_admitted(key)
+            .unwrap();
+        block
+            .sccp_outbound_messages
+            .insert([2; 32], refund_record(5, false));
+        block.commit();
+    }
+    let expected = encoded(&world);
+    let mut restored = World::default();
+    restore(&expected, &mut restored).unwrap();
+    assert_eq!(encoded(&restored), expected);
+    assert!(records::proven(&restored.view(), key, &[1; 32]));
+    assert_eq!(records::earliest_due(&restored.view(), u64::MAX), None);
+    let replacement = restored.block_and_revert();
+    assert_eq!(records::get(&replacement, &key), Some(&first));
+    assert_eq!(records::pending_refunds(&replacement, &key), 5);
+    assert_eq!(
+        records::earliest_due(&replacement, 10),
+        Some((10, key.0, key.1))
+    );
 }
 
 #[test]

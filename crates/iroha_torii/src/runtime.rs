@@ -60,7 +60,6 @@ const QUERY_PROJECTION_SHARD_CATALOG_MAX_LIMIT: u32 = 8192;
 #[norito_schema(name = "iroha_torii::runtime::NodeCapabilitiesResponse")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// Node capabilities advert (subset)
-
 pub struct NodeCapabilitiesResponse {
     /// ABI version accepted by this node.
     pub abi_version: u16,
@@ -155,6 +154,10 @@ pub struct NodeAggregateQueryCapabilities {
 #[norito_schema(name = "iroha_torii::runtime::NodeProjectionCapabilities")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// Reserved DA query projection capability advert.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Projection contracts and enabled worker features are independent advertised capabilities."
+)]
 pub struct NodeProjectionCapabilities {
     /// Whether the checkpoint descriptor contract is defined and stable.
     pub checkpoint_contract_v1: bool,
@@ -191,7 +194,6 @@ pub struct NodeProjectionCapabilities {
 #[norito_schema(name = "iroha_torii::runtime::NodeProjectionCheckpointResponse")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// Response for the latest persisted query projection checkpoint descriptor.
-
 pub struct NodeProjectionCheckpointResponse {
     /// Descriptor payload version.
     pub version: u16,
@@ -236,7 +238,6 @@ pub struct NodeProjectionCheckpointShardRef {
 #[norito_schema(name = "iroha_torii::runtime::NodeProjectionShardCatalogResponse")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// Response for the live projection shard catalog of one resource family.
-
 #[cfg(feature = "app_api")]
 pub struct NodeProjectionShardCatalogResponse {
     /// Catalog payload version.
@@ -303,7 +304,6 @@ pub struct NodeProjectionShardCatalogQuery {
 #[norito_schema(name = "iroha_torii::runtime::RuntimeMetricsResponse")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// JSON summary of runtime-related metrics of interest
-
 pub struct RuntimeMetricsResponse {
     /// ABI version accepted by the runtime.
     pub abi_version: u16,
@@ -329,7 +329,6 @@ pub struct RuntimeAbiActiveResponse {
 #[norito_schema(name = "iroha_torii::runtime::RuntimeAbiHashResponse")]
 #[derive(Debug, JsonSerialize, JsonDeserialize, NoritoSerialize, NoritoDeserialize)]
 /// Response with the node's canonical ABI hash for the active policy.
-
 pub struct RuntimeAbiHashResponse {
     /// Policy label (first release: always "V1").
     pub policy: String,
@@ -798,7 +797,7 @@ fn build_accounts_projection_shard_catalog_entries(
         .collect()
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn build_accounts_projection_shard_archive(
+pub fn build_accounts_projection_shard_archive(
     state: &impl StateReadOnly,
     partition_id: u32,
     emitted_at_unix: u64,
@@ -865,7 +864,7 @@ fn build_account_assets_projection_shard_catalog_entries(
         .collect()
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn build_account_assets_projection_shard_archive(
+pub fn build_account_assets_projection_shard_archive(
     state: &impl StateReadOnly,
     partition_id: u32,
     emitted_at_unix: u64,
@@ -878,16 +877,18 @@ pub(crate) fn build_account_assets_projection_shard_archive(
             continue;
         }
         let definition_id = asset.id().definition().clone();
-        let (asset_name, asset_alias) = match world.asset_definition(&definition_id) {
-            Ok(definition) => (
-                definition.name().clone(),
-                definition
-                    .alias()
-                    .as_ref()
-                    .map(|alias| alias.as_ref().to_owned()),
-            ),
-            Err(_) => (definition_id.to_string(), None),
-        };
+        let (asset_name, asset_alias) = world.asset_definition(&definition_id).map_or_else(
+            |_| (definition_id.to_string(), None),
+            |definition| {
+                (
+                    definition.name().clone(),
+                    definition
+                        .alias()
+                        .as_ref()
+                        .map(|alias| alias.as_ref().to_owned()),
+                )
+            },
+        );
         let alias = crate::routing::PrimaryAliasProjection::default();
         rows.push(QueryProjectionAccountAssetRow {
             account_id,
@@ -955,7 +956,7 @@ fn build_asset_definitions_projection_shard_catalog_entries(
         .collect()
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn build_asset_definitions_projection_shard_archive(
+pub fn build_asset_definitions_projection_shard_archive(
     state: &impl StateReadOnly,
     partition_id: u32,
     emitted_at_unix: u64,
@@ -1054,7 +1055,7 @@ fn build_domains_projection_shard_catalog_entries(
         .collect()
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn build_domains_projection_shard_archive(
+pub fn build_domains_projection_shard_archive(
     state: &impl StateReadOnly,
     partition_id: u32,
     emitted_at_unix: u64,
@@ -1144,7 +1145,7 @@ fn build_asset_holders_projection_shard_catalog_entries(
     Ok(entries)
 }
 #[cfg(feature = "app_api")]
-pub(crate) fn build_asset_holders_projection_shard_archive(
+pub fn build_asset_holders_projection_shard_archive(
     state: &impl StateReadOnly,
     asset_definition_selector: &str,
     partition_id: u32,
@@ -1462,7 +1463,6 @@ pub async fn handle_runtime_propose_upgrade(
 #[norito_schema(name = "iroha_torii::runtime::ActivateCancelResponse")]
 #[derive(Debug, JsonSerialize, NoritoSerialize)]
 /// Response payload describing the outcome of runtime activation/cancellation helpers.
-
 pub struct ActivateCancelResponse {
     /// Indicates whether the operation succeeded.
     pub ok: bool,

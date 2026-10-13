@@ -31,6 +31,19 @@ fn retained_record(h: &H) -> SafetyRecord {
             block_hash: lock.block_hash,
             result: lock.result,
         }),
+        prepare_signature: Some(
+            h.signers[0]
+                .sign(&crate::preimage::vote_preimage(
+                    VoteKind::Prepare,
+                    &I,
+                    &h.config(h.height()).epoch.id,
+                    h.height(),
+                    2,
+                    &lock.block_hash,
+                    &lock.result,
+                ))
+                .unwrap(),
+        ),
         timeout: Some(RecordedTimeout {
             view: 2,
             high_pqc: Some(lock.clone()),
@@ -230,4 +243,42 @@ fn recommit_waits_for_authenticated_record_epoch() {
         !out.iter()
             .any(|action| matches!(action, Action::CommitBlock { .. }))
     );
+}
+
+/// MS64: a next-epoch reservation contains no certificate requiring that epoch's authority.
+/// R5 verifies its sole parent certificate, applies that boundary, then restores under the
+/// now-authenticated epoch. Requiring the future authority first would strand key rotation.
+#[test]
+fn det_s64_recommit_parent_only_record_authenticates_boundary_before_resuming() {
+    let mut h = H::new(4, pick::set_a(0));
+    h.committees.insert(2, h.v.committee.clone());
+    h.records.clear();
+    h.install_keys();
+    h.restart();
+    h.commit_heights(1);
+    let mut record = h.core.safety.clone().unwrap();
+    record.timeout = Some(RecordedTimeout {
+        view: 0,
+        high_pqc: None,
+    });
+    assert_eq!(record.height, 2);
+    h.records
+        .insert(record.key.clone(), record.encode(&h.v.crypto).unwrap());
+    h.store.clear();
+    let out = h.restart();
+    assert!(halts(&out).is_empty());
+    let committed: Vec<_> = h
+        .all
+        .iter()
+        .filter_map(|action| match action {
+            Action::CommitBlock { block, .. } => Some(block.header().height),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(committed, vec![1]);
+    assert_eq!((h.core.tip.height, h.height()), (1, 2));
+    assert_eq!(h.core.cfg.epoch.id, record.epoch);
+    assert_eq!(h.core.timeout_view, Some(0));
+    assert_eq!(h.core.status().signer.as_ref(), Some(&record.key));
+    assert_eq!(h.durable(), Some(record));
 }

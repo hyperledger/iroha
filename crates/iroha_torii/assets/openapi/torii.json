@@ -3520,6 +3520,69 @@
         ],
         "type": "object"
       },
+      "AmxDebitApprovalProofV1": {
+        "additionalProperties": false,
+        "description": "Data-only complete World preimages and the authenticated caller relay direct permission row at one current certified private-root cut. The client separately verifies the exact genesis-rooted block, World root, participant binding and exact consent. Historical evidence cannot override revocation; Prepare rechecks current permission. Roles do not supply this approval.",
+        "properties": {
+          "relay_permissions": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NativePermissionsV1"
+              }
+            ],
+            "maxItems": 256
+          },
+          "world": {
+            "$ref": "#/components/schemas/WorldStateSnapshotV1"
+          }
+        },
+        "required": [
+          "world",
+          "relay_permissions"
+        ],
+        "type": "object",
+        "x-iroha-max-bytes": 33554432,
+        "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1"
+      },
+      "AmxDebitApprovalV1": {
+        "additionalProperties": false,
+        "description": "Exact owner-issued direct AMX debit consent selector. Both genesis identities, participant instance, private dataspace, full transaction digest and exact scoped debit balance are mandatory. This value alone grants no permission.",
+        "properties": {
+          "dataspace": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "debited_asset": {
+            "$ref": "#/components/schemas/NativeAssetIdV1"
+          },
+          "global_network": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "participant_instance": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "participant_network": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "transaction_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "global_network",
+          "participant_network",
+          "participant_instance",
+          "dataspace",
+          "transaction_id",
+          "debited_asset"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1"
+      },
       "AppApiTransactionDraftV1": {
         "additionalProperties": false,
         "properties": {
@@ -21220,6 +21283,16 @@
           "message_type": {
             "$ref": "#/components/schemas/Iso20022NullableMessageTypeV2"
           },
+          "native_payment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativePaymentV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "originator_participant_id": {
             "$ref": "#/components/schemas/Iso20022ParticipantIdV2"
           },
@@ -21246,6 +21319,17 @@
           },
           "reference_snapshot_id": {
             "$ref": "#/components/schemas/Iso20022NullableSha256HexV2"
+          },
+          "reported_return": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022ReportedReturnV1"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Authenticated external return report on this separate lifecycle record. Original settlement evidence is preserved; no reverse native execution is asserted."
           },
           "security_instrument_id": {
             "$ref": "#/components/schemas/Iso20022NullableRecordStringV2"
@@ -21351,7 +21435,9 @@
           "admitting_operator_key",
           "pinned_profile_id",
           "pinned_signature_policy",
-          "status_history"
+          "status_history",
+          "reported_return",
+          "native_payment"
         ],
         "type": "object"
       },
@@ -21368,6 +21454,163 @@
           "colr.012"
         ],
         "type": "string"
+      },
+      "Iso20022NativeBusinessSettlementV1": {
+        "additionalProperties": false,
+        "description": "Original successful business carrier and complete settlement receipt plus actual Nexus fee receipt. Null fee means no Nexus charge was reported; it does not manufacture a zero-fee receipt. Obtain authenticated finality evidence and independently verify this original source before customer credit.",
+        "properties": {
+          "nexus_fee_frame": {
+            "anyOf": [
+              {
+                "contentEncoding": "base64",
+                "description": "Canonical padded-base64 complete canonical Norito frame. The enclosing lifecycle record is bounded to one MiB; bytes alone grant no authentication.",
+                "maxLength": 1048576,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt_frame": {
+            "contentEncoding": "base64",
+            "description": "Canonical padded-base64 complete canonical Norito frame. The enclosing lifecycle record is bounded to one MiB; bytes alone grant no authentication.",
+            "maxLength": 1048576,
+            "minLength": 4,
+            "type": "string"
+          },
+          "transaction_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_hash",
+          "receipt_frame",
+          "nexus_fee_frame"
+        ],
+        "type": "object"
+      },
+      "Iso20022NativeCarrierV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "else": {
+              "properties": {
+                "rejection": {
+                  "type": "string"
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "applied": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "rejection": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Canonical execution of the top-level attempted transaction_hash. A rejected retry remains rejected even when the exact business intent settled through another carrier.",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "height": {
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "rejection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022RecordStringV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "height",
+          "applied",
+          "rejection"
+        ],
+        "type": "object"
+      },
+      "Iso20022NativePaymentV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "conflicting_intent": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "business_settlement": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "business_settlement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativeBusinessSettlementV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "carrier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativeCarrierV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conflicting_intent": {
+            "type": "boolean"
+          },
+          "intent_frame": {
+            "contentEncoding": "base64",
+            "description": "Complete retained SettleAtomic intent: committed network, payer-owned canonical UETR, exact Global source/recipient/quantity, absolute committed expiry, empty intent metadata. Signed NexusSettlement requires canonical SourceAccountId, TargetAccountId, and AssetDefinitionId; gateway mappings only validate those identities. Gateway envelope IDs and local observation time do not change this intent.",
+            "maxLength": 1048576,
+            "minLength": 4,
+            "type": "string"
+          },
+          "verified": {
+            "description": "This process reauthenticated the projected sources against its canonical State. This HTTP observation is not an independent finality proof. Restored journal data reports false until reauthentication.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "intent_frame",
+          "carrier",
+          "business_settlement",
+          "conflicting_intent",
+          "verified"
+        ],
+        "type": "object"
       },
       "Iso20022NullableMessageTypeV2": {
         "anyOf": [
@@ -21446,6 +21689,124 @@
         "minLength": 1,
         "pattern": "^(?!\\s)(?:[^\\u0000-\\u001F\\u007F-\\u009F])*[^\\s\\u0000-\\u001F\\u007F-\\u009F]$",
         "type": "string"
+      },
+      "Iso20022ReportedReturnV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "original_payload_hash": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "original_transaction_hash": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "if": {
+              "properties": {
+                "disposition": {
+                  "enum": [
+                    "external_report",
+                    "original_rejected"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "original_transaction_hash": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "disposition": {
+                  "const": "original_not_submitted"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "original_transaction_hash": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "One authenticated counterparty report bound to an original payment. Pending reports survive restart and resolve only from canonical native outcome and matching terms. At least one immutable original payload or transaction hash is required; external_report and original_rejected require its canonical transaction hash. No native refund is asserted. original_not_submitted records only this gateway rejecting the original before assigning or queuing a carrier; its original transaction hash is null and it is not proof of native non-execution. For native intent payments, original_transaction_hash binds the successful business effect, which may differ from the attempted carrier. A rejected attempt alone leaves the report pending because another exact carrier can settle that intent.",
+        "properties": {
+          "amount": {
+            "description": "Positive canonical returned quantity, no greater than the original payment amount.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "pending_original",
+              "external_report",
+              "original_rejected",
+              "original_not_submitted",
+              "invalid_terms"
+            ],
+            "type": "string"
+          },
+          "original_message_id": {
+            "$ref": "#/components/schemas/Iso20022RecordStringV2"
+          },
+          "original_payload_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "original_transaction_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/Iso20022NullableRecordStringV2"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "disposition",
+          "original_message_id",
+          "original_payload_hash",
+          "original_transaction_hash",
+          "reason_code"
+        ],
+        "type": "object"
       },
       "Iso20022Sha256HexV2": {
         "maxLength": 64,
@@ -38548,6 +38909,40 @@
         ],
         "type": "object"
       },
+      "SccpAnchorWitnessBundleV1": {
+        "additionalProperties": false,
+        "description": "Original 4096-height anchor chunk witness. witness is null at the committed tip or in its open chunk, where the verifier reads original anchors directly.",
+        "properties": {
+          "chunk": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "witness": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpAnchorWitnessV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "height",
+          "chunk",
+          "witness"
+        ],
+        "type": "object"
+      },
       "SccpAnchorWitnessV1": {
         "additionalProperties": false,
         "properties": {
@@ -38644,10 +39039,21 @@
       },
       "SccpCapabilitiesV1": {
         "additionalProperties": false,
-        "description": "Current native identity, finality constants, parameters and read capabilities. consensus_instance derives from the original committed Global scope. Missing committed authority is unavailable; an authenticated non-Global scope is unsupported. Compare network/instance with independent pins. Committee, hold and panel summaries are not fields of this implementation.",
+        "description": "Current committed native identity, finality constants, generation, liability clock, hold and panel summaries, light-client profiles and qualified launch-gate state. Compare network and consensus instance with independent pins.",
         "properties": {
           "chain_id": {
             "type": "string"
+          },
+          "coalition_slashable_floor": {
+            "description": "Current additional-seizure floor: sum of the f + 1 smallest per-member maximum penalties, individually rounded toward zero at canonical exposure scale. Null only before initialization; inconsistent provenance refuses the response. An already-recorded offence contributes zero for that generation.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "committed_height": {
             "format": "uint64",
@@ -38662,8 +39068,37 @@
             "pattern": "^[0-9A-Fa-f]{64}$",
             "type": "string"
           },
+          "current_generation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpCurrentGenerationV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "finality": {
             "$ref": "#/components/schemas/SccpFinalityConstantsV1"
+          },
+          "forgery_max_generation": {
+            "oneOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "liability_clock": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
           },
           "light_client_profiles": {
             "items": {
@@ -38693,11 +39128,24 @@
               }
             ]
           },
+          "parliament_binding_ballot_available": {
+            "type": "boolean"
+          },
           "path_templates": {
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "pause_panel_ids": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpPausePanelIdsV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "profiles": {
             "items": {
@@ -38713,6 +39161,9 @@
             "minLength": 64,
             "pattern": "^[0-9A-Fa-f]{64}$",
             "type": "string"
+          },
+          "reconciliation_available": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -38726,7 +39177,14 @@
           "profiles",
           "profiles_policy_hash",
           "limits",
-          "path_templates"
+          "path_templates",
+          "current_generation",
+          "liability_clock",
+          "forgery_max_generation",
+          "pause_panel_ids",
+          "parliament_binding_ballot_available",
+          "reconciliation_available",
+          "coalition_slashable_floor"
         ],
         "type": "object"
       },
@@ -39068,13 +39526,56 @@
             "minimum": 1,
             "type": "integer"
           },
+          "provable": {
+            "description": "Original committed native tip covers the record height. DATA is not proof authority.",
+            "type": "boolean"
+          },
           "record": {
             "$ref": "#/components/schemas/SccpControlRecordV1"
           }
         },
         "required": [
           "control_nonce",
-          "record"
+          "record",
+          "provable"
+        ],
+        "type": "object"
+      },
+      "SccpCurrentGenerationV1": {
+        "additionalProperties": false,
+        "description": "Current committed generation and original trust deadline.",
+        "properties": {
+          "committee_root": {
+            "description": "Exactly 32 bytes as hexadecimal; Norito JSON emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "deadline_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generation": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generation",
+          "committee_root",
+          "start_height",
+          "deadline_ms"
         ],
         "type": "object"
       },
@@ -39150,6 +39651,278 @@
         "required": [
           "network",
           "profile"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseActiveViewV1": {
+        "additionalProperties": false,
+        "description": "One retained network pause; clients must check its timestamp and remaining parts.",
+        "properties": {
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "pause": {
+            "$ref": "#/components/schemas/SccpFastPauseV1"
+          }
+        },
+        "required": [
+          "network",
+          "pause"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseEndorsementV1": {
+        "additionalProperties": false,
+        "description": "Original signed incident digest and recording height.",
+        "properties": {
+          "incident_digest": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "recorded_at_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "incident_digest",
+          "recorded_at_height"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseRoundV1": {
+        "additionalProperties": false,
+        "description": "Original endorsements keyed by canonical account, including the fixed window and due marker. Certification still rechecks authoritative eligibility.",
+        "properties": {
+          "certify_due": {
+            "type": "boolean"
+          },
+          "closes_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "endorsers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SccpFastPauseEndorsementV1"
+            },
+            "maxProperties": 27,
+            "minProperties": 1,
+            "propertyNames": {
+              "$ref": "#/components/schemas/CanonicalAccountId"
+            },
+            "type": "object"
+          },
+          "head": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "opened_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "panel_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "panel_seq": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "panel_id",
+          "panel_seq",
+          "head",
+          "opened_at_ms",
+          "closes_at_ms",
+          "endorsers",
+          "certify_due"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseRoundViewV1": {
+        "additionalProperties": false,
+        "description": "One network and role round, in canonical network and role order.",
+        "properties": {
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "role": {
+            "$ref": "#/components/schemas/SccpPanelRoleV1"
+          },
+          "round": {
+            "$ref": "#/components/schemas/SccpFastPauseRoundV1"
+          }
+        },
+        "required": [
+          "network",
+          "role",
+          "round"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseSuspendedViewV1": {
+        "additionalProperties": false,
+        "description": "Original per-network suspension deadline for new emergency certifications.",
+        "properties": {
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "until_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "network",
+          "until_ms"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseV1": {
+        "additionalProperties": false,
+        "description": "Retained independent hold parts, including expired records. A part is effective only before until_ms.",
+        "properties": {
+          "certificate_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "effect_hash": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "enacted_at": {
+            "$ref": "#/components/schemas/SccpPassPositionV1"
+          },
+          "enacted_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "panel_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "revisions": {
+            "items": {
+              "format": "uint32",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "minItems": 0,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "taira": {
+            "type": "boolean"
+          },
+          "until_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "certificate_id",
+          "effect_hash",
+          "panel_id",
+          "enacted_at",
+          "enacted_at_ms",
+          "until_ms",
+          "taira",
+          "revisions"
+        ],
+        "type": "object"
+      },
+      "SccpFastPauseViewV1": {
+        "additionalProperties": false,
+        "description": "Original retained fast-pause DATA from one committed state observation. Unavailable authoritative eligibility is explicit: seats is null and eligibility_available is false; no empty derived seat set is fabricated.",
+        "properties": {
+          "active": {
+            "items": {
+              "$ref": "#/components/schemas/SccpFastPauseActiveViewV1"
+            },
+            "maxItems": 3,
+            "minItems": 0,
+            "type": "array"
+          },
+          "eligibility_available": {
+            "type": "boolean"
+          },
+          "panel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpPausePanelV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/SccpFastPauseRoundViewV1"
+            },
+            "maxItems": 6,
+            "minItems": 0,
+            "type": "array"
+          },
+          "seats": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpPauseSeatsV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suspended": {
+            "items": {
+              "$ref": "#/components/schemas/SccpFastPauseSuspendedViewV1"
+            },
+            "maxItems": 3,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "panel",
+          "seats",
+          "eligibility_available",
+          "rounds",
+          "active",
+          "suspended"
         ],
         "type": "object"
       },
@@ -39243,6 +40016,208 @@
           "recorded_ms",
           "consensus_admitted_height",
           "penalty_status"
+        ],
+        "type": "object"
+      },
+      "SccpForgeryEvidencePageV1": {
+        "additionalProperties": false,
+        "description": "Bounded original evidence-key order. next_after is an exclusive raw evidence-id cursor, null after the final SCCP report.",
+        "properties": {
+          "next_after": {
+            "oneOf": [
+              {
+                "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9A-Fa-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/SccpForgeryEvidenceStatusV1"
+            },
+            "maxItems": 64,
+            "type": "array"
+          }
+        },
+        "required": [
+          "records",
+          "next_after"
+        ],
+        "type": "object"
+      },
+      "SccpForgeryEvidenceStatusV1": {
+        "additionalProperties": false,
+        "description": "Exact original committed SCCP report. Newly deduplicated offender attribution is retained; penalty delay uses recorded_at_height, never the signed height.",
+        "properties": {
+          "evidence_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "generation": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offenders": {
+            "items": {
+              "$ref": "#/components/schemas/SccpForgeryOffenderV1"
+            },
+            "maxItems": 31,
+            "minItems": 1,
+            "type": "array"
+          },
+          "penalty_status": {
+            "$ref": "#/components/schemas/SumeragiEvidencePenaltyStatus"
+          },
+          "recorded_at_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/SccpForgeryRuleV1"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "generation",
+          "height",
+          "rule",
+          "offenders",
+          "penalty_status",
+          "recorded_at_height"
+        ],
+        "type": "object"
+      },
+      "SccpForgeryHoldCursorV1": {
+        "additionalProperties": false,
+        "description": "Exclusive lexicographic cursor: resume strictly after this network and revision.",
+        "properties": {
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "revision": {
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "network",
+          "revision"
+        ],
+        "type": "object"
+      },
+      "SccpForgeryHoldRevisionV1": {
+        "additionalProperties": false,
+        "description": "One registered revision with its effective Taira hold, permanent quarantine and scalar reconciliation state.",
+        "properties": {
+          "forgery_floor": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "held": {
+            "type": "boolean"
+          },
+          "network": {
+            "$ref": "#/components/schemas/SccpExternalNetworkV1"
+          },
+          "quarantine": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpQuarantineV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconciliation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpReconciliationStateV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "network",
+          "revision",
+          "forgery_floor",
+          "held",
+          "quarantine",
+          "reconciliation"
+        ],
+        "type": "object"
+      },
+      "SccpForgeryHoldViewV1": {
+        "additionalProperties": false,
+        "description": "Bounded committed forgery-hold page, ordered by network and revision. At most 64 scalar rows; permanent proven-mint history is never copied.",
+        "properties": {
+          "max_generation": {
+            "oneOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpForgeryHoldCursorV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/SccpForgeryHoldRevisionV1"
+            },
+            "maxItems": 64,
+            "type": "array"
+          }
+        },
+        "required": [
+          "max_generation",
+          "revisions",
+          "next"
         ],
         "type": "object"
       },
@@ -39914,6 +40889,51 @@
           }
         ]
       },
+      "SccpGovernanceActiveAttemptV1": {
+        "additionalProperties": false,
+        "description": "Active or certified SCCP attempt and Parliament-owned next due observation. Unavailable due information is never synthesized as absence.",
+        "properties": {
+          "attempt": {
+            "$ref": "#/components/schemas/GovernanceParliamentAttemptProjectionV1"
+          },
+          "due_available": {
+            "type": "boolean"
+          },
+          "next_due_height": {
+            "anyOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_due_timestamp_ms": {
+            "anyOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "attempt",
+          "due_available",
+          "next_due_height",
+          "next_due_timestamp_ms"
+        ],
+        "type": "object"
+      },
       "SccpGovernanceBaseRevisionV1": {
         "additionalProperties": false,
         "description": "One proposal subject and the governance revision the proposer saw.",
@@ -39928,6 +40948,92 @@
         "required": [
           "subject",
           "revision"
+        ],
+        "type": "object"
+      },
+      "SccpGovernanceBodySizesV1": {
+        "additionalProperties": false,
+        "description": "Configured Parliament body sizes from the original committed view. These are not eligible-citizen counts.",
+        "properties": {
+          "agenda_council": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "alternates": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "confirmation_jury": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "coordination_council": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fma_committee": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "interest_panel": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mpc_committee": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "oversight_committee": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_jury": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "review_panel": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rules_committee": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rules_committee",
+          "agenda_council",
+          "interest_panel",
+          "review_panel",
+          "coordination_council",
+          "policy_jury",
+          "confirmation_jury",
+          "oversight_committee",
+          "mpc_committee",
+          "fma_committee",
+          "alternates"
         ],
         "type": "object"
       },
@@ -39961,6 +41067,87 @@
           "network_id",
           "base_revisions",
           "actions"
+        ],
+        "type": "object"
+      },
+      "SccpGovernanceReadinessV1": {
+        "additionalProperties": false,
+        "description": "Governance diagnostics at one original committed observation, never a launch authorization. Null eligibility or latency means the Parliament-owned source is unavailable, not zero.",
+        "properties": {
+          "active_attempts": {
+            "items": {
+              "$ref": "#/components/schemas/SccpGovernanceActiveAttemptV1"
+            },
+            "type": "array"
+          },
+          "active_beacon_session": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9A-Fa-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempt_latency_ms": {
+            "anyOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "beacon_matches_current_roster": {
+            "type": "boolean"
+          },
+          "body_sizes": {
+            "$ref": "#/components/schemas/SccpGovernanceBodySizesV1"
+          },
+          "committed_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "eligible_citizens": {
+            "anyOf": [
+              {
+                "format": "uint64",
+                "maximum": 18446744073709551615,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parliament_binding_ballot_available": {
+            "type": "boolean"
+          },
+          "reconciliation_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "committed_height",
+          "eligible_citizens",
+          "body_sizes",
+          "active_beacon_session",
+          "beacon_matches_current_roster",
+          "parliament_binding_ballot_available",
+          "reconciliation_available",
+          "attempt_latency_ms",
+          "active_attempts"
         ],
         "type": "object"
       },
@@ -40391,6 +41578,44 @@
         ],
         "description": "Canonical nonzero uppercase 32-byte hexadecimal commitment."
       },
+      "SccpPanelRoleV1": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "type": "null"
+              },
+              "role": {
+                "const": "primary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "detail"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "type": "null"
+              },
+              "role": {
+                "const": "backup",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "detail"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "SccpParametersV1": {
         "additionalProperties": false,
         "description": "Current native SCCP consensus parameters. Core enforces all individual and joint bounds of section 4.1, including pinned staking unbonding and the available Parliament latency. The JSON-safe integer bound applies to proposal input; schema decoding is not enactment.",
@@ -40498,12 +41723,198 @@
         ],
         "type": "object"
       },
+      "SccpPassPositionV1": {
+        "additionalProperties": false,
+        "description": "Original committed block-start position; timestamps do not break ties.",
+        "properties": {
+          "height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "position": {
+            "format": "uint32",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "height",
+          "position"
+        ],
+        "type": "object"
+      },
+      "SccpPausePanelIdsV1": {
+        "additionalProperties": false,
+        "description": "Original committed identities of the primary and backup emergency panels.",
+        "properties": {
+          "backup": {
+            "description": "Exactly 32 bytes as hexadecimal; Norito JSON emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "primary": {
+            "description": "Exactly 32 bytes as hexadecimal; Norito JSON emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "primary",
+          "backup"
+        ],
+        "type": "object"
+      },
+      "SccpPausePanelV1": {
+        "additionalProperties": false,
+        "description": "Original standing draw in seat order and committed acceptances; these bytes do not establish current eligibility.",
+        "properties": {
+          "accept_until_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "accepted": {
+            "items": {
+              "$ref": "#/components/schemas/CanonicalAccountId"
+            },
+            "maxItems": 27,
+            "minItems": 0,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "backup_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "drawn": {
+            "items": {
+              "$ref": "#/components/schemas/CanonicalAccountId"
+            },
+            "maxItems": 27,
+            "minItems": 10,
+            "type": "array"
+          },
+          "panel_seq": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "primary_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "pulse_id": {
+            "description": "Exact 32-byte Norito fixed array, encoded as hexadecimal without a prefix; serialization emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "seated_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seated_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "term_ends_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "panel_seq",
+          "pulse_id",
+          "seated_height",
+          "seated_at_ms",
+          "accept_until_ms",
+          "term_ends_at_ms",
+          "drawn",
+          "accepted",
+          "primary_id",
+          "backup_id"
+        ],
+        "type": "object"
+      },
+      "SccpPauseSeatsV1": {
+        "additionalProperties": false,
+        "description": "Current seats derived from the original authoritative Parliament eligibility source; both panels have the configured equal size.",
+        "properties": {
+          "backup": {
+            "items": {
+              "$ref": "#/components/schemas/CanonicalAccountId"
+            },
+            "maxItems": 9,
+            "minItems": 5,
+            "type": "array"
+          },
+          "primary": {
+            "items": {
+              "$ref": "#/components/schemas/CanonicalAccountId"
+            },
+            "maxItems": 9,
+            "minItems": 5,
+            "type": "array"
+          }
+        },
+        "required": [
+          "primary",
+          "backup"
+        ],
+        "type": "object"
+      },
       "SccpPositiveU128DecimalV1": {
         "description": "Canonical positive unsigned 128-bit integer as a decimal string without sign, leading zeros or separators.",
         "maxLength": 39,
         "minLength": 1,
         "pattern": "^[1-9][0-9]{0,38}$",
         "type": "string"
+      },
+      "SccpQuarantineV1": {
+        "additionalProperties": false,
+        "description": "Permanent Parliament quarantine, retained after reconciliation.",
+        "properties": {
+          "certificate_id": {
+            "description": "Exactly 32 bytes as hexadecimal; Norito JSON emits uppercase.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "type": "string"
+          },
+          "since_height": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "certificate_id",
+          "since_height"
+        ],
+        "type": "object"
       },
       "SccpReadDocumentV1": {
         "description": "Norito JSON projection of the SCCP v1 read type named by the operation (`iroha_sccp::api` and `iroha_data_model::sccp`). Proof material is verified by the reader, never trusted from the transport.",
@@ -40533,6 +41944,93 @@
           "recent_messages",
           "outbound_page",
           "controls_page"
+        ],
+        "type": "object"
+      },
+      "SccpReconciliationRatioV1": {
+        "additionalProperties": false,
+        "description": "Immutable rate B / (B + F), with denominator one when both are zero.",
+        "properties": {
+          "backing": {
+            "maximum": 340282366920938463463374607431768211455,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "denominator": {
+            "maximum": 340282366920938463463374607431768211455,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backing",
+          "denominator"
+        ],
+        "type": "object"
+      },
+      "SccpReconciliationStateV1": {
+        "additionalProperties": false,
+        "description": "Fixed-size reconciliation accounting. Null rho means the proof window is open; a fixed ratio means Reconciled. Proof-id history is omitted.",
+        "properties": {
+          "closes_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "forged_supply": {
+            "maximum": 340282366920938463463374607431768211455,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "opened_at_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rho": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SccpReconciliationRatioV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settled_face": {
+            "maximum": 340282366920938463463374607431768211455,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "opened_at_ms",
+          "closes_at_ms",
+          "forged_supply",
+          "rho",
+          "settled_face"
+        ],
+        "type": "object"
+      },
+      "SccpRecordedStateV1": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline_ms": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provable": {
+            "description": "Original committed native tip covers the record height; independently verify a certificate proof before use.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deadline_ms",
+          "provable"
         ],
         "type": "object"
       },
@@ -52405,6 +53903,13 @@
             "minimum": 1,
             "type": "integer"
           },
+          "due_work_max_lag_ms": {
+            "description": "Positive committed first-Prepare freshness allowance for due work, in milliseconds.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
           "epoch_length_blocks": {
             "description": "Epoch length in heights.",
             "format": "uint64",
@@ -52485,6 +53990,7 @@
         "required": [
           "block_cadence_ms",
           "max_clock_drift_ms",
+          "due_work_max_lag_ms",
           "key_activation_lead_blocks",
           "key_overlap_grace_blocks",
           "key_expiry_grace_blocks",
@@ -61517,6 +63023,248 @@
           "authentication": "canonical_account_signature",
           "schemaVersion": 1,
           "stableRouteId": "aliases.setup_plan"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/amx/debit-approval/{height}": {
+      "post": {
+        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation.",
+        "operationId": "amxDebitApprovalProofV1",
+        "parameters": [
+          {
+            "description": "Canonical decimal u64 current certified non-genesis height, at least 2; no sign or leading zero.",
+            "in": "path",
+            "name": "height",
+            "required": true,
+            "schema": {
+              "maxLength": 20,
+              "pattern": "^(?:[2-9]|[1-9][0-9]+)$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-norito": {
+              "schema": {
+                "description": "One complete canonical Norito frame of iroha_data_model::sumeragi_amx::AmxDebitApprovalV1. Decoding grants no authority.",
+                "format": "binary",
+                "maxLength": 65536,
+                "minLength": 1,
+                "type": "string",
+                "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1",
+                "x-iroha-norito-schema": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmxDebitApprovalProofV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "One complete canonical Norito frame of iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1. Decoding grants no authority.",
+                  "format": "binary",
+                  "maxLength": 33554432,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1",
+                  "x-iroha-norito-schema": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1"
+                }
+              }
+            },
+            "description": "Exact current-cut native data; independent finality and permission verification are required.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Height or exact canonical Norito approval frame is malformed or has substituted terms.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical account authentication is absent or invalid; capacity refusal is reported separately as retryable 503.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Deployment-required API token or native account access was rejected.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Accept must permit application/json or application/x-norito.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Request exceeds the 65536-byte route body bound.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission, rate or exact egress limits refused the read.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current certified source, exact approval, response capacity or authentication capacity is unavailable. amx_debit_approval_authentication_capacity and query capacity refusals are retryable and never permission absence or an authorization denial. amx_debit_approval_proof_unavailable supplies no negative evidence.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Read exact AMX debit consent at the current certified private cut.",
+        "tags": [
+          "Nexus"
+        ],
+        "x-iroha-max-request-bytes": 65536,
+        "x-iroha-max-response-bytes": 33554432,
+        "x-iroha-route-auth": {
+          "admission": "authenticated_account",
+          "authentication": "canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "contracts.amx_debit_approval_proof_post"
         },
         "x-iroha-tool-effect": "read"
       }
@@ -92127,6 +93875,477 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/sccp/evidence": {
+      "get": {
+        "description": "Reads the original committed consensus evidence owner. The original request pool funds bounded row handles; offender graphs remain borrowed through encoding. Pending/applied status is mutable and no ETag is served.",
+        "operationId": "sccpEvidencePageV1",
+        "parameters": [
+          {
+            "description": "Exclusive original evidence-id cursor.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "pattern": "^(0x)?[0-9A-Fa-f]{64}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 64,
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpForgeryEvidencePageV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpForgeryEvidencePageV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "The consensus penalty lifecycle can change at later committed heights.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "sccp_invalid_query: malformed selector, unknown query or limit outside 1..=64."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request deadline or cooperative stop; no partial DATA is published."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission or rate limit refused the request."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source unavailable, unsupported scope, corruption or local allocation refusal. Unavailability is not proof of absence or pruning."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read a bounded page of SCCP forgery reports",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.evidence.list"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/evidence/anchor/{height}": {
+      "get": {
+        "description": "Reconstructs a completed chunk path from original funded Kura certificate custody and verifies the retained root. At the durable tip or in the open chunk, witness is null. No query parameters are accepted.",
+        "operationId": "sccpEvidenceAnchorV1",
+        "parameters": [
+          {
+            "description": "Canonical nonzero decimal u64 committed height, including genesis.",
+            "in": "path",
+            "name": "height",
+            "required": true,
+            "schema": {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpAnchorWitnessBundleV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpAnchorWitnessBundleV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Depends on committed state, retained custody and the current open chunk.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "sccp_invalid_query: malformed path, unknown query, zero height or height outside the committed view."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request deadline or cooperative stop; no partial DATA is published."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "sccp_pruned: the requested closed chunk root is no longer retained."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission or rate limit refused the request."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source unavailable, unsupported scope, corruption or local allocation refusal. Unavailability is not proof of absence or pruning."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read an original completed anchor witness",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.evidence.anchor"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/evidence/{evidence_id}": {
+      "get": {
+        "description": "Reads the original committed consensus evidence owner. The original request pool funds bounded row handles; offender graphs remain borrowed through encoding. Pending/applied status is mutable and no ETag is served.",
+        "operationId": "sccpEvidenceV1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evidence_id",
+            "required": true,
+            "schema": {
+              "pattern": "^(0x)?[0-9A-Fa-f]{64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpForgeryEvidenceStatusV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpForgeryEvidenceStatusV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "The consensus penalty lifecycle can change at later committed heights.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "sccp_invalid_query: malformed selector, unknown query or limit outside 1..=64."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No original SCCP report has this exact evidence id; a generic Hash marker alias is not accepted."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request deadline or cooperative stop; no partial DATA is published."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission or rate limit refused the request."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source unavailable, unsupported scope, corruption or local allocation refusal. Unavailability is not proof of absence or pruning."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read one committed SCCP forgery report",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.evidence.read"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/fast-pause": {
+      "get": {
+        "description": "Original request-funded view of the standing draw, retained rounds, hold parts and suspension deadlines. Authoritative eligibility availability is reported explicitly. No query parameters are accepted.",
+        "operationId": "sccpFastPauseV1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpFastPauseViewV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpFastPauseViewV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Depends on committed state, retained custody and the current open chunk.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request deadline or cooperative stop; no partial DATA is published."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission or rate limit refused the request."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source unavailable, unsupported scope, corruption or local allocation refusal. Unavailability is not proof of absence or pruning."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read standing pause panels and original retained pause records",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.fast_pause"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/sccp/finality/{height}": {
       "get": {
         "description": "Height is latest or a canonical decimal u64 non-genesis height >=2. The generation is the committee that signed that height, including the outgoing signer at a rotation boundary.",
@@ -92254,6 +94473,173 @@
           "authentication": "torii_default",
           "schemaVersion": 1,
           "stableRouteId": "sccp.finality"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/forgery-hold": {
+      "get": {
+        "description": "Returns effective Taira holds, permanent quarantine and scalar reconciliation accounting from one committed state observation. No proof-id history is materialized.",
+        "operationId": "sccpForgeryHoldV1",
+        "parameters": [
+          {
+            "description": "Optional external network filter.",
+            "in": "query",
+            "name": "network",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exact nonzero revision; requires network.",
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Exclusive cursor network; requires after_revision.",
+            "in": "query",
+            "name": "after_network",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ethereum-mainnet",
+                "bsc-mainnet",
+                "ton-mainnet"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive cursor revision; requires after_network.",
+            "in": "query",
+            "name": "after_revision",
+            "required": false,
+            "schema": {
+              "format": "uint32",
+              "maximum": 4294967295,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Maximum rows, in 1..64; default 64.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 64,
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpForgeryHoldViewV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpForgeryHoldViewV1`.",
+            "headers": {
+              "Cache-Control": {
+                "description": "A committed state projection changes as reconciliation and retention progress.",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A path or query parameter is malformed."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request deadline or cooperative stop; no partial DATA is published."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission or rate limit refused the request."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source unavailable, unsupported scope, corruption or local allocation refusal. Unavailability is not proof of absence or pruning."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read a bounded forgery-hold and reconciliation page",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.forgery_hold.read"
         },
         "x-iroha-tool-effect": "read"
       }
@@ -92442,6 +94828,58 @@
           "authentication": "torii_default",
           "schemaVersion": 1,
           "stableRouteId": "sccp.governance.proposal"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/sccp/governance/readiness": {
+      "get": {
+        "description": "Read committed body sizes, qualified Parliament availability, beacon roster binding and active attempt due observations through the admitted native read owner. This diagnostic grants no governance or launch authority.",
+        "operationId": "sccpGovernanceReadinessV1",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SccpGovernanceReadinessV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of the JSON schema's typed payload.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "`iroha_sccp::api::SccpGovernanceReadinessV1`."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Read SCCP governance readiness.",
+        "tags": [
+          "SCCP"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "sccp.governance.readiness"
         },
         "x-iroha-tool-effect": "read"
       }

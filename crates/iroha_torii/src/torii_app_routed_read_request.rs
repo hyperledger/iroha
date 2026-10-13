@@ -13,6 +13,10 @@ struct ToriiRoutedReadRequestDecodePlan {
 }
 impl ToriiRoutedReadMemoryBudget {
     #[cfg(feature = "app_api")]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_plan(&self) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
         let bytes = self.route_body_limit();
         if !self.app_request_phases_fit(bytes) {
@@ -24,6 +28,10 @@ impl ToriiRoutedReadMemoryBudget {
         }
         self.request_decode_plan_with_path_fixed(app_routed_read_url_parameter_fixed_bytes())
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_plan_for_path(
         &self,
         path: &str,
@@ -43,6 +51,10 @@ impl ToriiRoutedReadMemoryBudget {
             parameters, key_bytes,
         ))
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn request_decode_plan_with_path_fixed(
         &self,
         path_fixed: Option<usize>,
@@ -101,6 +113,10 @@ impl ToriiRoutedReadMemoryBudget {
 }
 /// Configuration geometry only validates framing before acquiring the owner.
 #[cfg(all(test, feature = "app_api"))]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_request_preflight_plan(
     app: &SharedAppState,
 ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
@@ -111,6 +127,10 @@ fn torii_routed_read_request_preflight_plan(
     .request_decode_plan()
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_routed_read_request_decode_plan(
     app: &SharedAppState,
 ) -> Result<ToriiRoutedReadRequestDecodePlan, Response> {
@@ -121,6 +141,10 @@ fn torii_routed_read_request_decode_plan(
     .request_decode_plan()
 }
 impl ToriiRoutedReadRequestDecodePlan {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn admit_raw_input(self, bytes: usize) -> Result<(), Response> {
         if bytes > self.raw_input_limit_bytes {
             return Err(torii_routed_read_request_capacity_response(
@@ -132,6 +156,10 @@ impl ToriiRoutedReadRequestDecodePlan {
         Ok(())
     }
     #[cfg(feature = "app_api")]
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn preflight_json(self, bytes: &[u8]) -> Result<norito::json::JsonPreflightProfile, Response> {
         self.admit_raw_input(bytes.len())?;
         norito::json::preflight_slice(
@@ -145,6 +173,10 @@ impl ToriiRoutedReadRequestDecodePlan {
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_json_body<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     body: &[u8],
@@ -157,6 +189,10 @@ where
     decode_torii_routed_read_typed_json(plan, body, label)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_query<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -167,6 +203,10 @@ where
     decode_torii_proxy_query_with_coercion(plan, query_string, true)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_string_query<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -177,6 +217,10 @@ where
     decode_torii_proxy_query_with_coercion(plan, query_string, false)
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_proxy_query_with_coercion<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     query_string: Option<&str>,
@@ -324,6 +368,10 @@ where
         decode_app_routed_read_typed_json(plan, &json, "query parameters")
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_app_routed_read_form(
     raw: &[u8],
     plan: ToriiRoutedReadRequestDecodePlan,
@@ -393,6 +441,10 @@ fn validate_app_routed_read_form(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_app_routed_read_form_component(raw: &[u8]) -> Result<(), Response> {
     // Ordinary RFC 3986 / HTML-form spelling; see `utils::decode_component`.
     let mut index = 0;
@@ -421,6 +473,10 @@ fn validate_app_routed_read_form_component(raw: &[u8]) -> Result<(), Response> {
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_app_routed_read_typed_json<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     bytes: &[u8],
@@ -513,6 +569,10 @@ fn app_routed_read_form_encode_response(
     }
 }
 #[cfg(feature = "app_api")]
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_torii_routed_read_typed_json<T>(
     plan: ToriiRoutedReadRequestDecodePlan,
     bytes: &[u8],

@@ -450,6 +450,10 @@ fn either_original_publication_overrides_success_corruption_and_work_refusal() {
 
 #[test]
 fn predecessor_masking_funds_every_physical_candidate_after_an_equal_key() {
+    #[expect(
+        clippy::zero_sized_map_values,
+        reason = "Storage snapshot parts encode current unit-valued membership rows and their separate undo map"
+    )]
     let rows = Storage::from_snapshot_parts(
         BTreeMap::from([(id("live"), ())]),
         BTreeMap::from([(id("live"), None), (id("tail"), None)]),

@@ -101,7 +101,7 @@ fn signed_fee_subject_read_keeps_scope_refusal_distinct_from_inactive_treasury()
             if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
         run().expect("unchanged original contract retries");
-        assert!(stx.execution_deferral().is_none());
+        assert!(!stx.is_execution_deferred());
     });
 }
 
@@ -117,7 +117,7 @@ fn signed_fee_runtime_read_does_not_turn_scope_refusal_into_a_nonmatching_origin
             if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
         );
         assert!(run().unwrap(), "original code and subject survive refusal");
-        assert!(stx.execution_deferral().is_none());
+        assert!(!stx.is_execution_deferred());
     });
 }
 
@@ -208,7 +208,7 @@ fn original_retained_fee_registry_does_not_publish_local_decode_refusal_as_malfo
             original
         );
         validate_persisted_policy_registry_runtime_v1(stx, stx.block_height()).unwrap();
-        assert!(stx.execution_deferral().is_none());
+        assert!(!stx.is_execution_deferred());
     });
 }
 
@@ -237,17 +237,18 @@ fn retained_registry_refusal_blocks_fee_effect_publication_and_original_retry() 
         .smart_contract_state
         .insert(marker.clone(), vec![1]);
     enforce_opaque_deferred_instruction_groups(&groups, &[], &mut stx, None).unwrap();
-    assert!(stx.execution_deferral().is_none());
+    assert!(!stx.is_execution_deferred());
     let refused = norito::with_decode_limits_scope(limits(), || {
         enforce_opaque_deferred_instruction_groups(&groups, &[], &mut stx, None)
     });
     assert!(refused.is_err());
-    let original = stx.execution_deferral().unwrap();
+    let original = stx.borrow_execution_deferral().unwrap();
     assert_eq!(
         original.reason(),
         ivm::error::ExecutionDeferral::ActiveMemoryCapacity
     );
     assert!(original.allocation_refusal().is_none());
+    drop(original);
     stx.apply();
     assert!(block.world.smart_contract_state.get(&marker).is_none());
     assert!(
@@ -271,5 +272,5 @@ fn retained_registry_refusal_blocks_fee_effect_publication_and_original_retry() 
     let mut retry = block.transaction();
     install_policy_registry_fixture(&registry, &mut retry);
     enforce_opaque_deferred_instruction_groups(&groups, &[], &mut retry, None).unwrap();
-    assert!(retry.execution_deferral().is_none());
+    assert!(!retry.is_execution_deferred());
 }

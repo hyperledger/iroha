@@ -3,13 +3,30 @@
 //! No refusal restarts the command, reacquires an inherited FIFO, selects another
 //! pool or rerolls a consumed primitive. The current semantic phase advances
 //! before publication. Finality retains the once-decoded original journal while
-//! retrying the sole atomic NativeJournalCursor advancement.
+//! retrying the sole atomic `NativeJournalCursor` advancement.
 //!
 //! TODO: native journal decoded block/index preparation is still an independent
 //! open funding boundary. The exact raw journal frame is funded here; keeping an
 //! existing bounded canonical journal alive does not certify its heap admission.
 
 use super::*;
+
+/// Original authenticated seat preparation, including inherited files and allocation authority.
+pub(super) struct SeatDkgAttemptPreparation<'a> {
+    pub(super) authority: AuthenticatedGlobalBeaconDkgAttemptV1,
+    pub(super) roster: &'a [PeerId],
+    pub(super) signer_index: u16,
+    pub(super) signer: KeyPair,
+    pub(super) public_input: File,
+    pub(super) finality_input: File,
+    pub(super) clock: NativeJournalCursor,
+    pub(super) provider_handle: &'a str,
+    pub(super) provider_revision: u64,
+    pub(super) attempt_root: &'a Path,
+    pub(super) deadline: Instant,
+    pub(super) budget: &'a AllocationBudget,
+}
+
 use claim::{ClaimError, PreparedAttemptClaim};
 use input::{FrameInput, FrameReadError};
 use iroha_allocation::{
@@ -78,7 +95,7 @@ enum Phase {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AttemptError {
+pub enum AttemptError {
     #[error(transparent)]
     Admission(#[from] AllocationRefusal),
     #[error(transparent)]
@@ -119,26 +136,19 @@ impl AttemptError {
             NativeFinalityDecodeError, PreparedNativeFinalityError,
         };
         match self {
-            Self::Phase | Self::Height | Self::Deadline | Self::Binding => true,
             Self::DurableDecode(norito::core::PreparedDecodeError::Codec(error)) => {
                 error.kind() == norito::core::DecodeAttemptErrorKind::Invalid
             }
-            Self::Local(
-                LocalGlobalThresholdBeaconDkgErrorV1::Invalid(_)
-                | LocalGlobalThresholdBeaconDkgErrorV1::Session(
-                    GlobalThresholdBeaconSessionError::Invalid(_)
-                    | GlobalThresholdBeaconSessionError::ForeignReservation
-                    | GlobalThresholdBeaconSessionError::PlanChanged,
-                ),
-            ) => true,
-            Self::Local(LocalGlobalThresholdBeaconDkgErrorV1::Checkpoint(
-                iroha_crypto::threshold_bls::checkpoint::DkgCheckpointErrorV1::Binding
-                | iroha_crypto::threshold_bls::checkpoint::DkgCheckpointErrorV1::Terminal,
-            )) => true,
             Self::Local(LocalGlobalThresholdBeaconDkgErrorV1::Checkpoint(
                 iroha_crypto::threshold_bls::checkpoint::DkgCheckpointErrorV1::Decode(
                     norito::core::PreparedDecodeError::Codec(error),
                 ),
+            ))
+            | Self::JournalSource(PreparedNativeFinalityError::Decode(
+                norito::core::PreparedDecodeError::Codec(error),
+            ))
+            | Self::Input(GlobalThresholdBeaconInputErrorV1::Decode(
+                norito::core::PreparedDecodeError::Codec(error),
             )) => error.kind() == norito::core::DecodeAttemptErrorKind::Invalid,
             // A restored source/context is immutable and this phase uses no RNG.
             // Retrying a deterministic secret/proof failure cannot repair it.
@@ -216,31 +226,41 @@ impl AttemptError {
             {
                 true
             }
-            Self::JournalSource(
+            Self::Phase
+            | Self::Height
+            | Self::Deadline
+            | Self::Binding
+            | Self::Local(
+                LocalGlobalThresholdBeaconDkgErrorV1::Invalid(_)
+                | LocalGlobalThresholdBeaconDkgErrorV1::Session(
+                    GlobalThresholdBeaconSessionError::Invalid(_)
+                    | GlobalThresholdBeaconSessionError::ForeignReservation
+                    | GlobalThresholdBeaconSessionError::PlanChanged,
+                )
+                | LocalGlobalThresholdBeaconDkgErrorV1::Checkpoint(
+                    iroha_crypto::threshold_bls::checkpoint::DkgCheckpointErrorV1::Binding
+                    | iroha_crypto::threshold_bls::checkpoint::DkgCheckpointErrorV1::Terminal,
+                ),
+            )
+            | Self::JournalSource(
                 PreparedNativeFinalityError::Invalid(_)
                 | PreparedNativeFinalityError::ForeignPool
                 | PreparedNativeFinalityError::SourceChanged
                 | PreparedNativeFinalityError::NotDecoded,
-            ) => true,
-            Self::JournalSource(PreparedNativeFinalityError::Decode(
-                norito::core::PreparedDecodeError::Codec(error),
-            )) => error.kind() == norito::core::DecodeAttemptErrorKind::Invalid,
-            Self::Input(
+            )
+            | Self::Input(
                 GlobalThresholdBeaconInputErrorV1::Binding
                 | GlobalThresholdBeaconInputErrorV1::Phase
                 | GlobalThresholdBeaconInputErrorV1::SourceChanged,
-            ) => true,
-            Self::Input(GlobalThresholdBeaconInputErrorV1::Decode(
-                norito::core::PreparedDecodeError::Codec(error),
-            )) => error.kind() == norito::core::DecodeAttemptErrorKind::Invalid,
-            Self::Frame(
+            )
+            | Self::Frame(
                 FrameReadError::Deadline
                 | FrameReadError::Length
                 | FrameReadError::EndOfStream
                 | FrameReadError::Custody
                 | FrameReadError::Phase,
-            ) => true,
-            Self::Claim(
+            )
+            | Self::Claim(
                 ClaimError::AmbiguousCreation(_)
                 | ClaimError::AlreadyClaimed(_)
                 | ClaimError::Custody
@@ -249,16 +269,14 @@ impl AttemptError {
                 | ClaimError::Directory(
                     seat_export::ExportError::Custody | seat_export::ExportError::Phase,
                 ),
-            ) => true,
-            Self::Export(seat_export::ExportError::Custody | seat_export::ExportError::Phase) => {
-                true
-            }
-            Self::Session(
+            )
+            | Self::Export(seat_export::ExportError::Custody | seat_export::ExportError::Phase)
+            | Self::Session(
                 GlobalThresholdBeaconSessionError::Invalid(_)
                 | GlobalThresholdBeaconSessionError::ForeignReservation
                 | GlobalThresholdBeaconSessionError::PlanChanged,
-            ) => true,
-            Self::Journal(
+            )
+            | Self::Journal(
                 NativeJournalError::Invalid(_)
                 | NativeJournalError::SourcePool
                 | NativeJournalError::Decode(
@@ -272,11 +290,16 @@ impl AttemptError {
 
 /// Disjoint physical input banks selected before any private restore or fresh claim.
 /// A complete aggregate prefix never reconstructs discarded private producer graphs.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "both input banks stay inline in the original charged singleton receiver; a separate Box would add backing outside its admission reservation"
+)]
 enum AttemptInputBanks {
     Full(PreparedGlobalThresholdBeaconDkgInputsV1),
     Final(PreparedGlobalThresholdBeaconFinalSessionInputV1),
 }
 impl AttemptInputBanks {
+    #[cfg(test)]
     fn belongs_to(&self, budget: &AllocationBudget) -> bool {
         match self {
             Self::Full(owner) => owner.belongs_to(budget),
@@ -309,7 +332,10 @@ impl AttemptInputBanks {
 }
 
 /// Every phase's actual owner remains in this receiver until success or explicit drop.
-pub(crate) struct SeatDkgAttempt {
+pub struct SeatDkgAttempt {
+    // The original charged receiver also reserves its failure slot. Returning a pending
+    // attempt moves only the receiver handle, without allocating on the failed path.
+    pending_cause: Option<AttemptError>,
     prepared: Option<PreparedLocalGlobalThresholdBeaconDkgSeatV1>,
     local: Option<LocalGlobalThresholdBeaconDkgSeatV1>,
     inputs: AttemptInputBanks,
@@ -345,21 +371,26 @@ pub(crate) struct SeatDkgAttempt {
     budget: AllocationBudget,
     phase: Phase,
 }
+/// Original claim identity, canonical path digest and both FIFO identities.
+type AttemptSourceIdentity = ([u64; 4], [u8; 32], [u64; 4]);
+
 impl SeatDkgAttempt {
     /// All known preparation succeeds before the first mkdir, RNG or signature.
-    pub(super) fn new(
-        authority: AuthenticatedGlobalBeaconDkgAttemptV1,
-        roster: &[PeerId],
-        signer_index: u16,
-        signer: KeyPair,
-        public_input: File,
-        finality_input: File,
-        clock: NativeJournalCursor,
-        provider_handle: &str,
-        provider_revision: u64,
-        attempt_root: &Path,
-        deadline: Instant,
-        budget: &AllocationBudget,
+    pub(super) fn prepare(
+        SeatDkgAttemptPreparation {
+            authority,
+            roster,
+            signer_index,
+            signer,
+            public_input,
+            finality_input,
+            clock,
+            provider_handle,
+            provider_revision,
+            attempt_root,
+            deadline,
+            budget,
+        }: SeatDkgAttemptPreparation<'_>,
     ) -> std::result::Result<SeatDkgAttemptOwner, AttemptError> {
         if Instant::now() >= deadline {
             return Err(AttemptError::Deadline);
@@ -371,7 +402,10 @@ impl SeatDkgAttempt {
                 .is_err()
             || !clock.allocation_budget().same_pool(budget)
             || clock.network_id() != session.network_id
-            || clock.tip().map(|tip| tip.height()).unwrap_or(1) != session.start_height
+            || clock.tip().map_or(
+                1,
+                iroha_core::sumeragi::certified_chain::CommittedBlock::height,
+            ) != session.start_height
             || session.acceptances_end_height >= cutoff
         {
             return Err(AttemptError::Binding);
@@ -510,6 +544,7 @@ impl SeatDkgAttempt {
             return Err(AttemptError::Phase);
         }
         owner.push_reserved(Self {
+            pending_cause: None,
             prepared,
             local: None,
             inputs,
@@ -596,9 +631,7 @@ impl SeatDkgAttempt {
             intent_hash,
         )?)
     }
-    fn claim_and_fifo_identity(
-        &self,
-    ) -> std::result::Result<([u64; 4], [u8; 32], [u64; 4]), AttemptError> {
+    fn claim_and_fifo_identity(&self) -> std::result::Result<AttemptSourceIdentity, AttemptError> {
         let (claim, path) = self.claim.identity()?;
         let public = self.public_input.source_identity()?;
         let finality = self.finality.source_identity()?;
@@ -635,9 +668,7 @@ impl SeatDkgAttempt {
         self.durable.prepare_intent(
             phase,
             context.binding(),
-            claim,
-            path,
-            fifos,
+            (claim, path, fifos),
             None,
             sources,
             generations,
@@ -659,9 +690,7 @@ impl SeatDkgAttempt {
         self.durable.prepare_intent(
             phase + 4,
             &context,
-            claim,
-            path,
-            fifos,
+            (claim, path, fifos),
             None,
             [[0; 32]; 2],
             generations,
@@ -884,7 +913,7 @@ impl SeatDkgAttempt {
                 }
             }
         }
-        self.durable.retain_restored_generation(intent, head)?;
+        self.durable.retain_restored_generation(&intent, &head)?;
         let directory = self.claim.read_directory().ok_or(AttemptError::Phase)?;
         self.publications[0].restore_complete(directory, self.durable.intent_bytes(1)?)?;
         self.publications[1].restore_complete(
@@ -965,11 +994,13 @@ impl SeatDkgAttempt {
         let accepted_head = self.durable.verify_aggregate_accepted_prefix(
             &intent,
             &head.binding,
-            self.aggregate_durable.source(3)?,
-            self.aggregate_durable.source(4)?,
-            self.aggregate_durable.source(5)?,
-            self.aggregate_durable.source(7)?,
-            self.aggregate_durable.source(8)?,
+            durable::AggregatePrefixFrames {
+                head: self.aggregate_durable.source(3)?,
+                checkpoint: self.aggregate_durable.source(4)?,
+                marker: self.aggregate_durable.source(5)?,
+                intent: self.aggregate_durable.source(7)?,
+                output: self.aggregate_durable.source(8)?,
+            },
         )?;
         let handle = std::str::from_utf8(self.provider_handle.as_slice())
             .map_err(|_| AttemptError::Binding)?;
@@ -1113,11 +1144,10 @@ impl SeatDkgAttempt {
         self.tighten_from_original_expiry(intent.expiry)?;
         // Check the destination before taking the original move-only private owner.
         let export = self.export.as_mut().ok_or(AttemptError::Phase)?;
-        let source = self.aggregate_owner.take().ok_or(AttemptError::Phase)?;
-        if let Err((source, cause)) = export.accept(source) {
-            self.aggregate_owner = Some(source);
-            return Err(cause.into());
+        if self.aggregate_owner.is_none() {
+            return Err(AttemptError::Phase);
         }
+        export.accept(&mut self.aggregate_owner)?;
         self.phase = if self.restore_complete_export == Some(true) {
             Phase::RestoringExport
         } else {
@@ -1254,7 +1284,7 @@ impl SeatDkgAttempt {
         self.deadline = self.deadline.min(deadline);
         self.public_input.tighten_deadline(deadline);
         self.finality.tighten_deadline(deadline);
-        self.durable.retain_restored_later(phase, intent, head)?;
+        self.durable.retain_restored_later(phase, &intent, &head)?;
         // Retirement follows the real original checkpoint/output/head barriers.
         // Retrying the same phase never reconstructs or re-signs the polynomial.
         if phase == 2 && !self.restored_dealer_retired {
@@ -1268,12 +1298,12 @@ impl SeatDkgAttempt {
             self.phase = Phase::RestoringAcceptances;
             return Ok(());
         }
-        self.finish_restored_claim(intent, claim, path, phase)?;
+        self.finish_restored_claim(&intent, claim, path, phase)?;
         Ok(())
     }
     fn finish_restored_claim(
         &mut self,
-        intent: durable::Intent,
+        intent: &durable::Intent,
         claim: [u64; 4],
         path: [u8; 32],
         phase: u16,
@@ -1417,10 +1447,8 @@ impl SeatDkgAttempt {
                 self.sealed.as_ref().ok_or(AttemptError::Phase)?,
                 &self.signer,
             )?;
-        if let Err((source, cause)) = export.accept(source) {
-            self.rejected_aggregate = Some(source);
-            return Err(cause.into());
-        }
+        self.rejected_aggregate = Some(source);
+        export.accept(&mut self.rejected_aggregate)?;
         // The exact final public source is authenticated, sealed and durably
         // bound by the aggregate head. Advance its original FIFO cursor once
         // before refunding the consumed raw body; reload restores this same
@@ -1654,7 +1682,7 @@ impl SeatDkgAttempt {
 ///
 /// Resume and failure move only this handle. The private graph stays at the same
 /// address, and the physical receiver backing refunds only after its graph drops.
-pub(crate) struct SeatDkgAttemptOwner {
+pub struct SeatDkgAttemptOwner {
     receiver: ChargedBuffer<SeatDkgAttempt>,
 }
 impl std::ops::Deref for SeatDkgAttemptOwner {
@@ -1670,38 +1698,50 @@ impl std::ops::DerefMut for SeatDkgAttemptOwner {
 }
 impl SeatDkgAttemptOwner {
     pub(crate) fn resume(mut self) -> std::result::Result<(), PendingSeatDkgAttempt> {
+        // Resumption consumes the prior refusal. Release its diagnostic resources before
+        // retrying; the original attempt and its prepaid cause slot remain in place.
+        self.pending_cause = None;
         while self.phase != Phase::Complete {
             if let Err(cause) = self.step() {
                 if cause.terminal(self.phase) {
                     self.phase = Phase::Terminal;
                 }
-                return Err(PendingSeatDkgAttempt { owner: self, cause });
+                self.pending_cause = Some(cause);
+                return Err(PendingSeatDkgAttempt { owner: self });
             }
         }
         Ok(())
     }
 }
 /// Original complete failed attempt; debug/display never traverse private custody.
-pub(crate) struct PendingSeatDkgAttempt {
+pub struct PendingSeatDkgAttempt {
     pub(crate) owner: SeatDkgAttemptOwner,
-    pub(crate) cause: AttemptError,
+}
+impl PendingSeatDkgAttempt {
+    /// Borrow the failure retained inside this attempt's original prepaid receiver.
+    fn cause(&self) -> &AttemptError {
+        self.owner
+            .pending_cause
+            .as_ref()
+            .expect("pending attempt retains its cause")
+    }
 }
 impl std::fmt::Debug for PendingSeatDkgAttempt {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         out.debug_struct("PendingSeatDkgAttempt")
             .field("phase", &self.owner.phase)
-            .field("cause", &self.cause)
+            .field("cause", self.cause())
             .finish_non_exhaustive()
     }
 }
 impl std::fmt::Display for PendingSeatDkgAttempt {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.cause, out)
+        std::fmt::Display::fmt(self.cause(), out)
     }
 }
 impl std::error::Error for PendingSeatDkgAttempt {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.cause)
+        Some(self.cause())
     }
 }
 

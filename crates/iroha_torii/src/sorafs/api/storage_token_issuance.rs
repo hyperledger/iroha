@@ -225,44 +225,49 @@ async fn issue_storage_token(
     let worker_state = state.state.clone();
     // The physical worker owns query and heavy-query admission until issuance finishes, even
     // if the HTTP request is cancelled. Custody checks and broker I/O must not run on an executor.
-    let issued = match sorafs_heavy_blocking_task(&state, "SoraFS token issuance", move || {
-        let policy = account
-            .as_ref()
-            .map(|account| {
-                current_account_read_policy(&worker_state, account, ProviderId::new(provider_id))
-            })
-            .transpose()?;
-        let issued = worker_issuer.issue_token(
-            quota_subject,
-            manifest_cid,
-            provider_id,
-            profile_handle,
-            overrides,
-            policy.as_ref(),
-        );
-        // Issuance can await external custody. Do not release a token after an intervening
-        // finalized policy withdrawal, account deletion, expiry, or replacement.
-        if let Some(account) = &account {
-            if Some(current_account_read_policy(
-                &worker_state,
-                account,
-                ProviderId::new(provider_id),
-            )?) != policy
-            {
-                return Err(json_error(
-                    StatusCode::FORBIDDEN,
-                    "account-read policy changed during token issuance",
-                ));
+    let issuance_result =
+        match sorafs_heavy_blocking_task(&state, "SoraFS token issuance", move || {
+            let policy = account
+                .as_ref()
+                .map(|account| {
+                    current_account_read_policy(
+                        &worker_state,
+                        account,
+                        ProviderId::new(provider_id),
+                    )
+                })
+                .transpose()?;
+            let issuance_result = worker_issuer.issue_token(
+                quota_subject,
+                manifest_cid,
+                provider_id,
+                profile_handle,
+                overrides,
+                policy.as_ref(),
+            );
+            // Issuance can await external custody. Do not release a token after an intervening
+            // finalized policy withdrawal, account deletion, expiry, or replacement.
+            if let Some(account) = &account {
+                if Some(current_account_read_policy(
+                    &worker_state,
+                    account,
+                    ProviderId::new(provider_id),
+                )?) != policy
+                {
+                    return Err(json_error(
+                        StatusCode::FORBIDDEN,
+                        "account-read policy changed during token issuance",
+                    ));
+                }
             }
-        }
-        Ok(issued)
-    })
-    .await
-    {
-        Ok(issued) => issued,
-        Err(response) => return response,
-    };
-    let token_issue = match issued {
+            Ok(issuance_result)
+        })
+        .await
+        {
+            Ok(issuance_result) => issuance_result,
+            Err(response) => return response,
+        };
+    let token_issue = match issuance_result {
         Ok(token) => token,
         Err(err) => {
             return match &err {

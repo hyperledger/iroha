@@ -143,21 +143,22 @@ def rejected() -> list[dict]:
 
 
 class _Env:
-    """One Taira route producing control blocks for the EVM destination at 0x22…22."""
+    """One Taira route producing controls for its selected destination flavor."""
 
-    def __init__(self):
+    def __init__(self, target=ETHEREUM):
+        self.target = target
         self.k0 = Committee("K0", (40, 41, 42, 43))
-        self.sim = TairaSim(NETWORK_ID, INSTANCE, ETHEREUM, DESTINATION_WORDS[ETHEREUM.name])
+        self.sim = TairaSim(NETWORK_ID, INSTANCE, target, DESTINATION_WORDS[target.name])
         self.gen = self.sim.start(5, self.k0, 1000, T0, VALIDITY)
         self.pool = CertificatePool()
 
     def deployment(self) -> Deployment:
         return Deployment(
-            flavor="evm",
+            flavor="ton" if self.target is TON else "evm",
             taira_network_id=NETWORK_ID,
             consensus_instance=INSTANCE,
-            network=ETHEREUM,
-            destination_word=DESTINATION_WORDS[ETHEREUM.name],
+            network=self.target,
+            destination_word=DESTINATION_WORDS[self.target.name],
             route_revision=1,
             max_wrapped_supply=10**18,
             pin_generation=5,
@@ -175,10 +176,10 @@ class _Env:
         return keccak256(b"sccp-reference/certificate", word(nonce)), keccak256(b"sccp-reference/effect", word(nonce))
 
 
-def destination_effects() -> tuple[list[dict], dict, dict]:
-    env = _Env()
+def destination_effects(target=ETHEREUM) -> tuple[list[dict], dict, dict]:
+    env = _Env(target)
     sim = env.sim
-    recipient = rep(0x44, 20)
+    recipient = bytes(4) + rep(0x44) if target is TON else rep(0x44, 20)
     c = env.ids
     # Blocks (heights and times strictly increasing).
     sim.block(1010, T0 + 1 * MINUTE, [sim.control(1, 1, 1, 0, *c(1))])
@@ -201,10 +202,10 @@ def destination_effects() -> tuple[list[dict], dict, dict]:
         ],
     )
     sim.block(1080, T0 + 8 * MINUTE, [sim.control(1, 1, 1, 0, *c(61)), sim.control(2, 1, 0, 0, *c(62))])
-    bsc = TairaSim(NETWORK_ID, INSTANCE, BSC, DESTINATION_WORDS[ETHEREUM.name])
-    other_net = TairaSim(rep(0x12), INSTANCE, ETHEREUM, DESTINATION_WORDS[ETHEREUM.name])
-    other_rev = TairaSim(NETWORK_ID, INSTANCE, ETHEREUM, DESTINATION_WORDS[ETHEREUM.name], route_revision=2)
-    other_dest = TairaSim(NETWORK_ID, INSTANCE, ETHEREUM, bytes(12) + rep(0x23, 20))
+    bsc = TairaSim(NETWORK_ID, INSTANCE, BSC, DESTINATION_WORDS[target.name])
+    other_net = TairaSim(rep(0x12), INSTANCE, target, DESTINATION_WORDS[target.name])
+    other_rev = TairaSim(NETWORK_ID, INSTANCE, target, DESTINATION_WORDS[target.name], route_revision=2)
+    other_dest = TairaSim(NETWORK_ID, INSTANCE, target, rep(0x36) if target is TON else bytes(12) + rep(0x23, 20))
     sim.block(
         1090,
         T0 + 9 * MINUTE,
@@ -227,7 +228,7 @@ def destination_effects() -> tuple[list[dict], dict, dict]:
     scenarios = []
 
     def scenario(name, description):
-        sc = Scenario(name, description, env.deployment(), env.pool)
+        sc = Scenario(("ton_control_" + name) if target is TON else name, description, env.deployment(), env.pool)
         scenarios.append(sc)
         return sc
 
@@ -353,6 +354,8 @@ def build() -> dict:
     if topic.hex() != SPEC_TOPIC:
         raise AssertionError("SccpControlApplied topic differs from the specification")
     scenarios, certificates, committees = destination_effects()
+    ton_scenarios, ton_certificates, ton_committees = destination_effects(TON)
+    assert committees == ton_committees
     return {
         "schema": "iroha.sccp.control.v1",
         "spec": "specs/sccp.md §3.4, §4.14.6, §5.1.6 (revision 5)",
@@ -385,9 +388,6 @@ def build() -> dict:
         "committees": committees,
         "certificates": certificates,
         "destination_effects": scenarios,
-        "todo": [
-            "TODO(TON contract work package): TON destination-effect rows (minter account id as destination word) once the "
-            "Acton harness pins its minter address; committee_transitions_v1.json carries the TON control rows that the "
-            "placeholder word allows",
-        ],
+        "ton_certificates": ton_certificates,
+        "ton_destination_effects": ton_scenarios,
     }

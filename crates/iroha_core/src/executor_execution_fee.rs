@@ -211,7 +211,7 @@ impl ExecutionFeeSettlement {
             .map(|limit| limit.asset_definition_id.canonical_address())
             .filter(|_| !on_success_only);
         let pipeline_charge =
-            should_charge_pipeline_gas_asset(false, &state.nexus.fees, &gas_asset)
+            should_charge_pipeline_gas_asset(false, &state.nexus.fees, gas_asset.as_deref())
                 && gas_asset.is_some()
                 && work.gas != 0;
         let nexus_charge = compute_nexus_fee_amount(
@@ -228,7 +228,7 @@ impl ExecutionFeeSettlement {
             .fee_payment_intent()
             .sponsor_program()
             .map(|(id, _)| id.clone());
-        if should_charge_pipeline_gas_asset(false, &state.nexus.fees, &gas_asset)
+        if should_charge_pipeline_gas_asset(false, &state.nexus.fees, gas_asset.as_deref())
             && let Some(asset) = gas_asset
         {
             Executor::charge_pipeline_gas_asset_fee(
@@ -254,7 +254,7 @@ impl ExecutionFeeSettlement {
             // A fee its signed intent does not cover, or its payer cannot pay, is not charged
             // to a root exempt on success; the failure keeps its own rejection reason and the
             // caller drops this fee-only overlay. A local deferral is never absorbed.
-            Err(_) if on_success_only && state.execution_deferral().is_none() => Ok(false),
+            Err(_) if on_success_only && !state.is_execution_deferred() => Ok(false),
             Err(error) => Err(ExecutionFeeSettlementError::Charge(error)),
         }
     }

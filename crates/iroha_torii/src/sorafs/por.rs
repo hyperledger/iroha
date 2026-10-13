@@ -792,7 +792,6 @@ struct VrfProviderSequenceV1 {
 #[norito_schema(name = "iroha_torii::sorafs::por::VrfStateSnapshotV1")]
 #[cfg(feature = "app_api")]
 #[derive(Debug, Clone, NoritoSerialize, NoritoDeserialize)]
-
 struct VrfStateSnapshotV1 {
     version: u8,
     network_id: NetworkId,
@@ -820,6 +819,11 @@ pub struct VerifiedVrfProvider {
 #[cfg(feature = "app_api")]
 impl VerifiedVrfProvider {
     /// Load and fully reverify durable provider VRF state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty admission registry or invalid capacity and
+    /// retention bounds, or if durable VRF state cannot be loaded and reverified.
     pub fn with_persistence(
         admission: Arc<super::AdmissionRegistry>,
         network_id: NetworkId,
@@ -932,6 +936,12 @@ impl VerifiedVrfProvider {
         Ok(())
     }
     /// Authenticate, verify, replay-check, and durably accept one provider VRF.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid, stale, wrong-network, or unauthenticated
+    /// submission; an inactive manifest; duplicate, equivocating, or replayed proofs;
+    /// exhausted capacity; or failed durable persistence.
     pub fn submit(
         &self,
         submission: ProviderVrfSubmissionV1,
@@ -1519,6 +1529,12 @@ impl PorCoordinatorRuntime {
         self.run_once_at(unix_now()).await
     }
     /// Accept one authenticated provider VRF for an active local manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the submission store is disabled, the proof fails
+    /// authentication, freshness, network, replay, or manifest checks, capacity is
+    /// exhausted, or durable persistence fails.
     pub fn submit_provider_vrf(
         &self,
         submission: ProviderVrfSubmissionV1,
@@ -2338,16 +2354,16 @@ mod tests {
         let path = StdArc::new(root.join("challenge.json"));
         let barrier = StdArc::new(Barrier::new(WORKERS));
         let results = std::thread::scope(|scope| {
-            let workers = (0..WORKERS)
-                .map(|_| {
-                    let path = StdArc::clone(&path);
-                    let barrier = StdArc::clone(&barrier);
-                    scope.spawn(move || {
-                        barrier.wait();
-                        secure_atomic_write(&path, CANONICAL, 1_024, false)
-                    })
-                })
-                .collect::<Vec<_>>();
+            let mut workers = Vec::with_capacity(WORKERS);
+            // Start every barrier participant before waiting for any worker.
+            for _ in 0..WORKERS {
+                let path = StdArc::clone(&path);
+                let barrier = StdArc::clone(&barrier);
+                workers.push(scope.spawn(move || {
+                    barrier.wait();
+                    secure_atomic_write(&path, CANONICAL, 1_024, false)
+                }));
+            }
             workers
                 .into_iter()
                 .map(|worker| worker.join().expect("publication worker"))
@@ -2666,7 +2682,7 @@ mod tests {
         }
     }
     fn authoritative_status_snapshot(marker: u8, generation: u64) -> PorStatusAuthoritySnapshotV1 {
-        let mut challenge = sample_challenge(marker % 2 == 0);
+        let mut challenge = sample_challenge(marker.is_multiple_of(2));
         challenge.provider_id = [marker; 32];
         challenge.epoch_id = challenge.epoch_id.saturating_add(u64::from(marker));
         challenge.issued_at = challenge.issued_at.saturating_add(u64::from(marker));

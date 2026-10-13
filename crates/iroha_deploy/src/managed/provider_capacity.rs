@@ -6,7 +6,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, require_deadline, require_empty,
+        now_ms, read_optional, require_deadline,
     },
     provider_economics,
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
@@ -25,9 +25,10 @@ use iroha_data_model::{
     transaction::SignedTransaction,
 };
 use iroha_fs::PrivateDirectory;
+#[cfg(test)]
+use iroha_wallet::operations::BoundedTransactionOptions;
 use iroha_wallet::operations::{
-    AccountService, BoundedTransactionOptions, OperationStatus,
-    ProviderCapacityDeclarationSelection,
+    AccountService, OperationStatus, ProviderCapacityDeclarationSelection,
 };
 use sorafs_manifest::capacity::CapacityDeclarationV1;
 use std::time::Instant;
@@ -66,10 +67,10 @@ pub struct ManagedProviderCapacityProgress {
 }
 
 // Fixed borrowed parent intent, not a caller eligibility callback or decoded authority.
-struct FundingSelection<'a> {
-    partition: &'a ReserveProviderAccountV1,
-    credit: &'a ProviderCreditRecord,
-    minimum_height: u64,
+pub(in crate::managed) struct FundingSelection<'a> {
+    pub(in crate::managed) partition: &'a ReserveProviderAccountV1,
+    pub(in crate::managed) credit: &'a ProviderCreditRecord,
+    pub(in crate::managed) minimum_height: u64,
 }
 impl FundingSelection<'_> {
     fn validate(
@@ -137,6 +138,7 @@ impl ManagedProviderCapacity {
     /// Retain the generated declaration against fresh native economic and predecessor facts.
     /// Bootstrap selects policy from its prior owner; users supply no declaration or amount.
     /// Native declaration registration is a replacement, without atomic capacity CAS.
+    #[cfg(test)]
     pub(crate) fn declare(
         &mut self,
         policy: &ReserveAuthorityPolicyV1,
@@ -182,6 +184,7 @@ impl ManagedProviderCapacity {
         Ok(Some(owner))
     }
 
+    #[cfg(test)]
     fn declare_original(
         &mut self,
         policy: &ReserveAuthorityPolicyV1,
@@ -191,7 +194,7 @@ impl ManagedProviderCapacity {
     ) -> Result<ManagedProviderCapacityProgress> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         let original = self.select_intent(&directory, policy, funding, options.deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open capacity wallet"))?;
@@ -206,6 +209,20 @@ impl ManagedProviderCapacity {
         funding: Option<FundingSelection<'_>>,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            self.validate_original(original)?;
+            original.matches_intent(policy)?;
+            if let Some(funding) = &funding {
+                let verifier = self.authority.decode_checkpoint(&original.checkpoint)?;
+                funding.validate(
+                    &original.partition,
+                    &original.credit,
+                    original.previous_capacity.is_some(),
+                    verifier.checkpoint().height(),
+                )?;
+            }
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             self.validate_original(&original)?;
             original.matches_intent(policy)?;
@@ -220,7 +237,7 @@ impl ManagedProviderCapacity {
             }
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(policy, deadline)?;
         self.retain_observed_original(policy, &current, &verifier, funding)
     }
@@ -248,19 +265,21 @@ impl ManagedProviderCapacity {
             credit,
             minimum_height,
         };
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         let original = self.select_intent(&directory, policy, Some(funding), deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open capacity wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_provider_capacity_declaration_preparation_in_parent(
@@ -362,7 +381,7 @@ impl ManagedProviderCapacity {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(&original)?;
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         journal::publish_intent(&directory, &original)?;
         Ok(original)
     }
@@ -438,7 +457,7 @@ impl ManagedProviderCapacity {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;
@@ -512,7 +531,7 @@ impl ManagedProviderCapacity {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = if observe_current {
@@ -589,7 +608,7 @@ impl ManagedProviderCapacity {
         }
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -624,7 +643,7 @@ impl ManagedProviderCapacity {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -747,7 +766,7 @@ impl ManagedProviderCapacity {
             .map_err(|_| invalid("invalid original capacity checkpoint"))?;
         tip.verify_global_scope(
             self.authority.config.network_id,
-            &self.authority.config.chain.to_string(),
+            self.authority.config.chain.as_ref(),
         )
         .map_err(|_| invalid("original capacity checkpoint is not selected Global root"))?;
         if tip.header().creation_time_ms != original.observed_block_time_ms {

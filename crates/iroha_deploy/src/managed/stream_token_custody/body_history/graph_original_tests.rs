@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::Error;
+use crate::managed::native_operation::attempts::metadata;
 use std::{cell::Cell, rc::Rc};
 
 thread_local! {
@@ -89,6 +90,7 @@ impl Drop for RestoreOriginal {
 
 #[test]
 fn graph_originals_share_only_closed_exact_bodies_and_preserve_mutable_work_and_admission() {
+    use operation_scope_tests::Point;
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let native = history.current_history().unwrap();
@@ -122,7 +124,7 @@ fn graph_originals_share_only_closed_exact_bodies_and_preserve_mutable_work_and_
     );
     assert_eq!(old_snapshot, new_snapshot);
     assert_eq!(new_snapshot, (2 * (3 + 4 * 3), 2 * (2 + 3)));
-    use operation_scope_tests::Point;
+
     assert_eq!(
         old_leaves,
         [
@@ -267,17 +269,20 @@ fn graph_original_source_exit_wins_mutation_errors_and_parser_callbacks_keep_fre
     }
     // Mutable metadata remains outside Original coverage. Both directions still decode it.
     let first = Arc::clone(&history.bodies[0].directory);
-    let closed = first
-        .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+    let closed = metadata::test_read_component(&first, None, "closed.nrt")
+        .unwrap()
         .unwrap();
     let changed_directory = Arc::clone(&first);
     let (result, census) = native.test_require_current_after_forward(6, move || {
-        changed_directory.write_atomic("closed.nrt", b"changed closure", PublishMode::Replace)?;
+        metadata::test_replace_component(
+            &changed_directory,
+            None,
+            "closed.nrt",
+            Some(b"changed closure"),
+        )?;
         Ok(())
     });
-    first
-        .write_atomic("closed.nrt", &closed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&first, None, "closed.nrt", Some(&closed)).unwrap();
     assert!(result.is_err());
     assert!(census.visits > 3);
     native.test_require_current(6).0.unwrap();
@@ -349,6 +354,27 @@ fn graph_original_source_exit_wins_mutation_errors_and_parser_callbacks_keep_fre
 #[cfg(unix)]
 fn native_source_mutations(history: &BodyHistory) {
     use operation_scope_tests::Point;
+    impl Drop for DirectoryRestore {
+        fn drop(&mut self) {
+            if self.changed.get() {
+                if self.path.exists() {
+                    let original = self.path.join("original.nrt");
+                    if original.exists() {
+                        fs::remove_file(original).unwrap();
+                    }
+                    fs::remove_dir(&self.path).unwrap();
+                }
+                fs::rename(&self.held, &self.path).unwrap();
+            }
+        }
+    }
+    struct DirectoryRestore {
+        path: PathBuf,
+        held: PathBuf,
+        changed: Rc<Cell<bool>>,
+        _temporary: tempfile::TempDir,
+    }
+
     use std::{fs, os::unix::fs::PermissionsExt as _, path::PathBuf};
     struct Permissions {
         path: PathBuf,
@@ -410,26 +436,7 @@ fn native_source_mutations(history: &BodyHistory) {
     }
     // Same-path body replacement must not inherit either the original native owner or its
     // immutable snapshot identity, even if the replacement carries identical Original bytes.
-    struct DirectoryRestore {
-        path: PathBuf,
-        held: PathBuf,
-        changed: Rc<Cell<bool>>,
-        _temporary: tempfile::TempDir,
-    }
-    impl Drop for DirectoryRestore {
-        fn drop(&mut self) {
-            if self.changed.get() {
-                if self.path.exists() {
-                    let original = self.path.join("original.nrt");
-                    if original.exists() {
-                        fs::remove_file(original).unwrap();
-                    }
-                    fs::remove_dir(&self.path).unwrap();
-                }
-                fs::rename(&self.held, &self.path).unwrap();
-            }
-        }
-    }
+
     for ordinary_error in [false, true] {
         let temporary = tempfile::tempdir().unwrap();
         let changed = Rc::new(Cell::new(false));

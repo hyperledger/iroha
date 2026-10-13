@@ -34,6 +34,10 @@ pub(super) fn state() -> State {
 /// Acquire State first, then bind the real original recorder before any block effects.
 /// These component fixtures have no signed carrier; their transcript/output mutations
 /// remain test inputs and do not manufacture a publishable execution source owner.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
 pub(super) fn recorded_block(
     state: &State,
     header: BlockHeader,

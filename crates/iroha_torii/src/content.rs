@@ -38,7 +38,7 @@ const CONTENT_SECURITY_POLICY_HEADER: HeaderName =
 const CONTENT_SECURITY_POLICY_VALUE: HeaderValue =
     HeaderValue::from_static("sandbox; default-src 'none'");
 /// Exact `Vary` value for content whose manifest requires canonical authentication.
-pub(crate) const CANONICAL_CONTENT_AUTH_VARY: &str =
+pub const CANONICAL_CONTENT_AUTH_VARY: &str =
     "X-Iroha-Account, X-Iroha-Signature, X-Iroha-Timestamp-Ms, X-Iroha-Nonce, X-Iroha-Witness";
 impl IntoResponse for ContentError {
     fn into_response(self) -> Response {
@@ -114,7 +114,7 @@ pub async fn handle_get_content(
                 return Err(ContentError::NotFound);
             }
             let entry = authorize_content_entry(
-                &bundle,
+                bundle,
                 &app.state,
                 &headers,
                 &method,
@@ -122,13 +122,12 @@ pub async fn handle_get_content(
                 &path,
                 authentication_owner.allocation_context(),
             )
-            .map_err(|err| {
-                outcome_hint = Some(match &err {
+            .inspect_err(|err| {
+                outcome_hint = Some(match err {
                     ContentError::Unauthorized(_) | ContentError::Forbidden(_) => "auth_failed",
                     ContentError::NotFound => "not_found",
                     _ => "internal",
                 });
-                err
             })?;
             if let Err(err) = enforce_pow(&app.content_config.pow, &headers, &bundle_id, &path) {
                 outcome_hint = Some(match &err {
@@ -384,9 +383,11 @@ fn signed_account(
         state,
         state.network_id_ref(),
         headers,
-        method,
-        uri,
-        &[],
+        crate::app_auth::CanonicalRequestParts {
+            method,
+            uri,
+            body: &[],
+        },
         None,
         context,
     ) {
@@ -760,7 +761,7 @@ mod tests {
         let guard = TEST_LOCK
             .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         crate::app_auth::configure(config).expect("valid app-auth test config");
         Guard { _lock: guard }
     }

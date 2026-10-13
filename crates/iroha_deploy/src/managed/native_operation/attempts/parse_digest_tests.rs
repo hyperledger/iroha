@@ -36,7 +36,10 @@ impl Counter {
         Self
     }
     pub(super) fn finish(self) -> Counts {
-        COUNTS.with(|state| state.get().expect("the parse observer remains installed"))
+        let observation =
+            COUNTS.with(|state| state.get().expect("the parse observer remains installed"));
+        drop(self);
+        observation
     }
 }
 impl Drop for Counter {
@@ -105,7 +108,7 @@ fn canonical_rows(fixture: &Fixture) {
 fn assert_three_rows(counts: Counts) {
     assert_eq!(counts.requested, 10);
     assert_eq!(counts.computed, 3);
-    assert_eq!(counts.reads, 15);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 12);
     assert_eq!(&counts.by_ordinal[..3], &[1, 1, 1]);
     assert!(counts.by_ordinal[3..].iter().all(|count| *count == 0));
@@ -132,24 +135,23 @@ fn genuine_selected_history_rehashes_each_fresh_parse_and_preserves_refusal_orde
     let request = std::fs::read(selected.wallet_path().join("preparation.json")).unwrap();
     let dispatch = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
 
     let first = &history.attempts[0];
-    let first_commit = first
-        .directory
-        .read("committed.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let first_commit =
+        metadata::test_read_component(&fixture.operation, Some(first.ordinal()), "committed.nrt")
+            .unwrap()
+            .unwrap();
     let mut changed_commit = first.commit.clone().unwrap();
     changed_commit.request_sha256 = "invalid".into();
-    first
-        .directory
-        .write_atomic(
-            "committed.nrt",
-            &encode(&changed_commit, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "committed.nrt",
+        Some(&encode(&changed_commit, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     let (refused, counts) = observed(&fixture);
     assert_eq!(
         refused.err().unwrap().to_string(),
@@ -160,26 +162,31 @@ fn genuine_selected_history_rehashes_each_fresh_parse_and_preserves_refusal_orde
         "the invalid request digest must refuse before row hashing"
     );
     assert_eq!(counts.computed, 0);
-    first
-        .directory
-        .write_atomic("committed.nrt", &first_commit, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "committed.nrt",
+        Some(&first_commit),
+    )
+    .unwrap();
 
     let middle = &history.attempts[1];
-    let original = middle
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(middle.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let mut changed = middle.authorization.clone();
     changed.terms.signing_deadline_unix_ms -= 1;
-    middle
-        .directory
-        .write_atomic(
-            "authorization.nrt",
-            &encode(&changed, MAX_RECORD_BYTES).unwrap(),
-            PublishMode::Replace,
-        )
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(middle.ordinal()),
+        "authorization.nrt",
+        Some(&encode(&changed, MAX_RECORD_BYTES).unwrap()),
+    )
+    .unwrap();
     let (refused, counts) = observed(&fixture);
     assert_eq!(
         refused.err().unwrap().to_string(),
@@ -190,23 +197,13 @@ fn genuine_selected_history_rehashes_each_fresh_parse_and_preserves_refusal_orde
         "changed current bytes receive their own current-row hash"
     );
     assert_eq!(&counts.by_ordinal[..3], &[1, 1, 0]);
-    middle
-        .directory
-        .write_atomic("authorization.nrt", &original, PublishMode::Replace)
-        .unwrap();
-
-    let no_allocations =
-        norito::DecodeLimits::new(MAX_RECORD_BYTES, MAX_RECORD_BYTES, MAX_RECORD_BYTES, 0, 32);
-    let counter = Counter::begin();
-    let refused = norito::core::with_decode_limits_scope(no_allocations, || fixture.history());
-    let counts = counter.finish();
-    assert_eq!(
-        refused.err().unwrap().to_string(),
-        "invalid canonical dispatch custody record"
-    );
-    assert_eq!(counts.reads, 1);
-    assert_eq!(counts.decoded, 0);
-    assert_eq!(counts.computed, 0);
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(middle.ordinal()),
+        "authorization.nrt",
+        Some(&original),
+    )
+    .unwrap();
 
     let wide = norito::DecodeLimits::new(
         MAX_RECORD_BYTES,
@@ -215,12 +212,83 @@ fn genuine_selected_history_rehashes_each_fresh_parse_and_preserves_refusal_orde
         64 * 1024 * 1024,
         32,
     );
+    // Indexing the canonical image has its own inherited allocation charge. Prove the
+    // envelope and first lazy Dispatch decode boundaries before the full parser retry.
     let counter = Counter::begin();
-    let retried = norito::core::with_decode_limits_scope(wide, || fixture.history());
+    let (indexed, envelope_usage) = norito::core::with_decode_limits_measured(wide, || {
+        metadata::load(&fixture.operation).map(|_| ())
+    });
+    indexed.unwrap();
+    let counts = counter.finish();
+    assert_eq!(counts.reads, 1);
+    assert_eq!(counts.decoded, 0);
+    assert_eq!(counts.requested, 0);
+    assert_eq!(counts.computed, 0);
+    let envelope = envelope_usage.total_allocated_bytes();
+    assert!(envelope > 1);
+
+    let counter = Counter::begin();
+    let (first, first_usage) = norito::core::with_decode_limits_measured(wide, || {
+        metadata::load(&fixture.operation).and_then(|image| image.read::<Dispatch>(None, 0))
+    });
+    assert!(first.unwrap().as_ref() == history.dispatch.as_ref());
+    let counts = counter.finish();
+    assert_eq!(counts.reads, 1);
+    assert_eq!(counts.decoded, 1);
+    assert_eq!(counts.requested, 0);
+    assert_eq!(counts.computed, 0);
+    assert!(first_usage.total_allocated_bytes() > envelope);
+
+    for allocation in [0, 1, envelope - 1, envelope] {
+        let limits = norito::DecodeLimits::new(
+            MAX_RECORD_BYTES,
+            MAX_RECORD_BYTES,
+            MAX_RECORD_BYTES,
+            allocation,
+            32,
+        );
+        let counter = Counter::begin();
+        let (refused, usage) =
+            norito::core::with_decode_limits_measured(limits, || fixture.history());
+        let counts = counter.finish();
+        let expected = if allocation < envelope {
+            "invalid canonical operation metadata image"
+        } else {
+            "invalid canonical dispatch custody record"
+        };
+        assert_eq!(refused.err().unwrap().to_string(), expected);
+        assert_eq!(counts.reads, 1);
+        assert_eq!(counts.decoded, 0);
+        assert_eq!(counts.requested, 0);
+        assert_eq!(counts.computed, 0);
+        assert!(usage.total_allocated_bytes() <= allocation);
+        if allocation == envelope {
+            assert_eq!(usage.total_allocated_bytes(), envelope);
+        }
+    }
+
+    let counter = Counter::begin();
+    let (retried, usage) = norito::core::with_decode_limits_measured(wide, || fixture.history());
     let counts = counter.finish();
     assert_three_rows(counts);
     let retried = retried.unwrap();
     assert_eq!(retried.selected().unwrap().unwrap().ordinal(), 3);
+    let exact = usage.total_allocated_bytes();
+    assert!(exact > first_usage.total_allocated_bytes());
+    let exact_limits = norito::DecodeLimits::new(
+        MAX_RECORD_BYTES,
+        MAX_RECORD_BYTES,
+        MAX_RECORD_BYTES,
+        exact,
+        32,
+    );
+    let counter = Counter::begin();
+    let (retried, usage) =
+        norito::core::with_decode_limits_measured(exact_limits, || fixture.history());
+    let counts = counter.finish();
+    assert_three_rows(counts);
+    assert_eq!(retried.unwrap().selected().unwrap().unwrap().ordinal(), 3);
+    assert_eq!(usage.total_allocated_bytes(), exact);
     let (fresh, counts) = observed(&fixture);
     assert_three_rows(counts);
     fresh
@@ -230,15 +298,18 @@ fn genuine_selected_history_rehashes_each_fresh_parse_and_preserves_refusal_orde
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         dispatch
     );
     assert_eq!(
-        middle
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(middle.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     assert_eq!(
@@ -271,17 +342,20 @@ fn pending_absent_and_empty_suffixes_hash_the_first_row_only_at_its_original_use
         .unwrap();
     let dispatch = fixture
         .operation
-        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
-    let original = first
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let (parsed, counts) = observed(&fixture);
     let history = parsed.unwrap();
     assert_eq!(counts.requested, 2);
     assert_eq!(counts.computed, 1);
-    assert_eq!(counts.reads, 7);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 2);
     assert_eq!(counts.by_ordinal[0], 1);
     assert!(history.reservation_pending() && history.empty_tail);
@@ -295,7 +369,10 @@ fn pending_absent_and_empty_suffixes_hash_the_first_row_only_at_its_original_use
     let empty = history.root.as_ref().unwrap().create_child("0002").unwrap();
     let (parsed, empty_counts) = observed(&fixture);
     let parsed = parsed.unwrap();
-    assert_eq!(empty_counts.reads, counts.reads + 1);
+    assert_eq!(
+        empty_counts.reads, counts.reads,
+        "the empty native child adds no metadata file read"
+    );
     assert_eq!(empty_counts.decoded, counts.decoded);
     assert_eq!(empty_counts.requested, counts.requested);
     assert_eq!(empty_counts.computed, counts.computed);
@@ -310,7 +387,7 @@ fn pending_absent_and_empty_suffixes_hash_the_first_row_only_at_its_original_use
     let (refused, counts) = observed(&fixture);
     assert_eq!(
         refused.err().unwrap().to_string(),
-        "dispatch material exists without its authorization"
+        "dispatch attempt contains unknown material"
     );
     assert_eq!(
         counts.requested, 0,
@@ -322,16 +399,19 @@ fn pending_absent_and_empty_suffixes_hash_the_first_row_only_at_its_original_use
     retried.unwrap();
     assert_eq!(counts, empty_counts);
     assert_eq!(
-        first
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(first.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     assert_eq!(
         fixture
             .operation
-            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         dispatch
     );

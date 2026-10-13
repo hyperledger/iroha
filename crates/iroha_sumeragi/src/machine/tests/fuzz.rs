@@ -225,8 +225,8 @@ fn step(h: &mut H, rng: &mut Rng, stored: &mut Vec<AvailableBody>) {
                     0 => ExecOutcome::Invalid,
                     1 => ExecOutcome::Failed("fuzz".into()),
                     2 => ExecOutcome::Cancelled,
-                    3 => ExecOutcome::Valid(Hash32([9; 32])),
-                    _ => ExecOutcome::Valid(result_of(&block)),
+                    3 => crate::testing::valid_execution(Hash32([9; 32])),
+                    _ => crate::testing::valid_execution(result_of(&block)),
                 };
                 stored.push(block);
                 Event::Executed {

@@ -274,7 +274,7 @@ mod tests {
         assert!(expected.matches_runtime(
             &ivm_abi::VMError::Metered {
                 gas: 1,
-                source: Box::new(error.clone())
+                source: Box::new(error)
             },
             Some(VmTrapKind::ContractAbort)
         ));

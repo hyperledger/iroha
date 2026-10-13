@@ -529,7 +529,7 @@ mod physical_catalog_addition_tests {
         let mut extra = first.clone();
         extra.id = LaneId::new(7);
         let original = [first.clone(), extra.clone()];
-        ensure_physical_lane_ids_retained(&[first.clone()], &original).unwrap();
+        ensure_physical_lane_ids_retained(std::slice::from_ref(&first), &original).unwrap();
         ensure_physical_lane_ids_retained(&original, &[extra, first.clone()]).unwrap();
         assert!(matches!(
             ensure_physical_lane_ids_retained(&original, &[first]),

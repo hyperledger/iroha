@@ -158,6 +158,10 @@ impl From<SnapshotCaptureError> for crate::state::storage_transactions::Transact
 struct CapturedSnapshotIdentity {
     serialized_hash: Hash,
     native_tip: Option<crate::state::NativeExecutionTip>,
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     native_tip_undo: Option<Option<crate::state::NativeExecutionTip>>,
     chain_id: ChainId,
     network_id: NetworkId,
@@ -183,9 +187,11 @@ pub(crate) struct CapturedStateSnapshot {
 }
 impl CapturedStateSnapshot {
     /// Capture once; a concurrent publication returns a typed retryable refusal.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn capture(state: &State) -> Result<Self, SnapshotCaptureError> {
         Self::capture_with_observer(state, || {})
     }
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     fn capture_with_observer(
         state: &State,
         after_serialization: impl FnOnce(),
@@ -255,6 +261,7 @@ impl CapturedStateSnapshot {
         self.identity.height
     }
     /// Exact captured JSON, suitable for an isolated typed restart decoder.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn as_json(&self) -> &str {
         &self.json
     }
@@ -267,6 +274,10 @@ impl CapturedStateSnapshot {
 }
 // This concrete Core producer must use the sole MV present-undo framing.
 // HC127 mutates this producer only; MV dependency writers are not mutated.
+#[expect(
+    clippy::ref_option,
+    reason = "The sole MV undo codec borrows the original Option so present-undo framing and the HC127 mutation retain the same input."
+)]
 fn serialize_runtime_predecessor(undo: &Option<SnapshotNexusRuntime>, out: &mut String) {
     #[cfg(all(test, sumeragi_core_mutation = "HC127"))]
     json::JsonSerialize::json_serialize(undo, out);
@@ -1523,8 +1534,8 @@ struct BoundSnapshotGeneration {
     generations_dir: PathBuf,
     generations_dir_identity: StableSnapshotFileIdentity,
     pointer: BoundSnapshotFile,
-    generation_dir: PathBuf,
-    generation_dir_identity: StableSnapshotFileIdentity,
+    snapshot_directory: PathBuf,
+    snapshot_identity: StableSnapshotFileIdentity,
     payload: BoundSnapshotFile,
     artifacts: Vec<BoundSnapshotFile>,
     bytes: SnapshotGenerationBytes,
@@ -1640,15 +1651,15 @@ fn bind_current_snapshot_generation_with_mode(
     let generations_dir = store_dir.join(SNAPSHOT_GENERATIONS_DIR_NAME);
     let generations_dir_identity = direct_snapshot_directory_identity(&generations_dir)?;
     let digest_hex = parse_snapshot_current_pointer(&pointer_bytes, &pointer_path)?;
-    let generation_dir = generations_dir.join(&digest_hex);
-    let generation_dir_identity = direct_snapshot_directory_identity(&generation_dir)?;
-    if !snapshot_generation_has_exact_artifact_inventory(&generation_dir)? {
+    let snapshot_directory = generations_dir.join(&digest_hex);
+    let snapshot_identity = direct_snapshot_directory_identity(&snapshot_directory)?;
+    if !snapshot_generation_has_exact_artifact_inventory(&snapshot_directory)? {
         return Err(TryReadError::SnapshotGenerationInvalid {
-            path: generation_dir,
+            path: snapshot_directory,
             reason: "generation does not contain exactly the five canonical artifacts".to_owned(),
         });
     }
-    let payload_path = generation_dir.join(SNAPSHOT_FILE_NAME);
+    let payload_path = snapshot_directory.join(SNAPSHOT_FILE_NAME);
     let payload_binding = if emergency_fast {
         bind_snapshot_file_handle_without_digest(&payload_path, payload_limit)
     } else {
@@ -1661,7 +1672,7 @@ fn bind_current_snapshot_generation_with_mode(
             reason: "required generation artifact is missing".to_owned(),
         })?;
     let (digest, digest_bytes) = bind_required_snapshot_file(
-        &generation_dir.join(SNAPSHOT_DIGEST_FILE_NAME),
+        &snapshot_directory.join(SNAPSHOT_DIGEST_FILE_NAME),
         SNAPSHOT_DIGEST_MAX_BYTES,
     )?;
     if digest_bytes != pointer_bytes {
@@ -1671,16 +1682,16 @@ fn bind_current_snapshot_generation_with_mode(
         });
     }
     let (signature, signature_bytes) = bind_required_snapshot_file(
-        &generation_dir.join(SNAPSHOT_SIGNATURE_FILE_NAME),
+        &snapshot_directory.join(SNAPSHOT_SIGNATURE_FILE_NAME),
         SNAPSHOT_SIGNATURE_MAX_BYTES,
     )?;
     let (fast_manifest, fast_manifest_bytes) = bind_required_snapshot_file(
-        &generation_dir.join(SNAPSHOT_FAST_MANIFEST_FILE_NAME),
+        &snapshot_directory.join(SNAPSHOT_FAST_MANIFEST_FILE_NAME),
         SNAPSHOT_FAST_MANIFEST_MAX_BYTES,
     )?;
     let mut artifacts = vec![payload.clone(), digest, signature, fast_manifest];
     let merkle_limit = snapshot_merkle_max_bytes(payload.len, merkle_chunk_size);
-    let merkle_path = generation_dir.join(SNAPSHOT_MERKLE_FILE_NAME);
+    let merkle_path = snapshot_directory.join(SNAPSHOT_MERKLE_FILE_NAME);
     let merkle_bytes = if emergency_fast {
         let merkle = bind_snapshot_file_handle_without_digest(&merkle_path, merkle_limit)
             .map_err(|error| TryReadError::IO(error, merkle_path.clone()))?
@@ -1701,8 +1712,8 @@ fn bind_current_snapshot_generation_with_mode(
         generations_dir,
         generations_dir_identity,
         pointer,
-        generation_dir,
-        generation_dir_identity,
+        snapshot_directory,
+        snapshot_identity,
         payload: payload.clone(),
         artifacts,
         bytes: SnapshotGenerationBytes {
@@ -1722,9 +1733,9 @@ impl BoundSnapshotGeneration {
         if direct_snapshot_directory_identity(&self.store_dir)? != self.store_dir_identity
             || direct_snapshot_directory_identity(&self.generations_dir)?
                 != self.generations_dir_identity
-            || direct_snapshot_directory_identity(&self.generation_dir)?
-                != self.generation_dir_identity
-            || !snapshot_generation_has_exact_artifact_inventory(&self.generation_dir)?
+            || direct_snapshot_directory_identity(&self.snapshot_directory)?
+                != self.snapshot_identity
+            || !snapshot_generation_has_exact_artifact_inventory(&self.snapshot_directory)?
         {
             return Err(TryReadError::SnapshotGenerationInvalid {
                 path: self.store_dir.clone(),
@@ -1742,9 +1753,9 @@ impl BoundSnapshotGeneration {
         if direct_snapshot_directory_identity(&self.store_dir)? != self.store_dir_identity
             || direct_snapshot_directory_identity(&self.generations_dir)?
                 != self.generations_dir_identity
-            || direct_snapshot_directory_identity(&self.generation_dir)?
-                != self.generation_dir_identity
-            || !snapshot_generation_has_exact_artifact_inventory(&self.generation_dir)?
+            || direct_snapshot_directory_identity(&self.snapshot_directory)?
+                != self.snapshot_identity
+            || !snapshot_generation_has_exact_artifact_inventory(&self.snapshot_directory)?
         {
             return Err(TryReadError::SnapshotGenerationInvalid {
                 path: self.store_dir.clone(),
@@ -2795,7 +2806,7 @@ where
 {
     let emergency_fast = kura.emergency_fast_startup_enabled();
     let manifest_path = generation
-        .generation_dir
+        .snapshot_directory
         .join(SNAPSHOT_FAST_MANIFEST_FILE_NAME);
     let fast_manifest =
         decode_emergency_fast_manifest(&generation.bytes.fast_manifest, &manifest_path)?;
@@ -2805,7 +2816,9 @@ where
             reason: "emergency Fast manifest payload length differs from snapshot.data".to_owned(),
         });
     }
-    let digest_path = generation.generation_dir.join(SNAPSHOT_DIGEST_FILE_NAME);
+    let digest_path = generation
+        .snapshot_directory
+        .join(SNAPSHOT_DIGEST_FILE_NAME);
     let signed_payload_digest =
         parse_snapshot_digest_bytes(&generation.bytes.digest, &digest_path)?;
     let actual_digest = hex::encode(signed_payload_digest);
@@ -2842,7 +2855,7 @@ where
         if fast_manifest.sccp_policy_hash != crate::state::sccp_genesis_policy_hash_v1() {
             return Err(TryReadError::SnapshotGenerationInvalid {
                 path: generation
-                    .generation_dir
+                    .snapshot_directory
                     .join(SNAPSHOT_FAST_MANIFEST_FILE_NAME),
                 reason: "signed emergency Fast manifest carries a foreign SCCP policy hash"
                     .to_owned(),
@@ -2898,7 +2911,9 @@ where
     let payload_preview = snapshot_payload_preview(bytes);
     #[cfg(test)]
     SNAPSHOT_DEEP_VALIDATION_PASSES.with(|passes| passes.set(passes.get() + 1));
-    let merkle_path = generation.generation_dir.join(SNAPSHOT_MERKLE_FILE_NAME);
+    let merkle_path = generation
+        .snapshot_directory
+        .join(SNAPSHOT_MERKLE_FILE_NAME);
     let merkle_value = json::from_slice::<json::Value>(&generation.bytes.merkle)
         .map_err(TryReadError::MerkleMetadata)?;
     let merkle = SnapshotMerkleMetadata::from_json_value(merkle_value)
@@ -2912,7 +2927,7 @@ where
     }
     merkle
         .verify_against_bytes(bytes, merkle_chunk_size)
-        .map_err(|error| merkle_err_to_try_read(error, generation.generation_dir.clone()))?;
+        .map_err(|error| merkle_err_to_try_read(error, generation.snapshot_directory.clone()))?;
     let summary = match validate_snapshot_json_resources(bytes, resource_policy) {
         Ok(summary) => summary,
         Err(err) => {
@@ -2976,7 +2991,7 @@ where
     {
         return Err(TryReadError::SnapshotGenerationInvalid {
             path: generation
-                .generation_dir
+                .snapshot_directory
                 .join(SNAPSHOT_FAST_MANIFEST_FILE_NAME),
             reason: "signed emergency Fast manifest differs from the fully decoded snapshot"
                 .to_owned(),
@@ -2994,7 +3009,7 @@ where
         )
     {
         return Err(TryReadError::SnapshotGenerationInvalid {
-            path: generation.generation_dir.join(SNAPSHOT_FILE_NAME),
+            path: generation.snapshot_directory.join(SNAPSHOT_FILE_NAME),
             reason: format!("snapshot state activates a light-client profile: {unavailable}"),
         });
     }
@@ -3260,8 +3275,8 @@ fn create_synced_snapshot_temp(
 struct PublishedSnapshotGeneration {
     generations_dir: PathBuf,
     generations_dir_identity: StableSnapshotFileIdentity,
-    generation_dir: PathBuf,
-    generation_dir_identity: StableSnapshotFileIdentity,
+    snapshot_directory: PathBuf,
+    snapshot_identity: StableSnapshotFileIdentity,
     artifacts: Vec<BoundSnapshotFile>,
     name: String,
 }
@@ -3270,10 +3285,10 @@ impl PublishedSnapshotGeneration {
         if direct_snapshot_directory_identity(&self.generations_dir)
             .map_err(|error| snapshot_publication_error("verify generations directory", error))?
             != self.generations_dir_identity
-            || direct_snapshot_directory_identity(&self.generation_dir)
+            || direct_snapshot_directory_identity(&self.snapshot_directory)
                 .map_err(|error| snapshot_publication_error("verify generation directory", error))?
-                != self.generation_dir_identity
-            || !snapshot_generation_has_exact_artifact_inventory(&self.generation_dir)
+                != self.snapshot_identity
+            || !snapshot_generation_has_exact_artifact_inventory(&self.snapshot_directory)
                 .map_err(|error| snapshot_publication_error("inventory generation", error))?
         {
             return Err(snapshot_publication_error(
@@ -3796,22 +3811,22 @@ fn execute_snapshot_generation_gc(
     generation.verify_unchanged()
 }
 fn create_generation_artifact(
-    generation_dir: &Path,
-    generation_dir_identity: StableSnapshotFileIdentity,
+    snapshot_directory: &Path,
+    snapshot_identity: StableSnapshotFileIdentity,
     name: &str,
     bytes: &[u8],
     max_bytes: u64,
 ) -> Result<BoundSnapshotFile, TryWriteError> {
-    if direct_snapshot_directory_identity(generation_dir)
+    if direct_snapshot_directory_identity(snapshot_directory)
         .map_err(|error| snapshot_publication_error("verify generation directory", error))?
-        != generation_dir_identity
+        != snapshot_identity
     {
         return Err(snapshot_publication_error(
             "create generation artifact",
             "generation directory identity changed",
         ));
     }
-    let path = generation_dir.join(name);
+    let path = snapshot_directory.join(name);
     let mut options = std::fs::OpenOptions::new();
     options.create_new(true).write(true);
     #[cfg(unix)]
@@ -3844,9 +3859,9 @@ fn create_generation_artifact(
     if binding.len != u64::try_from(bytes.len()).unwrap_or(u64::MAX)
         || binding.bytes_sha256 != Some(expected_sha256)
         || written_sha256 != expected_sha256
-        || direct_snapshot_directory_identity(generation_dir)
+        || direct_snapshot_directory_identity(snapshot_directory)
             .map_err(|error| snapshot_publication_error("reverify generation directory", error))?
-            != generation_dir_identity
+            != snapshot_identity
     {
         return Err(snapshot_publication_error(
             "verify generation artifact",
@@ -3920,10 +3935,10 @@ fn bind_existing_snapshot_generation_for_write(
     merkle_limit: u64,
     verification_key: &PublicKey,
 ) -> Result<PublishedSnapshotGeneration, TryWriteError> {
-    let generation_dir = generations_dir.join(digest_hex);
-    let generation_dir_identity = direct_snapshot_directory_identity(&generation_dir)
+    let snapshot_directory = generations_dir.join(digest_hex);
+    let snapshot_identity = direct_snapshot_directory_identity(&snapshot_directory)
         .map_err(|error| snapshot_publication_error("bind published generation", error))?;
-    if !snapshot_generation_has_exact_artifact_inventory(&generation_dir)
+    if !snapshot_generation_has_exact_artifact_inventory(&snapshot_directory)
         .map_err(|error| snapshot_publication_error("inventory published generation", error))?
     {
         return Err(snapshot_publication_error(
@@ -3931,7 +3946,7 @@ fn bind_existing_snapshot_generation_for_write(
             "immutable generation does not contain exactly the five canonical artifacts",
         ));
     }
-    let manifest_path = generation_dir.join(SNAPSHOT_FAST_MANIFEST_FILE_NAME);
+    let manifest_path = snapshot_directory.join(SNAPSHOT_FAST_MANIFEST_FILE_NAME);
     let decoded_manifest = decode_emergency_fast_manifest(fast_manifest, &manifest_path)
         .map_err(|error| snapshot_publication_error("validate Fast manifest", error))?;
     if decoded_manifest.payload_len != u64::try_from(payload.len()).unwrap_or(u64::MAX) {
@@ -3968,7 +3983,7 @@ fn bind_existing_snapshot_generation_for_write(
     ];
     let mut artifacts = Vec::with_capacity(expected.len());
     for (name, expected_bytes, max_bytes) in expected {
-        let path = generation_dir.join(name);
+        let path = snapshot_directory.join(name);
         let binding = if name == SNAPSHOT_FILE_NAME {
             let Some(binding) = bind_snapshot_file_handle(&path, max_bytes)
                 .map_err(|error| snapshot_publication_error("bind published payload", error))?
@@ -4020,8 +4035,8 @@ fn bind_existing_snapshot_generation_for_write(
     let published = PublishedSnapshotGeneration {
         generations_dir: generations_dir.to_path_buf(),
         generations_dir_identity,
-        generation_dir,
-        generation_dir_identity,
+        snapshot_directory,
+        snapshot_identity,
         artifacts,
         name: digest_hex.to_owned(),
     };
@@ -4072,8 +4087,8 @@ fn publish_immutable_snapshot_generation(
     }
     let generations_dir_identity = direct_snapshot_directory_identity(&generations_dir)
         .map_err(|error| snapshot_publication_error("bind generations directory", error))?;
-    let generation_dir = generations_dir.join(digest_hex);
-    if std::fs::symlink_metadata(&generation_dir).is_ok() {
+    let snapshot_directory = generations_dir.join(digest_hex);
+    if std::fs::symlink_metadata(&snapshot_directory).is_ok() {
         return bind_existing_snapshot_generation_for_write(
             &generations_dir,
             generations_dir_identity,
@@ -4092,47 +4107,47 @@ fn publish_immutable_snapshot_generation(
         .tempdir_in(&generations_dir)
         .map_err(|error| TryWriteError::IO(error, generations_dir.clone()))?;
     let staging_dir = staging.path().to_path_buf();
-    let generation_dir_identity = direct_snapshot_directory_identity(&staging_dir)
+    let snapshot_identity = direct_snapshot_directory_identity(&staging_dir)
         .map_err(|error| snapshot_publication_error("bind staging generation", error))?;
     let payload_limit = u64::try_from(payload.len()).unwrap_or(u64::MAX);
-    let artifacts = vec![
+    let artifacts = [
         create_generation_artifact(
             &staging_dir,
-            generation_dir_identity,
+            snapshot_identity,
             SNAPSHOT_FILE_NAME,
             payload,
             payload_limit,
         )?,
         create_generation_artifact(
             &staging_dir,
-            generation_dir_identity,
+            snapshot_identity,
             SNAPSHOT_DIGEST_FILE_NAME,
             digest,
             SNAPSHOT_DIGEST_MAX_BYTES,
         )?,
         create_generation_artifact(
             &staging_dir,
-            generation_dir_identity,
+            snapshot_identity,
             SNAPSHOT_SIGNATURE_FILE_NAME,
             signature,
             SNAPSHOT_SIGNATURE_MAX_BYTES,
         )?,
         create_generation_artifact(
             &staging_dir,
-            generation_dir_identity,
+            snapshot_identity,
             SNAPSHOT_FAST_MANIFEST_FILE_NAME,
             fast_manifest,
             SNAPSHOT_FAST_MANIFEST_MAX_BYTES,
         )?,
         create_generation_artifact(
             &staging_dir,
-            generation_dir_identity,
+            snapshot_identity,
             SNAPSHOT_MERKLE_FILE_NAME,
             merkle,
             merkle_limit,
         )?,
     ];
-    sync_snapshot_directory(&staging_dir, generation_dir_identity)
+    sync_snapshot_directory(&staging_dir, snapshot_identity)
         .map_err(|error| snapshot_publication_error("sync staging generation", error))?;
     match publish_generation_directory_noreplace(&generations_dir, &staging_dir, digest_hex) {
         Ok(()) => {}
@@ -4150,7 +4165,7 @@ fn publish_immutable_snapshot_generation(
                 verification_key,
             );
         }
-        Err(error) => return Err(TryWriteError::IO(error, generation_dir)),
+        Err(error) => return Err(TryWriteError::IO(error, snapshot_directory)),
     }
     drop(staging);
     sync_snapshot_directory(&generations_dir, generations_dir_identity)
@@ -4162,7 +4177,7 @@ fn publish_immutable_snapshot_generation(
         SNAPSHOT_FAST_MANIFEST_FILE_NAME,
         SNAPSHOT_MERKLE_FILE_NAME,
     ]) {
-        verify_bound_snapshot_file_at(&generation_dir.join(name), binding)
+        verify_bound_snapshot_file_at(&snapshot_directory.join(name), binding)
             .map_err(|error| snapshot_publication_error("verify published generation", error))?;
     }
     bind_existing_snapshot_generation_for_write(
@@ -4676,9 +4691,11 @@ fn ensure_snapshot_commit_evidence(
     let certified = chain
         .certified(checkpoint.height)
         .map_err(attempt_failure)?;
-    if certified.block_hash() != tip.iroha_hash()
-        || certified.core_hash() != tip.core_hash()
-        || certified.result() != tip.result()
+    if (
+        certified.block_hash(),
+        certified.core_hash(),
+        certified.result(),
+    ) != (tip.iroha_hash(), tip.core_hash(), tip.result())
     {
         return Err(failure(
             "durable native certificate differs from captured execution".into(),
@@ -5090,12 +5107,14 @@ fn redact_consensus_sidecars_from_state_value(value: &mut json::Value) {
 pub(crate) fn canonical_state_snapshot_bytes_for_tests(state: &State) -> Vec<u8> {
     canonical_state_snapshot_bytes(state)
 }
-fn merkle_err_to_try_read(err: SnapshotMerkleError, _path: PathBuf) -> TryReadError {
+fn merkle_err_to_try_read(err: SnapshotMerkleError, path: PathBuf) -> TryReadError {
+    #[cfg(not(test))]
+    let _ = &path;
     match err {
         #[cfg(test)]
-        SnapshotMerkleError::Missing => TryReadError::MerkleMissing(_path),
+        SnapshotMerkleError::Missing => TryReadError::MerkleMissing(path),
         #[cfg(test)]
-        SnapshotMerkleError::Io(io) => TryReadError::IO(io, _path),
+        SnapshotMerkleError::Io(io) => TryReadError::IO(io, path),
         SnapshotMerkleError::Parse(err) => TryReadError::MerkleMetadata(err),
         SnapshotMerkleError::ChunkSizeMismatch { expected, actual } => {
             TryReadError::MerkleChunkSizeMismatch { expected, actual }

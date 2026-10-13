@@ -126,7 +126,9 @@ fn fresh_provider_retries_before_a_sibling_finishes_without_replacing_authority(
         let fast = scope.spawn(|| {
             retry_fresh_provider(&run, || match calls.fetch_add(1, Ordering::AcqRel) {
                 0 => Err(invalid("transient native proof unavailable")),
-                1 => absent(ServiceBootstrapStep::ProviderFunding { provider_id }),
+                1 => Ok(absent(ServiceBootstrapStep::ProviderFunding {
+                    provider_id,
+                })),
                 2 => {
                     retried_tx
                         .send(!sibling_done.load(Ordering::Acquire))

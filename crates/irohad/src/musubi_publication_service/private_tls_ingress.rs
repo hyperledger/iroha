@@ -124,7 +124,7 @@ impl MusubiPublicationPrivateTlsIngressBuilderV1 {
         listener
             .set_nonblocking(true)
             .map_err(|_| MusubiPublicationPrivateServiceFactoryErrorV1::Unavailable)?;
-        let mut tls = (*tls).clone();
+        let mut tls = Arc::unwrap_or_clone(tls);
         tls.max_early_data_size = 0;
         tls.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok(Self {
@@ -351,7 +351,7 @@ async fn serve_connection(
     let connection = http.serve_connection(TokioIo::new(stream), service);
     tokio::pin!(connection);
     tokio::select! {
-        _ = shutdown.receive() => {}
+        () = shutdown.receive() => {}
         _ = &mut connection => {}
     }
 }
@@ -510,10 +510,10 @@ fn max_seed_body_bytes() -> usize {
         .expect("fixed Musubi seed body bound fits supported hosts")
 }
 
-fn single_header<'a>(
-    headers: &'a HeaderMap,
+fn single_header(
+    headers: &HeaderMap,
     name: impl hyper::header::AsHeaderName,
-) -> Result<Option<&'a str>, ()> {
+) -> Result<Option<&str>, ()> {
     let mut values = headers.get_all(name).iter();
     let first = values.next();
     if values.next().is_some() {
@@ -834,8 +834,10 @@ mod tests {
 
     #[test]
     fn settings_reject_unbounded_concurrency() {
-        let mut config = iroha_config::parameters::actual::MusubiPublication::default();
-        config.private_tls_bind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+        let config = iroha_config::parameters::actual::MusubiPublication {
+            private_tls_bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            ..iroha_config::parameters::actual::MusubiPublication::default()
+        };
         let projected = MusubiPublicationPrivateTlsSettingsV1::from_config(&config);
         assert_eq!(projected.bind, config.private_tls_bind);
         assert_eq!(
@@ -844,7 +846,7 @@ mod tests {
         );
         assert!(projected.validate().is_ok());
         for maximum in [0, 5] {
-            let mut invalid = projected.clone();
+            let mut invalid = projected;
             invalid.max_inflight_requests = maximum;
             assert_eq!(
                 invalid.validate(),
@@ -860,8 +862,10 @@ mod tests {
     #[test]
     fn prebound_tls_builder_disables_early_data_and_rejects_bind_collision() {
         let (server, _) = tls_identity();
-        let mut config = iroha_config::parameters::actual::MusubiPublication::default();
-        config.private_tls_bind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+        let config = iroha_config::parameters::actual::MusubiPublication {
+            private_tls_bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            ..iroha_config::parameters::actual::MusubiPublication::default()
+        };
         let first =
             MusubiPublicationPrivateTlsIngressBuilderV1::from_config(&config, Arc::clone(&server))
                 .expect("private listener binds from non-secret config");
@@ -929,14 +933,15 @@ mod tests {
         );
         let accepted = send_tls_request(address, Arc::clone(&client), request.as_bytes()).await;
         assert!(accepted.starts_with(b"HTTP/1.1 200"));
-        let seen = dispatch.requests.lock().expect("test lock");
-        assert_eq!(seen.len(), 1);
-        assert_eq!(
-            seen[0].borrowed().path,
-            "/v1/musubi/publication/storage-coordinate"
-        );
-        assert_eq!(seen[0].borrowed().body, b"abc");
-        drop(seen);
+        {
+            let seen = dispatch.requests.lock().expect("test lock");
+            assert_eq!(seen.len(), 1);
+            assert_eq!(
+                seen[0].borrowed().path,
+                "/v1/musubi/publication/storage-coordinate"
+            );
+            assert_eq!(seen[0].borrowed().body, b"abc");
+        }
 
         let duplicate = format!(
             "POST {route} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-norito\r\n{MUSUBI_PUBLICATION_AUTHORIZATION_HEADER_V1}: one\r\n{MUSUBI_PUBLICATION_AUTHORIZATION_HEADER_V1}: two\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"

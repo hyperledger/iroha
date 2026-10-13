@@ -14,9 +14,51 @@ struct RefusingSigner {
     inner: FakeSigner,
     refused: AtomicBool,
     attempts: Mutex<Vec<Vec<u8>>>,
+    prepares: Mutex<Vec<ObservedPrepare>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ObservedPrepare {
+    preimage: Vec<u8>,
+    instance: Hash32,
+    epoch: crate::types::EpochId,
+    height: u64,
+    block_hash: Hash32,
+    result: Hash32,
+    certified: bool,
 }
 
 impl Signer for RefusingSigner {
+    fn sign_prepare(
+        &self,
+        request: &crate::prepare_admission::PrepareSigningRequest,
+        admission: &crate::prepare_admission::ExecutionAdmission,
+    ) -> Result<Signature, SigningError> {
+        let preimage = crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &request.instance(),
+            &request.epoch(),
+            request.height(),
+            request.view(),
+            &request.block_hash(),
+            &request.result(),
+        );
+        self.prepares.lock().unwrap().push(ObservedPrepare {
+            preimage: preimage.clone(),
+            instance: request.instance(),
+            epoch: request.epoch(),
+            height: request.height(),
+            block_hash: request.block_hash(),
+            result: request.result(),
+            certified: request.certified(),
+        });
+        #[cfg(sumeragi_mutation = "MS71")]
+        let _ = admission;
+        #[cfg(not(sumeragi_mutation = "MS71"))]
+        admission.check(request)?;
+        self.sign(&preimage)
+    }
+
     fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
     }
@@ -35,10 +77,119 @@ fn refuse(h: &mut H) -> Arc<RefusingSigner> {
         inner: h.signers[0].clone(),
         refused: AtomicBool::new(true),
         attempts: Mutex::new(Vec::new()),
+        prepares: Mutex::new(Vec::new()),
     });
     let me = h.core.me.unwrap();
     h.core.keys[me.slot].signer = Some(signer.clone());
     signer
+}
+
+#[test]
+fn det_prepare_context_uses_later_authenticated_qc_with_cached_valid_result() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"completed result later receives its actual PrepareQC");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    let first = h.exec_all();
+    assert_refused(&first, SigningKind::Prepare);
+    let original = signer.prepares.lock().unwrap()[0].clone();
+    assert!(
+        !original.certified,
+        "an uncertified successful execution grants no clock exemption"
+    );
+    assert_eq!(
+        (
+            original.instance,
+            original.epoch,
+            original.height,
+            original.block_hash
+        ),
+        (I, h.config(1).epoch.id, 1, h.bh(&block))
+    );
+    assert_eq!(
+        original.preimage,
+        crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &original.instance,
+            &original.epoch,
+            original.height,
+            0,
+            &original.block_hash,
+            &original.result,
+        )
+    );
+    let qc = h.qc_q(VoteKind::Prepare, 0, &block);
+    assert_eq!(qc.result, original.result);
+    h.deliver(h.others(1, &[])[0], WireMessage::Qc(qc));
+    assert!(
+        matches!(h.core.exec.get(&original.block_hash), Some(super::super::ExecState::Valid { admission }) if admission.result() == original.result)
+    );
+    signer.prepares.lock().unwrap().clear();
+    h.core.try_prepare();
+    let observed = signer.prepares.lock().unwrap().clone();
+    assert_eq!(observed.len(), 1);
+    assert!(
+        observed[0].certified,
+        "cached Valid must use the subsequently authenticated exact PrepareQC"
+    );
+    assert_eq!(observed[0].preimage, original.preimage);
+    assert!(
+        h.core.mine.prepare.is_none(),
+        "local signing refusal still creates no vote"
+    );
+    // An authenticated certificate for one pair grants no exemption to another result/hash.
+    let me = h.core.me.unwrap();
+    h.core.record_vote(
+        me,
+        VoteKind::Prepare,
+        (original.block_hash, Hash32([0xfa; 32])),
+    );
+    h.core
+        .record_vote(me, VoteKind::Prepare, (Hash32([0xfb; 32]), original.result));
+    let observed = signer.prepares.lock().unwrap();
+    assert_eq!(
+        observed.len(),
+        1,
+        "substituted source must not reach the signer"
+    );
+}
+
+#[test]
+fn det_prepare_context_restart_reservation_alone_is_uncertified() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"durable reservation without any PrepareQC");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    h.exec_all();
+    let original = signer.prepares.lock().unwrap()[0].clone();
+    assert!(
+        !original.certified,
+        "a restarted durable Prepare reservation must not grant certified clock exemption"
+    );
+    let durable = h.durable().unwrap();
+    assert!(durable.prepare.is_some());
+    assert!(durable.prepare_signature.is_none());
+    assert!(durable.lock.is_none());
+    signer.prepares.lock().unwrap().clear();
+    let init = h.init(vec![(
+        durable.key.clone(),
+        RecordState::Present(durable.encode(&h.v.crypto).unwrap()),
+        false,
+    )]);
+    let (core, actions) = Core::new(
+        h.local,
+        init,
+        vec![signer.clone()],
+        Box::new(h.v.crypto.clone()),
+        h.budget.clone(),
+        h.now,
+    )
+    .unwrap();
+    assert!(signer.prepares.lock().unwrap().is_empty());
+    assert!(core.mine.prepare.is_none());
+    assert!(votes(&actions).is_empty());
 }
 
 fn assert_refused(actions: &[Action], kind: SigningKind) {
@@ -109,15 +260,21 @@ fn det_signing_refusal_prepare_preserves_reservation_without_pooling() {
     );
     // A later local execution disagreement cannot rewrite the reserved signing preimage.
     let bh = h.bh(&block);
-    h.core
-        .exec
-        .insert(bh, super::super::ExecState::Valid(Hash32([0xf3; 32])));
+    h.core.exec.insert(
+        bh,
+        super::super::ExecState::Valid {
+            admission: crate::testing::no_sensitive_work_admission(Hash32([0xf3; 32])),
+        },
+    );
     allow_identical_retry(&signer);
     h.core.try_prepare();
     assert_eq!(signer.attempts.lock().unwrap().len(), 1);
-    h.core
-        .exec
-        .insert(bh, super::super::ExecState::Valid(reserved.result));
+    h.core.exec.insert(
+        bh,
+        super::super::ExecState::Valid {
+            admission: crate::testing::no_sensitive_work_admission(reserved.result),
+        },
+    );
     h.tick(h.local.rebroadcast_interval);
     assert!(h.core.mine.prepare.is_some());
     assert_identical_attempts(&signer);
@@ -430,4 +587,191 @@ fn det_aggregation_refusal_retains_verified_votes_without_certificates() {
             Some(timeout)
         );
     }
+}
+
+#[test]
+fn det_ct5_unsigned_prepare_reservation_restart_never_synthesizes_first_signature() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"first Prepare requires fresh admission after restart");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    let out = h.exec_all();
+    assert_refused(&out, SigningKind::Prepare);
+    assert_eq!(signer.attempts.lock().unwrap().len(), 1);
+    let reserved = h.core.safety.as_ref().unwrap().prepare.unwrap();
+    assert!(h.core.mine.prepare.is_none());
+    assert!(
+        h.core.high_pqc.is_none(),
+        "a local reservation is not a certificate"
+    );
+    // Model a stopped process: no ticks or new execution authorize a first signature.
+    // Restart's working key must not turn the durable *refused* reservation into a vote.
+    h.now += 600_000;
+    h.auto_fetch = false;
+    h.auto_exec = false;
+    let out = h.restart();
+    assert!(
+        h.core.mine.prepare.is_none() && votes_of(&out, VoteKind::Prepare).is_empty(),
+        "a durable unsigned reservation cannot synthesize a first Prepare without fresh source-bound execution or a genuine matching PQC"
+    );
+    assert_eq!(h.core.safety.as_ref().unwrap().prepare.unwrap(), reserved);
+    assert!(h.core.high_pqc.is_none());
+}
+
+#[derive(Debug)]
+struct DueAdmission {
+    request: crate::prepare_admission::PrepareSigningRequest,
+    wall: Arc<std::sync::atomic::AtomicU64>,
+}
+impl crate::prepare_admission::PrepareAdmission for DueAdmission {
+    fn result(&self) -> Hash32 {
+        self.request.result()
+    }
+    fn check(
+        &self,
+        request: &crate::prepare_admission::PrepareSigningRequest,
+    ) -> Result<(), SigningError> {
+        if request.instance() != self.request.instance()
+            || request.epoch() != self.request.epoch()
+            || request.height() != self.request.height()
+            || request.block_hash() != self.request.block_hash()
+            || request.result() != self.request.result()
+        {
+            return Err(SigningError::InvalidInput);
+        }
+        if !request.certified() && self.wall.load(Ordering::Relaxed) > 100 {
+            return Err(SigningError::StaleExecution {
+                block_time_ms: 50,
+                observed_ms: self.wall.load(Ordering::Relaxed),
+                max_lag_ms: 50,
+            });
+        }
+        Ok(())
+    }
+}
+fn due_outcome(
+    h: &H,
+    block: &AvailableBody,
+    wall: Arc<std::sync::atomic::AtomicU64>,
+) -> ExecOutcome {
+    let result = result_of(block);
+    let source = DueAdmission {
+        request: crate::testing::prepare_signing_request(
+            I,
+            h.config(h.height()).epoch.id,
+            h.height(),
+            0,
+            h.bh(block),
+            result,
+            false,
+        ),
+        wall,
+    };
+    let owner = iroha_allocation::shared::Shared::new(source, ());
+    ExecOutcome::Valid {
+        result,
+        admission: crate::prepare_admission::ExecutionAdmission::from_owner(
+            owner.project::<dyn crate::prepare_admission::PrepareAdmission>(|value| value),
+        ),
+    }
+}
+
+#[test]
+fn det_ct5_cached_execution_waits_for_stage_and_checks_actual_first_signing_time() {
+    let mut h = H::new(4, pick::set_b(0));
+    let block = h.block(0, b"retained set B admission");
+    let hash = h.bh(&block);
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let wall = Arc::new(std::sync::atomic::AtomicU64::new(100));
+    h.exec(hash, due_outcome(&h, &block, wall.clone()));
+    assert!(h.core.mine.prepare.is_none());
+    wall.store(101, Ordering::Relaxed);
+    h.core.raise_stage(1);
+    assert!(
+        h.core.mine.prepare.is_none(),
+        "cached Valid cannot bypass first-Prepare freshness after stage delay"
+    );
+    assert!(matches!(
+        h.core.exec.get(&hash),
+        Some(super::super::ExecState::Valid { .. })
+    ));
+    assert!(h.core.out.iter().any(|a| matches!(
+        a,
+        Action::LocalFault(LocalFault::SigningFailed {
+            error: SigningError::StaleExecution { .. },
+            ..
+        })
+    )));
+    wall.store(100, Ordering::Relaxed);
+    h.core.try_prepare();
+    assert!(
+        h.core.mine.prepare.is_some(),
+        "exact inclusive freshness boundary retries the original execution"
+    );
+}
+
+#[test]
+fn det_ct5_signer_resource_retry_rechecks_freshness_and_genuine_pqc_exempts() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"signer wait source bound");
+    let hash = h.bh(&block);
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let signer = refuse(&mut h);
+    let wall = Arc::new(std::sync::atomic::AtomicU64::new(100));
+    h.exec(hash, due_outcome(&h, &block, wall.clone()));
+    assert_eq!(signer.attempts.lock().unwrap().len(), 1);
+    allow_identical_retry(&signer);
+    wall.store(101, Ordering::Relaxed);
+    h.tick(h.local.rebroadcast_interval);
+    assert!(
+        h.core.mine.prepare.is_none(),
+        "resource recovery cannot sign an aged execution"
+    );
+    assert_eq!(
+        signer.attempts.lock().unwrap().len(),
+        1,
+        "stale admission never calls signing backend"
+    );
+    let qc = h.qc_q(VoteKind::Prepare, 0, &block);
+    h.deliver(h.others(1, &[])[0], WireMessage::Qc(qc));
+    h.core.try_prepare();
+    assert!(
+        h.core.mine.prepare.is_some(),
+        "a genuinely verified matching PQC preserves late completion"
+    );
+}
+
+#[test]
+fn det_ct5_successful_prepare_signature_is_exact_durable_and_authenticated_on_restart() {
+    let mut h = H::new(4, pick::set_a(0));
+    let block = h.block(0, b"persist actual successful signature");
+    let proposal = h.proposal(0, &block, None);
+    h.deliver(h.leader(0), WireMessage::Proposal(Box::new(proposal)));
+    let out = h.exec_all();
+    let original = h.core.mine.prepare.unwrap();
+    let durable = h.durable().unwrap();
+    assert_eq!(durable.prepare_signature, Some(original.sig));
+    assert!(out.iter().any(|action| matches!(action, Action::PersistSafety(record) if record.prepare_signature == Some(original.sig))));
+    h.auto_fetch = false;
+    h.auto_exec = false;
+    h.now += 600_000;
+    h.restart();
+    assert_eq!(
+        h.core.mine.prepare.unwrap(),
+        original,
+        "restart reuses the exact successful signature without fresh execution"
+    );
+    let mut forged = durable;
+    forged.prepare_signature = Some(Signature([0; crate::types::SIGNATURE_LEN]));
+    h.records
+        .insert(forged.key.clone(), forged.encode(&h.v.crypto).unwrap());
+    let out = h.restart();
+    assert!(
+        !halts(&out).is_empty(),
+        "a checksummed fabricated successful signature is not restart authority"
+    );
+    assert!(h.core.mine.prepare.is_none());
 }

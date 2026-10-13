@@ -88,11 +88,14 @@ impl Core {
         }
         // R5: the block store lost the last commit. Authenticate every retained certificate
         // before its parent CommitQC restores it (the parent link is checked when the body
-        // arrives, §6.9 rule 6). A record beyond a pending epoch boundary stays inert under
-        // R6 until ordinary catch-up authenticates that height's authority.
+        // arrives, §6.9 rule 6). Retained round certificates beyond a pending epoch boundary
+        // need ordinary catch-up to authenticate their authority. A record containing only
+        // reservations and its parent QC can recommit that parent without future authority;
+        // boundary application must still authenticate the record's epoch before restoration.
         let t = self.tip.height;
         if let Some(record) = recommit_candidate(&records, t)
-            && self.config(record.height).is_some()
+            && (self.config(record.height).is_some()
+                || !Self::record_has_round_certificates(record))
         {
             if !self.record_round_certificates_verify(record) {
                 return self.halt(HaltReason::SafetyRecordInconsistent);
@@ -304,14 +307,46 @@ impl Core {
             .clone()
             .and_then(|t| self.build_timeout(me, t.view, t.high_pqc));
         let prepare = record.prepare.filter(|v| v.view == view);
+        #[cfg(sumeragi_mutation = "MS72")]
+        let record = {
+            let mut record = record;
+            if record.prepare_signature.is_none()
+                && let Some(vote) = prepare
+            {
+                record.prepare_signature = self.sign(
+                    me.slot,
+                    crate::api::SigningKind::Prepare,
+                    self.height,
+                    self.view,
+                    &crate::preimage::vote_preimage(
+                        VoteKind::Prepare,
+                        &self.instance,
+                        &self.cfg.epoch.id,
+                        self.height,
+                        self.view,
+                        &vote.block_hash,
+                        &vote.result,
+                    ),
+                );
+            }
+            record
+        };
+        let signed_prepare = record.prepare_signature;
         let proposal = (record.proposal.clone())
             .filter(|p| p.view == view && !cfg!(sumeragi_mutation = "MS1"));
         self.safety = Some(record);
         self.mine.timeout.clone_from(&timeout);
-        // The recorded Prepare of the resumed view: identical preimage, identical bytes
-        // (deterministic signatures), on the retransmit schedule from now.
-        let prepare =
-            prepare.and_then(|v| self.record_vote(me, VoteKind::Prepare, (v.block_hash, v.result)));
+        // Only the exact authenticated successful signature can resume retransmission.
+        // An unsigned reservation must reacquire current execution admission before its
+        // first signing attempt; deterministic re-signing is not evidence it happened.
+        let prepare = prepare.and_then(|v| {
+            if signed_prepare.is_some() {
+                self.record_vote(me, VoteKind::Prepare, (v.block_hash, v.result))
+            } else {
+                self.want(v.block_hash, self.height, Vec::new());
+                None
+            }
+        });
         if let Some(qc) = self.high_pqc.clone() {
             let sources = self.signer_keys(&qc);
             self.want(qc.block_hash, self.height, sources);
@@ -380,7 +415,9 @@ impl Core {
                                 && self.verifier(config).verify_qc(qc).is_ok()
                         })
                 });
-        parent_matches && self.record_round_certificates_verify(record)
+        parent_matches
+            && record.prepare_signature_verifies(&*self.crypto)
+            && self.record_round_certificates_verify(record)
     }
 
     /// Fully verify the record height's retained certificates without consulting or filling
@@ -390,9 +427,14 @@ impl Core {
         if cfg!(sumeragi_mutation = "MS57") {
             return true;
         }
-        if self.config(record.height).is_none_or(|config| {
-            config.epoch.id != record.epoch || !config.epoch.contains(record.height)
-        }) {
+        if !record.prepare_signature_verifies(&*self.crypto) {
+            return false;
+        }
+        let authority_matches = self.config(record.height).map_or_else(
+            || !Self::record_has_round_certificates(record),
+            |config| config.epoch.id == record.epoch && config.epoch.contains(record.height),
+        );
+        if !authority_matches {
             return false;
         }
         let mut qcs = record.lock.iter().chain(
@@ -416,6 +458,23 @@ impl Core {
                 config.epoch.contains(tc.height) && self.verifier(config).verify_tc(tc).is_ok()
             })
         })
+    }
+
+    /// Whether R5 must authenticate the record height before verifying its certificate graph.
+    /// Proposal/Prepare/Timeout reservations alone carry no signature at that height.
+    fn record_has_round_certificates(record: &SafetyRecord) -> bool {
+        // MS64: require future authority even when only the authenticated parent is certified.
+        cfg!(sumeragi_mutation = "MS64")
+            || record.lock.is_some()
+            || record.high_tc.is_some()
+            || record
+                .timeout
+                .as_ref()
+                .is_some_and(|timeout| timeout.high_pqc.is_some())
+            || record
+                .proposal
+                .as_ref()
+                .is_some_and(|proposal| proposal.justify.is_some())
     }
 }
 

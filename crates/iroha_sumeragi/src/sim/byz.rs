@@ -1293,7 +1293,7 @@ impl World {
                     .map(|q| q.result)
                     .or_else(
                         || match reference_exec(&p.proposal.header.parent_result, &payload) {
-                            ExecOutcome::Valid(res) => Some(res),
+                            ExecOutcome::Valid { result: res, .. } => Some(res),
                             _ => None,
                         },
                     );

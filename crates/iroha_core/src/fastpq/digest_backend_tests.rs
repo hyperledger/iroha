@@ -49,7 +49,7 @@ fn acceleration_test_guard_serializes_and_restores_shared_lane_state() {
     let previous = poseidon_digest_acceleration_enabled();
     set_poseidon_digest_acceleration_enabled(!previous);
     let (contended, observed_contention) = std::sync::mpsc::channel();
-    let contender = std::thread::spawn(move || {
+    let competing_worker = std::thread::spawn(move || {
         assert!(matches!(
             DIGEST_ACCELERATION_TEST_LOCK.try_lock(),
             Err(std::sync::TryLockError::WouldBlock)
@@ -63,7 +63,7 @@ fn acceleration_test_guard_serializes_and_restores_shared_lane_state() {
         .recv_timeout(std::time::Duration::from_secs(5))
         .expect("contender observes the shared acceleration lock");
     drop(guard);
-    contender
+    competing_worker
         .join()
         .expect("contending acceleration test joins");
     let _guard = DigestAccelerationTestGuard::new();

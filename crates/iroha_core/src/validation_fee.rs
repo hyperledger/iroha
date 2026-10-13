@@ -164,7 +164,7 @@ fn retained_enacted_validation_fee_asset_reference_matching(
 ) -> Option<([u8; 32], &'static str, AssetDefinitionId)> {
     retained_enacted_validation_fee_proposals(state_transaction).find_map(
         |(proposal_id, proposal_kind)| {
-            let matched = match proposal_kind {
+            let matching_asset = match proposal_kind {
                 ProposalKind::ValidationFeePolicy(payload) => {
                     if matches(&payload.policy.ds_asset_id) {
                         Some((
@@ -192,7 +192,7 @@ fn retained_enacted_validation_fee_asset_reference_matching(
                 }
                 _ => None,
             }?;
-            Some((proposal_id, matched.0, matched.1))
+            Some((proposal_id, matching_asset.0, matching_asset.1))
         },
     )
 }

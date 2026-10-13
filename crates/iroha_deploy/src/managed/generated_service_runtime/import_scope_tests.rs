@@ -11,7 +11,7 @@ struct Observation {
     disabled: bool,
     context: Option<ValidatorEpochContextV1>,
     children: Vec<usize>,
-    epoch_charges: Vec<u64>,
+    epoch_projections: Vec<iroha_sumeragi::types::EpochConfig>,
     alive: Option<Box<dyn Fn() -> bool>>,
 }
 thread_local! {
@@ -35,7 +35,9 @@ impl Observer {
         Self
     }
     fn finish(self) -> Observation {
-        OBSERVATION.with(|value| value.borrow_mut().take().unwrap())
+        let observation = OBSERVATION.with(|value| value.borrow_mut().take().unwrap());
+        drop(self);
+        observation
     }
 }
 impl Drop for Observer {
@@ -75,11 +77,11 @@ pub(in crate::managed::generated_service_runtime) fn after_child(
         };
         observation.children.push(index);
         if let (Some(scope), Some(context)) = (scope, &observation.context) {
-            // Observe only after the real producer. A zero result cannot populate a previously
-            // absent context: its admitted native roundtrip has a separately proven positive cost.
+            // Observe the exact projection after each real producer. The probe may populate
+            // an inline snapshot; it does not measure whether that producer warmed the cache.
             observation
-                .epoch_charges
-                .push(scope.test_epoch_charge(context));
+                .epoch_projections
+                .push(scope.test_epoch_projection(context));
         }
     });
 }
@@ -110,7 +112,7 @@ fn read(
 }
 
 #[test]
-fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_recipe() {
+fn genuine_selection_scope_keeps_exact_epoch_projections_lexical_lifetime_and_active_recipe() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Genuine::new("runtime-selection-imports", false, false);
     let peers = fixture.peers();
@@ -119,11 +121,17 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
         iroha_data_model::sumeragi_finality::authenticated_genesis(fixture.native.chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap();
-    let cold = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let mut validation = iroha_data_model::sumeragi_finality::EpochValidationScope::new();
-    cold.with(|| validation.core_epoch(&context)).unwrap();
-    assert!(cold.consumed_allocated_bytes() > 0);
-    drop(validation);
+    let cold = DecodeBudgetContext::new(limits(0));
+    let original_core = {
+        let mut validation = iroha_data_model::sumeragi_finality::EpochValidationScope::new();
+        cold.with(|| validation.core_epoch(&context)).unwrap()
+    };
+    assert_eq!(cold.consumed_allocated_bytes(), 0);
+    assert!(!norito::core::decode_limits_active());
+    assert_eq!(
+        original_core,
+        iroha_data_model::sumeragi_finality::core_epoch(&context).unwrap()
+    );
 
     // This control selects None at the sole changed argument. It executes the identical
     // canonical RuntimeSelection parser, physical children and return/exit path.
@@ -149,9 +157,8 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
         );
         assert_eq!(observed.children, callbacks.children);
         assert_eq!(
-            observed.epoch_charges,
-            [0, 0, 0],
-            "all three actual imports share the one authenticated genesis epoch"
+            observed.epoch_projections, [original_core; 3],
+            "each actual import scope preserves the exact authenticated genesis projection"
         );
         assert!(observed.alive.is_some());
     }
@@ -196,7 +203,7 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
     let Genuine {
         owner,
         prepared,
-        _temporary,
+        _temporary: temporary,
         native,
         selection,
         components,
@@ -222,7 +229,7 @@ fn genuine_selection_scope_shares_only_epoch_work_then_drops_and_keeps_active_re
     assert!(actual_calls.alive.is_none());
     no_http(&peers);
     drop(owned);
-    drop(_temporary);
+    drop(temporary);
 }
 
 #[test]
@@ -327,7 +334,7 @@ fn genuine_selection_scope_keeps_changed_sources_and_ordinary_error_exit_precede
     no_http(&peers);
     drop((body, initial, generation));
     let Genuine {
-        _temporary,
+        _temporary: temporary,
         prepared,
         owner,
         native,
@@ -340,5 +347,5 @@ fn genuine_selection_scope_keeps_changed_sources_and_ordinary_error_exit_precede
     drop((
         prepared, owner, native, selection, components, carriers, options, catalog,
     ));
-    drop(_temporary);
+    drop(temporary);
 }

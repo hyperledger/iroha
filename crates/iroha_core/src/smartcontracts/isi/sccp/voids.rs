@@ -185,8 +185,15 @@ pub fn apply_void(
         record.status = SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
             kind: void.kind,
             proven_at_height: height,
-            refund_pending: true,
+            refund_pending: Some(
+                iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred,
+            ),
         });
+        super::reconciliation_store::add_pending_refund(
+            state_transaction,
+            (network, revision),
+            record.amount,
+        )?;
         store::outbound_messages::insert(state_transaction, message_id, record)?;
         settle::adjust_pending(state_transaction, (network, revision), 0, 1)?;
         let mut events = Vec::new();

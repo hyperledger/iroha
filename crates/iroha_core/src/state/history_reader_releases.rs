@@ -66,6 +66,13 @@ impl<'state> StateViewReleases<'state> {
     }
 
     /// End read authority while retaining all original notices through later mutation.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect authenticated State-swap retirement; retain original reader notices through every enclosing physical owner"
+        )
+    )]
     pub(crate) fn into_retirement(self) -> StateViewRetirement {
         let LaneLifecycleReleases {
             geometry,

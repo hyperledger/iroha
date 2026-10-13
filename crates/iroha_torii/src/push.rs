@@ -191,7 +191,7 @@ pub enum PushError {
 }
 /// Original-pool refusal before a push worker acquires any startup effects.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PushWorkerStartError {
+pub enum PushWorkerStartError {
     /// The original State pool could not admit the exact retry control.
     #[error("push retry control admission: {0}")]
     Admission(#[source] AllocationRefusal),
@@ -997,10 +997,15 @@ impl PushBridge {
             self.remove_job(&job.dedupe_key);
             return;
         };
-        if device.account_id != job.account_id
-            || device.token_fingerprint != job.token_fingerprint
-            || device.platform != job.target_platform
-        {
+        if (
+            &device.account_id,
+            &device.token_fingerprint,
+            &device.platform,
+        ) != (
+            &job.account_id,
+            &job.token_fingerprint,
+            &job.target_platform,
+        ) {
             // A token can be re-registered between enqueue and dispatch. Never deliver an old
             // account's activity through the replacement registration.
             self.remove_job(&job.dedupe_key);
@@ -1871,7 +1876,7 @@ fn state_block_at_height(
             work,
             iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
         )
-        .map(|carrier| carrier.into_block())
+        .map(iroha_core::smartcontracts::tx::FinalizedExecutionCarrier::into_block)
         .map_err(|error| error.map_rejection(|error| PushError::Storage(error.to_string())))
 }
 fn invalid_data(message: impl Into<String>) -> io::Error {
@@ -2894,11 +2899,9 @@ mod tests {
             kura.store_block(original.block().clone()).unwrap();
             let (genesis, certificate, stored_tip) =
                 startup::stored_genesis(&state).unwrap().unwrap();
-            let instance = iroha_core::sumeragi::node::root_instance(
-                &genesis,
-                &state.chain_id_ref().to_string(),
-            )
-            .unwrap();
+            let instance =
+                iroha_core::sumeragi::node::root_instance(&genesis, state.chain_id_ref().as_ref())
+                    .unwrap();
             assert_eq!(instance, source.instance());
             let genesis_account = AccountId::new(prepared.genesis.public_key().clone());
             let consensus_mode = prepared.genesis.consensus_metadata().mode.into();
@@ -3007,7 +3010,7 @@ mod tests {
                 let state = Arc::clone(
                     replayed
                         .as_ref()
-                        .map_or(chain.state(), |owner| &owner.state),
+                        .map_or_else(|| chain.state(), |owner| &owner.state),
                 );
                 assert_eq!(state.committed_height(), 1);
                 assert_eq!(state.exact_durable_block_count().unwrap(), 1);
@@ -3675,12 +3678,29 @@ mod tests {
         let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
         let cursor = bridge.applied_block_cursor.lock().clone();
         let shutdown = ShutdownSignal::new();
-        let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+        let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
         let observation = Arc::clone(&observed);
         let mut probe = move |reason: &ExecutionDeferred| {
             let mut first = observation.lock().unwrap();
             if first.is_none() {
-                *first = Some(reason.clone());
+                // The running replay retains the move-only owner; this observer borrows
+                // its actual pool leaf solely to test that same release registration.
+                assert_eq!(
+                    reason.reason(),
+                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                );
+                assert_eq!(reason.phase(), None);
+                assert!(
+                    reason.decode_refusal().is_none()
+                        && reason.allocator_refusal().is_none()
+                        && reason.verification_refusal().is_none()
+                );
+                *first = Some(
+                    reason
+                        .allocation_refusal()
+                        .expect("actual observed original pool refusal")
+                        .clone(),
+                );
             }
         };
         let mut replay = Box::pin(replay_with_queue_drain_observed(
@@ -3713,11 +3733,11 @@ mod tests {
             .unwrap()
             .clone()
             .expect("actual late native refusal");
-        let Some(iroha_allocation::AllocationRefusal::Capacity {
+        let iroha_allocation::AllocationRefusal::Capacity {
             requested_bytes,
             release,
             ..
-        }) = original.allocation_refusal()
+        } = &original
         else {
             panic!("genuine original pool capacity refusal");
         };
@@ -3846,12 +3866,29 @@ mod tests {
                 PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
             let cursor = bridge.applied_block_cursor.lock().clone();
             let shutdown = ShutdownSignal::new();
-            let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+            let observed = Arc::new(Mutex::new(None::<iroha_allocation::AllocationRefusal>));
             let observation = Arc::clone(&observed);
             let mut probe = move |reason: &ExecutionDeferred| {
                 let mut first = observation.lock().unwrap();
                 if first.is_none() {
-                    *first = Some(reason.clone());
+                    // The running replay retains the move-only owner; this observer borrows
+                    // its actual pool leaf solely to test that same release registration.
+                    assert_eq!(
+                        reason.reason(),
+                        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                    );
+                    assert_eq!(reason.phase(), None);
+                    assert!(
+                        reason.decode_refusal().is_none()
+                            && reason.allocator_refusal().is_none()
+                            && reason.verification_refusal().is_none()
+                    );
+                    *first = Some(
+                        reason
+                            .allocation_refusal()
+                            .expect("actual observed original pool refusal")
+                            .clone(),
+                    );
                 }
             };
             let mut replay = Box::pin(replay_with_queue_drain_observed(
@@ -3881,11 +3918,11 @@ mod tests {
                 .unwrap()
                 .clone()
                 .expect("actual late verification refusal");
-            let Some(iroha_allocation::AllocationRefusal::Capacity {
+            let iroha_allocation::AllocationRefusal::Capacity {
                 requested_bytes,
                 release,
                 ..
-            }) = original.allocation_refusal()
+            } = &original
             else {
                 panic!("genuine original pool capacity refusal at {stage}");
             };
@@ -4279,12 +4316,14 @@ mod tests {
         bridge
             .register_device(register_request("activity-token"))
             .expect("register push activity target");
-        let stale = test_job(91);
-        let stale_key = stale.dedupe_key.clone();
+        let outdated_job = test_job(91);
+        let stale_key = outdated_job.dedupe_key.clone();
         bridge
-            .persist_job(&stale)
+            .persist_job(&outdated_job)
             .expect("persist full queue fixture");
-        bridge.queue.insert(stale.dedupe_key.clone(), stale);
+        bridge
+            .queue
+            .insert(outdated_job.dedupe_key.clone(), outdated_job);
 
         assert!(matches!(
             bridge.reconcile_to_authoritative_height(&state),

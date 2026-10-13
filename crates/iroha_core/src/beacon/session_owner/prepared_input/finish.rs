@@ -43,7 +43,10 @@ impl Ledger {
     fn signature(&mut self, destination: PreparedSignatureDecode) -> Signature {
         let signature = match destination.finish() {
             Ok(signature) => signature,
-            Err(_incomplete) => panic!("signature extraction preceded complete frame validation"),
+            Err(incomplete) => {
+                drop(incomplete);
+                panic!("signature extraction preceded complete frame validation");
+            }
         };
         // SAFETY: complete immutable bytes and original charge move once into
         // the same canonical graph/ledger, which never permits independent escape.
@@ -55,7 +58,10 @@ impl Ledger {
     fn peer(&mut self, destination: Peer) -> PeerId {
         let key = match destination.key.finish() {
             Ok(key) => key,
-            Err(_incomplete) => panic!("key extraction preceded complete frame validation"),
+            Err(incomplete) => {
+                drop(incomplete);
+                panic!("key extraction preceded complete frame validation");
+            }
         };
         // SAFETY: no copy, resize, revalidation or ownership split occurs before
         // the canonical PeerId and original charge join this retained graph.

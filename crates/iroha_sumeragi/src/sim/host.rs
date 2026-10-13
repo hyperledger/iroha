@@ -691,7 +691,8 @@ mod tests {
         };
         let b1 = block_at(1, inst.genesis_hash, inst.genesis_result);
         let bh1 = b1.hash(&crypto);
-        let ExecOutcome::Valid(r1) = reference_exec(&inst.genesis_result, &payload) else {
+        let ExecOutcome::Valid { result: r1, .. } = reference_exec(&inst.genesis_result, &payload)
+        else {
             unreachable!("ordinary setup transaction is valid")
         };
         let orphan = block_at(2, Hash32([9; 32]), Hash32([9; 32]));
@@ -745,10 +746,13 @@ mod tests {
             "{done:?}"
         );
         assert!(done.contains(&Done::Written { op: 2, ok: true }));
-        assert!(done.contains(&Done::Executed {
-            op: 3,
-            outcome: Some(ExecOutcome::Valid(r1))
-        }));
+        assert!(
+            done.iter().any(|done| matches!(done,
+                Done::Executed { op: 3, outcome: Some(ExecOutcome::Valid { result, admission }) }
+                    if *result == r1 && admission.result() == r1
+            )),
+            "the original executed result retains its own application admission"
+        );
         assert!(done.contains(&Done::Executed {
             op: 4,
             outcome: None

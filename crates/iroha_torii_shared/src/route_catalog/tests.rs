@@ -70,6 +70,31 @@ mod tests {
         assert!(CATALOGED_ROUTES.contains(&route));
     }
     #[test]
+    fn amx_debit_approval_proof_is_an_account_authenticated_sdk_read() {
+        let route = contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST;
+        assert_eq!(
+            route.stable_route_id(),
+            "contracts.amx_debit_approval_proof_post"
+        );
+        assert_eq!(route.path(), "/v1/amx/debit-approval/{height}");
+        assert_eq!(route.method(), HttpMethod::Post);
+        assert_eq!(route.surface(), ApiSurface::Public);
+        assert_eq!(route.listener(), Listener::Torii);
+        assert_eq!(route.transport(), RouteTransport::Http);
+        assert_eq!(route.effect(), RouteEffect::ReadOnly);
+        assert_eq!(route.admission(), AdmissionPolicy::AuthenticatedAccount);
+        assert_eq!(
+            route.authentication(),
+            AuthenticationPolicy::CanonicalAccountSignature
+        );
+        assert!(route.requires_private_no_store());
+        assert_eq!(route.feature_gate(), FeatureGate::Feature("app_api"));
+        assert_eq!(route.projections(), RouteProjections::SDK);
+        assert!(route.cors_options());
+        assert!(contracts_and_verification_keys::ROUTES.contains(&route));
+        assert!(CATALOGED_ROUTES.contains(&route));
+    }
+    #[test]
     fn reserve_policy_proof_is_an_account_authenticated_private_read() {
         let route = contracts_and_verification_keys::SORAFS_RESERVE_POLICY_PROOF_GET;
         assert_eq!(route.path(), "/v1/sorafs/reserve/policy/{height}");
@@ -880,7 +905,10 @@ mod tests {
         assert_eq!(sccp::COMMITTEE.path(), "/v1/sccp/committees/{generation}");
         assert!(sccp::ROUTES.contains(&sccp::CURRENT_COMMITTEE));
         assert!(sccp::ROUTES.contains(&sccp::COMMITTEE));
-        assert_eq!(sccp::COMMITTEE_ROTATIONS.path(), "/v1/sccp/committees/rotations");
+        assert_eq!(
+            sccp::COMMITTEE_ROTATIONS.path(),
+            "/v1/sccp/committees/rotations"
+        );
         assert!(sccp::ROUTES.contains(&sccp::COMMITTEE_ROTATIONS));
         for route in CATALOGED_ROUTES {
             for retired in [
@@ -912,6 +940,16 @@ mod tests {
     }
     #[test]
     fn sccp_governance_descriptor_uses_the_canonical_uri() {
+        assert_eq!(
+            sccp::GOVERNANCE_READINESS.path(),
+            "/v1/sccp/governance/readiness"
+        );
+        assert_eq!(
+            sccp::GOVERNANCE_READINESS.stable_route_id(),
+            "sccp.governance.readiness"
+        );
+        assert_eq!(sccp::GOVERNANCE_READINESS.method(), HttpMethod::Get);
+        assert!(CATALOGED_ROUTES.contains(&sccp::GOVERNANCE_READINESS));
         assert_eq!(
             runtime_governance::GOV_PROPOSE_SCCP.path(),
             "/v1/gov/proposals/sccp-route-governance"

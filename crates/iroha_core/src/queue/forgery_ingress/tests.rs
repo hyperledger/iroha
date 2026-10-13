@@ -185,13 +185,12 @@ fn concurrent_shared_queue_observations_cannot_double_spend_a_token_or_triple() 
     let queue = Arc::new(queue());
     let now = Instant::now();
     let wins = std::thread::scope(|scope| {
-        let threads = (0..64)
-            .map(|_| {
-                let queue = queue.clone();
-                let pool = pool.clone();
-                scope.spawn(move || queue.observe_forgery(triple(7), &pool, now).is_ok())
-            })
-            .collect::<Vec<_>>();
+        let mut threads = Vec::with_capacity(64);
+        for _ in 0..64 {
+            let queue = queue.clone();
+            let pool = pool.clone();
+            threads.push(scope.spawn(move || queue.observe_forgery(triple(7), &pool, now).is_ok()));
+        }
         threads
             .into_iter()
             .map(|thread| thread.join().unwrap())

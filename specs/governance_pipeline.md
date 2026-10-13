@@ -651,7 +651,8 @@ current source, including its height-based windows.
    `parliament_quorum_seats_v1(k)` (4, 5 or 6). It uses the citizen-eligibility
    predicate and the governance draw that sortition uses.
    - The draw is step G0 of the block-start pass (below) of a block that
-     carries the NPoS epoch-boundary global-beacon pulse that consensus already
+     carries the NPoS global-beacon pulse at the native pre-boundary height
+     (`last_height - 1`, one block before the committee boundary), which consensus already
      requires, when no panel is seated or the seated panel's term has ended.
      It happens only in that block and is never deferred.
    - It registers no `SortitionRequestV1`, adds no Parliament pulse demand or
@@ -664,8 +665,8 @@ current source, including its height-based windows.
      never due work. Fewer than `2k` candidates, or a snapshot over the 8 MiB
      ceiling of lifecycle item 4, likewise leaves the seated panel in place.
    - The term is `fast_pause_panel_term_ms`. A draw at every epoch boundary is
-     the parameter value equal to the epoch duration; the 7 d default awaits
-     owner confirmation (`sccp.md` §13 item 1).
+     the parameter value equal to the epoch duration. The selected default is
+     7 d (`sccp.md` §4.14.7).
    - Seating freezes and retains no bond. The bond-retention rules of
      lifecycle item 4 apply to Parliament elections only; a seat holder whose
      bond falls below the floor, or who is slashed or suspended, only stops
@@ -786,9 +787,9 @@ current source, including its height-based windows.
 
    | Step | Items | Order |
    |---|---|---|
-   | G0 | Pause-panel draw | At most one per boundary block |
+   | G0 | Pause-panel draw | At most one per native pre-boundary pulse carrier |
    | G1 | Parliament sortition at its exact pulse slot | Request order of the Parliament pipeline |
-   | G2a | Ranks 0–2: Parliament lifecycle transitions. Rank 3: pause-panel conclusions and reconciliation-window ends (`sccp.md` §4.10) | `(due_ms, kind_rank, item key)` |
+   | G2a | Ranks 0–2: Parliament lifecycle transitions. Rank 3: pause-panel conclusions and reconciliation-window ends (`sccp.md` §4.10) | `(due_ms, kind_rank, item key)`; SCCP's common item key is `(network tag, kind, subkey)`, with kind 0 and primary 0/backup 1 for pause conclusions, kind 1 and revision for window ends |
    | G2b | Rank 4: binding-ballot closures whose closing time `t(h_open + 1) + casting_window_ms`, with `h_open = s0.height`, has been reached | `(closing time, governance_attempt_id, body_role)` |
    | G2c | Rank 5: binding-ballot openings with `opening_at ≤ t(B)`, deferred ones included, while fewer than `K` casting windows are open | `(opening_at, governance_attempt_id, body_role)` |
    | G3 | Enactments: Parliament certificates, then fast pauses | `(enact_not_before_ms, governance_attempt_id)`, then `(network tag, panel role)` |
@@ -812,7 +813,9 @@ current source, including its height-based windows.
      opening that finds no free slot ends G2c; it keeps its place, and its
      deferral consumes no retry.
    - **Budget.** G1–G3 share `gov.governance_block_start_work_units` (default
-     64). Each item has a fixed cost set by its owner; an enactment costs 4,
+     64, minimum 10). The minimum funds all six possible SCCP conclusions and
+     one enactment, so recertification alone cannot starve every enactment.
+     Genesis and parameter updates enforce this floor. Each item has a fixed cost set by its owner; an enactment costs 4,
      and a pause-panel conclusion or a reconciliation end costs 1. The first
      item of a pass is always processed; after that, processing stops at the
      first item whose cost exceeds the remaining budget, order is never
@@ -822,6 +825,10 @@ current source, including its height-based windows.
      section 3.6), so a ballot in a block at or after the closing time is late
      whether or not the closure has run. A deferred opening takes its `s0` at
      the pass that actually opens it.
+     A fast pause deferred between G2 certification and G3 enactment keeps its
+     round due. The next pass recertifies it against current eligibility, head
+     and time; the certificate itself never survives the pass or extends the
+     endorsement window.
    - **Positions.** Every processed G1–G3 item gets its 0-based index among
      the items processed in that pass. Ballot openings record theirs in `s0`,
      and fast-pause enactments in `enacted_at`. S0, G0 and G4 are not

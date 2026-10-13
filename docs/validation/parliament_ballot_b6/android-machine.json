@@ -1,0 +1,20 @@
+{
+  "abi": "arm64-v8a",
+  "android_release": "16",
+  "android_sdk": "36",
+  "architecture": "aarch64",
+  "baseline_match": false,
+  "cargo_version": "cargo 1.93.1 (083ac5135 2025-12-15)",
+  "execution_context": "adb shell native executable, not an Android application or Pixel baseline",
+  "linker_api": 23,
+  "linker_version": "Android (13624864, +pgo, -bolt, +lto, -mlgo, based on r530567e) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project 97a699bf4812a18fb657c2779f5296a4ab2694d2)\nTarget: aarch64-unknown-linux-android23\nThread model: posix\nInstalledDir: <android-sdk>/ndk/28.2.13676358/toolchains/llvm/prebuilt/darwin-x86_64/bin",
+  "manufacturer": "samsung",
+  "mem_total_kib": 11916624,
+  "model": "SM-S942B",
+  "ndk_version": "28.2.13676358",
+  "privacy": "No device serial, UDID, account, package inventory, network identifier or personal data collected.",
+  "recorded_at_utc": "2026-10-13T02:47:32.150710+00:00",
+  "rustc_version_verbose": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8",
+  "soc_model": "s5e9965",
+  "target": "aarch64-linux-android"
+}

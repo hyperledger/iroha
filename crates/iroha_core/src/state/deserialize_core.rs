@@ -2737,8 +2737,6 @@ pub(crate) fn validate_musubi_location_reverse_indices(
                     invalid("retired order binding targets a missing location".into())
                 })?;
                 if target.archive_id != archive.archive_id
-                    || (target.state != MusubiArchiveLocationStateV1::Retired
-                        && target.replication_order == *order)
                     || !matches!(
                         order_record.status,
                         iroha_data_model::sorafs::pin_registry::ReplicationOrderStatus::Completed(
@@ -2746,9 +2744,9 @@ pub(crate) fn validate_musubi_location_reverse_indices(
                         )
                     )
                     || completed_providers != retired.providers
-                    || (target.state == MusubiArchiveLocationStateV1::Retired
+                    || target.state != MusubiArchiveLocationStateV1::Retired
                         && target.replication_order == *order
-                        && target.providers != retired.providers)
+                    || target.replication_order == *order && target.providers != retired.providers
                 {
                     return Err(invalid(
                         "retired order binding does not match its completed historical location"

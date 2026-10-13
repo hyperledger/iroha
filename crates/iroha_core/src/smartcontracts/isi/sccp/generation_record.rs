@@ -585,11 +585,12 @@ impl RetainedSccpGeneration {
     pub fn is_liable(&self, current: u64, lc: u64) -> bool {
         self.generation == current
             || lc <= self.liable_until_lc
-            || lc
-                <= self.dest_cleared_lc.map_or_else(
-                    || self.liable_until_lc.saturating_add(self.progress_cap_ms),
-                    |cleared| cleared.saturating_add(self.grace_ms),
-                )
+            || (!cfg!(all(test, sumeragi_core_mutation = "HC322"))
+                && lc
+                    <= self.dest_cleared_lc.map_or_else(
+                        || self.liable_until_lc.saturating_add(self.progress_cap_ms),
+                        |cleared| cleared.saturating_add(self.grace_ms),
+                    ))
     }
     /// Structural key/deadline checks; this grants no committee authority.
     #[must_use]
@@ -720,7 +721,7 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        keys.sort();
+        keys.sort_unstable();
         let validator = AccountId::new(
             KeyPair::try_from_seed(vec![7; 32], Algorithm::Ed25519)
                 .unwrap()

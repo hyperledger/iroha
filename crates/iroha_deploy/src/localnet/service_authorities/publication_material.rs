@@ -514,7 +514,7 @@ pub(super) fn retained(
     let client = prepared.context.load_client_config()?;
     retained_from_parts(
         manifest,
-        &client.chain.to_string(),
+        client.chain.as_ref(),
         client.account_chain_discriminant,
         prepared
             .context

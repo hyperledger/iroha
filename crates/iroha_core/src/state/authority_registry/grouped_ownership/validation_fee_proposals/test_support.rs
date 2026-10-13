@@ -83,8 +83,8 @@ pub(in crate::state) fn proposal(kind: u8, height: u64) -> GovernanceProposalRec
     }
 }
 
-pub(in crate::state) fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(in crate::state) fn fixture() -> World {
+    let mut world = World::default();
     for kind in 0..3 {
         world
             .governance_proposals

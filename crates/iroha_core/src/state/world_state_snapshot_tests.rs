@@ -107,7 +107,7 @@ fn provider_snapshot_publishes_original_current_heads_and_refuses_an_obsolete_cu
         .collect();
     let mut verifier = SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &chain.state().chain_id_ref().to_string(),
+        chain.state().chain_id_ref().as_ref(),
         validators,
     )
     .unwrap();
@@ -115,7 +115,7 @@ fn provider_snapshot_publishes_original_current_heads_and_refuses_an_obsolete_cu
     verifier.verify(&genesis_proof).unwrap();
     let proof =
         crate::sumeragi::finality::build_proof(&chain.state().view(), chain.height()).unwrap();
-    let verified = verifier.verify(&proof).unwrap();
+    let authenticated = verifier.verify(&proof).unwrap();
     let mut advert: sorafs_manifest::ProviderAdvertV1 =
         norito::decode_from_bytes(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -178,7 +178,7 @@ fn provider_snapshot_publishes_original_current_heads_and_refuses_an_obsolete_cu
             chain.network_id(),
             fixture.provider(),
             State::native_world_schema_hash_v1().unwrap(),
-            &verified,
+            &authenticated,
             NOW + 1,
         )
         .unwrap();
@@ -779,14 +779,14 @@ fn sns_lease_snapshot_authenticates_native_record_and_refuses_changed_or_unfunde
         .collect();
     let mut verifier = SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &chain.state().chain_id_ref().to_string(),
+        chain.state().chain_id_ref().as_ref(),
         validators,
     )
     .unwrap();
     verifier
         .verify(&crate::sumeragi::finality::build_proof(&chain.state().view(), 1).unwrap())
         .unwrap();
-    let verified = verifier
+    let authenticated = verifier
         .verify(&crate::sumeragi::finality::build_proof(&chain.state().view(), 2).unwrap())
         .unwrap();
     let tip = chain.committed(2);
@@ -811,7 +811,7 @@ fn sns_lease_snapshot_authenticates_native_record_and_refuses_changed_or_unfunde
                 &selector,
                 &record.owner,
                 State::native_world_schema_hash_v1().unwrap(),
-                &verified,
+                &authenticated,
                 2_000
             )
             .unwrap()

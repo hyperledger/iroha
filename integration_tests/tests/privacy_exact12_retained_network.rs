@@ -10,7 +10,7 @@ use iroha::{
     data_model::{
         account::Account,
         asset::AssetDefinition,
-        block::consensus::BlockSubject,
+        block::BlockHeader,
         domain::Domain,
         isi::{
             Grant, InstructionBox, Mint, Register, SetParameter,
@@ -24,7 +24,7 @@ use iroha::{
         parameter::{Parameter, TransactionParameter},
         permission::Permission,
         prelude::{
-            AssetDefinitionId, AssetId, FindAssets, Identifiable, Quantity, QueryBuilderExt,
+            AssetDefinitionId, AssetId, FindAssets, HashOf, Identifiable, Quantity, QueryBuilderExt,
         },
         privacy::{
             PrivacyActiveLifecycleV1, PrivacyCompiledProfileResultV1,
@@ -331,11 +331,11 @@ async fn exact_transaction_result(
     );
     Ok(Some(committed.result().0.is_ok()))
 }
-async fn exact_transaction_block_subject(
+async fn exact_transaction_block_hash(
     client: &Client,
     transaction: &SignedTransaction,
     context: &str,
-) -> Result<(u64, BlockSubject)> {
+) -> Result<(u64, HashOf<BlockHeader>)> {
     let expected_hash = transaction.hash_as_entrypoint();
     let expected_entrypoint = TransactionEntrypoint::External(transaction.clone());
     let query_client = client.clone();
@@ -375,14 +375,7 @@ async fn exact_transaction_block_subject(
         "{context}: transaction inclusion proofs do not match its carrier block"
     );
     let header = block.header();
-    let subject = BlockSubject {
-        parent_block_hash: header.prev_block_hash(),
-        block_hash: header.hash(),
-        payload_hash: block
-            .canonical_proposal_wire_hash()
-            .wrap_err_with(|| format!("{context}: hash canonical proposal wire"))?,
-    };
-    Ok((header.height().get(), subject))
+    Ok((header.height().get(), header.hash()))
 }
 async fn wait_for_transaction_result_on_peers(
     clients: &[Client],
@@ -622,10 +615,10 @@ fn independently_resign_wrong_statement_digest(
         .wrap_err("wrong statement digest must preserve the generic envelope contract")?;
     resign_replaced_envelope(client, valid, envelope, "wrong statement-digest binding")
 }
-async fn wait_for_exact_commit_subject(
+async fn wait_for_exact_committed_block(
     clients: &[Client],
     expected_height: u64,
-    expected_subject: BlockSubject,
+    expected_hash: HashOf<BlockHeader>,
     context: &str,
 ) -> Result<()> {
     let deadline = Instant::now() + PEER_CONVERGENCE_TIMEOUT;
@@ -639,8 +632,6 @@ async fn wait_for_exact_commit_subject(
                 .await
             {
                 Ok(status) => {
-                    // TODO(WP8b): compare the committed block hash once the status carries it.
-                    let _ = expected_subject;
                     if let Some(halted) = status.halted {
                         last_observed.push(format!("peer {index}: halted: {halted:?}"));
                     } else if status.committed_height < expected_height {
@@ -649,8 +640,30 @@ async fn wait_for_exact_commit_subject(
                             status.committed_height
                         ));
                     } else {
-                        matching += 1;
-                        last_observed.push(format!("peer {index}: committed {expected_height}"));
+                        let block_client = client.clone();
+                        match read_on_dedicated_thread(move || {
+                            Ok(block_client.client().query(FindBlocks).execute_all()?)
+                        })
+                        .await
+                        {
+                            Ok(blocks)
+                                if blocks.iter().any(|block| {
+                                    block.header().height().get() == expected_height
+                                        && block.header().hash() == expected_hash
+                                }) =>
+                            {
+                                matching += 1;
+                                last_observed.push(format!(
+                                    "peer {index}: committed {expected_height} hash {expected_hash}"
+                                ));
+                            }
+                            Ok(_) => last_observed.push(format!(
+                                "peer {index}: exact committed carrier {expected_height}/{expected_hash} is absent"
+                            )),
+                            Err(error) => last_observed.push(format!(
+                                "peer {index}: committed carrier query failed: {error}"
+                            )),
+                        }
                     }
                 }
                 Err(error) => last_observed.push(format!("peer {index}: status failed: {error}")),
@@ -661,7 +674,7 @@ async fn wait_for_exact_commit_subject(
         }
         if Instant::now() >= deadline {
             return Err(eyre!(
-                "{context}: exact DA/RBC block subject and CommitQC did not converge within \
+                "{context}: exact committed carrier block did not converge within \
                  {PEER_CONVERGENCE_TIMEOUT:?}; {}",
                 last_observed.join("; ")
             ));
@@ -1492,14 +1505,14 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
         let canonical_height = read_privacy_capabilities(&client).await
             .wrap_err("query height before exact retained exact-12 replays")?
             .committed_height;
-        let (canonical_subject_height, canonical_subject) = exact_transaction_block_subject(
+        let (canonical_carrier_height, canonical_block_hash) = exact_transaction_block_hash(
             &client,
             &ivm.transaction,
             "derive final canonical privacy carrier subject",
         ).await?;
         ensure!(
-            canonical_subject_height == canonical_height,
-            "final canonical privacy carrier height {canonical_subject_height} differs from \
+            canonical_carrier_height == canonical_height,
+            "final canonical privacy carrier height {canonical_carrier_height} differs from \
              committed height {canonical_height}"
         );
         for (label, transaction) in [
@@ -1528,10 +1541,10 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
                 "exact {label} replay changed height from {canonical_height} to {observed_height}"
             );
         }
-        wait_for_exact_commit_subject(
+        wait_for_exact_committed_block(
             &healthy_clients,
             canonical_height,
-            canonical_subject,
+            canonical_block_hash,
             "healthy-peer exact retained exact-12 carrier subject",
         )
         .await?;
@@ -1555,10 +1568,10 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             .map(|peer| bounded_client(peer.client()))
             .collect::<Vec<_>>();
         let restarted_client = bounded_client(restart_peer.client());
-        wait_for_exact_commit_subject(
+        wait_for_exact_committed_block(
             &recovered_clients,
             canonical_height,
-            canonical_subject,
+            canonical_block_hash,
             "restarted peer exact retained exact-12 carrier subject before later writes",
         )
         .await?;
@@ -1699,7 +1712,7 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             "post-restart failures and disabled ZK-ACE remain atomic",
         )
         .await?;
-        let (final_height, final_subject) = exact_transaction_block_subject(
+        let (final_height, final_block_hash) = exact_transaction_block_hash(
             &restarted_client,
             &stale_bootle.transaction,
             "derive final stale-policy rejection carrier subject",
@@ -1708,10 +1721,10 @@ async fn canonical_retained_exact12_actions_survive_four_peer_adversarial_replay
             final_height > canonical_height,
             "fresh state/policy rejections did not reach canonical finality"
         );
-        wait_for_exact_commit_subject(
+        wait_for_exact_committed_block(
             &recovered_clients,
             final_height,
-            final_subject,
+            final_block_hash,
             "post-restart exact stale-policy carrier subject",
         )
         .await?;

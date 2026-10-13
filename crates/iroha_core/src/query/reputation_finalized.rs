@@ -459,8 +459,9 @@ fn validate_event_feed<T>(
                 reason: "event feed identity is invalid or non-contiguous",
             });
         }
+        let at_anchor_height = event.block_height == anchor.height;
         if event.block_height > anchor.height
-            || (event.block_height == anchor.height && event.block_hash != anchor.block_hash)
+            || (at_anchor_height && event.block_hash != anchor.block_hash)
         {
             return Err(ReputationFinalizedArchiveError::InvalidProjection {
                 reason: "event feed crosses its finalized anchor",
@@ -706,15 +707,15 @@ fn validate_journal_prefix_source_heads(
                 reason: "journal prefix source-head index exists without a compacted terminal",
             });
         };
-        let position_is_valid = if identity.sequence == terminal.sequence {
-            identity == terminal
-        } else if identity.sequence < terminal.sequence {
-            identity.block_height < terminal.block_height
-                || (identity.block_height == terminal.block_height
-                    && identity.block_hash == terminal.block_hash
-                    && identity.event_index < terminal.event_index)
-        } else {
-            false
+        let position_is_valid = match identity.sequence.cmp(&terminal.sequence) {
+            core::cmp::Ordering::Equal => identity == terminal,
+            core::cmp::Ordering::Less => {
+                identity.block_height < terminal.block_height
+                    || (identity.block_height == terminal.block_height
+                        && identity.block_hash == terminal.block_hash
+                        && identity.event_index < terminal.event_index)
+            }
+            core::cmp::Ordering::Greater => false,
         };
         if !position_is_valid || identity.sequence > prefix.pruned_event_count {
             return Err(ReputationFinalizedArchiveError::InvalidCheckpoint {
@@ -1231,8 +1232,9 @@ fn validate_feed_prefix_terminal(
         return Ok(None);
     };
     let identity = position_identity(position);
+    let at_anchor_height = identity.block_height == anchor.height;
     if identity.block_height > anchor.height
-        || (identity.block_height == anchor.height && identity.block_hash != anchor.block_hash)
+        || (at_anchor_height && identity.block_hash != anchor.block_hash)
     {
         return Err(ReputationFinalizedArchiveError::InvalidCheckpoint {
             reason: "feed prefix terminal cursor crosses or disagrees with its retention-floor anchor",
@@ -1256,11 +1258,11 @@ fn record_retained_feed_block_hash(
 }
 fn validate_feed_prefixes_against_anchor(
     anchor: &ReputationFinalizedArchiveKeyV1,
-    prefixes: [ReputationFeedPrefixSummaryV1; 5],
+    prefixes: &[ReputationFeedPrefixSummaryV1; 5],
 ) -> Result<BTreeMap<u64, [u8; 32]>, ReputationFinalizedArchiveError> {
     let mut block_hashes = BTreeMap::new();
     for prefix in prefixes {
-        if let Some(identity) = validate_feed_prefix_terminal(prefix, anchor)? {
+        if let Some(identity) = validate_feed_prefix_terminal(*prefix, anchor)? {
             record_retained_feed_block_hash(&mut block_hashes, identity)?;
         }
     }
@@ -1379,7 +1381,7 @@ impl PersistedReputationFinalizedVirtualBaseCheckpointV1 {
         }
         validate_feed_prefixes_against_anchor(
             &checkpoint.retention_floor,
-            [
+            &[
                 checkpoint.proof_prefix,
                 checkpoint.journal_prefix,
                 checkpoint.repair_prefix,
@@ -1714,7 +1716,7 @@ impl ReputationReconstructionStateV1 {
         )?;
         let mut retained_block_hashes = validate_feed_prefixes_against_anchor(
             &self.key,
-            [
+            &[
                 self.proof_outcomes.prefix,
                 self.journal_events.prefix,
                 self.repair_events.prefix,
@@ -2325,7 +2327,6 @@ impl ReputationFinalizedArchiveCompactionProposalV1 {
         Ok(())
     }
     /// Return the exact Kura-authenticated archive fence.
-    #[must_use]
     pub const fn fence(&self) -> &ReputationFinalizedArchiveRetentionFenceV1 {
         &self.material.fence
     }
@@ -2657,7 +2658,6 @@ impl ReputationFinalizedArchiveReconcileOutcomeV1 {
         self.insertion
     }
     /// Return the Kura-bound archive qualification after capture.
-    #[must_use]
     pub const fn qualification(&self) -> &ReputationFinalizedArchiveQualificationV1 {
         &self.qualification
     }
@@ -4895,13 +4895,7 @@ impl ReputationFinalizedArchive {
     }
     #[cfg(test)]
     /// Page retained reputation-journal events at one exact archived anchor.
-    ///
-    /// # Errors
-    /// Returns an archive error if bound storage or the exact anchor cannot be
-    /// authenticated/reconstructed, the limit is invalid, or a cursor conflicts
-    /// with retained history. A cursor before the pruned feed prefix instead
-    /// returns a successful `HistoryPruned` page.
-    pub fn page_journal_events(
+    fn page_journal_events(
         &self,
         key: &ReputationFinalizedArchiveKeyV1,
         after: Option<
@@ -5242,7 +5236,6 @@ impl ReputationFinalizedArchive {
             .keys()
             .filter(|digest| !referenced.contains(*digest))
             .copied()
-            .collect::<Vec<_>>()
         {
             let path = self.policies.join(policy_file_name(digest));
             self.load_policy_at(&path, Some(digest))?;
@@ -6376,7 +6369,7 @@ where
     let next_after = has_more.then(|| {
         events
             .last()
-            .map(|event| cursor(event))
+            .map(cursor)
             .expect("a continuing retained page contains a terminal row")
     });
     Ok(ReputationFinalizedArchivePageV1::Page {
@@ -7721,11 +7714,12 @@ fn validate_event_suffix_anchor<T>(
 ) -> Result<(), ReputationFinalizedArchiveError> {
     for event in events {
         let event = identity(event);
+        let at_anchor_height = event.block_height == anchor.height;
         if event.sequence == 0
             || event.block_height == 0
             || event.block_hash == [0; 32]
             || event.block_height > anchor.height
-            || (event.block_height == anchor.height && event.block_hash != anchor.block_hash)
+            || (at_anchor_height && event.block_hash != anchor.block_hash)
         {
             return Err(ReputationFinalizedArchiveError::InvalidDelta {
                 reason: "event suffix crosses or disagrees with its finalized anchor",
@@ -7953,10 +7947,10 @@ fn open_unix_directory_ancestry(path: &Path) -> Result<fs::File, ReputationFinal
                 source,
             })?;
         if !opened.is_dir()
-            || before.st_dev as u64 != opened.dev()
-            || before.st_ino as u64 != opened.ino()
-            || after.st_dev as u64 != opened.dev()
-            || after.st_ino as u64 != opened.ino()
+            || crate::kura::unix_device_identity(before.st_dev) != opened.dev()
+            || before.st_ino != opened.ino()
+            || crate::kura::unix_device_identity(after.st_dev) != opened.dev()
+            || after.st_ino != opened.ino()
         {
             return Err(ReputationFinalizedArchiveError::InvalidStorage {
                 path: path.to_path_buf(),
@@ -8475,8 +8469,8 @@ fn read_bounded_archive_file_at_unix(
     );
     let opened_before = file.metadata()?;
     verify_unix_named_file(directory, name, &opened_before, opened_before.len(), 1)?;
-    if before.st_dev as u64 != archive_file_identity(&opened_before).0
-        || before.st_ino as u64 != archive_file_identity(&opened_before).1
+    if crate::kura::unix_device_identity(before.st_dev) != archive_file_identity(&opened_before).0
+        || before.st_ino != archive_file_identity(&opened_before).1
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -8554,7 +8548,7 @@ fn open_writer_lock_file(path: &Path) -> Result<fs::File, ReputationFinalizedArc
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
         options.mode(0o600);
     }
     #[cfg(windows)]
@@ -8712,7 +8706,7 @@ fn read_bounded_archive_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u8>>
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
     }
     #[cfg(windows)]
     {

@@ -191,7 +191,7 @@ impl RawGeometryClaim {
                 state.abandoned |= abandoned;
             }
             if !self.signal.ready.swap(true, Ordering::AcqRel) {
-                if state.publication && !cfg!(all(test, sumeragi_core_mutation = "HC284")) {
+                if state.publication && !cfg!(all(test, sumeragi_core_mutation = "HC352")) {
                     state.releases.push(Arc::clone(&self.signal));
                 } else {
                     immediate.push(Arc::clone(&self.signal));
@@ -400,9 +400,16 @@ pub(crate) struct RawGeometryAttempt {
     operation_cursor: usize,
     provisioning_failure: Option<RawGeometryProvisioningFailure>,
     phase: RawGeometryPhase,
-    catalog_baseline: Option<Option<Hash>>,
+    catalog_baseline: CatalogPublicationBaseline,
     // Last: abandoned partial effects retain fail-closed exclusion after payload drop.
     claim: RawGeometryClaim,
+}
+
+/// Distinguish unpublished custody from a captured unconfigured catalog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CatalogPublicationBaseline {
+    Uncaptured,
+    Captured(Option<Hash>),
 }
 
 impl std::fmt::Debug for RawGeometryAttempt {
@@ -499,7 +506,7 @@ impl KuraPublicationLease<'_> {
             operation_cursor: 0,
             provisioning_failure: None,
             phase: RawGeometryPhase::Captured,
-            catalog_baseline: None,
+            catalog_baseline: CatalogPublicationBaseline::Uncaptured,
             claim,
         })
     }
@@ -878,9 +885,8 @@ impl RawGeometryAttempt {
                 "catalog publication requires the original completed geometry apply",
             ));
         }
-        if self
-            .catalog_baseline
-            .is_some_and(|original| original != configured_baseline)
+        if let CatalogPublicationBaseline::Captured(original) = self.catalog_baseline
+            && original != configured_baseline
         {
             return Err(kura.geometry_error(
                 ErrorKind::InvalidInput,
@@ -920,7 +926,7 @@ impl RawGeometryAttempt {
                 "lane geometry publication failed for test injection",
             ));
         }
-        self.catalog_baseline = Some(configured_baseline);
+        self.catalog_baseline = CatalogPublicationBaseline::Captured(configured_baseline);
         self.phase = RawGeometryPhase::PublishingCatalog;
         if self.target.is_some() {
             self.persist_target(kura, LaneGeometryPhase::CatalogPublished)?;
@@ -951,7 +957,8 @@ impl RawGeometryAttempt {
         if !self.kura.matches(kura)
             || self.phase != RawGeometryPhase::CatalogPublished
             || (!cfg!(all(test, sumeragi_core_mutation = "HC256"))
-                && self.catalog_baseline != Some(configured_baseline))
+                && self.catalog_baseline
+                    != CatalogPublicationBaseline::Captured(configured_baseline))
             || !self.claim.complete
             || self.has_pending_journal_write()
         {
@@ -1042,7 +1049,7 @@ impl RawGeometryAttempt {
             while self.operation_cursor < target.operations().len() {
                 let index = target.operations().len() - self.operation_cursor - 1;
                 kura.apply_geometry_operations_rollback(
-                    &target.operations()[index..index + 1],
+                    &target.operations()[index..=index],
                     policy,
                 )?;
                 self.operation_cursor += 1;

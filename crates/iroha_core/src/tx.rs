@@ -3118,9 +3118,9 @@ impl StateBlock<'_> {
         genesis: Option<&crate::block::AuthenticatedGenesisTransaction>,
     ) -> Result<DataTriggerSequence, ExecutionAttemptError<TransactionRejectionReason>> {
         state_transaction.genesis_execution_scope = None;
-        if let Some(reason) = state_transaction.execution_deferral() {
-            return Err(ExecutionAttemptError::Deferred(reason));
-        }
+        state_transaction
+            .ensure_execution_ready()
+            .map_err(ExecutionAttemptError::Deferred)?;
         if genesis.is_some() && !matches!(tx.entrypoint(), TransactionEntrypoint::External(_)) {
             return Err(
                 reject_not_permitted("genesis admission requires an external input").into(),
@@ -3231,9 +3231,9 @@ impl StateBlock<'_> {
         } else {
             debug!("Transaction validated successfully; processing data triggers");
             let trigger_result = state_transaction.execute_data_triggers_dfs(&authority);
-            if let Some(reason) = state_transaction.execution_deferral() {
-                return Err(ExecutionAttemptError::Deferred(reason));
-            }
+            state_transaction
+                .ensure_execution_ready()
+                .map_err(ExecutionAttemptError::Deferred)?;
             let trigger_sequence = trigger_result?;
             debug!("Data triggers executed successfully");
             trigger_sequence
@@ -3359,9 +3359,10 @@ impl StateBlock<'_> {
         // Parse and cache metadata + derived hashes.
         let bytes = contract.as_ref();
         let summary = ivm_cache.summarize_executable(bytes).map_err(|error| {
-            if let Some(owner) = ExecutionDeferred::from_vm_error(&error) {
-                return ExecutionAttemptError::Deferred(owner);
-            }
+            let error = match ExecutionDeferred::try_from_vm_error(error) {
+                Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                Err(error) => error,
+            };
             let failure = match error {
                 ivm::VMError::UnknownSyscall(number) => ValidationFail::NotPermitted(format!(
                     "unknown syscall number 0x{number:02x} for abi_version 1"
@@ -3468,9 +3469,10 @@ impl StateBlock<'_> {
                     &state_transaction.execution_budget(),
                 )
                 .map_err(|err| {
-                    if let Some(owner) = ExecutionDeferred::from_vm_error(&err) {
-                        return ExecutionAttemptError::Deferred(owner);
-                    }
+                    let err = match ExecutionDeferred::try_from_vm_error(err) {
+                        Ok(owner) => return ExecutionAttemptError::Deferred(owner),
+                        Err(error) => error,
+                    };
                     ExecutionAttemptError::Rejected(TransactionRejectionReason::Validation(
                         ValidationFail::IvmAdmission(
                             iroha_data_model::executor::IvmAdmissionError::BytecodeDecodingFailed(
@@ -4638,7 +4640,7 @@ impl<'a> FraudTelemetryContext<'a> {
             field,
         );
     }
-    fn record_assessment(&self, band: iroha_config::parameters::actual::FraudRiskBand) {
+    fn record_assessment(&self, band: iroha_data_model::fraud::FraudRiskBandV1) {
         self.telemetry.record_fraud_assessment(
             self.lane_id,
             self.dataspace_label(),
@@ -4667,13 +4669,13 @@ impl<'a> FraudTelemetryContext<'a> {
     }
     fn outcome_mismatch_direction(
         &self,
-        band: iroha_config::parameters::actual::FraudRiskBand,
+        band: iroha_data_model::fraud::FraudRiskBandV1,
     ) -> Option<&'static str> {
         let band_level = match band {
-            iroha_config::parameters::actual::FraudRiskBand::Low => 0,
-            iroha_config::parameters::actual::FraudRiskBand::Medium => 1,
-            iroha_config::parameters::actual::FraudRiskBand::High => 2,
-            iroha_config::parameters::actual::FraudRiskBand::Critical => 3,
+            iroha_data_model::fraud::FraudRiskBandV1::Low => 0,
+            iroha_data_model::fraud::FraudRiskBandV1::Medium => 1,
+            iroha_data_model::fraud::FraudRiskBandV1::High => 2,
+            iroha_data_model::fraud::FraudRiskBandV1::Critical => 3,
         };
         match self.disposition {
             Some(FraudDisposition::Fraud) if band_level < 2 => Some("missed_fraud"),
@@ -4710,6 +4712,7 @@ pub(crate) fn enforce_fraud_policy(
     telemetry: Option<&StateTelemetry>,
     routing: &LaneAssignment<'_>,
 ) -> Result<(), TransactionRejectionReason> {
+    let config = &config.policy;
     if !config.enabled {
         return Ok(());
     }
@@ -4729,14 +4732,14 @@ pub(crate) fn enforce_fraud_policy(
     let Some(value) = metadata.get(FRAUD_ASSESSMENT_BAND_NAME.as_ref()) else {
         #[cfg(feature = "telemetry")]
         if let Some(ctx) = fraud_ctx.as_ref() {
-            let cause = if config.missing_assessment_grace.is_zero() {
+            let cause = if !config.missing_assessment_permitted {
                 "missing"
             } else {
-                "grace"
+                "permitted"
             };
             ctx.record_missing(cause);
         }
-        if config.missing_assessment_grace.is_zero() {
+        if !config.missing_assessment_permitted {
             return Err(TransactionRejectionReason::Validation(
                 ValidationFail::NotPermitted(
                     "fraud monitoring requires an attached assessment".into(),
@@ -4744,12 +4747,11 @@ pub(crate) fn enforce_fraud_policy(
             ));
         }
         warn!(
-            missing_grace_seconds = config.missing_assessment_grace.as_secs(),
-            endpoints = ?config.service_endpoints,
+            missing_assessment_permitted = config.missing_assessment_permitted,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
-            "Transaction missing fraud assessment; permitted by grace window"
+            "Transaction missing fraud assessment; permitted by committed policy"
         );
         return Ok(());
     };
@@ -4764,8 +4766,7 @@ pub(crate) fn enforce_fraud_policy(
             ValidationFail::NotPermitted("fraud assessment band must be a string".into()),
         ));
     };
-    let band = if let Ok(band) = band_str.parse::<iroha_config::parameters::actual::FraudRiskBand>()
-    {
+    let band = if let Ok(band) = band_str.parse::<iroha_data_model::fraud::FraudRiskBandV1>() {
         band
     } else {
         #[cfg(feature = "telemetry")]
@@ -4838,7 +4839,6 @@ pub(crate) fn enforce_fraud_policy(
             ctx.record_invalid("score_bps");
         }
         warn!(
-            endpoints = ?config.service_endpoints,
             lane = ?lane_id,
             dataspace = ?dataspace_id,
             dataspace_label = %dataspace_label,
@@ -5185,21 +5185,21 @@ pub(crate) fn enforce_fraud_policy(
     }
     Ok(())
 }
-fn expected_band_from_score(score_bps: u16) -> iroha_config::parameters::actual::FraudRiskBand {
-    use iroha_config::parameters::actual::FraudRiskBand;
+fn expected_band_from_score(score_bps: u16) -> iroha_data_model::fraud::FraudRiskBandV1 {
+    use iroha_data_model::fraud::FraudRiskBandV1;
     if score_bps > 1_000 {
         match score_bps {
-            ..=2_499 => FraudRiskBand::Low,
-            2_500..=5_499 => FraudRiskBand::Medium,
-            5_500..=7_499 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=2_499 => FraudRiskBandV1::Low,
+            2_500..=5_499 => FraudRiskBandV1::Medium,
+            5_500..=7_499 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     } else {
         match score_bps {
-            ..=249 => FraudRiskBand::Low,
-            250..=549 => FraudRiskBand::Medium,
-            550..=749 => FraudRiskBand::High,
-            _ => FraudRiskBand::Critical,
+            ..=249 => FraudRiskBandV1::Low,
+            250..=549 => FraudRiskBandV1::Medium,
+            550..=749 => FraudRiskBandV1::High,
+            _ => FraudRiskBandV1::Critical,
         }
     }
 }
@@ -6533,11 +6533,15 @@ pub mod tests {
         let authority_account = new_account_in_domain(&authority, &domain_id).build(&authority);
         let validator_a_account =
             new_account_in_domain(&validator_a, &domain_id).build(&validator_a);
-        let validator_b_account =
+        let second_validator_registration =
             new_account_in_domain(&validator_b, &domain_id).build(&validator_b);
         let world = World::with(
             [domain],
-            [authority_account, validator_a_account, validator_b_account],
+            [
+                authority_account,
+                validator_a_account,
+                second_validator_registration,
+            ],
             [],
         );
         let kura = Kura::blank_kura_for_testing();
@@ -8540,8 +8544,11 @@ pub mod tests {
     #[test]
     fn fraud_policy_rejects_missing_assessment() {
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let metadata = iroha_model_base::metadata::Metadata::default();
@@ -9187,8 +9194,11 @@ pub mod tests {
     fn fraud_policy_rejects_insufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::High),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::High),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9214,8 +9224,11 @@ pub mod tests {
     fn fraud_policy_accepts_sufficient_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9235,8 +9248,11 @@ pub mod tests {
     fn fraud_policy_rejects_inconsistent_band() {
         use iroha_primitives::json::Json;
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Low),
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Low),
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let mut metadata = Metadata::default();
@@ -9321,12 +9337,15 @@ pub mod tests {
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9361,12 +9380,15 @@ pub mod tests {
         );
         let metadata = fraud_metadata_with_assessment(&assessment);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9412,12 +9434,15 @@ pub mod tests {
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9461,12 +9486,15 @@ pub mod tests {
         );
         let valid_signature = checked_signature_of(attester.private_key(), &unsigned);
         let cfg = iroha_config::parameters::actual::FraudMonitoring {
-            enabled: true,
-            required_minimum_band: Some(iroha_config::parameters::actual::FraudRiskBand::Medium),
-            attesters: vec![iroha_config::parameters::actual::FraudAttester {
-                engine_id: "risk-engine-eu".to_owned(),
-                public_key: attester.public_key().clone(),
-            }],
+            policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+                enabled: true,
+                required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Medium),
+                attesters: vec![iroha_data_model::fraud::FraudAdmissionAttesterV1 {
+                    engine_id: "risk-engine-eu".to_owned(),
+                    public_key: attester.public_key().clone(),
+                }],
+                ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+            },
             ..Default::default()
         };
         let catalog = DataSpaceCatalog::default();
@@ -9512,14 +9540,16 @@ pub mod tests {
         let chain: ChainId = "chain".parse().unwrap();
         let state = State::new_with_chain(world, kura, query_handle, chain.clone());
         // Commit the pipeline gas allowlist in the original signed genesis.
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.accepted_assets = vec![
-            AssetDefinitionId::derive_from_components(
-                DomainId::try_new("domain", "universal").unwrap(),
-                "xor".parse().unwrap(),
-            )
-            .canonical_address(),
-        ];
+        let gas = iroha_config::parameters::actual::Gas {
+            accepted_assets: vec![
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("domain", "universal").unwrap(),
+                    "xor".parse().unwrap(),
+                )
+                .canonical_address(),
+            ],
+            ..Default::default()
+        };
         let chain = crate::block::tests::component_chain_with_genesis_parameters(
             state,
             crate::pipeline_gas_policy::parameters_for_testing(gas).into(),
@@ -9918,12 +9948,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_metadata_conflict_rejected_even_if_state_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a correct manifest for the program.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10033,9 +10063,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_abi_and_code_hash_match() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
         let mut block = fixture.state.block(header);
@@ -10092,8 +10122,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_hashes() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         // Compute real code hash; then corrupt expected
@@ -10141,8 +10171,8 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_code_hash() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
         let mut wrong_bytes = [0u8; 32];
@@ -10190,12 +10220,12 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_state_conflict_rejected_even_if_metadata_matches() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
         };
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1 with a manifest that has the right code_hash but wrong abi_hash.
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10440,9 +10470,9 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_lookup_in_state() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let fixture = IvmAdmissionFixture::new();
         // Seed block 1: insert a manifest into WSV directly via state tx
         let header1 = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
@@ -10661,10 +10691,10 @@ pub mod tests {
     fn ivm_bytecode_at_limit_is_accepted_at_admission() {
         use iroha_data_model::transaction::{Executable, TransactionBuilder};
         use std::time::Duration;
+        const BYTECODE_LIMIT: u64 = 1021;
         let (authority_id, kp) = gen_account_in("wonderland");
         // Use an exact bytecode-size limit that can be represented by the 17-byte
         // IVM metadata header plus a valid literal-prefix alignment.
-        const BYTECODE_LIMIT: u64 = 1021;
         let default_limits = TransactionParameters::default();
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10675,8 +10705,14 @@ pub mod tests {
             default_limits.max_metadata_depth(),
         );
         // Create a blob exactly at the allowed bytecode size.
-        let at_limit_blob = minimal_ivm_program_with_literal_padding(1, BYTECODE_LIMIT as usize);
-        assert_eq!(at_limit_blob.len(), BYTECODE_LIMIT as usize);
+        let at_limit_blob = minimal_ivm_program_with_literal_padding(
+            1,
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize"),
+        );
+        assert_eq!(
+            at_limit_blob.len(),
+            usize::try_from(BYTECODE_LIMIT).expect("fixture value fits usize")
+        );
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),

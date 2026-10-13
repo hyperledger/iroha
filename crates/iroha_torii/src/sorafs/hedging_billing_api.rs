@@ -7,7 +7,6 @@
 //! acknowledgement carrying one bounded external-authority proof. Pricing feeds, policy changes,
 //! signer material, and hedge execution are deliberately absent from this V1 surface.
 
-#![cfg(feature = "app_api")]
 use crate::{JsonBody, SharedAppState};
 use axum::{
     body::{Body, Bytes},
@@ -37,23 +36,23 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(test)]
-pub(crate) const BILLING_STATUS_ROUTE_V1: &str = "/v1/sorafs/billing/status";
+pub const BILLING_STATUS_ROUTE_V1: &str = "/v1/sorafs/billing/status";
 #[cfg(test)]
-pub(crate) const BILLING_STATEMENTS_ROUTE_V1: &str = "/v1/sorafs/billing/statements";
+pub const BILLING_STATEMENTS_ROUTE_V1: &str = "/v1/sorafs/billing/statements";
 #[cfg(test)]
-pub(crate) const BILLING_STATEMENT_ROUTE_V1: &str = "/v1/sorafs/billing/statements/{statement_id}";
+pub const BILLING_STATEMENT_ROUTE_V1: &str = "/v1/sorafs/billing/statements/{statement_id}";
 #[cfg(test)]
-pub(crate) const BILLING_STATEMENT_ACKNOWLEDGEMENTS_ROUTE_V1: &str =
+pub const BILLING_STATEMENT_ACKNOWLEDGEMENTS_ROUTE_V1: &str =
     "/v1/sorafs/billing/statements/{statement_id}/acknowledgements";
 #[cfg(test)]
-pub(crate) const BILLING_RECONCILIATION_ROUTE_V1: &str = "/v1/sorafs/billing/reconciliation";
+pub const BILLING_RECONCILIATION_ROUTE_V1: &str = "/v1/sorafs/billing/reconciliation";
 #[cfg(test)]
-pub(crate) const HEDGING_EXPOSURE_ROUTE_V1: &str = "/v1/sorafs/hedging/exposure";
+pub const HEDGING_EXPOSURE_ROUTE_V1: &str = "/v1/sorafs/hedging/exposure";
 #[cfg(test)]
-pub(crate) const HEDGING_INTENTS_ROUTE_V1: &str = "/v1/sorafs/hedging/intents";
-pub(crate) const SORAFS_BILLING_MANAGER_ROLE_V1: &str = "sorafs_billing_manager";
-pub(crate) const SORAFS_TREASURY_OBSERVER_ROLE_V1: &str = "sorafs_treasury_observer";
-pub(crate) const SORAFS_HEDGING_OBSERVER_ROLE_V1: &str = "sorafs_hedging_observer";
+pub const HEDGING_INTENTS_ROUTE_V1: &str = "/v1/sorafs/hedging/intents";
+pub const SORAFS_BILLING_MANAGER_ROLE_V1: &str = "sorafs_billing_manager";
+pub const SORAFS_TREASURY_OBSERVER_ROLE_V1: &str = "sorafs_treasury_observer";
+pub const SORAFS_HEDGING_OBSERVER_ROLE_V1: &str = "sorafs_hedging_observer";
 const EXPECTED_CHECKPOINT_PARAMETER: &str = "expected_checkpoint_fingerprint";
 const AFTER_STATEMENT_PARAMETER: &str = "after_statement_id";
 const AFTER_PROJECTION_PARAMETER: &str = "after";
@@ -211,7 +210,7 @@ impl ProjectionAnchorQueryV1 {
         })
     }
 }
-pub(crate) async fn handle_get_sorafs_billing_status(
+pub async fn handle_get_sorafs_billing_status(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -250,7 +249,7 @@ async fn billing_status_inner(
         Err(response) => response,
     }
 }
-pub(crate) async fn handle_get_sorafs_billing_statements(
+pub async fn handle_get_sorafs_billing_statements(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -298,7 +297,7 @@ async fn billing_statements_inner(
         Err(response) => response,
     }
 }
-pub(crate) async fn handle_get_sorafs_billing_statement(
+pub async fn handle_get_sorafs_billing_statement(
     State(state): State<SharedAppState>,
     Path(statement_id_hex): Path<String>,
     headers: HeaderMap,
@@ -355,7 +354,7 @@ async fn billing_statement_inner(
         Err(response) => response,
     }
 }
-pub(crate) async fn handle_post_sorafs_billing_statement_acknowledgement(
+pub async fn handle_post_sorafs_billing_statement_acknowledgement(
     State(state): State<SharedAppState>,
     Path(statement_id_hex): Path<String>,
     request: Request,
@@ -440,7 +439,7 @@ async fn billing_statement_acknowledgement_inner(
         Err(response) => response,
     }
 }
-pub(crate) async fn handle_get_sorafs_billing_reconciliation(
+pub async fn handle_get_sorafs_billing_reconciliation(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -480,7 +479,7 @@ async fn billing_reconciliation_inner(
         Err(response) => response,
     }
 }
-pub(crate) async fn handle_get_sorafs_hedging_exposure(
+pub async fn handle_get_sorafs_hedging_exposure(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -499,7 +498,7 @@ pub(crate) async fn handle_get_sorafs_hedging_exposure(
         .await,
     )
 }
-pub(crate) async fn handle_get_sorafs_hedging_intents(
+pub async fn handle_get_sorafs_hedging_intents(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -569,6 +568,10 @@ async fn hedging_projection_inner(
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn runtime(state: &SharedAppState) -> Result<Arc<dyn HedgingBillingRuntimeApiV1>, Response> {
     state
         .sorafs_hedging_billing_runtime
@@ -624,6 +627,10 @@ where
     .map_err(|_| runtime_unavailable_response())?
     .map_err(|()| runtime_unavailable_response())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_canonical_auth(
     state: &SharedAppState,
     headers: &HeaderMap,
@@ -632,7 +639,7 @@ fn require_canonical_auth(
     body: &[u8],
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -643,9 +650,7 @@ fn require_canonical_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -656,6 +661,10 @@ fn require_canonical_auth(
         )),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_billing_manager(state: &SharedAppState, account: &AccountId) -> Result<(), Response> {
     let world = state.state.world_view();
     if world
@@ -670,6 +679,10 @@ fn require_billing_manager(state: &SharedAppState, account: &AccountId) -> Resul
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_treasury_or_hedging_observer(
     state: &SharedAppState,
     account: &AccountId,
@@ -687,6 +700,10 @@ fn require_treasury_or_hedging_observer(
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn canonical_account_bytes(account: &AccountId) -> Result<Vec<u8>, Response> {
     let literal = account.canonical_i105().map_err(|_| {
         fixed_error(
@@ -708,6 +725,10 @@ fn canonical_account_bytes(account: &AccountId) -> Result<Vec<u8>, Response> {
     }
     Ok(literal.into_bytes())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn validate_norito_request_headers_and_bound(
     headers: &HeaderMap,
     body: &[u8],
@@ -735,6 +756,10 @@ fn validate_norito_request_headers_and_bound(
     }
     Ok(())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_acknowledgement_proof(
     body: &[u8],
 ) -> Result<BillingAcknowledgementProofBodyV1, Response> {
@@ -777,6 +802,10 @@ fn decode_acknowledgement_proof(
     }
     Ok(request)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn server_time_unix() -> Result<u64, Response> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -860,8 +889,12 @@ fn reject_query(raw: Option<&str>) -> Result<(), QueryInputError> {
         Ok(())
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_method(actual: &Method, expected: Method) -> Result<(), Response> {
-    if actual == &expected {
+    if actual == expected {
         Ok(())
     } else {
         Err(fixed_error(

@@ -14,8 +14,8 @@ use std::{num::NonZeroU64, time::Instant};
 pub(super) enum PendingKind {
     Registration,
     Anchor {
-        previous: PrivateDataspaceAnchorState,
-        anchor: PrivateDataspaceAnchor,
+        previous: Box<PrivateDataspaceAnchorState>,
+        anchor: Box<PrivateDataspaceAnchor>,
     },
 }
 
@@ -136,11 +136,12 @@ impl AttachmentStore {
                     return Ok(self.progress(None));
                 }
                 PendingKind::Anchor {
-                    previous: self
-                        .confirmed_child_state()
-                        .ok_or(AttachmentError::Invalid("missing confirmed child"))?
-                        .clone(),
-                    anchor: anchor.clone(),
+                    previous: Box::new(
+                        self.confirmed_child_state()
+                            .ok_or(AttachmentError::Invalid("missing confirmed child"))?
+                            .clone(),
+                    ),
+                    anchor: Box::new(anchor.clone()),
                 }
             } else {
                 return Ok(self.progress(None));
@@ -225,8 +226,8 @@ impl AttachmentStore {
             }
             PendingKind::Anchor { previous, anchor } => {
                 let request = PrivateRootAnchorRequest {
-                    state: previous.clone(),
-                    anchor: anchor.clone(),
+                    state: (**previous).clone(),
+                    anchor: (**anchor).clone(),
                     options: options.clone(),
                 };
                 if pending.replay.is_some() {

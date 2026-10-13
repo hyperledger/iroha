@@ -42,7 +42,7 @@ impl std::fmt::Debug for CapturedExecWitness {
             .field("wire", self.wire())
             .field("source", &self.source.manifest)
             .field("original_tape_available", &self.archive.is_ok())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl std::ops::Deref for CapturedExecWitness {
@@ -212,10 +212,13 @@ impl CapturedExecWitness {
     pub(crate) fn matches_original_native_execution(
         &self,
         executed: &iroha_data_model::block::SignedBlock,
-        execution: iroha_data_model::sumeragi_finality::ExecutionCommitment,
+        execution: &iroha_data_model::sumeragi_finality::ExecutionCommitment,
     ) -> bool {
         std::ptr::eq(self.wire(), self.wire.get())
-            && self.native == Some((executed.hash(), execution))
+            && self
+                .native
+                .as_ref()
+                .is_some_and(|(block, original)| *block == executed.hash() && original == execution)
             && self.wire.belongs_to(&self.source.pool)
     }
 

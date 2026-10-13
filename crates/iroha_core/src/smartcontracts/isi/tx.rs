@@ -1653,7 +1653,9 @@ fn walk_committed_transactions(
             return Err(QueryExecutionFail::CursorMismatch.into());
         }
         for index in transaction_offset..transaction_count {
-            let input_index = projection.count - 1 - index as u32;
+            let input_index = projection.count
+                - 1
+                - u32::try_from(index).map_err(|_| QueryExecutionFail::CursorMismatch)?;
             let transaction = projection.transaction_at(input_index, max_row_bytes, |bytes| {
                 before_project.borrow_mut()(0, bytes)
             })?;
@@ -2355,7 +2357,8 @@ pub(crate) mod tests {
         for epoch in 1..=carriers {
             let transactions = (0..2)
                 .map(|index| {
-                    let key = &keys[((epoch - 1) * 2 + index) as usize];
+                    let key = &keys[usize::try_from((epoch - 1) * 2 + index)
+                        .expect("fixture value fits usize")];
                     let mut tx = TransactionBuilder::new(
                         chain.network_id(),
                         AccountId::new(key.public_key().clone()),
@@ -2630,11 +2633,14 @@ pub(crate) mod tests {
             .state
             .read_finalized_execution_carrier(height, work, bytes)
             .unwrap();
-        let input_index = carrier
-            .block()
-            .network_entrypoints()
-            .position(|entrypoint| entrypoint.hash() == hash)
-            .unwrap() as u32;
+        let input_index = u32::try_from(
+            carrier
+                .block()
+                .network_entrypoints()
+                .position(|entrypoint| entrypoint.hash() == hash)
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         let details = carrier.transaction_at(input_index, bytes).unwrap();
         assert_eq!(details.entrypoint_hash, hash);
         assert!(details.result().is_ok());
@@ -2683,11 +2689,14 @@ pub(crate) mod tests {
             .state()
             .read_finalized_execution_carrier(NonZeroUsize::new(2).unwrap(), work, bytes)
             .unwrap();
-        let index = carrier
-            .block()
-            .network_entrypoints()
-            .position(|entry| entry.hash() == hash)
-            .unwrap() as u32;
+        let index = u32::try_from(
+            carrier
+                .block()
+                .network_entrypoints()
+                .position(|entry| entry.hash() == hash)
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         let (_, original) = carrier.block().network_output_at(index).unwrap();
         assert!(original.result.is_err());
         assert_eq!(
@@ -3102,11 +3111,11 @@ pub(crate) mod tests {
             .expect("an ample budget reaches the newest transaction");
         let mut budgeted = Vec::new();
         let mut resume = None;
-        let mut pages = 0;
+        let mut page_count = 0;
         let out_of_reach = loop {
             let (page, end) = walk(resume, work, usize::MAX);
             budgeted.extend(page);
-            pages += 1;
+            page_count += 1;
             match end {
                 TransactionHistoryPageEnd::BudgetSpent(position) => resume = Some(position),
                 TransactionHistoryPageEnd::OutOfReach => break true,
@@ -3114,7 +3123,10 @@ pub(crate) mod tests {
                 TransactionHistoryPageEnd::Stopped(_) => unreachable!("the visitor never stops"),
             }
         };
-        assert!(pages > 1, "a minimal budget spreads history over pages");
+        assert!(
+            page_count > 1,
+            "a minimal budget spreads history over pages"
+        );
         assert!(!budgeted.is_empty());
         assert_eq!(
             budgeted[..],
@@ -3394,12 +3406,19 @@ pub(crate) mod tests {
                 |_| panic!("unpaid source cannot reach a receipt visitor"),
             )
             .expect_err("source work and bytes are admitted before physical I/O");
-        assert_eq!(
-            err,
-            crate::execution_attempt::ExecutionAttemptError::Deferred(
-                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into()
-            )
-        );
+        {
+            let crate::execution_attempt::ExecutionAttemptError::Deferred(actual) = err else {
+                panic!("local refusal cannot become a completed verdict")
+            };
+            assert_eq!(
+                actual.reason(),
+                ivm::error::ExecutionDeferral::CanonicalHistoryCapacity
+            );
+            assert_eq!(actual.phase(), None);
+            assert!(actual.allocation_refusal().is_none());
+            assert!(actual.decode_refusal().is_none());
+            assert!(actual.verification_refusal().is_none());
+        };
         assert_eq!(store.kura.canonical_query_reads_for_test(), (0, 0));
     }
 

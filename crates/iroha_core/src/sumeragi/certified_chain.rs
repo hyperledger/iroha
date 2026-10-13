@@ -512,8 +512,23 @@ fn checked_frame_header(
         }
         Ok((None, core_hash_of(block)))
     } else {
-        let header: BlockHeader = norito::decode_canonical(certificate.consensus_header())
-            .map_err(|error| read_decode_error(height, error))?;
+        let header: BlockHeader = norito::core::classify_decode_attempt(|| {
+            norito::decode_canonical(certificate.consensus_header())
+        })
+        .map_err(|error| {
+            if cfg!(all(test, sumeragi_core_mutation = "HC43")) {
+                return ExecutionAttemptError::Rejected(ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                });
+            }
+            crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                }
+            })
+        })?;
         let payload_len = block
             .resultless_proposal_wire_len()
             .map_err(|error| malformed(error.to_string()))?;
@@ -1011,8 +1026,6 @@ impl core::ops::Deref for CertifiedBlock {
 enum VerificationReadError {
     #[error(transparent)]
     Source(#[from] ChainReadError),
-    #[error("certificate verification resource: {0}")]
-    Resource(norito::core::DecodeResourceError),
     #[error(transparent)]
     Deferred(ExecutionDeferred),
 }
@@ -1026,16 +1039,23 @@ impl From<ExecutionAttemptError<ChainReadError>> for VerificationReadError {
     }
 }
 
-fn verification_codec_error(height: u64, error: norito::Error) -> VerificationReadError {
-    // This producer owns exact Norito fields, but no allocation-pool notification.
-    // Classify locality before retaining those fields for the funded query adapter.
-    let resource = error.decode_resource_error();
-    match (resource, read_decode_error(height, error)) {
-        (Some(resource), ExecutionAttemptError::Deferred(_)) => {
-            VerificationReadError::Resource(resource)
-        }
-        (_, error) => error.into(),
+fn verification_codec_error(
+    height: u64,
+    original: norito::core::DecodeAttemptError,
+) -> VerificationReadError {
+    if cfg!(all(test, sumeragi_core_mutation = "HC43")) {
+        return VerificationReadError::Source(ChainReadError::Malformed {
+            height,
+            reason: original.to_string(),
+        });
     }
+    crate::execution_attempt::canonical_decode_attempt_error(original, |error| {
+        ChainReadError::Malformed {
+            height,
+            reason: error.to_string(),
+        }
+    })
+    .into()
 }
 
 mod funded_authority;
@@ -1295,7 +1315,6 @@ impl PrefixVerifierContext {
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<CertificateVerdict, ExecutionAttemptError<ChainReadError>> {
-        let height = committed.height;
         // Reuse the original active caller allowance before proposal and RS16 scratch
         // allocation, as the State-tip verifier does. No scope or pool is installed here.
         // TODO(S6): this cumulative callback does not fund the nested authority/crypto
@@ -1309,7 +1328,6 @@ impl PrefixVerifierContext {
         )
         .map_err(|error| match error {
             VerificationReadError::Source(error) => error.into(),
-            VerificationReadError::Resource(error) => read_decode_error(height, error.into()),
             VerificationReadError::Deferred(local) => ExecutionAttemptError::Deferred(local),
         })
     }
@@ -1370,7 +1388,7 @@ impl PrefixVerifierContext {
         authority: &VerifiedAuthority,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
-        admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+        admit_scratch: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
     ) -> Result<CertifiedBlock, VerificationReadError> {
         let certificate = self.prepare_certificate_with_scratch_admission(
             &committed,
@@ -1388,7 +1406,7 @@ impl PrefixVerifierContext {
         authority: AuthorityRef<'_>,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
-        admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+        admit_scratch: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
     ) -> Result<CertificateVerdict, VerificationReadError> {
         check_result_scope(committed, self.root_scope)?;
         let height = committed.height;
@@ -1397,8 +1415,9 @@ impl PrefixVerifierContext {
             .block
             .commit_certificate()
             .ok_or(ChainReadError::MissingCertificate { height })?;
-        let certificate_len = norito::canonical_frame_len(certificate)
-            .map_err(|error| malformed(error.to_string()))?;
+        let certificate_len =
+            norito::core::classify_decode_attempt(|| norito::canonical_frame_len(certificate))
+                .map_err(|error| verification_codec_error(height, error))?;
         let Some(header) = committed.header.as_ref() else {
             return Ok(CertificateVerdict {
                 commit_qc: None,
@@ -1410,8 +1429,10 @@ impl PrefixVerifierContext {
             let (qc, table, payload) = artifacts.into_parts(&committed.block, header)?;
             (qc, Some((table, payload)))
         } else {
-            let qc = norito::decode_canonical(certificate.commit_qc())
-                .map_err(|error| verification_codec_error(height, error))?;
+            let qc = norito::core::classify_decode_attempt(|| {
+                norito::decode_canonical(certificate.commit_qc())
+            })
+            .map_err(|error| verification_codec_error(height, error))?;
             (qc, None)
         };
         self.verify_commit_qc_original(committed, authority, &commit_qc)?;
@@ -1486,7 +1507,7 @@ fn verify_availability(
         iroha_sumeragi::availability::AvailabilityFrame,
         iroha_sumeragi::availability::PayloadBytes,
     )>,
-    admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+    admit_scratch: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
 ) -> Result<(), VerificationReadError> {
     use iroha_sumeragi::availability::{AvailabilityFrame, MAX_AVAILABILITY_FRAME_BYTES};
     let height = committed.height;
@@ -1512,8 +1533,14 @@ fn verify_availability(
         ));
     }
     let availability_error = |error| match error {
-        iroha_data_model::sumeragi_finality::PayloadAvailabilityError::Resource(error) => {
-            VerificationReadError::Resource(error)
+        iroha_data_model::sumeragi_finality::PayloadAvailabilityError::Admission(original) => {
+            VerificationReadError::Deferred(original)
+        }
+        iroha_data_model::sumeragi_finality::PayloadAvailabilityError::Limit(original) => {
+            VerificationReadError::Deferred(original.into())
+        }
+        iroha_data_model::sumeragi_finality::PayloadAvailabilityError::Allocator(original) => {
+            VerificationReadError::Deferred(original.into())
         }
         iroha_data_model::sumeragi_finality::PayloadAvailabilityError::Invalid(error) => {
             malformed(error.to_string())
@@ -1531,15 +1558,19 @@ fn verify_availability(
         )
         .map_err(availability_error);
     }
-    let table: AvailabilityFrame = norito::decode_canonical(certificate.availability())
-        .map_err(|error| verification_codec_error(height, error))?;
+    let table: AvailabilityFrame = norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical(certificate.availability())
+    })
+    .map_err(|error| verification_codec_error(height, error))?;
     let payload_len = header.payload_len as usize;
-    admit_scratch(payload_len).map_err(VerificationReadError::Resource)?;
+    admit_scratch(payload_len).map_err(VerificationReadError::Deferred)?;
+    let layout = std::alloc::Layout::array::<u8>(payload_len)
+        .expect("publicly bounded empty proposal payload layout");
     let mut payload = Vec::new();
-    payload.try_reserve_exact(payload_len).map_err(|_| {
-        VerificationReadError::Resource(norito::core::DecodeResourceError::AllocationFailed {
-            bytes: payload_len as u64,
-        })
+    payload.try_reserve_exact(payload_len).map_err(|original| {
+        VerificationReadError::Deferred(
+            iroha_allocation::AllocatorRefusal::from_vec_reserve(original, layout).into(),
+        )
     })?;
     committed
         .block
@@ -2054,7 +2085,7 @@ fn authenticate_genesis_with(
         .instance_id(
             &BlsCrypto::new(),
             NetworkId::from_genesis_hash(genesis.hash()),
-            &chain_id.to_string(),
+            chain_id.as_ref(),
         )
         .map_err(|_| ChainReadError::ForeignGenesis)?;
     Ok((epoch, instance, root_scope))
@@ -2284,7 +2315,7 @@ pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
     // Only AMX transfers its actual constructor acquisition into this same reader. The
     // genesis body/control lives above; raw bytes and original source retire here after
     // the prefix/terminal graphs at the caller's existing scoped chain drop.
-    _amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
+    amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
     amx_genesis_source: Option<native_acquisition::NativeCarrierAcquisition<'v>>,
 }
 
@@ -2347,7 +2378,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             #[cfg(test)]
             terminal_probe: parking_lot::Mutex::new(None),
             proof_source_genesis: None,
-            _amx_genesis_authentication: None,
+            amx_genesis_authentication: None,
             amx_genesis_source: None,
         }
     }

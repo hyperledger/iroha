@@ -3366,7 +3366,7 @@ fn acquire_sidecar_store_writer_lock_v1(
         .write(true)
         .create(true)
         .truncate(false)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
         .mode(0o600);
     let file = options
         .open(&path)
@@ -3409,7 +3409,7 @@ fn open_owner_file_v1(
     }
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
         .open(path)
         .map_err(|_| PrivateSettlementSidecarStoreErrorV1::Corrupt)?;
     let opened = file

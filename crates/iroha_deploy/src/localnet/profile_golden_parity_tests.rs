@@ -1,47 +1,13 @@
-//! Golden parity of the compiled `sora-nexus-v1` profile with today's Kagami Taira output.
+//! Profile-default normalization and genesis-recipe parity with canonical Taira output.
 //!
-//! `specs/network_deployment.md` §13 P1 "Golden parity": with fixed seeds, the `sora-nexus-v1`
-//! render plus genesis must reproduce the `execution_policy_hash` and `nexus_amx_context_hash`
-//! that Kagami's canonical Taira localnet signs into genesis. Only the intentional differences
-//! are normalized, each exactly once:
-//!
-//! - **Catalog** (listed in the spec). The profile carries the core system lanes plus the public
-//!   `nexus` lane; Kagami bakes the Taira customer catalog into genesis. The profile render is
-//!   given Kagami's catalog ([`CATALOG_FIELDS`]) and both are staged against Kagami's own signed
-//!   genesis, so no other Nexus value is copied.
-//! - **Cadence** (listed). Kagami is generated with the profile's `block_cadence_ms`.
-//! - **Protocol custody account** (not listed in the spec; found by this test). Kagami derives a
-//!   keyless custody account from each genesis public key; a compiled profile cannot know that
-//!   key, so it fixes one keyless account ([`iroha_config::profile::protocol_custody_account`]).
-//!   The test first proves both sides are exactly those keyless derivations in all five
-//!   [`CUSTODY_ACCOUNT_FIELDS`], then copies Kagami's account.
-//! - **Governance accounts** (not listed in the spec; a security fix). Kagami's Taira names the
-//!   published sample key (`iroha_test_samples` ALICE) for every governance escrow, receiver,
-//!   pool and treasury; the profile gives each role its own keyless account
-//!   ([`iroha_config::profile::keyless_role_account`]). The test proves Kagami's side is the
-//!   code-default sample account and the profile's side is the keyless derivation in all six
-//!   [`GOVERNANCE_ACCOUNT_FIELDS`], then copies Kagami's accounts.
-//!
-//! Every other input of the two hashes comes from the profile unchanged. On a mismatch the test
-//! prints the differing hash-input sections line by line.
-//!
-//! Both halves now run under the canonical deployment engine; Kagami and Mochi share this
-//! exact generated genesis implementation.
+//! These tests verify the exact catalog and custody fields copied by normalization,
+//! and compare the compiled profile recipe with a generated signed Taira manifest.
 
 use super::*;
-use iroha_config::{
-    node_config::{NodeConfigOptions, NodeFile, open_node_config},
-    parameters::{actual::NodeSecretFile, user},
-    profile::{KeylessRole, Profile, ProfileId, ProfileRole},
-};
-use iroha_data_model::block::SignedBlock;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt as _;
+use iroha_config::profile::{KeylessRole, Profile, ProfileId};
 
 /// Fixed peer, operator and genesis seed shared by both halves.
 const SEED: &str = "sora-nexus-v1-golden-parity";
-/// Peer whose rendered configuration is compared.
-const PEER: usize = 0;
 /// Nexus fields that make up "the catalog": lanes, dataspaces, routes, the lane-manifest registry
 /// and the governance modules its restricted lanes name. They are copied from Kagami into the
 /// profile render by [`copy_kagami_catalog`]; this list documents that exact set.
@@ -80,9 +46,8 @@ const GOVERNANCE_ACCOUNT_FIELDS: &[&str] = &[
 
 /// Today's canonical Taira localnet, generated with the profile's cadence.
 struct KagamiTaira {
-    dir: crate::localnet::localnet_test_helpers::PrivateTempDir,
+    _dir: crate::localnet::localnet_test_helpers::PrivateTempDir,
     manifest: RawGenesisTransaction,
-    signed: SignedBlock,
 }
 
 impl KagamiTaira {
@@ -115,139 +80,16 @@ impl KagamiTaira {
         let _discriminant = ChainDiscriminantGuard::enter(taira_discriminant());
         let manifest = RawGenesisTransaction::from_path(dir.path().join("genesis.json"))
             .expect("bound Taira genesis manifest");
-        let signed = read_signed_genesis(&dir.path().join("genesis.signed.nrt"))
-            .expect("signed Taira genesis");
+        read_signed_genesis(&dir.path().join("genesis.signed.nrt")).expect("signed Taira genesis");
         Self {
-            dir,
+            _dir: dir,
             manifest,
-            signed,
         }
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.dir.path().join(name)
-    }
-
-    fn peer_table(&self, peer: usize) -> toml::Table {
-        toml::from_str(
-            &fs::read_to_string(self.path(&format!("peer{peer}.toml"))).expect("Taira peer"),
-        )
-        .expect("Taira peer TOML")
     }
 }
 
 fn taira_discriminant() -> u16 {
     known_chain_discriminant_for_chain_id(PUBLIC_TAIRA_CHAIN_ID).expect("Taira discriminant")
-}
-
-/// Read a node file exactly as `iroha3d` does, including `--sora` for Kagami's flat files.
-fn read_node_config(path: &Path, sora: bool) -> actual::Root {
-    let _discriminant = ChainDiscriminantGuard::enter(taira_discriminant());
-    let (reader, _binding) = open_node_config(
-        NodeFile::Path(path.to_path_buf()),
-        NodeConfigOptions { sora },
-    )
-    .expect("open node file")
-    .into_parts();
-    let sora_profile = iroha_config::sora_profile::SoraProfileSelection::from_reader(&reader);
-    let mut config = reader
-        .read_and_complete::<user::Root>()
-        .expect("read node file")
-        .parse()
-        .expect("parse node file");
-    if sora {
-        sora_profile.apply(&mut config);
-    }
-    config
-}
-
-fn owner_only_dir(path: &Path) {
-    fs::create_dir_all(path).expect("create directory");
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).expect("owner-only directory");
-}
-
-/// Write the `sora-nexus-v1` validator node file of Kagami peer `peer` under `root`.
-///
-/// It carries only per-node values the profile allowlist admits, taken from Kagami's peer
-/// config; the node's keys go to the fixed `data_dir` secret files.
-fn render_profile_node(kagami: &KagamiTaira, peer: usize, root: &Path) -> PathBuf {
-    let source = kagami.peer_table(peer);
-    let data_dir = actual::DataDir::new(root.join("data"));
-    owner_only_dir(&data_dir.secrets_dir());
-    let text = |table: &toml::Table, key: &str| -> String {
-        table
-            .get(key)
-            .and_then(toml::Value::as_str)
-            .unwrap_or_else(|| panic!("Kagami peer omitted `{key}`"))
-            .to_owned()
-    };
-    let streaming = source["streaming"].as_table().expect("streaming table");
-    for (file, key) in [
-        (NodeSecretFile::Validator, text(&source, "private_key")),
-        (
-            NodeSecretFile::Transport,
-            text(&source, "soranet_transport_private_key"),
-        ),
-        (
-            NodeSecretFile::Streaming,
-            text(streaming, "identity_private_key"),
-        ),
-    ] {
-        let path = data_dir.secret(file);
-        fs::write(&path, format!("{key}\n")).expect("write node secret");
-        #[cfg(unix)]
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("owner-only secret");
-    }
-    let mut node = toml::Table::new();
-    for (key, value) in [
-        ("profile", ProfileId::SoraNexusV1.as_str()),
-        ("role", ProfileRole::Validator.as_str()),
-    ] {
-        node.insert(key.into(), toml::Value::String(value.to_owned()));
-    }
-    node.insert("validators".into(), toml::Value::Integer(4));
-    node.insert(
-        "data_dir".into(),
-        toml::Value::String(data_dir.root().to_string_lossy().into_owned()),
-    );
-    for key in ["chain", "public_key", "trusted_peers", "trusted_peers_pop"] {
-        node.insert(key.into(), source[key].clone());
-    }
-    let pick = |section: &str, keys: &[&str]| {
-        let from = source[section].as_table().expect("section table");
-        toml::Value::Table(
-            keys.iter()
-                .map(|key| ((*key).to_owned(), from[*key].clone()))
-                .collect(),
-        )
-    };
-    node.insert(
-        "network".into(),
-        pick("network", &["address", "public_address"]),
-    );
-    node.insert("torii".into(), pick("torii", &["address"]));
-    let expected_hash =
-        fs::read_to_string(kagami.path("genesis.expected_hash")).expect("Kagami genesis identity");
-    let mut genesis = source["genesis"].as_table().expect("genesis").clone();
-    genesis.remove("expected_hash_file");
-    genesis.insert(
-        "expected_hash".into(),
-        toml::Value::String(expected_hash.trim().to_owned()),
-    );
-    node.insert("genesis".into(), toml::Value::Table(genesis));
-    let signer = source["soracloud_runtime"]["submission"]["signer"].clone();
-    let submission = toml::Table::from_iter([("signer".to_owned(), signer)]);
-    node.insert(
-        "soracloud_runtime".into(),
-        toml::Value::Table(toml::Table::from_iter([(
-            "submission".to_owned(),
-            toml::Value::Table(submission),
-        )])),
-    );
-    let path = root.join("node.toml");
-    fs::write(&path, toml::to_string(&node).expect("encode node file")).expect("write node file");
-    path
 }
 
 /// Replace exactly the [`CATALOG_FIELDS`] of the profile render with Kagami's.
@@ -339,78 +181,6 @@ fn line_diff(left: &str, right: &str) -> Vec<String> {
         }
     }
     out
-}
-
-/// Every configuration section either hash reads, rendered for a diff.
-fn hash_input_sections(config: &actual::Root) -> Vec<(&'static str, String)> {
-    let nexus = &config.nexus;
-    vec![
-        ("pipeline", format!("{:#?}", config.pipeline)),
-        ("oracle", format!("{:#?}", config.oracle)),
-        ("crypto", format!("{:#?}", config.crypto)),
-        (
-            "fraud_monitoring",
-            format!("{:#?}", config.fraud_monitoring),
-        ),
-        ("gov", format!("{:#?}", config.gov)),
-        ("content", format!("{:#?}", config.content)),
-        ("settlement", format!("{:#?}", config.settlement)),
-        ("zk", format!("{:#?}", config.zk)),
-        ("nexus.staking", format!("{:#?}", nexus.staking)),
-        ("nexus.fees", format!("{:#?}", nexus.fees)),
-        (
-            "nexus.hf_shared_leases",
-            format!("{:#?}", nexus.hf_shared_leases),
-        ),
-        (
-            "nexus.uploaded_models",
-            format!("{:#?}", nexus.uploaded_models),
-        ),
-        ("nexus.endorsement", format!("{:#?}", nexus.endorsement)),
-        ("nexus.axt", format!("{:#?}", nexus.axt)),
-        (
-            "nexus.atomic_private_settlement",
-            format!("{:#?}", nexus.atomic_private_settlement),
-        ),
-        (
-            "nexus.dataspace_fee_sponsor_program_ids",
-            format!("{:#?}", nexus.dataspace_fee_sponsor_program_ids),
-        ),
-        ("nexus.governance", format!("{:#?}", nexus.governance)),
-        ("nexus.compliance", format!("{:#?}", nexus.compliance)),
-        ("nexus.fusion", format!("{:#?}", nexus.fusion)),
-        ("nexus.autoscale", format!("{:#?}", nexus.autoscale)),
-        ("nexus.commit", format!("{:#?}", nexus.commit)),
-        ("nexus.da", format!("{:#?}", nexus.da)),
-        (
-            "nexus.catalog",
-            format!(
-                "{:#?}\n{:#?}\n{:#?}\n{:#?}",
-                nexus.configured_lane_catalog,
-                nexus.configured_dataspace_catalog,
-                nexus.routing_policy,
-                nexus.registry
-            ),
-        ),
-    ]
-}
-
-fn section_differences(kagami: &actual::Root, profile: &actual::Root) -> String {
-    use std::fmt::Write as _;
-    let mut report = String::new();
-    for ((name, left), (_, right)) in hash_input_sections(kagami)
-        .into_iter()
-        .zip(hash_input_sections(profile))
-    {
-        if left != right {
-            writeln!(report, "[{name}]").expect("writing to a String cannot fail");
-            for line in line_diff(&left, &right) {
-                report.push_str(&line);
-                report.push('\n');
-            }
-        }
-    }
-    report
 }
 
 #[test]

@@ -217,9 +217,11 @@ fn every_catalog_optional_canonical_auth_tool_publishes_a_strict_optional_envelo
 }
 #[test]
 fn every_catalog_operator_auth_tool_publishes_a_strict_required_tuple() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let mut covered = 0_usize;
     for tool in &tools {
@@ -245,9 +247,11 @@ fn every_catalog_operator_auth_tool_publishes_a_strict_required_tuple() {
 }
 #[test]
 fn every_catalog_tool_descriptor_publishes_exact_route_auth_metadata() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let mut covered = 0_usize;
     for tool in &tools {
@@ -377,7 +381,7 @@ fn canonical_target_headers_reject_noncanonical_wire_values_before_dispatch() {
         })
     };
     let oversized_signature =
-        "A".repeat(((crate::app_auth::CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 + 2) / 3) * 4 + 4);
+        "A".repeat(crate::app_auth::CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1.div_ceil(3) * 4 + 4);
     for invalid in [
         complete(
             Value::String(TEST_ACCOUNT_I105.to_owned()),
@@ -448,7 +452,7 @@ fn canonical_target_headers_reject_noncanonical_wire_values_before_dispatch() {
         norito::json!({ "X-Iroha-Witness": "not-base64" }),
         norito::json!({
             "X-Iroha-Witness": ("A".repeat(
-                ((crate::app_auth::CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1 + 2) / 3) * 4
+                crate::app_auth::CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1.div_ceil(3) * 4
                     + 4
             ))
         }),
@@ -1508,7 +1512,7 @@ async fn oversized_numeric_ids_cannot_enter_or_target_cancellation_registry() {
     };
     assert_eq!(
         response.pointer("/error/code").and_then(Value::as_i64),
-        Some(i64::from(JSONRPC_INVALID_REQUEST))
+        Some(JSONRPC_INVALID_REQUEST)
     );
     assert_eq!(
         dispatches.load(std::sync::atomic::Ordering::SeqCst),
@@ -2184,9 +2188,11 @@ fn generic_xml_request_body_uses_exact_text_bytes_and_media_type() {
 
 #[test]
 fn generated_iso_tool_advertises_raw_xml_as_its_default_media_type() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let tool = tools
         .iter()
@@ -2335,9 +2341,11 @@ fn sanitize_tool_input_schema_preserves_closed_typed_bodies() {
 }
 #[test]
 fn whole_catalog_publishes_self_contained_input_schemas() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     assert!(!tools.is_empty(), "the MCP catalog must not be empty");
     for tool in tools {
@@ -2534,8 +2542,10 @@ fn jsonrpc_error_response_preserves_legacy_data_fields() {
 }
 #[test]
 fn read_only_policy_blocks_mutating_tools() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::ReadOnly;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::ReadOnly,
+        ..Default::default()
+    };
     let read_tool = sample_tool("iroha.accounts.get", Method::GET, ToolEffect::Read);
     let instruction_builder_tool = sample_tool(
         "iroha.musubi.instructions.release_yank_set",
@@ -2558,9 +2568,11 @@ fn read_only_policy_blocks_mutating_tools() {
 }
 #[test]
 fn openapi_tool_effects_drive_policy() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let mut read_only_cfg = cfg.clone();
     read_only_cfg.profile = ToriiMcpProfile::ReadOnly;
@@ -2569,7 +2581,7 @@ fn openapi_tool_effects_drive_policy() {
         .find(|tool| {
             tool.route_backing()
                 .is_some_and(|(_, method, path_template)| {
-                    method == &Method::POST
+                    method == Method::POST
                         && path_template
                             == iroha_torii_shared::route_catalog::pipeline::QUERY.path()
                 })
@@ -2583,7 +2595,7 @@ fn openapi_tool_effects_drive_policy() {
         .find(|tool| {
             tool.route_backing()
                 .is_some_and(|(_, method, path_template)| {
-                    method == &Method::POST && path_template == "/v1/gov/protected-namespaces"
+                    method == Method::POST && path_template == "/v1/gov/protected-namespaces"
                 })
         })
         .expect("protected namespace update tool");
@@ -2595,15 +2607,17 @@ fn openapi_tool_effects_drive_policy() {
 }
 #[test]
 fn get_tools_follow_exact_catalog_operator_authorization() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     for tool in &tools {
         let Some((effect, method, path_template)) = tool.route_backing() else {
             continue;
         };
-        if method != &Method::GET {
+        if method != Method::GET {
             continue;
         }
         let catalog_requires_operator =
@@ -2617,7 +2631,6 @@ fn get_tools_follow_exact_catalog_operator_authorization() {
         .flat_map(|group| {
             RouteCatalog::new(group.routes).project(CatalogProjection::Mcp, group.enabled_features)
         })
-        .into_iter()
         .filter(|route| {
             route.method() == CatalogHttpMethod::Get && catalog_route_requires_operator(route)
         })
@@ -2626,7 +2639,7 @@ fn get_tools_follow_exact_catalog_operator_authorization() {
             tools.iter().any(|tool| {
                 tool.route_backing()
                     .is_some_and(|(_, method, path_template)| {
-                        method == &Method::GET
+                        method == Method::GET
                             && path_template == route.path()
                             && tool_requires_operator(tool)
                     })
@@ -2644,8 +2657,10 @@ fn mcp_policy_keeps_operator_tools_operator_only() {
         "/v1/gov/protected-namespaces",
         ToolEffect::Operator,
     );
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::ReadOnly;
+    let mut cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::ReadOnly,
+        ..Default::default()
+    };
     assert!(!is_tool_allowed_by_policy(&cfg, &protected_update));
     cfg.profile = ToriiMcpProfile::Writer;
     assert!(!is_tool_allowed_by_policy(&cfg, &protected_update));
@@ -2656,9 +2671,11 @@ fn mcp_policy_keeps_operator_tools_operator_only() {
 }
 #[test]
 fn signer_backed_prepare_and_submit_tools_are_mutating() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let mut cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let effect = |name: &str| {
         let tool = tools
@@ -2691,9 +2708,11 @@ fn signer_backed_prepare_and_submit_tools_are_mutating() {
 }
 #[test]
 fn operator_sumeragi_snapshot_tools_are_absent_from_mcp() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::Operator;
-    cfg.expose_operator_routes = true;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::Operator,
+        expose_operator_routes: true,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     for retired_name in [
         "iroha.sumeragi.commit_certificates",
@@ -2981,8 +3000,10 @@ fn manual_descriptor_loader_accepts_content_updates_and_preserves_policy() {
 
 #[test]
 fn faucet_policy_tool_is_read_only_and_runtime_gated() {
-    let mut cfg = iroha_config::parameters::actual::ToriiMcp::default();
-    cfg.profile = ToriiMcpProfile::ReadOnly;
+    let cfg = iroha_config::parameters::actual::ToriiMcp {
+        profile: ToriiMcpProfile::ReadOnly,
+        ..Default::default()
+    };
     let tools = build_tool_specs(&cfg);
     let policy = tools
         .iter()

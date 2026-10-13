@@ -41,7 +41,6 @@ use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
 use iroha_test_samples::ALICE_ID;
 use nonzero_ext::nonzero;
 use std::{
-    collections::HashSet,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     path::PathBuf,
     str::FromStr,
@@ -176,7 +175,7 @@ impl sorafs_node::ModerationQuarantineKeyWrapper for PrebuiltQuarantineKeyWrappe
     > {
         Ok(PREBUILT_QUARANTINE_PROVIDER_QUALIFICATION)
     }
-    fn active_key_id(&self) -> &str {
+    fn active_key_id(&self) -> &'static str {
         "software://moderation/quarantine/key-v1"
     }
     fn wrap_dek(
@@ -215,20 +214,24 @@ fn prebuilt_quarantine_key_wrapper_binds_key_context_and_ciphertext() {
     let wrapper = PrebuiltQuarantineKeyWrapper;
     let context = [0x51; 32];
     let dek = [0x63; 32];
-    let wrapped = wrapper.wrap_dek(context, &dek).expect("wrap fixture DEK");
+    let encrypted_dek = wrapper.wrap_dek(context, &dek).expect("wrap fixture DEK");
     assert_eq!(
         wrapper
-            .unwrap_dek(wrapper.active_key_id(), context, &wrapped)
+            .unwrap_dek(wrapper.active_key_id(), context, &encrypted_dek)
             .expect("unwrap fixture DEK"),
         dek,
     );
-    assert!(wrapper.unwrap_dek("wrong-key", context, &wrapped).is_err());
     assert!(
         wrapper
-            .unwrap_dek(wrapper.active_key_id(), [0x52; 32], &wrapped)
+            .unwrap_dek("wrong-key", context, &encrypted_dek)
             .is_err()
     );
-    let mut tampered = wrapped;
+    assert!(
+        wrapper
+            .unwrap_dek(wrapper.active_key_id(), [0x52; 32], &encrypted_dek)
+            .is_err()
+    );
+    let mut tampered = encrypted_dek;
     tampered[0] ^= 1;
     assert!(
         wrapper
@@ -718,12 +721,14 @@ fn prebuilt_privacy_storage_config_with_governance_dir(
     prf_revision: u64,
     fenced_publisher_revision: u64,
 ) -> sorafs_node::config::StorageConfig {
-    let mut storage = actual::SorafsStorage::default();
-    storage.enabled = true;
-    storage.provider_id = Some(iroha_data_model::sorafs::capacity::ProviderId::new(
-        [0x91; 32],
-    ));
-    storage.data_dir = data_dir.clone();
+    let mut storage = actual::SorafsStorage {
+        enabled: true,
+        provider_id: Some(iroha_data_model::sorafs::capacity::ProviderId::new(
+            [0x91; 32],
+        )),
+        data_dir: data_dir.clone(),
+        ..Default::default()
+    };
     let governance_signer = PrebuiltGovernanceDagSigner::new();
     storage.governance_dag_dir = Some(governance_dir);
     storage.governance_dag_publisher_peer_id = Some(
@@ -1829,10 +1834,12 @@ fn identifier_fixture_error_message(error: &Error) -> &str {
             assert_eq!(*code, "ram_lfe_encryption_unavailable");
             message
         }
-        Error::Query(ValidationFail::InternalError(message))
-        | Error::Query(ValidationFail::QueryFailed(
-            iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
-        )) => message,
+        Error::Query(
+            ValidationFail::InternalError(message)
+            | ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::Conversion(message),
+            ),
+        ) => message,
         other => panic!("expected identifier conversion/internal error, got {other:?}"),
     }
 }
@@ -2029,7 +2036,7 @@ async fn proof_record_fixture_retains_exact_hash_and_membership_while_unfilled_t
     let mut unfinished = app.state.block(header);
     unfinished
         .transactions
-        .insert_block(HashSet::new(), NonZeroUsize::new(1).expect("height>0"));
+        .insert_block(BTreeSet::new(), NonZeroUsize::new(1).expect("height>0"));
     let error = unfinished
         .commit()
         .expect_err("membership without the original header hash must refuse");
@@ -2109,13 +2116,13 @@ fn grant_alias_resolve_permissions(
     let header = BlockHeader::new(NonZeroU64::new(height).expect("height>0"), None, None, 0, 0);
     let mut block = app.state.block(header);
     let mut stx = block.transaction();
-    let scope = match alias
+    let scope = alias
         .domain_id(&app.state.nexus_snapshot().dataspace_catalog)
         .expect("test alias dataspace must resolve")
-    {
-        Some(domain) => AccountAliasPermissionScope::Domain(domain),
-        None => AccountAliasPermissionScope::Dataspace(alias.dataspace),
-    };
+        .map_or_else(
+            || AccountAliasPermissionScope::Dataspace(alias.dataspace),
+            AccountAliasPermissionScope::Domain,
+        );
     stx.world_mut_for_testing().add_account_permission(
         account_id,
         Permission::from(CanResolveAccountAlias { scope }),
@@ -2441,7 +2448,7 @@ fn onboarding_alias_test_app_with_role_permissions(
         .into_iter()
         .fold(
             Role::new(role_id.clone(), authority.clone()),
-            |role, permission| role.add_permission(permission),
+            iroha_data_model::NewRole::add_permission,
         )
         .build(authority);
     let fee_asset_id: AssetDefinitionId =

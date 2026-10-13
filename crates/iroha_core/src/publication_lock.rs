@@ -54,6 +54,13 @@ impl<T> Drop for PhysicalPublicationGuard<'_, T> {
 impl<T> PublicationGuard<'_, T> {
     /// Mutation epoch captured under this original physical guard; exhaustion
     /// permanently refuses observation reuse.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect read-only publication observations; retain the original mutex capability and mutation epoch to reject foreign or stale observations"
+        )
+    )]
     pub(crate) fn mutation_epoch(&self) -> Option<u64> {
         self.mutation_epoch
     }
@@ -235,6 +242,13 @@ impl PublicationMutex {
     /// observations, using only its originally paired read capability.
     /// This remains an exclusive physical acquisition, not a shared read lock.
     /// A foreign permit fails before acquiring or observing the target mutex.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect read-only publication observations; retain the original mutex capability and mutation epoch to reject foreign or stale observations"
+        )
+    )]
     pub(crate) fn lock_read_only(
         &self,
         permit: &PublicationReadPermit,
@@ -426,7 +440,6 @@ mod tests {
         );
         let value = original
             .try_lock_or_wait()
-            .ok()
             .expect("parking-lot is not poisoned");
         assert_eq!(&*value, &[1, 3]);
     }
@@ -609,11 +622,11 @@ mod mutation_epoch_tests {
     #[test]
     fn errors_and_unwind_invalidate_before_any_caller_work() {
         let (mutex, permit) = PublicationMutex::with_read_permit();
-        let failed: Result<(), &'static str> = (|| {
+        let failed: Result<(), &'static str> = {
             let held = mutex.lock();
             assert_eq!(held.mutation_epoch(), Some(1));
             Err("operation failed after acquiring original mutation fence")
-        })();
+        };
         assert!(failed.is_err());
         assert_eq!(read_epoch(&mutex, &permit), Some(1));
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

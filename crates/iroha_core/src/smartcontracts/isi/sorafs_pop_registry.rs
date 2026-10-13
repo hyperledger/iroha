@@ -998,7 +998,6 @@ fn read_revocation_with_current(
             "PoP revocation record credential binding is invalid",
         ));
     }
-    drop(binding);
     if let Some(current) = current.as_deref_mut() {
         reset_pop_query_current(current, retained_base_bytes)?;
     }
@@ -2501,7 +2500,7 @@ mod tests {
         let sequence = 7_u64;
         let kind = PopRegistryAuditEventKindV1::CredentialBatchCommitted;
         let payload_digest = [0x31; 32];
-        let previous = Some([0x32; 32]);
+        let previous = [0x32; 32];
         let now = NOW;
         for discriminant in [0x02f1, 0x0171, 0, 42] {
             let _guard =
@@ -2513,7 +2512,7 @@ mod tests {
                 legacy.update(&sequence.to_le_bytes());
                 legacy.update(&[kind.digest_tag()]);
                 legacy.update(&[1]);
-                legacy.update(&previous.expect("fixture predecessor"));
+                legacy.update(&previous);
                 legacy.update(&payload_digest);
                 legacy.update(&now.to_le_bytes());
                 legacy.update(
@@ -2523,7 +2522,14 @@ mod tests {
                 );
                 legacy.update(authority_text.as_bytes());
                 assert_eq!(
-                    audit_digest(sequence, kind, payload_digest, previous, now, authority),
+                    audit_digest(
+                        sequence,
+                        kind,
+                        payload_digest,
+                        Some(previous),
+                        now,
+                        authority
+                    ),
                     *legacy.finalize().as_bytes(),
                 );
             }
@@ -2781,7 +2787,7 @@ mod tests {
                 .execute(&authority, &mut stx)
                 .is_err()
         );
-        let stale = batch(
+        let outdated = batch(
             &operator,
             2,
             2,
@@ -2792,7 +2798,7 @@ mod tests {
             Vec::new(),
         );
         assert!(
-            CommitSorafsPopCredentialBatch::new(encode(&stale))
+            CommitSorafsPopCredentialBatch::new(encode(&outdated))
                 .execute(&authority, &mut stx)
                 .is_err()
         );

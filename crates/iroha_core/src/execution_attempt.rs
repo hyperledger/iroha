@@ -18,7 +18,7 @@ pub enum ExecutionPhase {
 /// This type has no wire codec. A capacity release observation survives cache
 /// checkout, transaction rollback and output abandonment with the same pool
 /// identity. It authorizes a fresh local attempt, never a transaction rejection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ExecutionDeferred {
     reason: ExecutionDeferral,
     original: Option<OriginalRefusal>,
@@ -26,10 +26,67 @@ pub struct ExecutionDeferred {
 }
 
 /// The actual non-wire cause, never reconstructed from diagnostic fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum OriginalRefusal {
     Allocation(iroha_allocation::AllocationRefusal),
+    Allocator(iroha_allocation::AllocatorRefusal),
     Decode(norito::core::DecodeLocalRefusal),
+    Verification(ivm::error::VerificationRefusal),
+}
+
+/// Publication remains forbidden after the original refusal moves to its caller.
+#[derive(Debug, Default)]
+pub(crate) enum ExecutionAttemptState {
+    /// This disposable transaction has not refused local execution.
+    #[default]
+    Ready,
+    /// The transaction retains the first original refusal.
+    Refused(ExecutionDeferred),
+    /// The caller owns the refusal; this transaction remains unusable.
+    RefusedOwnerMoved,
+}
+
+impl ExecutionAttemptState {
+    /// Whether this transaction must remain disposable, independent of owner location.
+    pub(crate) const fn is_refused(&self) -> bool {
+        !matches!(self, Self::Ready)
+    }
+
+    /// Borrow the original owner without granting a second owning carrier.
+    #[cfg(test)]
+    fn owner(&self) -> Option<&ExecutionDeferred> {
+        match self {
+            Self::Refused(owner) => Some(owner),
+            Self::Ready | Self::RefusedOwnerMoved => None,
+        }
+    }
+
+    /// Retain only the first refusal; a moved owner cannot be replaced.
+    fn record(&mut self, owner: impl Into<ExecutionDeferred>) {
+        if matches!(self, Self::Ready) {
+            *self = Self::Refused(owner.into());
+        }
+    }
+
+    /// Move the owner exactly once while retaining the publication prohibition.
+    fn take_owner(&mut self) -> Option<ExecutionDeferred> {
+        if !matches!(self, Self::Refused(_)) {
+            return None;
+        }
+        match core::mem::replace(self, Self::RefusedOwnerMoved) {
+            Self::Refused(owner) => Some(owner),
+            Self::Ready | Self::RefusedOwnerMoved => unreachable!("matched retained refusal"),
+        }
+    }
+
+    /// Reject reuse after export as a new custody invariant violation.
+    fn ensure_ready(&mut self) -> Result<(), ExecutionDeferred> {
+        match self {
+            Self::Ready => Ok(()),
+            Self::RefusedOwnerMoved => Err(ExecutionDeferral::LocalInvariantViolation.into()),
+            Self::Refused(_) => Err(self.take_owner().expect("matched retained refusal")),
+        }
+    }
 }
 
 impl ExecutionDeferred {
@@ -61,24 +118,52 @@ impl ExecutionDeferred {
         }
     }
 
+    /// Borrow the original physical allocator failure, without inventing a pool wake.
+    pub fn allocator_refusal(&self) -> Option<&iroha_allocation::AllocatorRefusal> {
+        match self.original.as_ref() {
+            Some(OriginalRefusal::Allocator(original)) => Some(original),
+            _ => None,
+        }
+    }
+
     /// Borrow the captured decoder cause, including its original opaque scope identity.
     /// No pool release observation is created by retaining this decoder owner.
     pub fn decode_refusal(&self) -> Option<&norito::core::DecodeLocalRefusal> {
         match self.original.as_ref() {
             Some(OriginalRefusal::Decode(original)) => Some(original),
+            Some(OriginalRefusal::Verification(original)) => original.decode_refusal(),
+            _ => None,
+        }
+    }
+
+    /// Borrow the full native verifier cause without a second retry owner.
+    pub fn verification_refusal(&self) -> Option<&ivm::error::VerificationRefusal> {
+        match self.original.as_ref() {
+            Some(OriginalRefusal::Verification(original)) => Some(original),
             _ => None,
         }
     }
 
     /// Preserve the original refusal across a VM/host error boundary.
     /// Native finalizer provenance is Core context, not a VM error category.
-    pub fn from_vm_error(error: &VMError) -> Option<Self> {
-        match error.as_unmetered() {
-            VMError::AllocationDeferred(refusal) => Some(refusal.clone().into()),
-            VMError::DecodeDeferred(original) => Some(original.clone().into()),
-            VMError::ExecutionDeferred(reason) => Some((*reason).into()),
-            other => other.execution_deferral().map(Into::into),
-        }
+    pub fn try_from_vm_error(error: VMError) -> Result<Self, VMError> {
+        let Some(reason) = error.execution_deferral() else {
+            return Err(error);
+        };
+        let original = match error.into_unmetered() {
+            VMError::AllocationDeferred(original) => Some(OriginalRefusal::Allocation(original)),
+            VMError::AllocatorDeferred(original) => Some(OriginalRefusal::Allocator(original)),
+            VMError::DecodeDeferred(original) => Some(OriginalRefusal::Decode(original)),
+            VMError::VerificationDeferred(original) => {
+                Some(OriginalRefusal::Verification(original))
+            }
+            _ => None,
+        };
+        Ok(Self {
+            reason,
+            original,
+            phase: None,
+        })
     }
 
     /// Move this owner through a VM host boundary without losing its release source.
@@ -86,7 +171,11 @@ impl ExecutionDeferred {
     pub fn into_vm_error(self) -> VMError {
         match self.original {
             Some(OriginalRefusal::Allocation(refusal)) => VMError::AllocationDeferred(refusal),
+            Some(OriginalRefusal::Allocator(original)) => VMError::AllocatorDeferred(original),
             Some(OriginalRefusal::Decode(original)) => VMError::DecodeDeferred(original),
+            Some(OriginalRefusal::Verification(original)) => {
+                VMError::VerificationDeferred(original)
+            }
             None => VMError::ExecutionDeferred(self.reason),
         }
     }
@@ -112,6 +201,16 @@ impl From<iroha_allocation::AllocationRefusal> for ExecutionDeferred {
     }
 }
 
+impl From<iroha_allocation::AllocatorRefusal> for ExecutionDeferred {
+    fn from(original: iroha_allocation::AllocatorRefusal) -> Self {
+        Self {
+            reason: ExecutionDeferral::AllocationUnavailable,
+            original: Some(OriginalRefusal::Allocator(original)),
+            phase: None,
+        }
+    }
+}
+
 impl From<norito::core::DecodeLocalRefusal> for ExecutionDeferred {
     fn from(original: norito::core::DecodeLocalRefusal) -> Self {
         let reason = match original.kind() {
@@ -130,16 +229,27 @@ impl From<norito::core::DecodeLocalRefusal> for ExecutionDeferred {
     }
 }
 
+impl From<ivm::error::VerificationRefusal> for ExecutionDeferred {
+    fn from(original: ivm::error::VerificationRefusal) -> Self {
+        Self::try_from_vm_error(VMError::VerificationDeferred(original))
+            .expect("native verifier refusals are local execution outcomes")
+    }
+}
+
 impl From<iroha_data_model::block::SharedBlockAdmissionError> for ExecutionDeferred {
     fn from(error: iroha_data_model::block::SharedBlockAdmissionError) -> Self {
         use iroha_allocation::PrepaidSharedError;
         use iroha_data_model::block::SharedBlockAdmissionError;
         match error {
             SharedBlockAdmissionError::Admission(original) => original.into(),
-            SharedBlockAdmissionError::Allocation(PrepaidSharedError::Allocator { .. }) => {
-                ExecutionDeferral::AllocationUnavailable.into()
-            }
+            SharedBlockAdmissionError::Allocation(
+                original @ PrepaidSharedError::Allocator { .. },
+            ) => iroha_allocation::AllocatorRefusal::try_from(original)
+                .expect("matched allocator failure")
+                .into(),
             SharedBlockAdmissionError::Allocation(PrepaidSharedError::Reservation(_)) => {
+                // TODO: Preserve the original prepaid mismatch and review its recovery
+                // classification separately; it is not a physical allocator failure.
                 ExecutionDeferral::ActiveMemoryCapacity.into()
             }
         }
@@ -153,7 +263,9 @@ impl core::fmt::Display for ExecutionDeferred {
         }
         match &self.original {
             Some(OriginalRefusal::Allocation(refusal)) => refusal.fmt(formatter),
+            Some(OriginalRefusal::Allocator(original)) => original.fmt(formatter),
             Some(OriginalRefusal::Decode(original)) => original.fmt(formatter),
+            Some(OriginalRefusal::Verification(original)) => original.fmt(formatter),
             None => self.reason.fmt(formatter),
         }
     }
@@ -163,7 +275,9 @@ impl std::error::Error for ExecutionDeferred {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.original {
             Some(OriginalRefusal::Allocation(original)) => Some(original),
+            Some(OriginalRefusal::Allocator(original)) => Some(original),
             Some(OriginalRefusal::Decode(original)) => Some(original),
+            Some(OriginalRefusal::Verification(original)) => Some(original),
             None => None,
         }
     }
@@ -180,7 +294,7 @@ pub(crate) fn expect_completed_rejection<E>(error: ExecutionAttemptError<E>) -> 
 
 /// Separate a deterministic rejection from an incomplete local attempt.
 /// No conversion from this type to a wire rejection is provided.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ExecutionAttemptError<E> {
     /// Execution completed with a deterministic rejection.
     Rejected(E),
@@ -223,6 +337,17 @@ impl<E> From<E> for ExecutionAttemptError<E> {
     }
 }
 
+impl<E> From<crate::zk::VerificationAttemptError<E>> for ExecutionAttemptError<E> {
+    fn from(error: crate::zk::VerificationAttemptError<E>) -> Self {
+        match error {
+            crate::zk::VerificationAttemptError::Rejected(error) => Self::Rejected(error),
+            crate::zk::VerificationAttemptError::Deferred(original) => {
+                Self::Deferred(original.into())
+            }
+        }
+    }
+}
+
 impl From<&str> for ExecutionAttemptError<String> {
     fn from(error: &str) -> Self {
         Self::Rejected(error.to_owned())
@@ -260,12 +385,21 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
     fn buffer(error: ChargedBufferError) -> ExecutionDeferred {
         match error {
             ChargedBufferError::Admission(original) => original.into(),
-            ChargedBufferError::Allocator { .. } => ExecutionDeferral::AllocationUnavailable.into(),
+            original @ ChargedBufferError::Allocator { .. } => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
+            }
         }
     }
     fn control(error: PrepaidSharedError) -> ExecutionDeferred {
         match error {
-            PrepaidSharedError::Allocator { .. } => ExecutionDeferral::AllocationUnavailable.into(),
+            original @ PrepaidSharedError::Allocator { .. } => {
+                iroha_allocation::AllocatorRefusal::try_from(original)
+                    .expect("matched allocator failure")
+                    .into()
+            }
+            // TODO: Preserve the original prepaid mismatch; no pool wake is implied.
             PrepaidSharedError::Reservation(_) => ExecutionDeferral::ActiveMemoryCapacity.into(),
         }
     }
@@ -286,18 +420,32 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
         | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Admission(original)) => {
             ExecutionAttemptError::Deferred(original.into())
         }
-        PreparedSignatureBlockError::Certificate(
-            CertificateCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
-            | CertificateCustodyError::Control(SharedFromChargeError::Allocator { .. }),
-        )
-        | PreparedSignatureBlockError::Policy(
-            DaProofPolicyCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
-            | DaProofPolicyCustodyError::Control(SharedFromChargeError::Allocator { .. }),
-        )
-        | PreparedSignatureBlockError::Commitments(
-            DaCommitmentCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { .. })
-            | DaCommitmentCustodyError::Control(SharedFromChargeError::Allocator { .. }),
-        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into()),
+        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Buffer(
+            original @ ChargedBufferFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Buffer(
+            original @ ChargedBufferFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Buffer(
+            original @ ChargedBufferFromChargeError::Allocator { .. },
+        )) => ExecutionAttemptError::Deferred(
+            iroha_allocation::AllocatorRefusal::try_from(original)
+                .expect("matched allocator failure")
+                .into(),
+        ),
+        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Control(
+            original @ SharedFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Control(
+            original @ SharedFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Control(
+            original @ SharedFromChargeError::Allocator { .. },
+        )) => ExecutionAttemptError::Deferred(
+            iroha_allocation::AllocatorRefusal::try_from(original)
+                .expect("matched allocator failure")
+                .into(),
+        ),
         PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
             BlockSignatureCustodyError::Buffer(original),
         )) => ExecutionAttemptError::Deferred(buffer(original)),
@@ -315,6 +463,8 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
         | PreparedSignatureBlockError::Decode(PreparedDecodeError::Scope(
             PreparedDecodeScopeError::Reservation(_),
         )) => ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into()),
+        // TODO: Review contextual custody invariants as retained recovery causes.
+        // This physical-allocator repair leaves their existing classification unchanged.
         invariant => ExecutionAttemptError::Rejected(rejected(invariant.to_string())),
     }
 }
@@ -385,7 +535,8 @@ pub(crate) fn canonical_decode_deferral(
 /// Preserve an original native storage/decode refusal before its caller formats a rejection.
 ///
 /// Kura's durable metadata and body decoder share the active cumulative codec scope.
-/// Physical buffer refusals retain their original pool owner; malformed bytes and
+/// Physical buffer failures retain their original allocator error; finite-pool
+/// refusals retain their separate release observation. Malformed bytes and
 /// changed source slots remain completed errors chosen by the existing caller.
 pub(crate) fn kura_read_attempt_error<E>(
     error: crate::kura::Error,
@@ -400,14 +551,16 @@ pub(crate) fn kura_read_attempt_error<E>(
             Error::NoritoFrame(error) => {
                 norito_decode_attempt_error(error, |error| rejected(Error::NoritoFrame(error)))
             }
-            Error::BlockDecode(error) => {
-                canonical_decode_attempt_error(error, |error| rejected(Error::BlockDecode(error)))
+            Error::CodecAttempt(error) => {
+                canonical_decode_attempt_error(error, |error| rejected(Error::CodecAttempt(error)))
             }
             Error::NativeFrameAllocation(error) => {
                 let original = match error {
                     iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
-                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
-                        ExecutionDeferral::AllocationUnavailable.into()
+                    original @ iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                        iroha_allocation::AllocatorRefusal::try_from(original)
+                            .expect("matched allocator failure")
+                            .into()
                     }
                 };
                 ExecutionAttemptError::Deferred(original)
@@ -475,9 +628,9 @@ pub(crate) fn vm_attempt_error(
     error: VMError,
     deterministic: impl FnOnce(VMError) -> ValidationFail,
 ) -> ExecutionAttemptError<ValidationFail> {
-    match ExecutionDeferred::from_vm_error(&error) {
-        Some(reason) => ExecutionAttemptError::Deferred(reason),
-        None => ExecutionAttemptError::Rejected(deterministic(error)),
+    match ExecutionDeferred::try_from_vm_error(error) {
+        Ok(reason) => ExecutionAttemptError::Deferred(reason),
+        Err(error) => ExecutionAttemptError::Rejected(deterministic(error)),
     }
 }
 
@@ -491,9 +644,7 @@ impl crate::state::WorldTransaction<'_, '_> {
 
     /// Keep the first retry owner without constructing a diagnostic that a caller discards.
     fn record_execution_deferral(&self, reason: impl Into<ExecutionDeferred>) {
-        self.execution_deferral
-            .borrow_mut()
-            .get_or_insert_with(|| reason.into());
+        self.execution_deferral.borrow_mut().record(reason);
     }
 
     /// Bridge an ISI-owned signature while keeping its original local refusal.
@@ -523,9 +674,34 @@ impl crate::state::StateTransaction<'_, '_> {
         self.world.defer_execution(reason)
     }
 
-    /// Borrow the sticky local retry reason without clearing its publication guard.
-    pub(crate) fn execution_deferral(&self) -> Option<ExecutionDeferred> {
-        self.world.execution_deferral.borrow().clone()
+    /// Whether local execution refused, even after the caller took its original owner.
+    pub(crate) fn is_execution_deferred(&self) -> bool {
+        self.world.execution_deferral.borrow().is_refused()
+    }
+
+    /// Borrow the retained owner without copying it or clearing its publication guard.
+    #[cfg(test)]
+    pub(crate) fn borrow_execution_deferral(
+        &self,
+    ) -> Option<std::cell::Ref<'_, ExecutionDeferred>> {
+        std::cell::Ref::filter_map(self.world.execution_deferral.borrow(), |state| {
+            state.owner()
+        })
+        .ok()
+    }
+
+    /// Move the original refusal once; this transaction remains forbidden to publish.
+    #[cfg(test)]
+    pub(crate) fn take_execution_deferral(&mut self) -> Option<ExecutionDeferred> {
+        self.world.execution_deferral.borrow_mut().take_owner()
+    }
+
+    /// Authorize entry only while no local refusal has occurred in this transaction.
+    ///
+    /// The first refusal leaves exactly once. Reusing that same transaction after
+    /// export is a custody invariant violation, not another copy of the original cause.
+    pub(crate) fn ensure_execution_ready(&mut self) -> Result<(), ExecutionDeferred> {
+        self.world.execution_deferral.borrow_mut().ensure_ready()
     }
 
     /// Bridge a model-owned instruction result while retaining the retry owner.
@@ -561,9 +737,9 @@ impl crate::state::StateTransaction<'_, '_> {
         error: VMError,
         deterministic: impl FnOnce(VMError) -> ValidationFail,
     ) -> ValidationFail {
-        match ExecutionDeferred::from_vm_error(&error) {
-            Some(reason) => self.defer_execution(reason),
-            None => deterministic(error),
+        match ExecutionDeferred::try_from_vm_error(error) {
+            Ok(reason) => self.defer_execution(reason),
+            Err(error) => deterministic(error),
         }
     }
 
@@ -581,6 +757,7 @@ impl crate::state::StateTransaction<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use ivm::error::VMError;
     include!("execution_attempt/json_scoped_tests.rs");
     #[test]
     fn kura_storage_attempt_keeps_original_refusal_and_deterministic_source_error() {
@@ -610,6 +787,17 @@ mod tests {
         };
         assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
         assert!(retained.allocation_refusal().is_none());
+        assert!(matches!(
+            retained.allocator_refusal().unwrap().buffer_error(),
+            Some(iroha_allocation::ChargedBufferError::Allocator { requested_bytes: 8 })
+        ));
+        let VMError::AllocatorDeferred(original) = retained.into_vm_error() else {
+            panic!("original buffer error crosses VM boundary")
+        };
+        assert!(matches!(
+            original.into_buffer_error().unwrap(),
+            iroha_allocation::ChargedBufferError::Allocator { requested_bytes: 8 }
+        ));
         assert!(matches!(
             super::kura_read_attempt_error(
                 crate::kura::Error::CanonicalBlockWireMismatch { height: 3 },
@@ -652,9 +840,27 @@ mod tests {
             PreparedSignatureBlockError::Storage(iroha_allocation::ChargedBufferError::Allocator {
                 requested_bytes: 64,
             });
-        assert!(
-            matches!(prepared_signature_block_attempt_error(error, |_| panic!("physical allocator refusal")), ExecutionAttemptError::<()>::Deferred(reason) if reason.reason() == ExecutionDeferral::AllocationUnavailable)
-        );
+        let ExecutionAttemptError::<()>::Deferred(reason) =
+            prepared_signature_block_attempt_error(error, |_| panic!("physical allocator refusal"))
+        else {
+            panic!("unfinished original allocation")
+        };
+        assert_eq!(reason.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(matches!(
+            reason.allocator_refusal().unwrap().buffer_error(),
+            Some(iroha_allocation::ChargedBufferError::Allocator {
+                requested_bytes: 64
+            })
+        ));
+        let VMError::AllocatorDeferred(original) = reason.into_vm_error() else {
+            panic!("original buffer cause")
+        };
+        assert!(matches!(
+            original.into_buffer_error().unwrap(),
+            iroha_allocation::ChargedBufferError::Allocator {
+                requested_bytes: 64
+            }
+        ));
         drop(occupied);
     }
 
@@ -681,18 +887,39 @@ mod tests {
         assert_eq!(retained.allocation_refusal(), Some(&original));
         assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         let layout = std::alloc::Layout::array::<u8>(31).unwrap();
-        for cause in [
-            CertificateCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { layout }),
-            CertificateCustodyError::Control(SharedFromChargeError::Allocator { layout }),
+        for (shared, cause) in [
+            (
+                false,
+                CertificateCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { layout }),
+            ),
+            (
+                true,
+                CertificateCustodyError::Control(SharedFromChargeError::Allocator { layout }),
+            ),
         ] {
             let retained = prepared_signature_block_attempt_error(
                 PreparedSignatureBlockError::Certificate(cause),
                 |_| panic!("original physical allocator refusal must defer"),
             );
-            assert!(
-                matches!(retained, ExecutionAttemptError::<String>::Deferred(ref original)
-                if original.reason() == ExecutionDeferral::AllocationUnavailable && original.allocation_refusal().is_none())
-            );
+            let ExecutionAttemptError::<String>::Deferred(retained) = retained else {
+                panic!("original physical error")
+            };
+            assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+            assert!(retained.allocation_refusal().is_none());
+            let VMError::AllocatorDeferred(original) = retained.into_vm_error() else {
+                panic!("original lower error retained")
+            };
+            if shared {
+                assert_eq!(
+                    original.into_shared_from_charge_error().unwrap(),
+                    SharedFromChargeError::Allocator { layout }
+                );
+            } else {
+                assert_eq!(
+                    original.into_buffer_from_charge_error().unwrap(),
+                    ChargedBufferFromChargeError::Allocator { layout }
+                );
+            }
         }
         for invariant in [
             CertificateCustodyError::ForeignPool,
@@ -733,13 +960,42 @@ mod tests {
         assert_eq!(retained.allocation_refusal(), Some(&original));
         assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         let layout = std::alloc::Layout::array::<u8>(31).unwrap();
-        for cause in [
-            DaProofPolicyCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { layout }),
-            DaProofPolicyCustodyError::Control(SharedFromChargeError::Allocator { layout }),
+        for (shared, cause) in [
+            (
+                false,
+                DaProofPolicyCustodyError::Buffer(ChargedBufferFromChargeError::Allocator {
+                    layout,
+                }),
+            ),
+            (
+                true,
+                DaProofPolicyCustodyError::Control(SharedFromChargeError::Allocator { layout }),
+            ),
         ] {
-            assert!(
-                matches!(prepared_signature_block_attempt_error(PreparedSignatureBlockError::Policy(cause),|_|panic!("original physical policy refusal")),ExecutionAttemptError::<String>::Deferred(reason) if reason.reason()==ExecutionDeferral::AllocationUnavailable)
-            );
+            let ExecutionAttemptError::<String>::Deferred(retained) =
+                prepared_signature_block_attempt_error(
+                    PreparedSignatureBlockError::Policy(cause),
+                    |_| panic!("original physical policy refusal"),
+                )
+            else {
+                panic!("original physical policy error")
+            };
+            assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+            assert!(retained.allocation_refusal().is_none());
+            let VMError::AllocatorDeferred(original) = retained.into_vm_error() else {
+                panic!("original lower error retained")
+            };
+            if shared {
+                assert_eq!(
+                    original.into_shared_from_charge_error().unwrap(),
+                    SharedFromChargeError::Allocator { layout }
+                );
+            } else {
+                assert_eq!(
+                    original.into_buffer_from_charge_error().unwrap(),
+                    ChargedBufferFromChargeError::Allocator { layout }
+                );
+            }
         }
         let protocol = norito::core::DecodeLimits::new(4096, 4096, 4096, 4096, 64);
         let narrow = norito::core::DecodeLimits::new(4096, 4096, 4096, 1, 64);
@@ -982,7 +1238,9 @@ mod tests {
             PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(invalid)),
             |reason| reason,
         );
-        assert_eq!(rejected, ExecutionAttemptError::Rejected(original_message));
+        assert!(
+            matches!(rejected, ExecutionAttemptError::Rejected(actual_rejection) if actual_rejection == (original_message))
+        );
     }
 
     use super::{
@@ -1241,7 +1499,7 @@ mod tests {
     }
 
     #[test]
-    fn original_capacity_refusal_survives_owner_clone_and_budget_handle_drop() {
+    fn original_capacity_refusal_survives_owner_transfer_and_budget_handle_drop() {
         use std::{
             future::Future,
             pin::Pin,
@@ -1268,31 +1526,26 @@ mod tests {
         assert_eq!(owner.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(owner.allocation_refusal(), Some(&refusal));
         assert_eq!(owner.phase(), None);
-        let finalizer = owner.clone().at_native_lane_finalizer();
+        let finalizer = owner.at_native_lane_finalizer();
         assert_eq!(
             finalizer.phase(),
             Some(super::ExecutionPhase::NativeLaneFinalizer)
         );
-        assert_eq!(finalizer.reason(), owner.reason());
+        assert_eq!(finalizer.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(finalizer.allocation_refusal(), Some(&refusal));
-        assert_eq!(
-            ExecutionDeferred::from_vm_error(&finalizer.clone().into_vm_error()),
-            Some(owner.clone()),
-            "Core phase is not a VM category; the original refusal still crosses intact"
-        );
-        let cloned = finalizer.clone();
-        drop(finalizer);
-        drop(owner);
+        let moved = ExecutionDeferred::try_from_vm_error(finalizer.into_vm_error()).unwrap();
+        assert_eq!(moved.allocation_refusal(), Some(&refusal));
+        assert_eq!(moved.phase(), None, "Core phase is not a VM category");
         drop(budget);
         let Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) =
-            cloned.allocation_refusal()
+            moved.allocation_refusal()
         else {
             panic!("original capacity release evidence must survive");
         };
         let mut release = release.clone().wait_for_release(&mut registration);
         let wakes = Arc::new(Wakes::default());
-        let waker = Waker::from(Arc::clone(&wakes));
-        let mut context = Context::from_waker(&waker);
+        let task_waker = Waker::from(Arc::clone(&wakes));
+        let mut context = Context::from_waker(&task_waker);
         assert_eq!(Pin::new(&mut release).poll(&mut context), Poll::Pending);
         drop(occupied);
         assert_eq!(wakes.0.load(Ordering::SeqCst), 1);
@@ -1305,12 +1558,12 @@ mod tests {
         assert_eq!(allocator.reason(), ExecutionDeferral::AllocationUnavailable);
         assert!(allocator.allocation_refusal().is_none());
         assert_eq!(allocator.phase(), None);
-        let finalizer = allocator.clone().at_native_lane_finalizer();
+        let finalizer = allocator.at_native_lane_finalizer();
         assert_eq!(
             finalizer.phase(),
             Some(super::ExecutionPhase::NativeLaneFinalizer)
         );
-        assert_eq!(finalizer.reason(), allocator.reason());
+        assert_eq!(finalizer.reason(), ExecutionDeferral::AllocationUnavailable);
         assert!(finalizer.allocation_refusal().is_none());
         let overflow = ExecutionDeferred::from(iroha_allocation::AllocationRefusal::DemandOverflow);
         assert_eq!(overflow.phase(), None);
@@ -1325,18 +1578,19 @@ mod tests {
             impossible.allocation_refusal(),
             Some(iroha_allocation::AllocationRefusal::ExceedsLimit { .. })
         ));
+        let restored = ExecutionDeferred::try_from_vm_error(finalizer.into_vm_error()).unwrap();
+        assert_eq!(restored.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(restored.allocation_refusal().is_none());
+        let impossible_observation = impossible.allocation_refusal().cloned();
+        let restored = ExecutionDeferred::try_from_vm_error(impossible.into_vm_error()).unwrap();
         assert_eq!(
-            ExecutionDeferred::from_vm_error(&allocator.clone().into_vm_error()),
-            Some(allocator)
+            restored.allocation_refusal(),
+            impossible_observation.as_ref()
         );
-        assert_eq!(
-            ExecutionDeferred::from_vm_error(&impossible.clone().into_vm_error()),
-            Some(impossible)
-        );
-        assert_eq!(
-            ExecutionDeferred::from_vm_error(&ivm::VMError::OutOfMemory),
-            None
-        );
+        assert!(matches!(
+            ExecutionDeferred::try_from_vm_error(ivm::VMError::OutOfMemory),
+            Err(ivm::VMError::OutOfMemory)
+        ));
     }
 
     #[test]
@@ -1359,15 +1613,15 @@ mod tests {
             0,
         ));
         let mut transaction = block.transaction();
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         let refusal = ivm::VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity);
         transaction.vm_error_to_validation_fail(refusal, |_| {
             panic!("local refusal cannot enter deterministic mapper")
         });
         transaction.defer_execution(ExecutionDeferral::AllocationUnavailable);
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferral::ActiveMemoryCapacity.into())
+            transaction.borrow_execution_deferral().unwrap().reason(),
+            ExecutionDeferral::ActiveMemoryCapacity
         );
         assert_eq!(transaction.last_tx_gas_used, 0);
         let failure = transaction.vm_error_to_validation_fail(ivm::VMError::OutOfMemory, |error| {
@@ -1378,8 +1632,8 @@ mod tests {
             iroha_data_model::ValidationFail::NotPermitted(_)
         ));
         assert_eq!(
-            transaction.execution_deferral(),
-            Some(ExecutionDeferral::ActiveMemoryCapacity.into())
+            transaction.borrow_execution_deferral().unwrap().reason(),
+            ExecutionDeferral::ActiveMemoryCapacity
         );
     }
 
@@ -1400,9 +1654,10 @@ mod tests {
         let original = ivm::VMError::ExecutionDeferred(reason);
         let wrapped = ivm::VMError::Metered {
             gas: 91,
-            source: Box::new(original.clone()),
+            source: Box::new(original),
         };
-        let attempt = super::vm_attempt_error(wrapped.clone(), |_| {
+        assert_eq!(wrapped.metered_gas(), None);
+        let attempt = super::vm_attempt_error(wrapped, |_| {
             panic!("trace custody refusal must not enter the rejection mapper")
         });
         let ExecutionAttemptError::Deferred(retained) = attempt else {
@@ -1410,8 +1665,8 @@ mod tests {
         };
         assert_eq!(retained.reason(), reason);
         assert!(retained.allocation_refusal().is_none());
-        assert_eq!(retained.clone().into_vm_error(), original);
-        assert_eq!(wrapped.metered_gas(), None);
+        let returned_vm = retained.into_vm_error();
+        assert!(matches!(&returned_vm, VMError::ExecutionDeferred(found) if *found == reason));
 
         let owner = iroha_test_samples::ALICE_ID.clone();
         let state = State::new_for_testing(
@@ -1433,11 +1688,14 @@ mod tests {
             .world
             .domains
             .insert(domain.clone(), Domain::new(domain.clone()).build(&owner));
-        transaction.vm_error_to_validation_fail(wrapped, |_| {
+        transaction.vm_error_to_validation_fail(returned_vm, |_| {
             panic!("trace custody refusal must not become a wire rejection")
         });
         transaction.defer_execution(ExecutionDeferral::AllocationUnavailable);
-        assert_eq!(transaction.execution_deferral(), Some(retained));
+        assert_eq!(
+            transaction.borrow_execution_deferral().unwrap().reason(),
+            reason
+        );
         assert_eq!(transaction.last_tx_gas_used, 0);
         transaction.apply();
         assert!(block.world.domains.get(&domain).is_none());
@@ -1467,21 +1725,28 @@ mod tests {
         let budget = iroha_allocation::AllocationBudget::new(1);
         let occupied = budget.try_reserve_bytes(1).unwrap();
         let refusal = budget.try_reserve_bytes(1).unwrap_err();
-        for original in [
-            ivm::VMError::AllocationDeferred(refusal),
-            ivm::VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable),
-        ] {
-            let expected = ExecutionDeferred::from_vm_error(&original);
-            for (context, metadata) in [("generic-program", false), ("generic-trigger", true)] {
+        for (context, metadata) in [("generic-program", false), ("generic-trigger", true)] {
+            for allocation in [true, false] {
+                let original = if allocation {
+                    VMError::AllocationDeferred(refusal.clone())
+                } else {
+                    VMError::ExecutionDeferred(ExecutionDeferral::AllocationUnavailable)
+                };
+                let expected_reason = original.execution_deferral().unwrap();
                 let mut transaction = block.transaction();
                 let error = if metadata {
-                    ProgramAnalysisError::Metadata(original.clone())
+                    ProgramAnalysisError::Metadata(original)
                 } else {
-                    ProgramAnalysisError::Decode(original.clone())
+                    ProgramAnalysisError::Decode(original)
                 };
                 transaction.program_analysis_error_to_validation_fail(error, context);
                 transaction.defer_execution(ExecutionDeferral::ActiveMemoryCapacity);
-                assert_eq!(transaction.execution_deferral(), expected);
+                let observed = transaction.borrow_execution_deferral().unwrap();
+                assert_eq!(observed.reason(), expected_reason);
+                assert_eq!(
+                    observed.allocation_refusal(),
+                    allocation.then_some(&refusal)
+                );
                 assert_eq!(transaction.last_tx_gas_used, 0);
             }
         }
@@ -1494,7 +1759,7 @@ mod tests {
             malformed,
             iroha_data_model::ValidationFail::InternalError(_)
         ));
-        assert_eq!(transaction.execution_deferral(), None);
+        assert!(!transaction.is_execution_deferred());
         assert_eq!(transaction.last_tx_gas_used, 0);
         drop(occupied);
         assert_eq!(budget.reserved_bytes(), 0);
@@ -1563,10 +1828,10 @@ mod tests {
         >::Deferred(original.clone().into());
         stx.world.attempt_error_to_instruction_error(refusal);
         stx.defer_execution(ExecutionDeferral::AllocationUnavailable);
-        let retained = stx.execution_deferral().unwrap();
+        let retained = stx.borrow_execution_deferral().unwrap();
         assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert_eq!(retained.allocation_refusal(), Some(&original));
-        assert_eq!(*stx.world.execution_deferral.borrow(), Some(retained));
+        assert!(stx.world.execution_deferral.borrow().is_refused());
         drop(occupied);
         assert!(budget.try_reserve_bytes(1).is_ok());
     }
@@ -1607,14 +1872,14 @@ mod tests {
         let refusal =
             ExecutionAttemptError::<u8>::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into());
         let mapped = refusal.map_rejection(|_| panic!("local refusal is not a rejection"));
-        assert_eq!(
-            mapped,
-            ExecutionAttemptError::<()>::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into())
+        assert!(
+            matches!(mapped, ExecutionAttemptError::<()>::Deferred(original)
+            if original.reason() == ExecutionDeferral::ActiveMemoryCapacity)
         );
-        assert_eq!(
+        assert!(matches!(
             ExecutionAttemptError::Rejected(2).map_rejection(|n| n + 3),
             ExecutionAttemptError::Rejected(5)
-        );
+        ));
     }
     #[test]
     fn vm_projection_preserves_original_refusal_and_does_not_invoke_rejection_mapper() {
@@ -1624,17 +1889,19 @@ mod tests {
         let error = ExecutionAttemptError::<u8>::Deferred(refusal.clone().into())
             .into_vm_error(|_| panic!("local refusal cannot enter deterministic mapper"));
         assert_eq!(
-            ExecutionDeferred::from_vm_error(&error),
-            Some(refusal.into())
+            ExecutionDeferred::try_from_vm_error(error)
+                .unwrap()
+                .allocation_refusal(),
+            Some(&refusal)
         );
         drop(occupied);
-        assert_eq!(
+        assert!(matches!(
             ExecutionAttemptError::Rejected(3_u8).into_vm_error(|value| {
                 assert_eq!(value, 3);
                 ivm::VMError::PermissionDenied
             }),
-            ivm::VMError::PermissionDenied,
-        );
+            ivm::VMError::PermissionDenied
+        ));
     }
 }
 
@@ -1668,7 +1935,7 @@ mod canonical_refusal_owner_tests {
         else {
             panic!("canonical admission must defer");
         };
-        assert_eq!(retained, borrowed);
+        assert_eq!(retained.decode_refusal(), borrowed.decode_refusal());
         assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
         assert!(retained.allocation_refusal().is_none());
         assert_eq!(retained.decode_refusal(), Some(&original));
@@ -1682,10 +1949,12 @@ mod canonical_refusal_owner_tests {
         with_decode_limits_scope(limits(0), || {
             let vm = VMError::metered(41, retained.into_vm_error());
             assert_eq!(vm.fault_kind(), None);
-            let restored = ExecutionDeferred::from_vm_error(&vm).unwrap();
-            assert_eq!(restored, borrowed);
+            let (gas, vm) = vm.split_metered();
+            assert_eq!(gas, None);
+            let restored = ExecutionDeferred::try_from_vm_error(vm).unwrap();
+            assert_eq!(restored.reason(), borrowed.reason());
+            assert_eq!(restored.decode_refusal(), borrowed.decode_refusal());
             assert_eq!(restored.decode_refusal(), Some(&original));
-            assert_eq!(vm.split_metered().0, None);
         });
         assert_eq!(
             norito::decode_canonical_for_admission::<Vec<u8>>(
@@ -1752,7 +2021,7 @@ mod canonical_refusal_owner_tests {
         let rendered = retained.to_string();
         assert!(rendered.starts_with("native lane finalizer: "));
         let vm = retained.into_vm_error();
-        let restored = ExecutionDeferred::from_vm_error(&vm).unwrap();
+        let restored = ExecutionDeferred::try_from_vm_error(vm).unwrap();
         assert_eq!(restored.phase(), None);
         assert_eq!(
             restored.decode_refusal().unwrap().allocation_bytes(),
@@ -1760,3 +2029,10 @@ mod canonical_refusal_owner_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod move_only_owner_tests;
+
+#[cfg(test)]
+#[path = "execution_attempt/physical_allocator_tests.rs"]
+mod physical_allocator_tests;

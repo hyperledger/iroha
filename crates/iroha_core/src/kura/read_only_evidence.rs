@@ -129,7 +129,7 @@ impl std::fmt::Debug for CanonicalKuraEvidenceComplete {
             .field("committed_height", &self.committed_height)
             .field("carrier_count", &self.carrier_count)
             .field("output_bytes", &self.output_bytes)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl CanonicalKuraEvidenceComplete {
@@ -139,9 +139,9 @@ impl CanonicalKuraEvidenceComplete {
     /// retain this capability through its final durability check.
     ///
     /// # Errors
-    /// Returns an error if a retained directory or file identity has changed,
-    /// its metadata cannot be read, or secure source checks are unsupported on
-    /// this platform.
+    ///
+    /// Returns an error if retained source identities or contents changed,
+    /// source revalidation fails, or the platform lacks the required descriptor APIs.
     pub fn recheck_sources(&self) -> CanonicalKuraEvidenceResult<()> {
         #[cfg(all(unix, not(any(target_os = "redox", target_os = "espidf"))))]
         {
@@ -159,9 +159,10 @@ impl CanonicalKuraEvidenceComplete {
     /// cross this boundary; no raw descriptor or arbitrary callback escapes.
     ///
     /// # Errors
-    /// Returns an error if ancestry is empty or exceeds its bound, publication
-    /// falls inside a retained source namespace, a source identity check fails,
-    /// or secure source checks are unsupported on this platform.
+    ///
+    /// Returns an error if ancestry is empty or exceeds 64 entries, overlaps a
+    /// read source namespace, fails source revalidation, or the platform lacks
+    /// the required descriptor APIs.
     pub fn ensure_publication_ancestry(
         &self,
         ancestry: &[(u64, u64)],
@@ -570,16 +571,16 @@ mod canonical_evidence_read_only_fs {
     impl Identity {
         fn new(value: Stat) -> Result<Self> {
             Ok(Self {
-                dev: value.st_dev as u64,
-                ino: value.st_ino as u64,
+                dev: crate::kura::unix_device_identity(value.st_dev),
+                ino: value.st_ino,
                 mode: value.st_mode,
                 uid: value.st_uid,
                 gid: value.st_gid,
                 links: value.st_nlink as u64,
                 size: u64::try_from(value.st_size)
                     .map_err(|_| Error::Invalid("negative file size"))?,
-                modified: (value.st_mtime as i64, value.st_mtime_nsec as i64),
-                changed: (value.st_ctime as i64, value.st_ctime_nsec as i64),
+                modified: (value.st_mtime, value.st_mtime_nsec),
+                changed: (value.st_ctime, value.st_ctime_nsec),
             })
         }
         fn same_owner(self, other: Self) -> bool {

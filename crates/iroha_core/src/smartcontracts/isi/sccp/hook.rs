@@ -168,6 +168,11 @@ fn local_or_degraded<T>(
     match result {
         Ok(value) => Ok(Some(value)),
         Err(GenerationError::Degraded(reason)) => {
+            if cfg!(all(test, sumeragi_core_mutation = "HC310")) {
+                return Err(BlockValidationError::ExecutionContextInvalid(
+                    "missing SCCP generation input".to_owned(),
+                ));
+            }
             *failure = Some(reason);
             Ok(None)
         }
@@ -319,8 +324,7 @@ pub fn finalize_block(
         degrade(&mut stx, height, reason);
     }
     light_clients::prune(&mut stx, MAX_PRUNE_DELETIONS_PER_BLOCK);
-    // TODO: WP-S6: generation/anchor-root retirement requires the real Pending SCCP forgery
-    // State and instruction owner. Never replace that missing authority with an empty set.
+    super::pruning::prune(&mut stx).map_err(BlockValidationError::StateStorageAdmission)?;
     generations::clear_destinations(&mut stx)
         .map_err(BlockValidationError::StateStorageAdmission)?;
     stx.apply();
@@ -673,13 +677,17 @@ mod tests {
         }
         let before = block.world.sccp_execution_write_set_bytes();
         let _ = observed::take();
-        finalize_block(
+        let outcome = finalize_block(
             &mut block,
             &candidate,
             None,
             iroha_data_model::block::consensus::SumeragiRootScope::Global,
-        )
-        .expect("no leaves");
+        );
+        assert!(
+            outcome.is_ok(),
+            "missing SCCP inputs must degrade the extension without invalidating ordinary execution"
+        );
+        assert!(!outcome.unwrap().is_active());
         assert_ne!(block.world.sccp_execution_write_set_bytes(), before);
         assert_eq!(*store::degraded_run::get(&block.world), 1);
         assert_eq!(store::history::get(&block.world).size, 0);
@@ -709,6 +717,72 @@ mod tests {
         nexus.staking.unbonding_delay =
             std::time::Duration::from_millis(super::super::test_support::SCCP_UNBONDING_DELAY_MS);
         nexus.staking.max_slash_bps = 10_000;
+        if scope == iroha_data_model::block::consensus::SumeragiRootScope::Global {
+            use iroha_data_model::{
+                Registrable,
+                account::{Account, AccountId},
+                asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+                domain::Domain,
+                isi::RegisterPublicLaneValidator,
+                nexus::PublicLaneMonetaryPlanV1,
+            };
+            use iroha_primitives::numeric::{NumericSpec, Quantity};
+
+            // G1 captures genuine original staking records. Fund the normal genesis
+            // registration plan before the sole SCCP initializer executes.
+            let owner = AccountId::new(config.genesis_key.public_key().clone());
+            let definition: AssetDefinitionId = nexus.staking.stake_asset_id.parse().unwrap();
+            let escrow = AccountId::parse_encoded(&nexus.staking.stake_escrow_account_id).unwrap();
+            let amount = Quantity::from(1_000_u32);
+            let validators = crate::sumeragi::test_chain::fixture_validators();
+            let accounts = validators
+                .iter()
+                .map(|(peer, _)| AccountId::new(peer.public_key().clone()))
+                .collect::<Vec<_>>();
+            config.world = World::with_assets(
+                [Domain::new(
+                    iroha_model_base::domain::DomainId::try_new("nexus", "universal").unwrap(),
+                )
+                .build(&owner)],
+                accounts
+                    .iter()
+                    .chain([&escrow])
+                    .map(|account| Account::new(account.clone()).build(&owner)),
+                [AssetDefinition::new(
+                    definition.clone(),
+                    "Network XOR",
+                    NumericSpec::fractional(9),
+                    AssetBalancePolicy::Global,
+                    None,
+                )
+                .build(&owner)],
+                accounts.iter().map(|account| {
+                    Asset::new(
+                        AssetId::new(definition.clone(), account.clone()),
+                        amount.clone(),
+                    )
+                }),
+                [],
+            );
+            for ((peer, _), validator) in validators.iter().zip(accounts) {
+                config.genesis_instructions.push(
+                    RegisterPublicLaneValidator {
+                        lane_id: iroha_model_base::topology::LaneId::SINGLE,
+                        validator: validator.clone(),
+                        peer_id: peer.clone(),
+                        stake_account: validator.clone(),
+                        initial_stake: amount.clone(),
+                        metadata: iroha_model_base::metadata::Metadata::default(),
+                        monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
+                            AssetId::new(definition.clone(), validator),
+                            AssetId::new(definition.clone(), escrow.clone()),
+                            amount.clone(),
+                        ),
+                    }
+                    .into(),
+                );
+            }
+        }
         if let iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
             dataspace_id,
             ..
@@ -834,7 +908,10 @@ mod tests {
         assert_eq!(committed.block().header().creation_time_ms, time);
         let header = committed.certified_result().header();
         assert!(header.is_active());
-        assert!(header.is_rotation());
+        assert!(
+            header.is_rotation(),
+            "a due heartbeat must rotate the unchanged native committee"
+        );
         assert_eq!(
             header.generation(),
             1,

@@ -239,6 +239,10 @@ fn paid(
 }
 
 /// Assert all real XOR balances, both reserve families and supply across one actual transaction.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the certified chain commit consumes its complete control witness"
+)]
 fn commit_checked(
     chain: &mut CertifiedTestChain,
     signed: SignedTransaction,
@@ -425,7 +429,7 @@ fn install_beacon(chain: &mut CertifiedTestChain, beacon: &Beacon, keys: &[KeyPa
         .take(usize::from(quorum))
         .enumerate()
         .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
-            signer_index: index as u16,
+            signer_index: u16::try_from(index).expect("fixture value fits u16"),
             signature: iroha_crypto::Signature::try_new(key.private_key(), &bytes).unwrap(),
         })
         .collect();
@@ -478,8 +482,10 @@ fn advance(chain: &mut CertifiedTestChain, target: u64, beacon: &Beacon) {
                     )
                     .unwrap();
             }
-            crate::sumeragi::epoch_beacon::control::encode(Some(aggregate.finalize().unwrap()))
-                .unwrap()
+            crate::sumeragi::epoch_beacon::control::encode(
+                Some(aggregate.finalize().unwrap()).as_ref(),
+            )
+            .unwrap()
         } else {
             ControlWitness::empty()
         };
@@ -771,7 +777,9 @@ pub(super) fn finish_after_real_detector_penalty(
         .clone();
     let generation = transition.preparation.generation();
     for (index, key) in target_keys.iter().enumerate() {
-        let context = transition.readiness_context(index as u32).unwrap();
+        let context = transition
+            .readiness_context(u32::try_from(index).expect("fixture value fits u32"))
+            .unwrap();
         let peer = PeerId::new(key.public_key().clone());
         let mut rebound = context.clone();
         rebound.transition_id[0] ^= 1;
@@ -790,7 +798,7 @@ pub(super) fn finish_after_real_detector_penalty(
             .check_prepared_seat_binding(&peer, &generation, &context)
             .unwrap();
         let readiness = ValidatorCommitteeSeatReadinessV1 {
-            validator_index: index as u32,
+            validator_index: u32::try_from(index).expect("fixture value fits u32"),
             beacon: prove_global_threshold_beacon_seat_readiness_v1(
                 &prepared.signers[index],
                 &prepared.session,

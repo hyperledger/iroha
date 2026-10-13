@@ -137,9 +137,9 @@ fn pipeline_physical_append_prepend_replacement_and_exact_retry_match_actual_fil
     for height in [2_u64, 1] {
         let sidecar = PipelineRecoverySidecar::new(
             height,
-            hashes[usize::try_from(height - 1).unwrap()],
+            hashes[usize::try_from(height - 1).expect("fixture value fits usize")],
             PipelineDagSnapshot {
-                fingerprint: [u8::try_from(height).unwrap(); 32],
+                fingerprint: [u8::try_from(height).expect("fixture value fits u8"); 32],
                 key_count: 1,
             },
             Vec::new(),

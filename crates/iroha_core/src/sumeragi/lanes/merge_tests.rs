@@ -128,14 +128,28 @@ fn policy() -> SumeragiLanePolicy {
 
 struct NoTransactions;
 impl LaneTransactions for NoTransactions {
+    type Lease = ();
+
     fn candidates(
         &self,
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<TransactionEntrypoint>, crate::sumeragi::lanes::executor::LaneSelectionError>
-    {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<TransactionEntrypoint>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 
@@ -320,7 +334,7 @@ impl Fixture {
         let block = authored.body;
         let block_hash = block.hash(&*self.crypto);
         let outcome = executor.execute(&block, &block_hash, false);
-        let Some(ExecOutcome::Valid(result)) = outcome else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = outcome else {
             panic!("original lane execution must succeed: {outcome:?}");
         };
         let crypto = BlsCrypto::new();
@@ -395,6 +409,7 @@ impl Fixture {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &MergeProposal {
@@ -800,7 +815,8 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         Assembly {
             parent: parent.block(),
             view: 0,
-            cadence: cadence + Duration::from_millis(1),
+            cadence: cadence.checked_sub(Duration::from_millis(1)).unwrap(),
+            proposed_time: std::time::Duration::ZERO,
         },
         &[],
         &merges,
@@ -859,7 +875,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
     .expect("wrong original cadence must reject");
     assert!(matches!(
         *error,
-        BlockValidationError::NonCanonicalBlockTime { .. }
+        BlockValidationError::BlockTimeBeforeRequiredFloor { .. }
     ));
     assert_eq!(rejected.merged_entrypoint_count(), 1);
     assert_ne!(
@@ -873,7 +889,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
     assert_eq!(event.header, original_header);
     assert_eq!(
         event.status,
-        BlockStatus::Rejected(BlockRejectionReason::BlockInTheFuture)
+        BlockStatus::Rejected(BlockRejectionReason::BlockInThePast)
     );
     assert_eq!(state.state_view_generation(), generation);
     assert_eq!(state.view().height(), 3);

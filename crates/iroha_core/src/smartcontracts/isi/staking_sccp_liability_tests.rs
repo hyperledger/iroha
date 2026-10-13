@@ -121,18 +121,17 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
     let destination = AssetId::new(asset_definition, validator.clone());
     let source_before = stx.world.assets.get(&source).unwrap().clone();
     let destination_before = stx.world.assets.get(&destination).unwrap().clone();
-    let error = FinalizePublicLaneUnbond {
+    let result = FinalizePublicLaneUnbond {
         monetary_plan: fixture_unbond_plan(&stx, lane_id, &validator, &validator, request_id),
         lane_id,
         validator: validator.clone(),
         staker: validator.clone(),
         request_id,
     }
-    .execute(&validator, &mut stx)
-    .unwrap_err();
+    .execute(&validator, &mut stx);
     assert!(
-        matches!(&error, Error::InvariantViolation(message) if message.starts_with("SccpLiabilityActive:")),
-        "unexpected withdrawal or replacement refusal: {error}"
+        matches!(&result, Err(Error::InvariantViolation(message)) if message.starts_with("SccpLiabilityActive:")),
+        "SC15 must retain an unbond while its original SCCP generation is liable"
     );
     assert_eq!(
         stx.world.public_lane_stake_shares.get(&key),

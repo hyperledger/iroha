@@ -338,7 +338,8 @@ fn activate_bound_payout_runtime(
     feed.feed_id = binding.reference_feed_id.clone();
     feed.feed_config_version =
         iroha_data_model::oracle::FeedConfigVersion(binding.reference_feed_config_version);
-    feed.providers = binding.reference_provider_accounts.clone();
+    feed.providers
+        .clone_from(&binding.reference_provider_accounts);
     feed.min_signers = 3;
     feed.committee_size = 5;
     state_tx

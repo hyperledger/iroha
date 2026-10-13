@@ -849,6 +849,16 @@ mod block {
                 None => self.get(key),
             }
         }
+        /// Iterate the original block preimage in key order without copying keys or values.
+        /// Applied siblings retain the first preimage; replacement blocks start at their
+        /// reverted baseline. This is the same ordered borrowed merge used by transactions.
+        pub fn iter_before_block(&self) -> impl Iterator<Item = (&K, &V)> {
+            self.assert_operable();
+            super::history::before_block_iter(
+                self.writers.as_ref().blocks.iter(),
+                self.writers.as_ref().revert.iter(),
+            )
+        }
         /// Visit this block's touched keys with their exact pre-block and current values.
         ///
         /// Entries are ordered by `K::Ord`, independent of mutation order. The
@@ -1830,6 +1840,36 @@ mod tests {
 
         *block.get_mut(&4).expect("existing fixture value") += 1;
         assert_eq!(block.get_before_block(&4), Some(&40));
+    }
+
+    #[test]
+    fn block_preimage_iterator_retains_siblings_and_replacement_baseline() {
+        let storage = Storage::from_iter([(1_u64, 10_u64), (2, 20), (4, 40)]);
+        let original = [(1, 10), (2, 20), (4, 40)];
+        let mut block = storage.block();
+        block.remove(1);
+        let mut sibling = block.transaction();
+        sibling.insert(2, 99);
+        sibling.insert(3, 30);
+        sibling.apply();
+        assert_eq!(
+            block
+                .iter_before_block()
+                .map(|(k, v)| (*k, *v))
+                .collect::<Vec<_>>(),
+            original
+        );
+        block.commit();
+        let mut replacement = storage.block_and_revert();
+        replacement.insert(5, 50);
+        replacement.remove(4);
+        assert_eq!(
+            replacement
+                .iter_before_block()
+                .map(|(k, v)| (*k, *v))
+                .collect::<Vec<_>>(),
+            original
+        );
     }
     #[test]
     fn get_before_block_observes_only_applied_transaction_mutations() {

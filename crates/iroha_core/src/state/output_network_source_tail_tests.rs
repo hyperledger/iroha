@@ -28,16 +28,17 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
         .expect("canonical network XOR fee asset");
         let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
         state.nexus.get_mut().fees.base_fee = Quantity::zero();
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.tech_account_id = CARPENTER_ID.to_string();
-        gas.accepted_assets = vec![asset.canonical_address()];
-        gas.units_per_gas = vec![GasRate {
-            asset: asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: Numeric::one(),
-            liquidity: GasLiquidity::Tier1,
-            volatility: GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: CARPENTER_ID.to_string(),
+            accepted_assets: vec![asset.canonical_address()],
+            units_per_gas: vec![GasRate {
+                asset: asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: Numeric::one(),
+                liquidity: GasLiquidity::Tier1,
+                volatility: GasVolatility::Stable,
+            }],
+        };
         {
             let mut parameters = state.world.parameters.block();
             for parameter in crate::pipeline_gas_policy::parameters_for_testing(gas) {
@@ -88,7 +89,8 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
             Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
             Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
         ];
-        let expected_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
+        let expected_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("gas quote must complete for this fixture");
         assert!(expected_gas > 0 && expected_gas < 1_000_000_000);
         let fee = Quantity::from(expected_gas);
         let remaining = initial.checked_sub(&fee).unwrap();

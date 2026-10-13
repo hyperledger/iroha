@@ -292,7 +292,7 @@ destination!(Header, ConsensusThresholdCredentialHeaderV1, {
     5 => revision: u64 = |f, _, _| fixed(f),
     6 => policy_digest: [u8; 32] = |f, _, _| raw(f),
 });
-destination!(Dealer, TleAdaptiveDealerCommitmentV1, {
+destination!(DealerDestination, TleAdaptiveDealerCommitmentV1, {
     0 => dealer_index: u16 = |f, _, _| fixed(f),
     1 => coefficient_commitments: Vec<[u8; 96]> = |f, b, l| sequence::<_, MAX_DEALER_COEFFICIENTS_V1>(f, b, l, |f, _, _| fixed(f)),
     2 => constant_pok_commitment: [u8; 96] = |f, _, _| raw(f),
@@ -342,7 +342,11 @@ macro_rules! decode_record {
     };
 }
 decode_record!(decode_header, Header, ConsensusThresholdCredentialHeaderV1);
-decode_record!(decode_dealer, Dealer, TleAdaptiveDealerCommitmentV1);
+decode_record!(
+    decode_dealer,
+    DealerDestination,
+    TleAdaptiveDealerCommitmentV1
+);
 decode_record!(decode_public_share, PublicShare, TleAdaptivePublicShareV1);
 decode_record!(decode_state, State, TleKeySessionPublicStateV1);
 decode_record!(
@@ -695,7 +699,11 @@ mod raw_field_adapter_tests {
     }
 
     fn hash(seed: u8) -> [u8; 32] {
-        std::array::from_fn(|i| (i as u8).wrapping_add(seed))
+        std::array::from_fn(|i| {
+            u8::try_from(i)
+                .expect("fixture index fits u8")
+                .wrapping_add(seed)
+        })
     }
 
     #[test]
@@ -736,16 +744,28 @@ mod raw_field_adapter_tests {
             let dealer = TleAdaptiveDealerCommitmentV1 {
                 dealer_index: 3,
                 coefficient_commitments: vec![
-                    std::array::from_fn(|i| (i as u8).wrapping_add(0x31)),
-                    std::array::from_fn(|i| (i as u8).wrapping_add(0x91)),
+                    std::array::from_fn(|i| {
+                        u8::try_from(i)
+                            .expect("fixture index fits u8")
+                            .wrapping_add(0x31)
+                    }),
+                    std::array::from_fn(|i| {
+                        u8::try_from(i)
+                            .expect("fixture index fits u8")
+                            .wrapping_add(0x91)
+                    }),
                 ],
-                constant_pok_commitment: std::array::from_fn(|i| (i as u8).wrapping_add(0x51)),
+                constant_pok_commitment: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixture index fits u8")
+                        .wrapping_add(0x51)
+                }),
                 constant_pok_response: hash(0x71),
             };
             let mut decode_dealer = |bytes: &[u8]| {
                 let result = {
                     let mut ledger = Ledger::new(&pool).unwrap();
-                    let mut destination = Dealer::new(&pool, &mut ledger);
+                    let mut destination = DealerDestination::new(&pool, &mut ledger);
                     TleAdaptiveDealerCommitmentV1::decode_fields(bytes, &mut destination).map(
                         |(_, used)| {
                             let decoded = destination.finish().unwrap();
@@ -767,7 +787,11 @@ mod raw_field_adapter_tests {
             let share = TleAdaptivePublicShareV1 {
                 index: 3,
                 participant_hash: hash(0x81),
-                public_key_share: std::array::from_fn(|i| (i as u8).wrapping_add(0xa1)),
+                public_key_share: std::array::from_fn(|i| {
+                    u8::try_from(i)
+                        .expect("fixture index fits u8")
+                        .wrapping_add(0xa1)
+                }),
             };
             let mut decode_share = |bytes: &[u8]| {
                 let result = {

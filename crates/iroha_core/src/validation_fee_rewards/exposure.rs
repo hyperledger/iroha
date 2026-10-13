@@ -574,16 +574,25 @@ mod tests {
     #[test]
     fn encoded_byte_capacity_rolls_over_before_entry_capacity() {
         let member_count = (1..16)
-            .filter(|count| ensure_reward_identity(&multisig(0, *count)).is_ok())
-            .last()
+            .rfind(|count| ensure_reward_identity(&multisig(0, *count)).is_ok())
             .unwrap();
         let mut stakes = (0..MAX_REWARD_RECIPIENTS)
-            .map(|index| (multisig(index as u32, member_count), Quantity::one()))
+            .map(|index| {
+                (
+                    multisig(
+                        u32::try_from(index).expect("fixture value fits u32"),
+                        member_count,
+                    ),
+                    Quantity::one(),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
         let mut source = page();
         for index in 1..=MAX_REWARD_EXPOSURE_ENTRIES / MAX_REWARD_RECIPIENTS {
             let value: Quantity = format!("{}{}1", index, "0".repeat(150)).parse().unwrap();
-            stakes.values_mut().for_each(|stake| *stake = value.clone());
+            for stake in stakes.values_mut() {
+                *stake = value.clone();
+            }
             let previous = source.clone();
             if !append(&mut source, &stakes).unwrap() {
                 assert_eq!(
@@ -970,10 +979,10 @@ mod tests {
                 .public_lane_stake_shares
                 .insert(self_key, validator);
             stx.world.public_lane_stake_shares.remove(nominator_key);
-            let late = crate::validation_fee_rewards::tests::account(99);
+            let late_beneficiary = crate::validation_fee_rewards::tests::account(99);
             stx.world.public_lane_stake_shares.insert(
-                (lane, ALICE_ID.clone(), late.clone()),
-                make_share(late, 500u32),
+                (lane, ALICE_ID.clone(), late_beneficiary.clone()),
+                make_share(late_beneficiary, 500u32),
             );
             stx.apply();
         }

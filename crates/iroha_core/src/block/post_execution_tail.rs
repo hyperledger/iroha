@@ -68,8 +68,8 @@ impl ValidBlock {
         let committed_fragment_count =
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
-            committed_fragment_count,
             sccp_finality_header,
+            committed_fragment_count,
         })
     }
 

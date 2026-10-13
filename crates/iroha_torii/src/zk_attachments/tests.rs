@@ -1773,7 +1773,9 @@ fn read_limited_rejects_expired_deadline_before_read() {
     let err = super::read_limited(
         io::Cursor::new(b"hello".as_slice()),
         16,
-        Instant::now() - Duration::from_millis(1),
+        Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .expect("one millisecond before the fixture clock"),
     )
     .expect_err("expired deadline");
     assert_eq!(err.reason, SanitizeRejectReason::Sandbox);
@@ -2134,7 +2136,7 @@ fn mutation_journal_rejects_a_second_operation_kind() {
     assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     assert!(matches!(
         super::load_attachment_mutation_transaction().expect("load retained mutation"),
-        Some(super::AttachmentMutationTransaction::Write(retained)) if retained == write
+        Some(super::AttachmentMutationTransaction::Write(retained)) if *retained == write
     ));
     super::clear_attachment_mutation_transaction().expect("clear test mutation");
 }

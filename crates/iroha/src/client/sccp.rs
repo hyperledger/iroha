@@ -4,7 +4,7 @@
 //! bundles locally before using them.
 //! Proofs select a committed certificate height; readers independently verify its authority.
 
-use std::num::NonZeroU64;
+use std::{fmt::Write as _, num::NonZeroU64};
 
 use super::{Client, dispatch, join_torii_url};
 use crate::{Error, Result, http::Method};
@@ -153,7 +153,7 @@ impl Sccp<'_> {
         Ok(response)
     }
 
-    /// Read the Taira identity, parameters and light-client profiles.
+    /// Read the Taira identity, parameters, current coalition collateral and light-client profiles.
     ///
     /// # Errors
     /// Returns structured transport, HTTP or decoding errors.
@@ -214,6 +214,18 @@ impl Sccp<'_> {
         self.get(sccp::GOVERNANCE, sccp::GOVERNANCE.path()).await
     }
 
+    /// Read governance readiness at one committed state observation.
+    ///
+    /// # Errors
+    /// Returns structured transport, HTTP or decoding errors.
+    pub async fn governance_readiness(&self) -> Result<iroha_sccp::api::SccpGovernanceReadinessV1> {
+        self.get(
+            sccp::GOVERNANCE_READINESS,
+            sccp::GOVERNANCE_READINESS.path(),
+        )
+        .await
+    }
+
     /// Read every open SCCP governance proposal, oldest first.
     ///
     /// # Errors
@@ -260,6 +272,80 @@ impl Sccp<'_> {
     /// Returns structured transport, HTTP or decoding errors.
     pub async fn registry(&self) -> Result<Vec<SccpRouteV1>> {
         self.get(sccp::REGISTRY, sccp::REGISTRY.path()).await
+    }
+
+    /// Read effective revision holds and scalar reconciliation accounting.
+    /// # Errors
+    /// Returns structured transport, HTTP or decoding errors.
+    pub async fn forgery_hold(
+        &self,
+        query: iroha_sccp::api::SccpForgeryHoldQuery,
+    ) -> Result<iroha_sccp::api::SccpForgeryHoldViewV1> {
+        let mut path = format!("{}?limit={}", sccp::FORGERY_HOLD.path(), query.limit);
+        if let Some(network) = query.network {
+            write!(path, "&network={}", network.profile_key())
+                .expect("writing to a String cannot fail");
+        }
+        if let Some(revision) = query.revision {
+            write!(path, "&revision={revision}").expect("writing to a String cannot fail");
+        }
+        if let Some(after) = query.after {
+            write!(
+                path,
+                "&after_network={}&after_revision={}",
+                after.network.profile_key(),
+                after.revision
+            )
+            .expect("writing to a String cannot fail");
+        }
+        self.get(sccp::FORGERY_HOLD, &path).await
+    }
+
+    /// Read original fast-pause state and explicit current-seat eligibility availability.
+    /// # Errors
+    /// Preserves structured transport, HTTP and decoding errors.
+    pub async fn fast_pause(&self) -> Result<iroha_sccp::api::SccpFastPauseViewV1> {
+        self.get(sccp::FAST_PAUSE, sccp::FAST_PAUSE.path()).await
+    }
+
+    /// Read a retained original anchor witness for one nonzero committed height.
+    /// # Errors
+    /// Preserves source pruning, transport, HTTP and decoding errors.
+    pub async fn anchor_witness(
+        &self,
+        height: NonZeroU64,
+    ) -> Result<iroha_sccp::api::SccpAnchorWitnessBundleV1> {
+        self.get(
+            sccp::EVIDENCE_ANCHOR,
+            &format!("/v1/sccp/evidence/anchor/{height}"),
+        )
+        .await
+    }
+
+    /// Read the exact committed forgery report identified by its original id.
+    /// # Errors
+    /// Preserves source absence, HTTP, transport and decoding errors.
+    pub async fn evidence(
+        &self,
+        id: &[u8; 32],
+    ) -> Result<iroha_sccp::api::SccpForgeryEvidenceStatusV1> {
+        self.get(sccp::EVIDENCE, &path(sccp::EVIDENCE, &[&hex32(id)]))
+            .await
+    }
+
+    /// Read at most 64 forgery reports after an exclusive original-id cursor.
+    /// # Errors
+    /// Preserves invalid limits, source, HTTP, transport and decoding errors.
+    pub async fn evidence_page(
+        &self,
+        after: Option<[u8; 32]>,
+        limit: usize,
+    ) -> Result<iroha_sccp::api::SccpForgeryEvidencePageV1> {
+        let mut target = format!("{}?limit={limit}", sccp::EVIDENCE_PAGE.path());
+        if let Some(after) = after {
+            write!(&mut target, "&after={}", hex32(&after)).expect("String writes cannot fail");
+        }
+        self.get(sccp::EVIDENCE_PAGE, &target).await
     }
 
     /// Read the status union of one message id: an outbound record with its state, an inbound
@@ -585,15 +671,31 @@ mod tests {
             .build()
             .unwrap();
         let id = [0xab; 32];
+        let hold_query = iroha_sccp::api::SccpForgeryHoldQuery {
+            network: Some(SccpNetworkV1::TonMainnet),
+            revision: None,
+            after: Some(iroha_sccp::api::SccpForgeryHoldCursorV1 {
+                network: SccpNetworkV1::TonMainnet,
+                revision: 7,
+            }),
+            limit: 2,
+        };
         let expected = [
+            sccp::CAPABILITIES,
             sccp::MESSAGE_PROOF,
             sccp::CONTROL_PROOF,
             sccp::FINALITY,
             sccp::COMMITTEE_ROTATIONS,
             sccp::CURRENT_COMMITTEE,
             sccp::COMMITTEE,
+            sccp::FORGERY_HOLD,
+            sccp::FAST_PAUSE,
+            sccp::EVIDENCE_ANCHOR,
+            sccp::EVIDENCE,
+            sccp::EVIDENCE_PAGE,
+            sccp::GOVERNANCE_READINESS,
         ];
-        let check = |errors: [Option<Error>; 6]| {
+        let check = |errors: [Option<Error>; 13]| {
             for (error, route) in errors.into_iter().zip(expected) {
                 match error.expect("unavailable source") {
                     Error::Http {
@@ -613,6 +715,7 @@ mod tests {
         };
         runtime.block_on(async {
             check([
+                client.sccp().capabilities().await.err(),
                 client
                     .sccp()
                     .message_proof(&id, SccpProofHeightV1::Record)
@@ -631,9 +734,20 @@ mod tests {
                 client.sccp().rotations(4, 16).await.err(),
                 client.sccp().current_committee().await.err(),
                 client.sccp().committee(1).await.err(),
+                client.sccp().forgery_hold(hold_query).await.err(),
+                client.sccp().fast_pause().await.err(),
+                client
+                    .sccp()
+                    .anchor_witness(NonZeroU64::new(1).unwrap())
+                    .await
+                    .err(),
+                client.sccp().evidence(&id).await.err(),
+                client.sccp().evidence_page(Some(id), 2).await.err(),
+                client.sccp().governance_readiness().await.err(),
             ]);
-            // All six blocking operations reject an async context before I/O.
+            // All thirteen blocking operations reject an async context before I/O.
             let errors = [
+                blocking.sccp().capabilities().err(),
                 blocking
                     .sccp()
                     .message_proof(&id, SccpProofHeightV1::Record)
@@ -646,6 +760,15 @@ mod tests {
                 blocking.sccp().rotations(4, 16).err(),
                 blocking.sccp().current_committee().err(),
                 blocking.sccp().committee(1).err(),
+                blocking.sccp().forgery_hold(hold_query).err(),
+                blocking.sccp().fast_pause().err(),
+                blocking
+                    .sccp()
+                    .anchor_witness(NonZeroU64::new(1).unwrap())
+                    .err(),
+                blocking.sccp().evidence(&id).err(),
+                blocking.sccp().evidence_page(Some(id), 2).err(),
+                blocking.sccp().governance_readiness().err(),
             ];
             assert!(
                 errors
@@ -654,6 +777,7 @@ mod tests {
             );
         });
         check([
+            blocking.sccp().capabilities().err(),
             blocking
                 .sccp()
                 .message_proof(&id, SccpProofHeightV1::Record)
@@ -669,23 +793,39 @@ mod tests {
             blocking.sccp().rotations(4, 16).err(),
             blocking.sccp().current_committee().err(),
             blocking.sccp().committee(1).err(),
+            blocking.sccp().forgery_hold(hold_query).err(),
+            blocking.sccp().fast_pause().err(),
+            blocking
+                .sccp()
+                .anchor_witness(NonZeroU64::new(1).unwrap())
+                .err(),
+            blocking.sccp().evidence(&id).err(),
+            blocking.sccp().evidence_page(Some(id), 2).err(),
+            blocking.sccp().governance_readiness().err(),
         ]);
         let requests = requests.lock().unwrap();
-        assert_eq!(requests.len(), 12);
+        assert_eq!(requests.len(), 26);
         let expected_paths = [
+            "/v1/sccp/capabilities".into(),
             format!("/v1/sccp/messages/{}/proof?at=record", hex32(&id)),
             "/v1/sccp/controls/ton-mainnet/2/3/proof?at=latest".into(),
             "/v1/sccp/finality/7".into(),
             "/v1/sccp/committees/rotations?after_generation=4&limit=16".into(),
             "/v1/sccp/committees/current".into(),
             "/v1/sccp/committees/1".into(),
+            "/v1/sccp/forgery-hold?limit=2&network=ton-mainnet&after_network=ton-mainnet&after_revision=7".into(),
+            "/v1/sccp/fast-pause".into(),
+            "/v1/sccp/evidence/anchor/1".into(),
+            format!("/v1/sccp/evidence/{}", hex32(&id)),
+            format!("/v1/sccp/evidence?limit=2&after={}", hex32(&id)),
+            "/v1/sccp/governance/readiness".into(),
         ];
         for (index, request) in requests.iter().enumerate() {
             assert_eq!(request.method, Method::GET);
             assert_eq!(request.max_response_bytes, MAX_RESPONSE_BYTES);
             assert_eq!(
                 &request.url[url::Position::BeforePath..],
-                expected_paths[index % 6]
+                expected_paths[index % expected_paths.len()]
             );
         }
     }

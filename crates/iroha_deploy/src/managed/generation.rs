@@ -32,12 +32,9 @@ fn read_generation(generation: &PrivateDirectory) -> Result<RetainedLocalnet> {
 
 /// Discard only a never-published stage while the caller exclusively owns the context operation.
 fn fresh_stage(directory: &PrivateDirectory) -> Result<PrivateDirectory> {
-    match directory.open_child_optional(STAGING)? {
-        Some(stage) => {
-            stage.clear_contents_preserving(&[])?;
-            stage.remove_empty()?;
-        }
-        None => {}
+    if let Some(stage) = directory.open_child_optional(STAGING)? {
+        stage.clear_contents_preserving(&[])?;
+        stage.remove_empty()?;
     }
     Ok(directory.create_child(STAGING)?)
 }

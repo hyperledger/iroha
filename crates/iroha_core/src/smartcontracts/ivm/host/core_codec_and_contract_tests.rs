@@ -53,10 +53,13 @@ fn host_codec_bytes_hash_gas_and_lengths_ignore_ambient_layout() {
             .expect("decode canonical Name under ambient layout"),
         name
     );
-    assert_eq!(
-        CoreHost::decode_name_payload(&alternate_name),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(CoreHost::decode_name_payload(&alternate_name)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     assert_eq!(
         decode_canonical_norito::<StatePath>(&canonical_path)
             .expect("decode canonical StatePath under ambient layout"),
@@ -390,10 +393,16 @@ fn contract_subject_sysvar_returns_bound_subject_and_fails_outside_contract_scop
             .expect("decode contract subject");
     assert_eq!(observed, subject);
     let mut host = local_contract_host(authority);
-    assert_eq!(
-        host.syscall(ivm_sys::SYSCALL_SYSVAR_CONTRACT_SUBJECT, &mut vm),
-        Err(ivm::VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(host.syscall(ivm_sys::SYSCALL_SYSVAR_CONTRACT_SUBJECT, &mut vm)),
+            &(ivm::VMError::PermissionDenied)
+        ),
+        (
+            Err(ivm::VMError::PermissionDenied),
+            ivm::VMError::PermissionDenied
+        )
+    ));
 }
 fn build_fixture_account(id: &AccountId, authority: &AccountId) -> Account {
     Account::new(id.clone()).build(authority)
@@ -746,7 +755,7 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
   view fn inspect_other() authorize(InspectOther) -> int { return 9; }
 }
 ";
-    let callee = install_contract(&state, &authority, source, 91);
+    let target_contract = install_contract(&state, &authority, source, 91);
     let other_callee = install_contract(&state, &authority, source, 92);
     let caller_subject = caller.subject_id();
     let check = |holder: &AccountId, contract: &ContractAddress, selector: &str| {
@@ -769,25 +778,25 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
         .map_err(crate::execution_attempt::expect_completed_rejection)
     };
     assert!(matches!(
-        check(&authority, &callee, "inspect"),
+        check(&authority, &target_contract, "inspect"),
         Err(ValidationFail::NotPermitted(_))
     ));
     assert!(matches!(
-        check(&caller_subject, &callee, "inspect"),
+        check(&caller_subject, &target_contract, "inspect"),
         Err(ValidationFail::NotPermitted(_))
     ));
     grant_contract_entrypoint_to_account(
         &state,
         &authority,
         caller_subject.clone(),
-        &callee,
+        &target_contract,
         "inspect",
     );
-    assert!(check(&caller_subject, &callee, "inspect").is_ok());
+    assert!(check(&caller_subject, &target_contract, "inspect").is_ok());
     for (holder, contract, selector) in [
-        (&authority, &callee, "inspect"),
+        (&authority, &target_contract, "inspect"),
         (&caller_subject, &other_callee, "inspect"),
-        (&caller_subject, &callee, "inspect_other"),
+        (&caller_subject, &target_contract, "inspect_other"),
     ] {
         assert!(matches!(
             check(holder, contract, selector),
@@ -799,11 +808,11 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
             &state,
             &authority,
             caller_subject.clone(),
-            &callee,
+            &target_contract,
             "inspect_other",
         );
     }
-    assert!(check(&caller_subject, &callee, "inspect_other").is_ok());
+    assert!(check(&caller_subject, &target_contract, "inspect_other").is_ok());
     assert_eq!(
         state
             .view()
@@ -821,12 +830,12 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
         &state,
         &authority,
         authority.clone(),
-        &callee,
+        &target_contract,
         "inspect_other",
     );
-    assert!(check(&authority, &callee, "inspect_other").is_ok());
+    assert!(check(&authority, &target_contract, "inspect_other").is_ok());
     assert!(matches!(
-        check(&authority, &callee, "inspect"),
+        check(&authority, &target_contract, "inspect"),
         Err(ValidationFail::NotPermitted(_))
     ));
     let next_height = u64::try_from((state.view().height() + 1).max(2))
@@ -843,7 +852,7 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
     let mut tx = block.transaction();
     Revoke::account_permission(
         CanUseContractPermission {
-            contract: callee.clone(),
+            contract: target_contract.clone(),
             permission: "Inspect".parse().unwrap(),
         },
         caller_subject.clone(),
@@ -855,11 +864,11 @@ seiyaku ScopedFixtureCallee { permission Inspect; permission InspectOther;
         .commit_world_overlay_for_testing()
         .expect("commit exact entrypoint permission revocation");
     assert!(matches!(
-        check(&caller_subject, &callee, "inspect"),
+        check(&caller_subject, &target_contract, "inspect"),
         Err(ValidationFail::NotPermitted(_))
     ));
-    assert!(check(&caller_subject, &callee, "inspect_other").is_ok());
-    assert!(check(&authority, &callee, "inspect_other").is_ok());
+    assert!(check(&caller_subject, &target_contract, "inspect_other").is_ok());
+    assert!(check(&authority, &target_contract, "inspect_other").is_ok());
 }
 
 #[test]
@@ -1016,7 +1025,7 @@ fn call_contract_syscall_cursor_cannot_authorize_other_or_revoked_caller() {
         "seiyaku CursorCaller { view fn main() authorize(anyone) -> int { return 0; } }";
     let reader = install_contract(&state, &authority, caller_source, 0);
     let other = install_contract(&state, &authority, caller_source, 1);
-    let callee = install_contract(
+    let target_contract = install_contract(
         &state,
         &authority,
         r"
@@ -1052,7 +1061,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
         &state,
         &authority,
         &fixture_signing_keypair(&authority),
-        contract_invocation_from_json(&state, callee.clone(), "seed", &Json::new(())),
+        contract_invocation_from_json(&state, target_contract.clone(), "seed", &Json::new(())),
         &mut cache,
     );
 
@@ -1060,7 +1069,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
         &state,
         &authority,
         &reader,
-        &callee,
+        &target_contract,
         "first",
         Json::new(()),
         1_000_000,
@@ -1109,7 +1118,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
             &state,
             &authority,
             caller,
-            &callee,
+            &target_contract,
             "resume",
             payload.clone(),
             1_000_000,
@@ -1127,7 +1136,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
             &state,
             &authority,
             caller,
-            &callee,
+            &target_contract,
             "resume",
             payload.clone(),
             1_000_000,
@@ -1159,7 +1168,7 @@ seiyaku ProtectedPages { permission ReadState; permission WriteState;
         tx.world.remove_account_permission(
             &other.subject_id(),
             &CanUseContractPermission {
-                contract: callee.clone(),
+                contract: target_contract.clone(),
                 permission: "ReadState".parse().unwrap()
             }
             .into(),
@@ -1210,7 +1219,13 @@ seiyaku GrantPolicy {
             vm.set_register(11, name_ptr);
             let result = host.syscall(syscall, &mut vm);
             if declaration != "Admin" {
-                assert_eq!(result, Err(ivm::VMError::PermissionDenied));
+                assert!(matches!(
+                    (&(result), &(ivm::VMError::PermissionDenied)),
+                    (
+                        Err(ivm::VMError::PermissionDenied),
+                        ivm::VMError::PermissionDenied
+                    )
+                ));
                 assert!(host.queued.is_empty());
                 continue;
             }

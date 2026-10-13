@@ -70,7 +70,7 @@ use tokio::time::{Duration, Instant, timeout, timeout_at};
 
 const TICKET: &str = "REP-PUBLICATION-NATIVE-1";
 
-pub(super) struct PublishedNetwork {
+pub struct PublishedNetwork {
     pub network: sandbox::SerializedNetwork,
     pub authority: PublicationAuthorityFixture,
     pub providers: Vec<ProviderFixture>,
@@ -80,10 +80,10 @@ pub(super) struct PublishedNetwork {
     pub floor: SumeragiFinalityCheckpoint,
     pub payload: Vec<u8>,
     cli_binary: PathBuf,
-    _runtime_directory: tempfile::TempDir,
+    runtime_directory: tempfile::TempDir,
 }
 
-pub(super) fn client(network: &Network, peer: usize, key: &KeyPair) -> Client {
+pub fn client(network: &Network, peer: usize, key: &KeyPair) -> Client {
     let client = network.peers()[peer].client_for(
         &AccountId::new(key.public_key().clone()),
         key.private_key().clone(),
@@ -96,7 +96,7 @@ pub(super) fn client(network: &Network, peer: usize, key: &KeyPair) -> Client {
     })
 }
 
-pub(super) fn now() -> Result<u64> {
+pub fn now() -> Result<u64> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
 
@@ -191,7 +191,7 @@ async fn fund_and_declare(
             ),
         )
         .await?;
-        let movement = [0xB0 + index as u8; 32];
+        let movement = [0xB0 + u8::try_from(index).expect("fixture provider index fits u8"); 32];
         submit_instruction(
             &owner,
             RequestSorafsReserveMovement::new(
@@ -237,7 +237,7 @@ async fn fund_and_declare(
             version: CAPACITY_DECLARATION_VERSION_V1,
             provider_id: *provider.id.as_bytes(),
             stake: StakePointer {
-                pool_id: [0xC0 + index as u8; 32],
+                pool_id: [0xC0 + u8::try_from(index).expect("fixture provider index fits u8"); 32],
                 stake_amount: "1".parse()?,
             },
             committed_capacity_gib: 2,
@@ -272,7 +272,7 @@ async fn fund_and_declare(
     Ok(())
 }
 
-pub(super) async fn refresh_adverts(published: &PublishedNetwork) -> Result<()> {
+pub async fn refresh_adverts(published: &PublishedNetwork) -> Result<()> {
     refresh_network_adverts(&published.http, &published.network, &published.authority).await
 }
 async fn refresh_network_adverts(
@@ -307,7 +307,7 @@ async fn refresh_network_adverts(
 
 /// Build an actual network and return only after all three production workers finalize completion.
 /// A caller may add the genuine Parliament corridor before genesis for subsequent revocation tests.
-pub(super) async fn create_and_publish(
+pub async fn create_and_publish(
     transform: impl FnOnce(NetworkBuilder) -> NetworkBuilder,
 ) -> Result<PublishedNetwork> {
     init_instruction_registry();
@@ -392,11 +392,9 @@ pub(super) async fn create_and_publish(
         1000_u32,
         AssetId::of(asset.clone(), ALICE_ID.clone()),
     ));
-    for instruction in authority
-        .genesis_instructions()?
-        .into_iter()
-        .chain(compliance.genesis_instructions(&ALICE_ID)?)
-    {
+    for instruction in authority.genesis_instructions()?.into_iter().chain(
+        PublicationComplianceFixture::genesis_instructions(&ALICE_ID)?,
+    ) {
         builder = builder.with_genesis_instruction(instruction);
     }
     let context = "four_peer_native_publication_and_storage_lifecycle";
@@ -455,7 +453,9 @@ pub(super) async fn create_and_publish(
     fund_and_declare(&network, &providers, asset).await?;
     refresh_network_adverts(&http, &network, &authority).await?;
     let data = (0..128 * 1024)
-        .map(|index| ((index * 17 + index / 251) % 251) as u8)
+        .map(|index| {
+            u8::try_from((index * 17 + index / 251) % 251).expect("fixture residue is below 251")
+        })
         .collect::<Vec<_>>();
     let (plan, payload) = CarBuildPlan::from_files(vec![FileEntry {
         path: vec!["payload.bin".into()],
@@ -552,9 +552,7 @@ pub(super) async fn create_and_publish(
         &ALICE_KEYPAIR,
         *providers[0].id.as_bytes(),
         &row,
-        &manifest,
-        &plan,
-        &payload,
+        (&manifest, &plan, &payload),
     )
     .await?;
     let complete = wire::preparation(
@@ -608,11 +606,11 @@ pub(super) async fn create_and_publish(
         floor,
         payload,
         cli_binary,
-        _runtime_directory: runtime_directory,
+        runtime_directory,
     })
 }
 
-pub(super) fn cid(bytes: &[u8]) -> String {
+pub fn cid(bytes: &[u8]) -> String {
     let alphabet = b"abcdefghijklmnopqrstuvwxyz234567";
     let mut output = String::from("b");
     let (mut accumulator, mut bits) = (0_u32, 0_u32);
@@ -634,10 +632,7 @@ pub(super) fn cid(bytes: &[u8]) -> String {
     output
 }
 
-pub(super) async fn retrieve(
-    published: &PublishedNetwork,
-    peer: usize,
-) -> Result<reqwest::Response> {
+pub async fn retrieve(published: &PublishedNetwork, peer: usize) -> Result<reqwest::Response> {
     Ok(published
         .http
         .get(format!(
@@ -666,7 +661,7 @@ async fn check_payload(published: &PublishedNetwork, peer: usize) -> Result<()> 
     Ok(())
 }
 
-pub(super) async fn restart(published: &PublishedNetwork, peer: usize) -> Result<()> {
+pub async fn restart(published: &PublishedNetwork, peer: usize) -> Result<()> {
     let node = &published.network.peers()[peer];
     node.shutdown().await;
     timeout(
@@ -683,7 +678,7 @@ pub(super) async fn restart(published: &PublishedNetwork, peer: usize) -> Result
     Ok(())
 }
 
-pub(super) async fn qualify_storage_lifecycle(published: &PublishedNetwork) -> Result<()> {
+pub async fn qualify_storage_lifecycle(published: &PublishedNetwork) -> Result<()> {
     for peer in 0..3 {
         check_payload(published, peer).await?;
     }
@@ -863,7 +858,7 @@ pub(super) async fn qualify_storage_lifecycle(published: &PublishedNetwork) -> R
 }
 
 async fn qualify_cli_deploy(published: &PublishedNetwork) -> Result<()> {
-    let root = published._runtime_directory.path().join("cli");
+    let root = published.runtime_directory.path().join("cli");
     fs::create_dir(&root)?;
     let payload = root.join("payload");
     fs::create_dir(&payload)?;
@@ -871,7 +866,7 @@ async fn qualify_cli_deploy(published: &PublishedNetwork) -> Result<()> {
         payload.join("hello.txt"),
         b"actual same-source SoraFS CLI publication\n",
     )?;
-    let publisher = client(&published.network, 0, &ALICE_KEYPAIR);
+    let deploy_client = client(&published.network, 0, &ALICE_KEYPAIR);
     let mut config = toml::Table::new();
     set(
         &mut config,
@@ -902,7 +897,7 @@ async fn qualify_cli_deploy(published: &PublishedNetwork) -> Result<()> {
     set(
         &mut config,
         &["account", "chain_discriminant"],
-        i64::from(publisher.client().account_chain_discriminant()),
+        i64::from(deploy_client.client().account_chain_discriminant()),
     );
     let config_path = root.join("client.toml");
     let mut config_file = fs::OpenOptions::new()
@@ -984,7 +979,7 @@ async fn qualify_cli_deploy(published: &PublishedNetwork) -> Result<()> {
     SumeragiFinalityVerifier::from_trusted_checkpoint(
         &successor,
         &published.network.network_id(),
-        &published.network.chain_id().to_string(),
+        published.network.chain_id().as_ref(),
     )?;
     ensure!(
         successor.height() > published.floor.height(),
@@ -1006,7 +1001,7 @@ async fn qualify_cli_deploy(published: &PublishedNetwork) -> Result<()> {
     .await?;
     wire::prove(
         &published.http,
-        &publisher,
+        &deploy_client,
         &published.network.peers()[0].torii_url(),
         &ALICE_KEYPAIR,
         &row,

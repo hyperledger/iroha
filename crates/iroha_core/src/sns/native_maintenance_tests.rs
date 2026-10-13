@@ -171,11 +171,11 @@ fn actual_sns_time_sweep_retains_one_native_purpose_and_exact_payment() {
     );
     let captures = block.captured_fastpq_transcript_sources().unwrap();
     assert_eq!(captures.len(), 1);
-    let captured = captures.values().next().unwrap();
-    assert!(captured.is_protocol_purpose());
-    assert_eq!(captured.source().network_id, fixture.state.network_id);
-    assert_eq!(captured.source().height, 2);
-    let entry_hash = captured.entry_hash();
+    let source_capture = captures.values().next().unwrap();
+    assert!(source_capture.is_protocol_purpose());
+    assert_eq!(source_capture.source().network_id, fixture.state.network_id);
+    assert_eq!(source_capture.source().height, 2);
+    let entry_hash = source_capture.entry_hash();
     assert_eq!(
         balance(&block.world, &fixture, &fixture.owner),
         "1.5".parse().unwrap()

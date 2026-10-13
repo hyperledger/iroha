@@ -44,7 +44,7 @@ impl fmt::Debug for ProviderIngestHttpsTransportPinsV1 {
             .field("network_id", &self.network_id)
             .field("provider_id", &self.provider_id)
             .field("transport", &"<runtime-only>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

@@ -95,7 +95,6 @@ fn original_wire_witness_and_world_tampering_fail_before_durable_staging() {
                             SerializePayload,
                             core::{DecodeFlagsGuard, Encoder, SequenceSpan},
                         };
-
                         let hash = original.block.as_ref().hash();
                         let wire = original.block.as_ref().encode_wire().unwrap();
                         let key = KeyPair::from_seed(vec![0x91; 32], Algorithm::Ed25519);

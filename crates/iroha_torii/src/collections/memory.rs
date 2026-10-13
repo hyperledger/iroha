@@ -4,7 +4,11 @@ use norito::json::{JsonSerialize, Map, Value};
 
 /// Independent collection phases covered by the existing routed-read lease.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct BytePolicy {
+#[expect(
+    clippy::struct_field_names,
+    reason = "Byte units distinguish independent source, retained, scratch and response allocation bounds."
+)]
+pub struct BytePolicy {
     /// Maximum canonical JSON bytes before a borrowed source becomes owned.
     pub(crate) source_frame_bytes: usize,
     /// Complete allocation ceiling for one decoded source row.
@@ -182,7 +186,7 @@ impl<const N: usize> JsonSerialize for BorrowedRow<'_, N> {
 }
 
 /// Refuse a memory phase before its corresponding allocation or mutation.
-pub(crate) fn ensure(
+pub fn ensure(
     attempted: usize,
     ceiling: usize,
     phase: &'static str,
@@ -194,20 +198,20 @@ pub(crate) fn ensure(
 }
 
 /// Checked logical sum used for byte accounting.
-pub(crate) fn add(left: usize, right: usize) -> Result<usize, CollectionError> {
+pub fn add(left: usize, right: usize) -> Result<usize, CollectionError> {
     left.checked_add(right)
         .ok_or_else(|| capacity("accounting"))
 }
 
 /// Checked allocation size for a collection container.
-pub(crate) fn slots<T>(capacity: usize) -> Result<usize, CollectionError> {
+pub fn slots<T>(capacity: usize) -> Result<usize, CollectionError> {
     capacity
         .checked_mul(core::mem::size_of::<T>())
-        .ok_or_else(|| capacity_error())
+        .ok_or_else(capacity_error)
 }
 
 /// Allocate the exact element layout after admitting its complete byte charge.
-pub(crate) fn vector<T>(
+pub fn vector<T>(
     count: usize,
     ceiling: usize,
     phase: &'static str,
@@ -218,7 +222,7 @@ pub(crate) fn vector<T>(
 }
 
 /// Heap charge of a cloned value, using source capacities as a conservative bound.
-pub(crate) fn path_copy_bytes(name: &str, value: Option<&Value>) -> Result<usize, CollectionError> {
+pub fn path_copy_bytes(name: &str, value: Option<&Value>) -> Result<usize, CollectionError> {
     let mut bytes = value.map(value_heap_bytes).transpose()?.unwrap_or(0);
     for segment in name.split('.') {
         bytes = add(
@@ -236,7 +240,7 @@ fn capacity_error() -> CollectionError {
 }
 
 /// Stable, bounded diagnostic that never formats a ledger value.
-pub(crate) fn capacity(phase: &'static str) -> CollectionError {
+pub fn capacity(phase: &'static str) -> CollectionError {
     CollectionError::new(
         "query_capacity_exceeded",
         "query",
@@ -246,7 +250,7 @@ pub(crate) fn capacity(phase: &'static str) -> CollectionError {
 }
 
 /// Conservative heap charge for a native JSON row, without copying its graph.
-pub(crate) fn map_heap_bytes(map: &Map) -> Result<usize, CollectionError> {
+pub fn map_heap_bytes(map: &Map) -> Result<usize, CollectionError> {
     map_heap_bytes_at_depth(map, 0)
 }
 
@@ -262,7 +266,7 @@ fn map_heap_bytes_at_depth(map: &Map, depth: usize) -> Result<usize, CollectionE
 }
 
 /// Conservative heap charge for a value before cloning it.
-pub(crate) fn value_heap_bytes(value: &Value) -> Result<usize, CollectionError> {
+pub fn value_heap_bytes(value: &Value) -> Result<usize, CollectionError> {
     value_heap_bytes_at_depth(value, 0)
 }
 

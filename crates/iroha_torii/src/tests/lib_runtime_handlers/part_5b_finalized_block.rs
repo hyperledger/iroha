@@ -1,7 +1,7 @@
 /// Original configured native State, optionally applied through genuine H2 execution and Kura.
 /// The missing-parent variant keeps the prepared signed genesis unapplied; it does not fabricate
 /// a committed journal entry or omit a second finality sidecar.
-pub(crate) fn app_with_finalized_block_for_test(
+pub fn app_with_finalized_block_for_test(
     has_parent: bool,
 ) -> (
     SharedAppState,

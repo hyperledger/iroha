@@ -11,6 +11,10 @@ use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, BOB_ID, gen_account_in};
 use nonzero_ext::nonzero;
 
 /// Bind the original recorder to this empty carrier before component effects.
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the signed block builder owns the supplied header"
+)]
 fn quantity_component_source(header: BlockHeader) -> SignedBlock {
     iroha_data_model::block::builder::BlockBuilder::new(header)
         .build_with_signature(0, ALICE_KEYPAIR.private_key())

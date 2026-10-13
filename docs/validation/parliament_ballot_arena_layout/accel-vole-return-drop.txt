@@ -1,0 +1,41 @@
+
+/tmp/parliament-resource-contract/resource-accel:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+0000000100012a24 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E>:
+100012a24:     	stp	x20, x19, [sp, #-0x20]!
+100012a28:     	stp	x29, x30, [sp, #0x10]
+100012a2c:     	add	x29, sp, #0x10
+100012a30:     	mov	x19, x0
+100012a34:     	ldr	x1, [x0]
+100012a38:     	cbz	x1, 0x100012a48 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E+0x24>
+100012a3c:     	ldr	x0, [x19, #0x8]
+100012a40:     	mov	w2, #0x1                ; =1
+100012a44:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012a48:     	ldr	x8, [x19, #0x18]
+100012a4c:     	cbz	x8, 0x100012a60 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E+0x3c>
+100012a50:     	ldr	x0, [x19, #0x20]
+100012a54:     	lsl	x1, x8, #1
+100012a58:     	mov	w2, #0x2                ; =2
+100012a5c:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012a60:     	ldr	x1, [x19, #0x30]
+100012a64:     	cbz	x1, 0x100012a74 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E+0x50>
+100012a68:     	ldr	x0, [x19, #0x38]
+100012a6c:     	mov	w2, #0x1                ; =1
+100012a70:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012a74:     	ldr	x1, [x19, #0x48]
+100012a78:     	cbz	x1, 0x100012a88 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E+0x64>
+100012a7c:     	ldr	x0, [x19, #0x50]
+100012a80:     	mov	w2, #0x1                ; =1
+100012a84:     	bl	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012a88:     	ldr	x1, [x19, #0x60]
+100012a8c:     	cbz	x1, 0x100012aa4 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..vole..Reconstruction$GT$17hc252f05649270731E+0x80>
+100012a90:     	ldr	x0, [x19, #0x68]
+100012a94:     	mov	w2, #0x1                ; =1
+100012a98:     	ldp	x29, x30, [sp, #0x10]
+100012a9c:     	ldp	x20, x19, [sp], #0x20
+100012aa0:     	b	0x10000143c <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100012aa4:     	ldp	x29, x30, [sp, #0x10]
+100012aa8:     	ldp	x20, x19, [sp], #0x20
+100012aac:     	ret

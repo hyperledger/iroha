@@ -2,16 +2,15 @@
 
 #[test]
 fn prepared_beacon_credential_append_retains_incumbent_and_pending_across_restart() {
-    let budget = test_credential_budget();
     use iroha_crypto::{Algorithm, KeyPair};
-    use iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1;
-    use iroha_data_model::{
-        nexus::{
-            ValidatorCommitteeCredentialsV1, ValidatorCommitteePreparationV1,
-            ValidatorCommitteeTransitionV1,
-        },
+    use iroha_data_model::nexus::{
+        ValidatorCommitteeCredentialsV1, ValidatorCommitteePreparationV1,
+        ValidatorCommitteeTransitionV1,
     };
+    use iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1;
     use iroha_model_base::peer::PeerId;
+
+    let budget = test_credential_budget();
     let network_id = network_id_v1(0xC1);
     let mut keys = (1..=7_u8)
         .map(|seed| KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap())
@@ -388,8 +387,9 @@ fn prepared_beacon_credential_append_retains_incumbent_and_pending_across_restar
 
 #[test]
 fn prepared_beacon_restart_preserves_exact_session_inventory_for_every_four_and_seven_seat() {
-    let budget = test_credential_budget();
     use iroha_data_model::sumeragi::epoch::InstalledBeaconEpochBindingV1;
+
+    let budget = test_credential_budget();
     let network = network_id_v1(0xC1);
     for (current_size, pending_size) in [(4, 7), (7, 4)] {
         let current_roster = beacon_fixture_roster_v1(current_size);

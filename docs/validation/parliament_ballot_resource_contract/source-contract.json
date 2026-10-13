@@ -1,0 +1,21 @@
+{
+  "time_utc": "2026-10-13T05:33:52.838036+00:00",
+  "command": [
+    "python3.11",
+    "scripts/formal/check_sora_parliament_source_contract.py"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: crates/iroha_core/src/state.rs: start phases must use the original block and height in order\n",
+  "source_hashes": {
+    "crates/iroha_core/src/state.rs": "990ad9c83ed8fdd1350f12ba52dcc42cc345f593db8ec9e24b753808d2108113",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786"
+  },
+  "source_identity_unchanged_during_check": true,
+  "scope": "Read-only actual Core source check; separate from native standalone resource campaign. No Core/guard edits.",
+  "gate_source_assertions": {
+    "binding_ballot_unavailable": true,
+    "qualified_attempt_latency_unavailable": true
+  }
+}

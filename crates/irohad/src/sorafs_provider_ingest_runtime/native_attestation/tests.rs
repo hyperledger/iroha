@@ -224,13 +224,13 @@ fn dedicated_signer_request_bindings_refuse_before_unbound_state_is_read() {
 fn source_capacity_refusal_remains_retryable_instead_of_rejecting_the_signer() {
     use iroha_core::execution_attempt::ExecutionAttemptError;
     assert_eq!(
-        map_execution_attempt(ExecutionAttemptError::<()>::Deferred(
+        map_execution_attempt(&ExecutionAttemptError::<()>::Deferred(
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
         )),
         MusubiProviderAttestationSignerErrorV1::Unavailable,
     );
     assert_eq!(
-        map_execution_attempt(ExecutionAttemptError::Rejected(())),
+        map_execution_attempt(&ExecutionAttemptError::Rejected(())),
         MusubiProviderAttestationSignerErrorV1::Rejected,
     );
 }

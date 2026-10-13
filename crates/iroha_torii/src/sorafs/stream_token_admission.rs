@@ -68,12 +68,23 @@ pub trait StreamTokenGatewayAdmissionProviderV1: Send + Sync + fmt::Debug {
     ///
     /// Exact replay must return the byte-identical retained record. Substituted
     /// material for the same request context must fail closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid or substituted requests, stale authority,
+    /// conflicting durable state, unavailable admission state, or an expired deadline.
+    /// An ambiguous mutation must be reconciled under the same request identity.
     fn admit(
         &self,
         request: &StreamTokenGatewayAdmissionRequestV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionResultV1, StreamTokenGatewayAdmissionErrorV1>;
     /// Return the oldest pending callback rows in gateway-sequence order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bounded pending suffix cannot be authenticated
+    /// under current authority before the original deadline.
     fn pending(
         &self,
         max_items: u32,
@@ -84,24 +95,41 @@ pub trait StreamTokenGatewayAdmissionProviderV1: Send + Sync + fmt::Debug {
     /// Idle requires complete native preparation, including finality and current permissions;
     /// a preparation error must remain an error. Pending work requires the same signed Check
     /// as `pending`. This scheduling-only method must never replace startup or request proofs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native preparation, current authority, pending readback,
+    /// or the original deadline check fails, including when no work is pending.
     fn pending_for_background(
         &self,
         max_items: u32,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayReconciliationReadV1, StreamTokenGatewayAdmissionErrorV1>;
     /// Durably acknowledge one callback only after reputation admission succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a substituted record, unresolved reputation delivery,
+    /// stale authority, durable-state conflict, unavailable storage, or an expired
+    /// deadline. Ambiguous acknowledgements require exact reconciliation.
     fn acknowledge(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1>;
     /// Idempotently release one accepted cross-replica concurrency lease.
     ///
     /// A crashed caller need not run this method: the deployment provider must expire the lease at
     /// `lease_expires_at_unix_ms` before admitting another stream against the signed ceiling.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the record or current authority cannot be authenticated,
+    /// the lease transition conflicts or is unavailable, or the original deadline
+    /// expires; an ambiguous result requires exact reconciliation.
     fn release_lease(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1>;
     /// Authorize this same Accepted physical attempt after its reputation callback is acknowledged.
@@ -110,10 +138,16 @@ pub trait StreamTokenGatewayAdmissionProviderV1: Send + Sync + fmt::Debug {
     /// final synchronous handoff, checking the original lease, policy and account permissions.
     /// Historical admission or acknowledgement DTOs alone cannot authorize this operation.
     /// Reuse the caller's original absolute deadline for every proof and any retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fresh serving evidence, the original lease, policy,
+    /// account permissions, or acknowledged reputation delivery cannot be proven
+    /// before the original deadline.
     fn confirm_serving(
         &self,
         request: &StreamTokenGatewayAdmissionRequestV1,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<StreamTokenGatewayAdmissionRecordV1, StreamTokenGatewayAdmissionErrorV1>;
 }
@@ -139,7 +173,7 @@ pub trait StreamTokenReputationDeliveryV1: Send + Sync + fmt::Debug {
     /// expired deadlines. Recovery never extends the deadline or creates a replacement intent.
     fn deliver(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<(), StreamTokenGatewayAdmissionErrorV1>;
 }
@@ -245,6 +279,12 @@ impl StreamTokenAdmissionCaptureV1 {
     ///
     /// The external row remains pending if reputation admission or durable
     /// acknowledgement fails, so a restart can replay it exactly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid requests, provider drift, unavailable or
+    /// substituted admission evidence, failed reputation delivery or acknowledgement,
+    /// failed current serving authorization, or expiration of the original deadline.
     pub fn admit(
         &self,
         request: &StreamTokenGatewayAdmissionRequestV1,
@@ -259,17 +299,17 @@ impl StreamTokenAdmissionCaptureV1 {
         self.ensure_configured_binding(deadline)?;
         match admission.delivery_state {
             StreamTokenGatewayAdmissionDeliveryStateV1::Pending { .. } => {
-                self.reconcile_until(Some(admission.record), deadline)?;
+                self.reconcile_until(Some(&admission.record), deadline)?;
             }
             StreamTokenGatewayAdmissionDeliveryStateV1::AcknowledgedExactReplay { .. } => {
-                self.deliver_acknowledged_replay(admission.record, deadline)?;
+                self.deliver_acknowledged_replay(&admission.record, deadline)?;
             }
         }
         ensure_live(deadline)?;
         if admission.record.outcome.status == StreamTokenValidationStatusV1::Accepted {
             let serving = self
                 .provider
-                .confirm_serving(request, admission.record, deadline)?;
+                .confirm_serving(request, &admission.record, deadline)?;
             if serving != admission.record {
                 return Err(StreamTokenGatewayAdmissionErrorV1::SubstitutedOutcome);
             }
@@ -317,7 +357,7 @@ impl StreamTokenAdmissionCaptureV1 {
     /// failed release remains bounded by the externally authenticated expiry.
     pub fn release_lease(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
     ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
         let deadline = self.begin_operation()?;
         record.validate_shape(self.expected_qualification)?;
@@ -331,7 +371,7 @@ impl StreamTokenAdmissionCaptureV1 {
     }
     fn reconcile_until(
         &self,
-        required_record: Option<StreamTokenGatewayAdmissionRecordV1>,
+        required_record: Option<&StreamTokenGatewayAdmissionRecordV1>,
         deadline: Instant,
     ) -> Result<u32, StreamTokenGatewayAdmissionErrorV1> {
         let mut delivered = 0_u32;
@@ -353,7 +393,7 @@ impl StreamTokenAdmissionCaptureV1 {
     }
     fn reconcile_one_batch(
         &self,
-        required_record: Option<StreamTokenGatewayAdmissionRecordV1>,
+        required_record: Option<&StreamTokenGatewayAdmissionRecordV1>,
         deadline: Instant,
     ) -> Result<StreamTokenReconcileBatchV1, StreamTokenGatewayAdmissionErrorV1> {
         self.ensure_configured_binding(deadline)?;
@@ -362,7 +402,7 @@ impl StreamTokenAdmissionCaptureV1 {
     }
     fn reconcile_readback(
         &self,
-        required_record: Option<StreamTokenGatewayAdmissionRecordV1>,
+        required_record: Option<&StreamTokenGatewayAdmissionRecordV1>,
         deadline: Instant,
         pending: StreamTokenGatewayAdmissionReadbackV1,
     ) -> Result<StreamTokenReconcileBatchV1, StreamTokenGatewayAdmissionErrorV1> {
@@ -388,7 +428,7 @@ impl StreamTokenAdmissionCaptureV1 {
                 .position(|record| record.outcome.binding.gateway_sequence == required_sequence)
             {
                 Some(position) => {
-                    if pending.records[position] != required {
+                    if &pending.records[position] != required {
                         return Err(StreamTokenGatewayAdmissionErrorV1::SubstitutedOutcome);
                     }
                     delivery_count = position + 1;
@@ -399,7 +439,7 @@ impl StreamTokenAdmissionCaptureV1 {
             }
         }
         for record in pending.records.iter().take(delivery_count) {
-            self.deliver_record(*record, deadline)?;
+            self.deliver_record(record, deadline)?;
         }
         self.ensure_configured_binding(deadline)?;
         Ok(StreamTokenReconcileBatchV1 {
@@ -410,7 +450,7 @@ impl StreamTokenAdmissionCaptureV1 {
     }
     fn deliver_acknowledged_replay(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<(), StreamTokenGatewayAdmissionErrorV1> {
         ensure_live(deadline)?;
@@ -425,7 +465,7 @@ impl StreamTokenAdmissionCaptureV1 {
     }
     fn deliver_record(
         &self,
-        record: StreamTokenGatewayAdmissionRecordV1,
+        record: &StreamTokenGatewayAdmissionRecordV1,
         deadline: Instant,
     ) -> Result<(), StreamTokenGatewayAdmissionErrorV1> {
         ensure_live(deadline)?;

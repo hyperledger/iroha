@@ -15,10 +15,13 @@ import {
 } from "../src/isoBridge.js";
 import { ValidationError, ValidationErrorCode } from "../src/index.js";
 
+import { ISO_PAYMENT_INTENT } from "./fixtures/isoNativePayment.js";
+
 const FIXED_CREATION = "2026-02-01T00:00:00Z";
 
 test("buildPacs008Message renders minimal document", () => {
   const xml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "example-msg",
     creationDateTime: "2026-02-01T12:00:00Z",
     instructionId: "instr-001",
@@ -56,6 +59,7 @@ test("creationDateTime must include a timezone offset", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "tz-missing",
         creationDateTime: "2026-02-01T12:00:00",
         instructionId: "instr-tz",
@@ -71,6 +75,7 @@ test("ISO builders surface ValidationError metadata for invalid datetimes", () =
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "invalid-tz",
         creationDateTime: "2026-02-01T12:00:00",
         instructionId: "instr-tz",
@@ -91,6 +96,7 @@ test("creationDateTime is required for ISO builders", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "missing-creation-008",
         instructionId: "instr-008",
         amount: { currency: "EUR", value: "1.00" },
@@ -103,6 +109,7 @@ test("creationDateTime is required for ISO builders", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-009",
         amount: { currency: "USD", value: "1.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -114,6 +121,7 @@ test("creationDateTime is required for ISO builders", () => {
 
 test("creationDateTime with offsets normalises to UTC", () => {
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "tz-offset",
     creationDateTime: "2026-02-01T12:34:56+02:30",
     instructionId: "instr-offset",
@@ -137,6 +145,7 @@ test("settlementDate validates calendar dates", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         settlementDate: "2026-13-01",
       }),
@@ -145,6 +154,7 @@ test("settlementDate validates calendar dates", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         settlementDate: "2026-02-30",
       }),
@@ -152,6 +162,7 @@ test("settlementDate validates calendar dates", () => {
   );
 
   const leapYearXml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     ...base,
     settlementDate: "2024-02-29",
   });
@@ -160,6 +171,7 @@ test("settlementDate validates calendar dates", () => {
 
 test("remittanceInformation renders unstructured remittance lines and enforces Max140Text", () => {
   const xml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "remit-008",
     creationDateTime: FIXED_CREATION,
     instructionId: "instr-remit-008",
@@ -176,6 +188,7 @@ test("remittanceInformation renders unstructured remittance lines and enforces M
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-remit-009",
         amount: { currency: "USD", value: "5.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -189,6 +202,7 @@ test("remittanceInformation renders unstructured remittance lines and enforces M
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "remit-empty",
         creationDateTime: FIXED_CREATION,
         instructionId: "instr-remit-empty",
@@ -203,6 +217,7 @@ test("remittanceInformation renders unstructured remittance lines and enforces M
 
 test("amount enforces ISO 4217 minor units", () => {
   const jpyXml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "minor-jpy",
     instructionId: "instr-jpy",
     amount: { currency: "JPY", value: "1250" },
@@ -215,6 +230,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "minor-jpy-zero-fractional",
         instructionId: "instr-jpy-zero-fractional",
         amount: { currency: "JPY", value: "1250.00" },
@@ -228,6 +244,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "minor-jpy-fractional",
         instructionId: "instr-jpy-fractional",
         amount: { currency: "JPY", value: "1250.10" },
@@ -239,6 +256,7 @@ test("amount enforces ISO 4217 minor units", () => {
   );
 
   const bhdXml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-bhd",
     amount: { currency: "BHD", value: "42.5" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -250,6 +268,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-bhd-invalid",
         amount: { currency: "BHD", value: "1.2345" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -262,6 +281,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-eur-invalid",
         amount: { currency: "EUR", value: "1.234" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -272,6 +292,7 @@ test("amount enforces ISO 4217 minor units", () => {
   );
 
   const clfXml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "clf-minor",
     instructionId: "instr-clf",
     amount: { currency: "CLF", value: "12.3456" },
@@ -284,6 +305,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "clf-invalid",
         instructionId: "instr-clf-invalid",
         amount: { currency: "CLF", value: "12.34567" },
@@ -295,6 +317,7 @@ test("amount enforces ISO 4217 minor units", () => {
   );
 
   const uywXml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-uyw",
     amount: { currency: "UYW", value: "0.1234" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -304,6 +327,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.match(uywXml, /<IntrBkSttlmAmt Ccy="UYW">0\.1234<\/IntrBkSttlmAmt>/);
 
   const uywPadded = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-uyw-pad",
     amount: { currency: "UYW", value: "0.123" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -315,6 +339,7 @@ test("amount enforces ISO 4217 minor units", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-uyw-invalid",
         amount: { currency: "UYW", value: "0.12345" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -327,6 +352,7 @@ test("amount enforces ISO 4217 minor units", () => {
 
 test("accounts render proxy aliases alongside IBAN when provided", () => {
   const xml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "proxy-008",
     instructionId: "instr-proxy-008",
     creationDateTime: FIXED_CREATION,
@@ -366,6 +392,7 @@ test("proxy aliases enforce IBAN presence and validation constraints", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         debtorAccount: { otherId: "debtor-other", proxy: { id: "alias" } },
       }),
@@ -375,6 +402,7 @@ test("proxy aliases enforce IBAN presence and validation constraints", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         debtorAccount: {
           iban: "DE89370400440532013000",
@@ -387,6 +415,7 @@ test("proxy aliases enforce IBAN presence and validation constraints", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         debtorAccount: {
           iban: "DE89370400440532013000",
@@ -399,6 +428,7 @@ test("proxy aliases enforce IBAN presence and validation constraints", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         debtorAccount: {
           iban: "DE89370400440532013000",
@@ -411,6 +441,7 @@ test("proxy aliases enforce IBAN presence and validation constraints", () => {
 
 test("buildPacs008Message renders debtor/creditor parties and agents", () => {
   const xml = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "parties-demo",
     instructionId: "instr-demo",
     amount: { currency: "EUR", value: "10.00" },
@@ -448,6 +479,7 @@ test("buildPacs008Message renders debtor/creditor parties and agents", () => {
 
 test("buildPacs009Message renders minimal document", () => {
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     messageId: "msg-009",
     businessMessageId: "biz-abc",
     messageDefinitionId: "pacs.009.001.08",
@@ -476,6 +508,7 @@ test("buildPacs009Message renders minimal document", () => {
 
 test("buildPacs009Message infers defaults when optional headers are omitted", () => {
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-default",
     amount: { currency: "USD", value: "42.00" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -499,6 +532,7 @@ test("buildPacs009Message enforces pacs.009 messageDefinitionId shape", () => {
   };
 
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     ...base,
     messageDefinitionId: "PACS.009.001.09",
   });
@@ -508,6 +542,7 @@ test("buildPacs009Message enforces pacs.009 messageDefinitionId shape", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         messageDefinitionId: "pacs.008.001.10",
       }),
@@ -517,6 +552,7 @@ test("buildPacs009Message enforces pacs.009 messageDefinitionId shape", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         ...base,
         messageDefinitionId: "pacs.009",
       }),
@@ -526,6 +562,7 @@ test("buildPacs009Message enforces pacs.009 messageDefinitionId shape", () => {
 
 test("buildPacs009Message defaults Purp to SECU and validates overrides", () => {
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-default-purpose",
     amount: { currency: "USD", value: "5.00" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -535,6 +572,7 @@ test("buildPacs009Message defaults Purp to SECU and validates overrides", () => 
   assert.match(xml, /<Purp><Cd>SECU<\/Cd><\/Purp>/);
 
   const explicit = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-explicit-purpose",
     amount: { currency: "USD", value: "1.00" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -545,6 +583,7 @@ test("buildPacs009Message defaults Purp to SECU and validates overrides", () => 
   assert.match(explicit, /<Purp><Cd>SECU<\/Cd><\/Purp>/);
 
   const cashPurpose = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-explicit-purpose",
     amount: { currency: "USD", value: "1.00" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -557,6 +596,7 @@ test("buildPacs009Message defaults Purp to SECU and validates overrides", () => 
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr-bad-purpose",
         amount: { currency: "USD", value: "1.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -570,6 +610,7 @@ test("buildPacs009Message defaults Purp to SECU and validates overrides", () => 
 
 test("buildPacs009Message supports debtor/creditor metadata", () => {
   const xml = buildPacs009Message({
+    ...ISO_PAYMENT_INTENT,
     instructionId: "instr-advanced",
     amount: { currency: "USD", value: "50.00" },
     instigatingAgent: { bic: "BOFAUS3N" },
@@ -602,6 +643,7 @@ test("supplementary data is canonicalised deterministically", () => {
   };
 
   const xmlA = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     ...baseFields,
     supplementaryData: {
       zeta: 1,
@@ -609,6 +651,7 @@ test("supplementary data is canonicalised deterministically", () => {
     },
   });
   const xmlB = buildPacs008Message({
+    ...ISO_PAYMENT_INTENT,
     ...baseFields,
     supplementaryData: {
       alpha: { nestedA: "one", nestedB: "two" },
@@ -629,6 +672,7 @@ test("supplementary data rejects unsupported primitives", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "reject-bigint",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -645,6 +689,7 @@ test("supplementary data rejects unsupported primitives", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr",
         amount: { currency: "USD", value: "2.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -660,6 +705,7 @@ test("supplementary data emits ValidationError metadata when unsupported", () =>
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "invalid-supplementary",
         amount: { currency: "USD", value: "5.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -680,6 +726,7 @@ test("ISO messages enforce Max35Text on identifier fields", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "x".repeat(36),
         instructionId: "instr-008",
         amount: { currency: "EUR", value: "1.00" },
@@ -693,6 +740,7 @@ test("ISO messages enforce Max35Text on identifier fields", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg-009",
         businessMessageId: "b".repeat(36),
         instructionId: "instr-009",
@@ -707,6 +755,7 @@ test("ISO messages enforce Max35Text on identifier fields", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg-009",
         instructionId: "y".repeat(40),
         amount: { currency: "USD", value: "1.00" },
@@ -722,6 +771,7 @@ test("invalid agent identifiers raise errors", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -735,6 +785,7 @@ test("invalid agent identifiers raise errors", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
         instigatingAgent: { bic: "DEUTDEFF" },
@@ -750,6 +801,7 @@ test("party metadata validation rejects malformed inputs", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -764,6 +816,7 @@ test("party metadata validation rejects malformed inputs", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -778,6 +831,7 @@ test("party metadata validation rejects malformed inputs", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -798,6 +852,7 @@ test("LEI checksum validation rejects invalid check digits", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -811,6 +866,7 @@ test("LEI checksum validation rejects invalid check digits", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr",
         amount: { currency: "USD", value: "2.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -826,6 +882,7 @@ test("IBAN checksum validation rejects invalid accounts", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -843,6 +900,7 @@ test("account otherId and party identifiers enforce Max35Text", () => {
   assert.throws(
     () =>
       buildPacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageId: "msg",
         instructionId: "instr",
         amount: { currency: "EUR", value: "1.00" },
@@ -857,6 +915,7 @@ test("account otherId and party identifiers enforce Max35Text", () => {
   assert.throws(
     () =>
       buildPacs009Message({
+        ...ISO_PAYMENT_INTENT,
         instructionId: "instr",
         amount: { currency: "USD", value: "2.00" },
         instigatingAgent: { bic: "BOFAUS3N" },
@@ -870,6 +929,7 @@ test("account otherId and party identifiers enforce Max35Text", () => {
 
 test("buildSamplePacs008Message emits schema-compliant demo payload", () => {
   const xml = buildSamplePacs008Message({
+    ...ISO_PAYMENT_INTENT,
     messageSuffix: "demo",
     creationDateTime: "2026-01-26T12:00:00Z",
   });
@@ -888,6 +948,7 @@ test("buildSamplePacs008Message emits schema-compliant demo payload", () => {
 
 test("buildSamplePacs009Message includes agents, purpose code, and demo metadata", () => {
   const xml = buildSamplePacs009Message({
+    ...ISO_PAYMENT_INTENT,
     messageSuffix: "demo",
     creationDateTime: "2026-01-26T12:00:00Z",
   });
@@ -903,7 +964,7 @@ test("buildSamplePacs009Message includes agents, purpose code, and demo metadata
   assert.match(xml, /<Purp><Cd>SECU<\/Cd><\/Purp>/);
   assert.match(
     xml,
-    /demo pacs\.009 PvP funding/,
+    /demo pacs\.009 Global payment/,
     "supplementary metadata note should appear in demo payload",
   );
 });
@@ -912,6 +973,7 @@ test("sample ISO message builders reject unsupported options", () => {
   assert.throws(
     () =>
       buildSamplePacs008Message({
+        ...ISO_PAYMENT_INTENT,
         messageSuffix: "demo",
         extra: true,
       }),
@@ -921,6 +983,7 @@ test("sample ISO message builders reject unsupported options", () => {
   assert.throws(
     () =>
       buildSamplePacs009Message({
+        ...ISO_PAYMENT_INTENT,
         creationDateTime: new Date(),
         settlementDate: "2026-01-27",
         unexpected: "value",
@@ -1071,4 +1134,112 @@ test("buildCamt056Message renders cancellation requests", () => {
 test("sample camt builders emit demo payloads", () => {
   assert.match(buildSampleCamt052Message(), /camt\.052/);
   assert.match(buildSampleCamt056Message(), /camt\.056/);
+});
+
+for (const builder of [buildPacs008Message, buildPacs009Message]) {
+  test(`${builder.name} retains native intent across different gateway envelopes`, () => {
+    const fields = {
+      ...ISO_PAYMENT_INTENT,
+      messageId: "gateway-a",
+      instructionId: "payer-instruction",
+      creationDateTime: FIXED_CREATION,
+      amount: { currency: "EUR", value: "25.00" },
+      instigatingAgent: { bic: "DEUTDEFF" },
+      instructedAgent: { bic: "COBADEFF" },
+      supplementaryData: { memo: "unrelated <metadata>" },
+    };
+    const first = builder(fields);
+    const second = builder({ ...fields, messageId: "gateway-b", transactionId: "carrier-b" });
+    for (const xml of [first, second]) {
+      assert.ok(xml.includes(`<UETR>${fields.uetr}</UETR>`));
+      assert.match(xml, /<\/CdtTrfTxInf>\s*<SplmtryData><Envlp><nx:NexusSettlement xmlns:nx="urn:iroha:iso20022:nexus:v1">/u);
+      for (const [field, value] of Object.entries(fields.nexusSettlement)) {
+        const tag = field[0].toUpperCase() + field.slice(1);
+        assert.ok(xml.includes(`<nx:${tag}>${value}</nx:${tag}>`), tag);
+      }
+      assert.ok(xml.includes("&quot;memo&quot;:&quot;unrelated &lt;metadata&gt;&quot;"));
+    }
+    assert.equal(
+      first.match(/<nx:NexusSettlement[^]*?<\/nx:NexusSettlement>/u)[0],
+      second.match(/<nx:NexusSettlement[^]*?<\/nx:NexusSettlement>/u)[0],
+    );
+  });
+}
+
+const NATIVE_BUILDER_FIELDS = {
+  ...ISO_PAYMENT_INTENT,
+  messageId: "native-controls",
+  instructionId: "payer-controls",
+  creationDateTime: FIXED_CREATION,
+  amount: { currency: "EUR", value: "1.00" },
+  instigatingAgent: { bic: "DEUTDEFF" },
+  instructedAgent: { bic: "COBADEFF" },
+};
+
+for (const builder of [buildPacs008Message, buildPacs009Message]) {
+  test(`${builder.name} rejects missing or malformed native intent before address admission`, () => {
+    for (const uetr of [undefined, null, "", "random-gateway-id", " " + ISO_PAYMENT_INTENT.uetr, "0".repeat(37)]) {
+      assert.throws(() => builder({ ...NATIVE_BUILDER_FIELDS, uetr }), /uetr/u);
+    }
+    for (const nexusSettlement of [undefined, null, [], Object.assign([], ISO_PAYMENT_INTENT.nexusSettlement), {}]) {
+      assert.throws(() => builder({ ...NATIVE_BUILDER_FIELDS, nexusSettlement }), /nexusSettlement/u);
+    }
+    for (const field of Object.keys(ISO_PAYMENT_INTENT.nexusSettlement)) {
+      const terms = { ...ISO_PAYMENT_INTENT.nexusSettlement };
+      delete terms[field];
+      assert.throws(() => builder({ ...NATIVE_BUILDER_FIELDS, nexusSettlement: terms }), new RegExp(field, "u"));
+    }
+    const invalidTerms = [
+      { unknown: "not a term" },
+      { networkId: ISO_PAYMENT_INTENT.nexusSettlement.networkId.toString() },
+      { networkId: { toString: () => ISO_PAYMENT_INTENT.nexusSettlement.networkId.toString() } },
+      ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "01", "+1", "1e3", " 1", "1 ", "1".repeat(21), "18446744073709551616", false, {}]
+        .map((expiresAtHeight) => ({ expiresAtHeight })),
+      { assetDefinitionId: "usd#wonderland" },
+      { assetDefinitionId: " " + ISO_PAYMENT_INTENT.nexusSettlement.assetDefinitionId },
+      { assetDefinitionId: ISO_PAYMENT_INTENT.nexusSettlement.assetDefinitionId + "1" },
+      { sourceAccountId: " " + ISO_PAYMENT_INTENT.nexusSettlement.sourceAccountId },
+    ];
+    for (const invalid of invalidTerms) {
+      assert.throws(() => builder({
+        ...NATIVE_BUILDER_FIELDS,
+        nexusSettlement: { ...ISO_PAYMENT_INTENT.nexusSettlement, ...invalid },
+      }), TypeError, Object.keys(invalid).join(","));
+    }
+  });
+
+  test(`${builder.name} preserves exact maximum expiry and canonical UETR`, () => {
+    for (const expiresAtHeight of [1, "1", 1n, "18446744073709551615", 18_446_744_073_709_551_615n]) {
+      const xml = builder({
+        ...NATIVE_BUILDER_FIELDS,
+        uetr: ISO_PAYMENT_INTENT.uetr.toUpperCase(),
+        nexusSettlement: { ...ISO_PAYMENT_INTENT.nexusSettlement, expiresAtHeight },
+      });
+      assert.ok(xml.includes(`<UETR>${ISO_PAYMENT_INTENT.uetr}</UETR>`));
+      assert.ok(xml.includes(`<nx:ExpiresAtHeight>${expiresAtHeight}</nx:ExpiresAtHeight>`));
+    }
+  });
+
+  test(`${builder.name} refuses aliases and corrupted canonical accounts`, () => {
+    for (const field of ["sourceAccountId", "targetAccountId"]) {
+      for (const value of ["payer@bank.sora", "0x001122", ISO_PAYMENT_INTENT.nexusSettlement[field].slice(0, -1) + "!"]) {
+        assert.throws(() => builder({
+          ...NATIVE_BUILDER_FIELDS,
+          nexusSettlement: { ...ISO_PAYMENT_INTENT.nexusSettlement, [field]: value },
+        }), (error) => {
+          assert.ok(error instanceof ValidationError);
+          assert.equal(error.code, ValidationErrorCode.INVALID_ACCOUNT_ID);
+          assert.equal(error.path, `nexusSettlement.${field}`);
+          return true;
+        });
+      }
+    }
+  });
+}
+
+test("payment sample builders require caller-retained intent", () => {
+  for (const builder of [buildSamplePacs008Message, buildSamplePacs009Message]) {
+    assert.throws(() => builder(), /options/u);
+    assert.throws(() => builder({ messageSuffix: "envelope-only" }), /uetr/u);
+  }
 });

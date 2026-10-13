@@ -481,7 +481,7 @@ mod direct_home_admission_tests {
     #[test]
     fn committed_readers_retry_in_the_same_state_allocation_pool() {
         let _pin = crossbeam_epoch::pin();
-        let mut world = *fixture::fixture(false);
+        let mut world = fixture::fixture(false);
         world
             .set_asset_definition_dataspace_for_testing(
                 fixture::definition("coin"),

@@ -10,7 +10,7 @@ use iroha_data_model::{
 use zeroize::Zeroize;
 
 /// Read actual positive OS time without clamping or fabricating a fresh sample.
-pub(crate) fn owner_prf_now_ms() -> Result<u64, IdentifierResolutionError> {
+pub fn owner_prf_now_ms() -> Result<u64, IdentifierResolutionError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| IdentifierResolutionError::InvalidOutputOpening(error.to_string()))?;
@@ -26,7 +26,7 @@ pub(crate) fn owner_prf_now_ms() -> Result<u64, IdentifierResolutionError> {
 }
 
 /// Recheck the exact original bounded opening lease at synchronous delivery.
-pub(crate) fn validate_owner_prf_lease(
+pub fn validate_owner_prf_lease(
     opened_at_ms: u64,
     expires_at_ms: Option<u64>,
 ) -> Result<(), IdentifierResolutionError> {
@@ -34,7 +34,7 @@ pub(crate) fn validate_owner_prf_lease(
 }
 
 /// Check the original opening against the caller's single genuine delivery-time sample.
-pub(crate) fn validate_owner_prf_lease_at(
+pub fn validate_owner_prf_lease_at(
     opened_at_ms: u64,
     expires_at_ms: Option<u64>,
     now: u64,
@@ -183,8 +183,7 @@ impl IdentifierResolutionService {
     /// Re-evaluate exact owner input and independently authenticate its original opening and phone proof.
     pub fn derive_owner_prf(
         &self,
-        policy: &IdentifierPolicy,
-        program_policy: &RamLfeProgramPolicy,
+        (policy, program_policy): (&IdentifierPolicy, &RamLfeProgramPolicy),
         normalized_input: &str,
         input_nonce: &[u8; 32],
         opening: RamLfeOutputOpening,
@@ -380,8 +379,7 @@ mod owner_prf_current_tests {
         let opening = service.owner_prf_opening(&program, &execution).unwrap();
         let draft = service
             .derive_owner_prf(
-                &policy,
-                &program,
+                (&policy, &program),
                 "alice@example.test",
                 &[1; 32],
                 opening.clone(),
@@ -398,13 +396,12 @@ mod owner_prf_current_tests {
             assert!(
                 service
                     .derive_owner_prf(
-                        &policy,
-                        &program,
+                        (&policy, &program),
                         input,
                         &nonce,
                         opening.clone(),
                         None,
-                        &network
+                        &network,
                     )
                     .is_err()
             );
@@ -418,13 +415,12 @@ mod owner_prf_current_tests {
         assert!(
             service
                 .derive_owner_prf(
-                    &policy,
-                    &substituted,
+                    (&policy, &substituted),
                     "alice@example.test",
                     &[1; 32],
                     opening,
                     None,
-                    &network
+                    &network,
                 )
                 .is_err()
         );
@@ -451,21 +447,19 @@ mod owner_prf_current_tests {
             assert!(
                 service
                     .derive_owner_prf(
-                        &policy,
-                        &program,
+                        (&policy, &program),
                         "alice@example.test",
                         &[1; 32],
                         changed,
                         None,
-                        &network
+                        &network,
                     )
                     .is_err()
             );
         }
         let draft = service
             .derive_owner_prf(
-                &policy,
-                &program,
+                (&policy, &program),
                 "alice@example.test",
                 &[1; 32],
                 original.clone(),
@@ -533,8 +527,7 @@ mod owner_prf_current_tests {
         };
         let draft = service
             .derive_owner_prf(
-                &policy,
-                &program,
+                (&policy, &program),
                 "+6771234567",
                 &[1; 32],
                 opening.clone(),
@@ -555,13 +548,12 @@ mod owner_prf_current_tests {
         assert!(
             service
                 .derive_owner_prf(
-                    &policy,
-                    &program,
+                    (&policy, &program),
                     "+6771234567",
                     &[1; 32],
                     opening.clone(),
                     None,
-                    &network
+                    &network,
                 )
                 .is_err()
         );
@@ -602,13 +594,12 @@ mod owner_prf_current_tests {
             assert!(
                 service
                     .derive_owner_prf(
-                        &policy,
-                        &program,
+                        (&policy, &program),
                         "+6771234567",
                         &[1; 32],
                         opening.clone(),
                         Some(changed),
-                        &network
+                        &network,
                     )
                     .is_err(),
                 "{field}"
@@ -620,13 +611,12 @@ mod owner_prf_current_tests {
         assert!(
             service
                 .derive_owner_prf(
-                    &shared_key_policy,
-                    &program,
+                    (&shared_key_policy, &program),
                     "+6771234567",
                     &[1; 32],
                     opening,
                     Some(proof),
-                    &network
+                    &network,
                 )
                 .is_err()
         );

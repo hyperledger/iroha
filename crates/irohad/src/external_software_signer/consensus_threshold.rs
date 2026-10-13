@@ -27,7 +27,7 @@ mod provisioning_command;
 pub use prepared::{
     RuntimePreparedGlobalBeaconCredentialV1, prepare_global_beacon_transition_credential_v1,
 };
-pub(crate) use provisioning_command::dispatch_if_requested as dispatch_beacon_custody_preparation_if_requested;
+pub use provisioning_command::dispatch_if_requested as dispatch_beacon_custody_preparation_if_requested;
 
 use crate::runtime_credential::{RuntimeCredentialErrorV1, load_bounded_runtime_credential_v1};
 use crate::{
@@ -779,7 +779,7 @@ fn decode_global_beacon_credential_shares_v1(
 }
 
 /// Resolve consumed launcher bytes through the complete native credential validator.
-pub(crate) fn decode_global_beacon_runtime_signer_v1(
+pub fn decode_global_beacon_runtime_signer_v1(
     bytes: &[u8],
     network_id: &NetworkId,
     configured: &IrohaRuntimeProviderBindingV1,
@@ -1081,7 +1081,7 @@ fn exact_backend_binding_v1(
 
 /// Direct credential tests and proof-valid fixtures shared with broker socket tests.
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     fn test_credential_budget() -> AllocationBudget {
         AllocationBudget::new(256 * 1024 * 1024)
     }
@@ -1286,7 +1286,11 @@ pub(crate) mod tests {
             iroha_crypto::threshold_bls::THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1,
         ] {
             let network = network_id_v1(0xD1);
-            let fixture = tle_fixture_with_committee_v1(network, committee as u8 + 0x20, committee);
+            let fixture = tle_fixture_with_committee_v1(
+                network,
+                u8::try_from(committee).expect("fixture committee fits u8") + 0x20,
+                committee,
+            );
             let provisions = vec![RuntimeParliamentTleShareProvisioningV1::new(
                 fixture.validated.public_state().clone(),
                 1,
@@ -1371,7 +1375,7 @@ pub(crate) mod tests {
     }
 
     /// Fully resolved beacon signer fixture used by authenticated broker tests.
-    pub(crate) struct ConsensusThresholdBeaconBrokerTestFixtureV1 {
+    pub struct ConsensusThresholdBeaconBrokerTestFixtureV1 {
         /// Exact runtime-provider catalog bound into the credential.
         pub(crate) catalog: IrohaRuntimeProviderBindingsV1,
         /// Broker backends resolved from the canonical credential.
@@ -1383,7 +1387,7 @@ pub(crate) mod tests {
     }
 
     /// Fully resolved TLE signer fixture used by authenticated broker tests.
-    pub(crate) struct ConsensusThresholdTleBrokerTestFixtureV1 {
+    pub struct ConsensusThresholdTleBrokerTestFixtureV1 {
         /// Exact runtime-provider catalog bound into the credential.
         pub(crate) catalog: IrohaRuntimeProviderBindingsV1,
         /// Broker backends resolved from the canonical credential.
@@ -1486,7 +1490,7 @@ pub(crate) mod tests {
             session_byte,
             committee_size,
             beacon_fixture_roster_hash_v1(committee_size),
-            &budget,
+            budget,
         )
     }
 
@@ -1502,7 +1506,7 @@ pub(crate) mod tests {
             [session_byte; 32],
             committee_size,
             roster_hash,
-            &budget,
+            budget,
         )
     }
 
@@ -1519,7 +1523,7 @@ pub(crate) mod tests {
             committee_size,
             roster_hash,
             1,
-            &budget,
+            budget,
         )
     }
 
@@ -1542,7 +1546,7 @@ pub(crate) mod tests {
             "beacon fixture must use the exact signed BLS roster"
         );
         let binding = beacon_binding_v1(&record);
-        let validated = validate_global_threshold_beacon_session_v1(&record, &binding, &budget)
+        let validated = validate_global_threshold_beacon_session_v1(&record, &binding, budget)
             .expect("revalidate beacon fixture transcript");
         BeaconFixtureV1 {
             record,
@@ -1578,7 +1582,10 @@ pub(crate) mod tests {
             )?;
             prepared.into_credential().map_err(|(_, error)| error)
         };
-        produce().map_err(|error| match error {
+        let encoded = produce();
+        // Encoding consumes provisioning custody; release the secret scalars before returning.
+        drop(shares);
+        encoded.map_err(|error| match error {
             GlobalBeaconCredentialEncodeErrorV1::Credential(error) => error,
             GlobalBeaconCredentialEncodeErrorV1::Share(
                 iroha_core::beacon::GlobalThresholdBeaconError::ThresholdBls(
@@ -1595,7 +1602,7 @@ pub(crate) mod tests {
         session_byte: u8,
         budget: &AllocationBudget,
     ) -> BeaconFixtureV1 {
-        beacon_fixture_with_committee_v1(network_id, session_byte, 4, &budget)
+        beacon_fixture_with_committee_v1(network_id, session_byte, 4, budget)
     }
 
     fn tle_fixture_with_committee_v1(
@@ -1829,23 +1836,24 @@ pub(crate) mod tests {
     }
 
     /// Builds a beacon fixture through canonical provisioning, decode, and resolution.
-    pub(crate) fn consensus_threshold_beacon_broker_test_fixture_v1()
+    pub fn consensus_threshold_beacon_broker_test_fixture_v1()
     -> ConsensusThresholdBeaconBrokerTestFixtureV1 {
         consensus_threshold_beacon_broker_test_fixture_for_committee_v1(4, 0x79)
     }
 
     /// Build an exact-roster provider fixture for the separate readiness broker operation.
-    pub(crate) fn consensus_threshold_beacon_readiness_broker_test_fixture_v1() -> (
+    pub fn consensus_threshold_beacon_readiness_broker_test_fixture_v1() -> (
         ConsensusThresholdBeaconBrokerTestFixtureV1,
         iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
         iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
     ) {
-        let producer_budget = test_credential_budget();
-        let budget = test_credential_budget();
         use iroha_data_model::{
             nexus::ValidatorSeatReadinessContextV1,
             sumeragi::epoch::{InstalledBeaconEpochBindingV1, ValidatorGenerationV1},
         };
+
+        let producer_budget = test_credential_budget();
+        let budget = test_credential_budget();
         let network_id = network_id_v1(0xC1);
         let mut peers = (1..=4_u8)
             .map(|seed| {
@@ -1931,7 +1939,7 @@ pub(crate) mod tests {
     }
 
     /// Builds a maximum-committee beacon fixture for ordinary-stack broker tests.
-    pub(crate) fn consensus_threshold_beacon_broker_max_committee_test_fixture_v1()
+    pub fn consensus_threshold_beacon_broker_max_committee_test_fixture_v1()
     -> ConsensusThresholdBeaconBrokerTestFixtureV1 {
         consensus_threshold_beacon_broker_test_fixture_for_committee_v1(
             THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1,
@@ -1989,13 +1997,13 @@ pub(crate) mod tests {
     }
 
     /// Builds a TLE fixture through canonical provisioning, decode, and resolution.
-    pub(crate) fn consensus_threshold_tle_broker_test_fixture_v1()
+    pub fn consensus_threshold_tle_broker_test_fixture_v1()
     -> ConsensusThresholdTleBrokerTestFixtureV1 {
         consensus_threshold_tle_broker_test_fixture_for_committee_v1(4, 0x7A)
     }
 
     /// Builds a maximum-committee TLE fixture for ordinary-stack broker tests.
-    pub(crate) fn consensus_threshold_tle_broker_max_committee_test_fixture_v1()
+    pub fn consensus_threshold_tle_broker_max_committee_test_fixture_v1()
     -> ConsensusThresholdTleBrokerTestFixtureV1 {
         consensus_threshold_tle_broker_test_fixture_for_committee_v1(
             THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1,
@@ -3172,8 +3180,8 @@ pub(crate) mod tests {
                 Some(&directory),
                 &budget,
             ),
-            Err(RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected)
-                | Err(RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable)
+            Err(RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected
+                | RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable)
         ));
     }
 

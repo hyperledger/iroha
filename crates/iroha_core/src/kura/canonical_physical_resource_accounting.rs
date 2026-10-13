@@ -4,11 +4,22 @@
 #[derive(Clone, Copy)]
 enum CanonicalPhysicalOperation {
     Recovery,
+    #[expect(
+        dead_code,
+        reason = "TODO: connect authorized eviction and pruning to exact physical accounting; preserve the operation distinction through recovery"
+    )]
     Eviction,
     Append {
         start_height: u64,
         block_count: usize,
     },
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect authorized eviction and pruning to exact physical accounting; preserve the operation distinction through recovery"
+        )
+    )]
     Prune,
 }
 
@@ -396,8 +407,10 @@ impl Kura {
                 resource_inventory::Unavailable::InvalidInventory,
             );
         }
-        result._stage_identity = Some(identity);
-        result
+        CanonicalPhysicalMutation {
+            _stage_identity: Some(identity),
+            ..result
+        }
     }
 
     fn flush_pending_fsync_with_resources(

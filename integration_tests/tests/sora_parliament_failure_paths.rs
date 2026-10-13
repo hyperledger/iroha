@@ -1054,7 +1054,7 @@ async fn finalize_failure_path_policy_ballot(
         .await?;
         assert_eq!(peer_context, release_context);
         let partial = release_partial(
-            read_on_dedicated_thread({
+            &read_on_dedicated_thread({
                 let client = peer_client.client().clone();
                 let release_context = (peer_context).clone();
                 move || client.post_parliament_tle_partial_release(&release_context)

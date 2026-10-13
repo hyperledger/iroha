@@ -209,10 +209,10 @@ state_test! { sync ordinary_block_seals_axt_replay_pruning_before_atomic_commit
         7,
         lane,
     );
-    let_row! { stale = axt_replay_record_for_key(&key, 1, 2) };
+    let_row! { outdated = axt_replay_record_for_key(&key, 1, 2) };
     use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig, Signers};
     let mut world = World::new();
-    world.axt_replay_ledger.insert(key, stale.clone());
+    world.axt_replay_ledger.insert(key, outdated.clone());
     let mut config = TestChainConfig::new(world, 0);
     config.nexus = Some(nexus);
     let mut chain = CertifiedTestChain::start(config).unwrap();
@@ -231,7 +231,7 @@ state_test! { sync ordinary_block_seals_axt_replay_pruning_before_atomic_commit
         let state = inspect_state;
         assert_eq!(
             state.world.axt_replay_ledger.view().get(&key).cloned(),
-            Some(stale),
+            Some(outdated),
             "preparing the sealed overlay must not mutate committed replay state"
         );
         assert!(staged.world.axt_replay_ledger.get(&key).is_none(),

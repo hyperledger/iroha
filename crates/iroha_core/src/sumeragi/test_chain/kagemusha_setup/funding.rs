@@ -289,8 +289,11 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
     for height in 1..=5 {
         let proof =
             crate::sumeragi::finality::build_proof(&setup.chain.state().view(), height).unwrap();
-        let verified = verifier.verify(&proof).unwrap();
-        assert_eq!(verified.result(), setup.chain.committed(height).result());
+        let authenticated = verifier.verify(&proof).unwrap();
+        assert_eq!(
+            authenticated.result(),
+            setup.chain.committed(height).result()
+        );
         originals.push(publish(
             output,
             &format!("block-{height}.wire"),
@@ -302,7 +305,7 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
             &norito::encode_canonical(&proof).unwrap(),
         ));
         if height > 1 {
-            blocks.push(block_capture(&verified));
+            blocks.push(block_capture(&authenticated));
         }
     }
     let mut cursor = crate::sumeragi::finality::NativeFinalityCursorV1::new();

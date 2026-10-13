@@ -192,7 +192,7 @@ impl NativeLaneStoreAuthorities {
         incarnation: [u8; 32],
     ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
         let budget = self.state.ivm_execution_budget();
-        if cfg!(all(test, sumeragi_core_mutation = "HC283")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC351")) {
             self.historical_record_with_scan(lane, incarnation)
         } else {
             budget.with_deferred_refund_notifications(|_| {
@@ -293,7 +293,7 @@ impl LaneStoreAuthorities for NativeLaneStoreAuthorities {
         let expected = incarnation_instance(
             &*self.crypto,
             &network,
-            &self.state.chain_id_ref().to_string(),
+            self.state.chain_id_ref().as_ref(),
             lane,
             incarnation,
         );

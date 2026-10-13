@@ -32,15 +32,27 @@ fn pending_checkpoint_and_exact_next_decision_survive_canonical_reopen() {
     .unwrap();
     let anchor = fixture.child_anchor();
     let mut pending = PendingOperation {
-        kind: PendingKind::Anchor { previous, anchor },
+        kind: PendingKind::Anchor {
+            previous: Box::new(previous),
+            anchor: Box::new(anchor),
+        },
         checkpoint: fixture.parent.checkpoint().encode_canonical().unwrap(),
         replay: None,
     };
     pending.validate(&fixture.identity).unwrap();
     assert_eq!(pending.target(&fixture.identity).unwrap().height, 2);
     assert_eq!(pending.journal_name().unwrap(), "anchor-2");
+    let encoded = encode_bounded(&pending, MAX_RECORD_BYTES).unwrap();
+    let reopened: PendingOperation = norito::decode_canonical_with_limits(
+        &encoded,
+        norito::canonical_decode_limits(encoded.len()),
+    )
+    .unwrap();
+    assert!(reopened.kind == pending.kind);
+    reopened.validate(&fixture.identity).unwrap();
+    assert_eq!(reopened.target(&fixture.identity).unwrap().height, 2);
     if let PendingKind::Anchor { anchor, .. } = &mut pending.kind {
-        *anchor = fixture.child_anchor(); // genuine QC, but a gap from the retained cursor
+        **anchor = fixture.child_anchor(); // genuine QC, but a gap from the retained cursor
     }
     assert!(pending.validate(&fixture.identity).is_err());
     pending.checkpoint = fixture.child.checkpoint().encode_canonical().unwrap();
@@ -119,7 +131,7 @@ fn parent_context_and_fresh_quorum_are_required_before_preparation_or_dispatch()
     .unwrap();
     let options = BoundedTransactionOptions {
         fee_payment: FeePaymentIntent::authority(vec![], None),
-        max_total_fees: Default::default(),
+        max_total_fees: std::collections::BTreeMap::default(),
         deadline: Instant::now() + std::time::Duration::from_secs(5),
     };
     let offline = Offline(AtomicUsize::new(0));
@@ -283,7 +295,7 @@ fn cancelled_attachment_refuses_new_parent_work_but_preserves_pending_reconcilia
     .unwrap();
     let options = BoundedTransactionOptions {
         fee_payment: FeePaymentIntent::authority(vec![], None),
-        max_total_fees: Default::default(),
+        max_total_fees: std::collections::BTreeMap::default(),
         deadline: Instant::now() + std::time::Duration::from_secs(10),
     };
     let source = Offline(Cell::new(0));
@@ -294,7 +306,7 @@ fn cancelled_attachment_refuses_new_parent_work_but_preserves_pending_reconcilia
     assert!(matches!(
         store.relay_once(
             &NoLocalRead,
-            RelayParent {
+            &mut RelayParent {
                 config: &config,
                 bootstrap: &bootstrap,
                 finality: &mut parent,

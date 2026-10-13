@@ -377,10 +377,15 @@ impl SoracloudInrouPersistedStateV1<'_> {
                         "app state is missing its exact updated_sequence audit event",
                     )
                 })?;
-            if updated_event.app_name != state.app_name
-                || updated_event.to_version != state.current_app_version
-                || updated_event.app_manifest_hash != state.current_manifest_hash
-            {
+            if (
+                &updated_event.app_name,
+                &updated_event.to_version,
+                &updated_event.app_manifest_hash,
+            ) != (
+                &state.app_name,
+                &state.current_app_version,
+                &state.current_manifest_hash,
+            ) {
                 return Err(invalid_soracloud_state(
                     "soracloud_app_infra_audit_events",
                     "app state's current revision does not match its updated_sequence audit event",
@@ -424,9 +429,7 @@ impl SoracloudInrouPersistedStateV1<'_> {
                 || first_event.1.action != iroha_data_model::soracloud::SoraAppInfraActionV1::Deploy
                 || first_event.1.from_version.is_some()
                 || last_event.0 != state.updated_sequence
-                || u32::try_from(state.manifest.services.len()).map_or(true, |service_count| {
-                    last_event.1.service_count != service_count
-                })
+                || (u32::try_from(state.manifest.services.len()) != Ok(last_event.1.service_count))
             {
                 return Err(invalid_soracloud_state(
                     "soracloud_app_infra_audit_events",
@@ -875,10 +878,15 @@ impl SoracloudInrouPersistedStateV1<'_> {
                         ),
                     )
                 })?;
-            if audit_event.action != entry.source_action
-                || audit_event.service_name != entry.service_name
-                || audit_event.to_version != entry.service_version
-                || audit_event.service_manifest_hash != bundle.service_manifest_hash()
+            if (
+                &audit_event.action,
+                &audit_event.service_name,
+                &audit_event.to_version,
+            ) != (
+                &entry.source_action,
+                &entry.service_name,
+                &entry.service_version,
+            ) || audit_event.service_manifest_hash != bundle.service_manifest_hash()
                 || audit_event.container_manifest_hash != bundle.container_manifest_hash()
                 || audit_event.governance_tx_hash != Some(entry.governance_tx_hash)
                 || audit_event.binding_name.as_ref() != Some(&entry.binding_name)
@@ -1513,7 +1521,8 @@ impl SoracloudInrouPersistedStateV1<'_> {
             });
             match source.kind {
                 iroha_data_model::soracloud::SoraModelProvenanceKindV1::TrainingJob => {
-                    if source.id != artifact.training_job_id
+                    let source_matches = source.id == artifact.training_job_id;
+                    if !source_matches
                         || artifact.training_job_id != artifact.artifact_id
                         || artifact.chunk_manifest_root.is_some()
                         || registered_event.consumed_by_version.is_some()
@@ -1642,11 +1651,19 @@ impl SoracloudInrouPersistedStateV1<'_> {
                     event.service_version.clone(),
                 ))
                 .is_none()
-                || event.sequence != artifact.registered_sequence
-                || event.service_version != artifact.service_version
-                || event.model_name != artifact.model_name
-                || event.training_job_id != artifact.artifact_id
-                || event.consumed_by_version != artifact.consumed_by_version
+                || (
+                    event.sequence,
+                    &event.service_version,
+                    &event.model_name,
+                    &event.training_job_id,
+                    &event.consumed_by_version,
+                ) != (
+                    artifact.registered_sequence,
+                    &artifact.service_version,
+                    &artifact.model_name,
+                    &artifact.artifact_id,
+                    &artifact.consumed_by_version,
+                )
             {
                 return Err(invalid_soracloud_state(
                     "soracloud_model_artifact_audit_events",
@@ -2603,7 +2620,7 @@ fn validate_soracloud_service_deployment_history(
                         ));
                     }
                     active_version = Some(event.to_version.clone());
-                    folded_rollout = event.rollout_state.clone();
+                    folded_rollout.clone_from(&event.rollout_state);
                     if event.action == ServiceAction::Upgrade {
                         let rollout = folded_rollout.as_ref().expect(
                             "Upgrade action field validation requires an exact rollout state",
@@ -2718,7 +2735,9 @@ fn validate_soracloud_service_deployment_history(
                             )
                         })?;
                     let mut prior_deployment = deployment.clone();
-                    prior_deployment.service_lease = folded_service_lease.clone();
+                    prior_deployment
+                        .service_lease
+                        .clone_from(&folded_service_lease);
                     let existing =
                         (event.action == ServiceAction::Upgrade).then_some(&prior_deployment);
                     let expected = crate::smartcontracts::isi::soracloud::build_http_service_lease_state(
@@ -2759,7 +2778,9 @@ fn validate_soracloud_service_deployment_history(
                             )
                         })?;
                     let mut prior_deployment = deployment.clone();
-                    prior_deployment.service_lease = folded_service_lease.clone();
+                    prior_deployment
+                        .service_lease
+                        .clone_from(&folded_service_lease);
                     let expected = crate::smartcontracts::isi::soracloud::build_http_service_lease_state(
                         event_bundle,
                         Some(&prior_deployment),
@@ -3747,8 +3768,9 @@ fn validate_soracloud_agent_apartment_history(
                                 "artifact-allowed audit hash is absent from the retained allowlist",
                             )
                         })?;
+                let same_sequence = current_rule.added_sequence == event.sequence;
                 if current_rule.added_sequence < event.sequence
-                    || (current_rule.added_sequence == event.sequence
+                    || (same_sequence
                         && current_rule.provenance_hash.as_deref()
                             != event.provenance_hash.as_deref())
                 {
@@ -4144,15 +4166,12 @@ fn replay_soracloud_service_lease_usage(
                         .to_owned(),
                 );
             }
-            if usage.replica_accounted_egress_bytes == checkpoint.accounted_egress_bytes
-                && usage.finalize_reporter == checkpoint.finalize_reporter
-            {
+            let unchanged_bytes =
+                usage.replica_accounted_egress_bytes == checkpoint.accounted_egress_bytes;
+            if unchanged_bytes && usage.finalize_reporter == checkpoint.finalize_reporter {
                 return Err("an exact reporter no-op must not consume an audit sequence".to_owned());
             }
-            if checkpoint.finalize_reporter
-                && !usage.finalize_reporter
-                && usage.replica_accounted_egress_bytes != checkpoint.accounted_egress_bytes
-            {
+            if checkpoint.finalize_reporter && !usage.finalize_reporter && !unchanged_bytes {
                 return Err(
                     "a finalized reporter checkpoint must reopen at its exact terminal byte value before increasing"
                         .to_owned(),
@@ -4233,8 +4252,10 @@ fn replay_soracloud_service_lease_usage(
             .settled_egress_bytes
             .checked_add(settled_delta)
             .ok_or_else(|| "cumulative lease settlement overflows u128".to_owned())?;
-        if rollover.lease_started_height != prior.lease_started_height
-            || rollover.previous_reporting_epoch != prior.reporting_epoch
+        if (
+            rollover.lease_started_height,
+            rollover.previous_reporting_epoch,
+        ) != (prior.lease_started_height, prior.reporting_epoch)
             || rollover.new_reporting_epoch != successor
             || rollover.reporter_account_id != usage.assignment.placement.validator_account_id
             || rollover.active_service_version != usage.assignment.service_version
@@ -9168,7 +9189,7 @@ fn decode_world_fields(
         )?,
         sccp_forgery_max_generation: sccp_forgery_custody::initialize_max(
             None,
-            None,
+            sccp_forgery_custody::MaxGenerationPredecessor::Unchanged,
             execution_budget,
         )?,
         sccp_committee_generations: initial_world_field!(
@@ -9197,8 +9218,18 @@ fn decode_world_fields(
         sccp_governance_revisions: Storage::default(),
         sccp_inbound_messages: Storage::default(),
         sccp_pending_counts: Storage::default(),
+        sccp_reconciliations: initial_world_field!(sccp_reconciliations, execution_budget),
+        sccp_reconciliation_proven: initial_world_field!(
+            sccp_reconciliation_proven,
+            execution_budget
+        ),
+        sccp_pending_refund_amount: initial_world_field!(
+            sccp_pending_refund_amount,
+            execution_budget
+        ),
+        sccp_reconciliation_due: initial_world_field!(sccp_reconciliation_due, execution_budget),
         sccp_light_clients: Storage::default(),
-        sccp_light_client_sets: Storage::default(),
+        sccp_light_client_sets: initial_world_field!(sccp_light_client_sets, execution_budget),
         sccp_light_client_checkpoints: Storage::default(),
         sccp_light_client_stride_index: Storage::default(),
         sccp_light_client_profiles: Storage::default(),
@@ -12647,7 +12678,7 @@ mod decode_tests {
             validate_musubi_resolver_checkpoint_structure(&mismatched, 2).is_err(),
             "checkpoint keys must match embedded revisions"
         );
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_resolver_index_checkpoints = decoded;
         let canonical_hash =
             HashOf::<BlockHeader>::from_untyped_unchecked(Hash::prehashed([0xA1; Hash::LENGTH]));
@@ -12673,7 +12704,7 @@ mod decode_tests {
             expected_revision: genesis.revision,
         });
         let decision_id = ProposalKind::MusubiRegistryGovernance(action.clone()).fingerprint();
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_registry_policy = Cell::new(successor.clone());
         retain_musubi_consumption(&mut world, action.clone(), 110, 120, 120);
         validate_musubi_governance_provenance(&world)
@@ -12696,7 +12727,7 @@ mod decode_tests {
         } else {
             [0xA5; 32]
         };
-        let mut mismatched = World::default();
+        let mut mismatched = World::new();
         mismatched.musubi_registry_policy = Cell::new(successor);
         retain_musubi_consumption_as(&mut mismatched, wrong_id, action, 110, 120, 120);
         let error = validate_musubi_governance_provenance(&mismatched)
@@ -12832,7 +12863,7 @@ mod decode_tests {
                 policy: third.clone(),
                 expected_revision: second.revision,
             });
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_registry_policy = Cell::new(third);
         retain_musubi_consumption(&mut world, first_action, 110, 120, 121);
         retain_musubi_consumption(&mut world, second_action, 111, 121, 121);

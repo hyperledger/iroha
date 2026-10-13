@@ -61,7 +61,7 @@ impl Default for BodyLimits {
 }
 
 /// Largest body file accepted on read (far above the largest block the core accepts).
-const MAX_BODY_FILE_BYTES: u64 = 80 * 1024 * 1024;
+const MAX_BODY_FILE_BYTES: usize = 80 * 1024 * 1024;
 
 // The same prepared bytes and admitted height survive every publication refusal. Only an
 // explicit local applied-height retirement may release that height while retaining the bytes.
@@ -309,7 +309,7 @@ impl BodyStore for FileBodyStore {
                     .prepare(&self.execution_budget)
                     .map_err(io::Error::other)?;
                 let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-                if len > MAX_BODY_FILE_BYTES {
+                if len > MAX_BODY_FILE_BYTES as u64 {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "body exceeds the read limit",
@@ -425,7 +425,7 @@ impl BodyReader for FileBodyStore {
         Ok(Box::new(FileBodyRead::open(
             self.custody.retain().map_err(BodyReadError::Io)?,
             source,
-            MAX_BODY_FILE_BYTES as usize,
+            MAX_BODY_FILE_BYTES,
             self.execution_budget.clone(),
         )?))
     }

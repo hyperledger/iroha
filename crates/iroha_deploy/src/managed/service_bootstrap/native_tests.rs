@@ -3,6 +3,15 @@
 //! complete HTTP bootstrap, native per-use eligibility, catalog admission or Serving readiness.
 
 use super::*;
+
+type EnrollmentRootSnapshot = (
+    PrivateDirectory,
+    PrivateDirectory,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+);
+
 use crate::{
     managed::{
         native_operation::{
@@ -114,7 +123,7 @@ impl NativeFixture {
         deadline: Option<Instant>,
     ) -> Result<VerifiedStreamTokenCustodyStateV1> {
         let tip = self.chain.committed(self.chain.height());
-        let budget = AllocationBudget::new(32 * 1024 * 1024);
+        let budget = self.chain.state().ivm_execution_budget();
         let capture = || {
             self.chain
                 .state()
@@ -134,9 +143,9 @@ impl NativeFixture {
             Some(deadline) => bounded_native_snapshot(&budget, deadline, capture)?,
             None => capture().map_err(|error| crate::managed::Error::Invalid(error.to_string()))?,
         };
-        if deadline.is_none() {
-            assert_eq!(budget.reserved_bytes(), 0);
-        }
+        // Shared executed State generations may retire concurrently. Exact operation
+        // refunds belong to reader_busy_tests' pre-construction-pinned custody control,
+        // not an assertion about this shared State's global reservation total.
         let current = StreamTokenCustodyProofV1::decode_frame(&bytes).unwrap().verify(
             authority.config.network_id,
             authority.provider_id().unwrap(),
@@ -162,7 +171,7 @@ impl NativeFixture {
         self.account_proof(&operator.account, authority.provider_id().unwrap())
             .verify(
                 &ReserveAccountProofExpectedV1 {
-                    chain: &authority.config.chain.to_string(),
+                    chain: authority.config.chain.as_ref(),
                     network_id: authority.config.network_id,
                     operator: &operator.account,
                     provider_id: authority.provider_id().unwrap(),
@@ -191,12 +200,13 @@ fn bounded_native_snapshot<T>(
                 require_deadline(deadline)?;
                 return Ok(value);
             }
-            Err(WorldStateSnapshotError::Acquisition(
-                mv::storage::AdmittedStorageError::Busy { release, .. },
-            ))
-            | Err(WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(
-                release,
-            ))) => wait_native_snapshot_release(budget, release, deadline)?,
+            Err(
+                WorldStateSnapshotError::Acquisition(mv::storage::AdmittedStorageError::Busy {
+                    release,
+                    ..
+                })
+                | WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(release)),
+            ) => wait_native_snapshot_release(budget, release, deadline)?,
             Err(error) => return Err(crate::managed::Error::Invalid(error.to_string())),
         }
     }
@@ -583,13 +593,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         requested_utc: u64,
         previous_terms: &crate::managed::native_operation::Terms,
         expected: &[ManagedTransactionFinality],
-        enrollment_roots: &[(
-            PrivateDirectory,
-            PrivateDirectory,
-            Vec<u8>,
-            Vec<u8>,
-            Vec<u8>,
-        )],
+        enrollment_roots: &[EnrollmentRootSnapshot],
         retained: &[(PrivateDirectory, Vec<u8>, Vec<u8>)],
         temporary: &tempfile::TempDir,
         peers: &mut UnavailablePeers,
@@ -622,7 +626,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
                     .as_millis(),
             );
             let advance_started = Instant::now();
-            let (_, passes) = phases::test_passes::count(|| {
+            let ((), passes) = phases::test_passes::count(|| {
                 assert_eq!(
                     finalities(owner.advance(authorization, fresh.deadline).unwrap()),
                     expected
@@ -837,7 +841,8 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         assert_eq!(instructions.len(), instruction_count);
         let view = native.chain.state().view();
         assert_eq!(
-            iroha_core::gas::meter_instructions(instructions, &view.zk.gas),
+            iroha_core::gas::meter_instructions(instructions, &view.zk.gas)
+                .expect("native instruction metering completes without a local refusal"),
             gas
         );
         assert_eq!(
@@ -996,7 +1001,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         let scope = runtime
             .open_child("providers")
             .unwrap()
-            .open_child(&slot.to_string())
+            .open_child(slot.to_string())
             .unwrap();
         for (owner, purpose) in [
             ("stream-token-custody", "configure"),

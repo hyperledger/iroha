@@ -516,7 +516,7 @@ fn actual_paid_check_queue_original_and_initial_advance_preserve_exact_custody_o
             .perform_goal(
                 &f.original,
                 Goal::Initialize,
-                readback,
+                &readback,
                 &mut Clock,
                 deadline
             )
@@ -807,6 +807,24 @@ impl MusubiPublicationServiceClockV1 for BoundaryClock {
 
 #[test]
 fn actual_native_check_expiry_after_payload_preparation_preserves_unsigned_original() {
+    struct DelayedClock {
+        end: Instant,
+        value: u64,
+        called: bool,
+    }
+    impl MusubiPublicationServiceClockV1 for DelayedClock {
+        fn current_time_ms(
+            &mut self,
+        ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
+        {
+            self.called = true;
+            std::thread::sleep(
+                self.end.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+            );
+            Ok(self.value)
+        }
+    }
+
     let mut f = Fixture::new();
     let owner = AccountId::new(f.key.public_key().clone());
     let before = f.balance(&owner);
@@ -834,23 +852,6 @@ fn actual_native_check_expiry_after_payload_preparation_preserves_unsigned_origi
 
     // Even a live UTC sample cannot extend the original monotonic boundary while the durable
     // clock is being read. This is a refusal test over the actual original authorization.
-    struct DelayedClock {
-        end: Instant,
-        value: u64,
-        called: bool,
-    }
-    impl MusubiPublicationServiceClockV1 for DelayedClock {
-        fn current_time_ms(
-            &mut self,
-        ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
-        {
-            self.called = true;
-            std::thread::sleep(
-                self.end.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
-            );
-            Ok(self.value)
-        }
-    }
     let end = Instant::now() + Duration::from_millis(100);
     let mut delayed = DelayedClock {
         end,
@@ -909,7 +910,7 @@ fn actual_native_check_finality_cannot_authorize_advance_signature_after_origina
     let result = f.coordinator.perform_goal(
         &f.original,
         Goal::Initialize,
-        readback,
+        &readback,
         &mut clock,
         deadline,
     );

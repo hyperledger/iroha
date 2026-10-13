@@ -47,7 +47,9 @@ impl BorrowedHistorySource for Source {
             Some(index),
             "controlled borrowed source unwind"
         );
-        self.leaves.get(index as usize).copied()
+        self.leaves
+            .get(usize::try_from(index).expect("fixture value fits usize"))
+            .copied()
     }
 }
 fn path(
@@ -285,7 +287,7 @@ fn funded_history_rejects_invalid_shape_bounds_and_overflow_before_admission() {
     // Maximum protocol geometry is representable without constructing its history graph.
     assert_eq!(
         node_count(MAX_HISTORY_SIZE / CHUNK).unwrap(),
-        (MAX_HISTORY_SIZE / CHUNK * 2 - 1) as usize
+        usize::try_from(MAX_HISTORY_SIZE / CHUNK * 2 - 1).expect("fixture value fits usize")
     );
     assert_eq!(path_len(0, MAX_HISTORY_SIZE), 32);
 }

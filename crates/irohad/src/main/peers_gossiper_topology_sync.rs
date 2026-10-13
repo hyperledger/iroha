@@ -64,7 +64,7 @@ const fn status_follows_state_commit(status: BlockStatus) -> bool {
 }
 
 /// Keep peer-gossip validator authority synchronized with committed state.
-pub(super) async fn run(
+pub async fn run(
     state: Arc<State>,
     peers_gossiper: PeersGossiperHandle,
     mut events: broadcast::Receiver<EventBox>,

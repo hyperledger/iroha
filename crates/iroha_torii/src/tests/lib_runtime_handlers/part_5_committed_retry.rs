@@ -234,7 +234,7 @@ async fn committed_retry_revalidates_expiry_and_current_signature_policy() {
     let (app, expired, _chain, _) = committed_retry_fixture(false, true);
     let response = post_signed_transaction_for_test(app.clone(), HeaderMap::new(), &expired)
         .await
-        .map_or_else(IntoResponse::into_response, |response| response);
+        .unwrap_or_else(IntoResponse::into_response);
     assert_ne!(response.status(), StatusCode::ACCEPTED);
     assert_eq!(app.queue.active_len(), 0);
 

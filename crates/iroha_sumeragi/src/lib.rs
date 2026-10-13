@@ -99,6 +99,7 @@ mod machine;
 pub mod message;
 pub mod pacemaker;
 pub mod preimage;
+pub mod prepare_admission;
 pub mod safety;
 #[cfg(any(test, feature = "sim"))]
 pub mod sim;

@@ -559,7 +559,7 @@ fn canonical(world: &World) -> [String; 4] {
     ]
 }
 fn restored_world(world: &World) -> World {
-    let mut recovered = World::default();
+    let mut recovered = World::new();
     recovered.account_rekey_records = restored(&world.account_rekey_records);
     recovered.accounts = restored(&world.accounts);
     recovered.account_aliases = restored(&world.account_aliases);

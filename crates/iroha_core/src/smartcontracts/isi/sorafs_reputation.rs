@@ -425,7 +425,6 @@ fn read_active_policy_for_current(
         ));
     }
     drop(history);
-    drop(history_current);
     validate_policy_predecessor_for_current(world, &record, current)?;
     Ok(Some(record))
 }
@@ -1193,7 +1192,6 @@ fn validate_journal_head_for_query(
     // validation. Neither output retains policy state.
     let mut policy_current = reputation_current_from_resident(0)?;
     read_active_policy_for_current(world, &mut policy_current)?;
-    drop(policy_current);
     let mut head_current = reputation_current_from_resident(0)?;
     let head = read_journal_head_for_current(world, &mut head_current)?;
     ensure_no_event_after_head(world, head)?;
@@ -2352,9 +2350,8 @@ fn validate_record_at_finalized_cursor(
             ReputationJournalValidationError::EventBeyondFinality,
         ));
     }
-    if event_cursor.block_height == finalized_cursor.height
-        && event_cursor.block_hash != finalized_cursor.block_hash
-    {
+    let at_finalized_height = event_cursor.block_height == finalized_cursor.height;
+    if at_finalized_height && event_cursor.block_hash != finalized_cursor.block_hash {
         return Err(invalid(
             ReputationJournalValidationError::FinalizedBlockHashMismatch,
         ));
@@ -2503,7 +2500,6 @@ fn query_event_page(
         .map_err(query_failure)?;
     validate_record_at_finalized_cursor(state_ro, &head_record, finalized_cursor)?;
     drop(head_record);
-    drop(head_current);
     let mut previous = query
         .after
         .map(|cursor| load_cursor_event(state_ro, cursor))
@@ -4239,9 +4235,9 @@ iroha_data_model::sorafs::reputation::ReputationJournalPolicyOriginV1::Network(
             Ok(())
         })
         .expect("commit block after rejecting future source observation");
-        let stale = por_entry_at(&authority, provider_id, policy_digest, 0x83, TEST_NOW_MS);
+        let outdated = por_entry_at(&authority, provider_id, policy_digest, 0x83, TEST_NOW_MS);
         transact_test(&mut state, 4, TEST_NOW_MS + 3_000, |transaction| {
-            let error = AppendSorafsPorReputationJournalEntry::new(stale)
+            let error = AppendSorafsPorReputationJournalEntry::new(outdated)
                 .execute(&authority, transaction)
                 .expect_err("stale source observation must fail closed");
             assert!(

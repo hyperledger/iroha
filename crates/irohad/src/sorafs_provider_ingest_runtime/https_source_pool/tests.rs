@@ -45,11 +45,11 @@ impl ProviderIngestGovernedHttpsGrantResolverV1 for RefusingAuthority {
         self.calls.readiness.fetch_add(1, Ordering::SeqCst);
         Err(ProviderIngestSourceFetchErrorV1::Unavailable)
     }
-    fn resolve<'a>(
-        &'a self,
+    fn resolve(
+        &self,
         _: ProviderIngestHttpsGrantRequestV1,
     ) -> ProviderIngestFutureV1<
-        'a,
+        '_,
         Result<ProviderIngestHttpsGrantV1, ProviderIngestSourceFetchErrorV1>,
     > {
         self.calls.grants.fetch_add(1, Ordering::SeqCst);
@@ -138,30 +138,30 @@ fn invalid_public_inventory_is_rejected_before_consulting_any_resolver() {
     let calls = Arc::new(Calls::default());
     let catalog = catalog(limits());
     let original = sources(&calls);
-    let mutations: Vec<Box<dyn Fn(&mut Vec<ProviderIngestHttpsSourceRegistrationV1>)>> = vec![
-        Box::new(|sources| {
+    let mutations: [fn(&mut Vec<ProviderIngestHttpsSourceRegistrationV1>); 8] = [
+        |sources| {
             sources.pop();
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources.push(sources[0].clone());
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources[1].config.binding.runtime_handle =
                 sources[0].config.binding.runtime_handle.clone();
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources[1].config.binding.runtime_handle = "governed-https-pool".into();
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources[1].config.binding.revision = 0;
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources[1].config.max_in_flight = 2;
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             sources[1].config.operation_timeout = Duration::from_secs(11);
-        }),
-        Box::new(|sources| {
+        },
+        |sources| {
             use iroha_crypto::{Hash, HashOf};
             sources[1].config.network_id =
                 iroha_data_model::NetworkId::from_genesis_hash(HashOf::<
@@ -169,7 +169,7 @@ fn invalid_public_inventory_is_rejected_before_consulting_any_resolver() {
                 >::from_untyped_unchecked(
                     Hash::new(b"different-network")
                 ));
-        }),
+        },
     ];
     for mutate in mutations {
         let mut changed = original.clone();

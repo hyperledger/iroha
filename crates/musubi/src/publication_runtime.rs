@@ -1257,8 +1257,8 @@ fn location_add_instruction(
     response: &MusubiStorageCoordinationResponseV1,
     expected_location_revision: u64,
     provider_attestation_set_digest: MusubiProviderBundleAttestationSetDigestV1,
-) -> Result<AddMusubiArchiveLocationV1, PublicationBackendError> {
-    Ok(AddMusubiArchiveLocationV1 {
+) -> AddMusubiArchiveLocationV1 {
+    AddMusubiArchiveLocationV1 {
         archive_id: response.archive.archive_id,
         location_id: response.location_id,
         pin_manifest: response.pin_manifest,
@@ -1267,7 +1267,7 @@ fn location_add_instruction(
         renew_after_epoch: response.renew_after_epoch,
         expires_at_epoch: response.expires_at_epoch,
         expected_location_revision,
-    })
+    }
 }
 fn provider_attestation_set_checkpoint_relative_path(
     operation_id: PublicationOperationIdV1,
@@ -1606,7 +1606,7 @@ impl<V: PublicationCleanPackageValidatorV1> PublicationRuntimeServicesV1
             &response,
             page.archive.location_revision,
             attestation_set.set_digest,
-        )?;
+        );
         let payload = self
             .signing
             .prebuild_v1(instruction.clone())
@@ -2636,8 +2636,7 @@ private_key = "{}"
             &fixture.response,
             fixture.page.archive.location_revision,
             fixture_attestation_set_digest(fixture),
-        )
-        .expect("compact location instruction");
+        );
         let publisher_key =
             KeyPair::try_from_seed(vec![0x51; 32], Algorithm::Ed25519).expect("publisher key");
         let mut builder = TransactionBuilder::new(
@@ -3526,8 +3525,7 @@ private_key = "{}"
             &fixture.response,
             page.archive.location_revision,
             fixture_attestation_set_digest(&fixture),
-        )
-        .expect("rebased compact location instruction");
+        );
         assert_eq!(instruction.expected_location_revision, 7);
         assert_ne!(
             instruction.expected_location_revision,

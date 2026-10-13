@@ -34,7 +34,7 @@ async fn response_error(response: Response) -> ErrorEnvelope {
         .expect("response body should be readable");
     norito::decode_from_bytes(&body).expect("response body should decode as an error envelope")
 }
-pub(super) fn configure_corrupt_inactive_autoscale_range_route_for_test(
+pub fn configure_corrupt_inactive_autoscale_range_route_for_test(
     app: &mut SharedAppState,
 ) -> (LaneId, DataSpaceId) {
     let inactive_dataspace = DataSpaceId::new(1);
@@ -619,16 +619,18 @@ async fn collection_coordinator_counts_global_rows_once_across_routes() {
             routes.clone(),
             ToriiFanoutRouteScopeV1::AllDataspaces,
             ToriiReadFanoutMergeV1::List,
-            ToriiReadEndpointV1::AccountsQuery,
-            vec![],
-            None,
-            collection_query_body(
-                &query,
-                routing::collection_sources::collection_execution_limits(None)
-                    .expect("test collection limits")
-                    .bytes,
-            )
-            .unwrap(),
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::AccountsQuery,
+                path_args: vec![],
+                query_string: None,
+                body: collection_query_body(
+                    &query,
+                    routing::collection_sources::collection_execution_limits(None)
+                        .expect("test collection limits")
+                        .bytes,
+                )
+                .unwrap(),
+            },
             ToriiProxyResponseFormatV1::Json,
             None,
         )
@@ -648,16 +650,16 @@ async fn collection_coordinator_counts_global_rows_once_across_routes() {
         vec![],
         ToriiFanoutRouteScopeV1::AllDataspaces,
         ToriiReadFanoutMergeV1::List,
-        ToriiReadEndpointV1::AccountsQuery,
-        vec![],
-        None,
-        collection_query_body(
-            &base.include_total(),
-            Ok::<_, Error>(routing::collection_sources::collection_limits())
-                .expect("explicit independent test collection limits")
-                .bytes,
-        )
-        .unwrap(),
+        crate::ToriiReadPayload {
+            endpoint: ToriiReadEndpointV1::AccountsQuery,
+            path_args: vec![],
+            query_string: None,
+            body: collection_query_body(
+                &base.include_total(),
+                routing::collection_sources::collection_limits().bytes,
+            )
+            .unwrap(),
+        },
         ToriiProxyResponseFormatV1::Json,
         None,
     )
@@ -1144,10 +1146,12 @@ async fn protected_contract_views_ignore_unsigned_public_upstream() {
         let response = execute_torii_single_route_read_with_format(
             &app,
             route,
-            endpoint,
-            Vec::new(),
-            None,
-            norito::json::to_vec(&body).expect("request JSON"),
+            crate::ToriiReadPayload {
+                endpoint,
+                path_args: Vec::new(),
+                query_string: None,
+                body: norito::json::to_vec(&body).expect("request JSON"),
+            },
             ToriiProxyResponseFormatV1::Json,
             Some(&authority),
         )
@@ -2987,16 +2991,18 @@ async fn permission_collection_counts_deduplicated_grants_once_across_routes() {
             routes,
             ToriiFanoutRouteScopeV1::AllDataspaces,
             ToriiReadFanoutMergeV1::List,
-            ToriiReadEndpointV1::AccountPermissionsQuery,
-            vec![authority.to_string()],
-            None,
-            collection_query_body(
-                &ListQuery::new().limit(1).include_total(),
-                routing::collection_sources::collection_execution_limits(None)
-                    .expect("test collection limits")
-                    .bytes,
-            )
-            .unwrap(),
+            crate::ToriiReadPayload {
+                endpoint: ToriiReadEndpointV1::AccountPermissionsQuery,
+                path_args: vec![authority.to_string()],
+                query_string: None,
+                body: collection_query_body(
+                    &ListQuery::new().limit(1).include_total(),
+                    routing::collection_sources::collection_execution_limits(None)
+                        .expect("test collection limits")
+                        .bytes,
+                )
+                .unwrap(),
+            },
             ToriiProxyResponseFormatV1::Json,
             None,
         )
@@ -3192,4 +3198,37 @@ fn contract_target_read_route_refuses_present_but_inactive_lane() {
             ..
         }
     ));
+}
+
+#[cfg(feature = "app_api")]
+#[tokio::test]
+async fn canonical_visibility_busy_source_is_capacity_and_preserves_request_nonce() {
+    let key_pair = routed_read_ed25519_test_keypair(0x97);
+    let authority = AccountId::new(key_pair.public_key().clone());
+    let app = mk_app_state_for_tests_with_world(world_with_account(&authority));
+    let method = Method::POST;
+    let uri: Uri = "/v1/accounts/query".parse().expect("query URI");
+    let body = b"{}";
+    let headers = crate::tests_runtime_handlers::signed_app_headers(
+        &authority, &key_pair, &method, &uri, body,
+    );
+    let authenticate = || torii_visibility_account_from_headers(
+        &app, &headers, &method, &uri, body, "v1/accounts/query",
+    );
+    let refused = app.state.with_held_header_for_reader_test(|_| {
+        authenticate().expect_err("held original State source cannot authenticate")
+    });
+    assert!(matches!(
+        &refused,
+        Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
+    ), "physical reader contention is not invalid credentials: {refused:?}");
+    assert_eq!(refused.into_response().status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(matches!(authenticate().expect("same original request succeeds after release"),
+        ToriiAccountReadVisibility::Signed(account) if account == authority));
+    let replay = authenticate().expect_err("a consumed request remains replay-protected");
+    assert!(matches!(&replay, Error::AppUnauthorized { code, message }
+        if *code == "canonical_authentication_invalid" && message == "request nonce already used"));
+    assert_eq!(replay.into_response().status(), StatusCode::UNAUTHORIZED);
 }

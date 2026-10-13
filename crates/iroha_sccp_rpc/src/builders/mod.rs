@@ -26,8 +26,8 @@
 //! elsewhere; the transports already move on by themselves after failover errors and after
 //! answers that discredit an endpoint.
 //!
-//! TODO(B11): the builders and [`LightClientReplayV1`] use the newest compiled light-client
-//! profile version rather than the one active on the target Taira (Torii capabilities).
+//! Builders and local replay require the profiles selected by committed Taira state.
+//! Callers resolve those identities against the compiled catalog before construction.
 
 use std::collections::BTreeSet;
 
@@ -43,6 +43,7 @@ use iroha_data_model::{
 };
 use iroha_sccp::light_client::{
     self, SccpLcError,
+    profile::SccpChainProfilesV1,
     proof::{SccpLcAdvanceV1, SccpLcSegmentV1, SccpVerifiedProofV1},
     state::{
         SccpLcDeltaV1, SccpLcInitialStateV1, SccpLcMemoryStateV1, SccpLcStateView, is_set_fresh,
@@ -54,6 +55,8 @@ use crate::RpcError;
 pub mod bsc;
 pub mod ethereum;
 pub mod ton;
+mod verified;
+pub use verified::{VerifiedBuildError, build_verified};
 
 /// Clients over endpoint lists that are never contacted, for unit tests.
 #[cfg(test)]
@@ -312,6 +315,12 @@ pub trait SourceChainBuilder {
     /// The source network.
     fn network(&self) -> SccpNetworkV1;
 
+    /// Finite source selections covering the configured endpoint lists.
+    fn source_attempts(&self) -> usize;
+
+    /// Move to the next source selection after completed invalid-data verification.
+    fn rotate_endpoints(&self);
+
     /// Build the `InitializeLightClient` bootstrap of the latest finalized source block.
     ///
     /// # Errors
@@ -352,6 +361,7 @@ pub trait SourceChainBuilder {
 /// the verifier Taira runs before anything is submitted.
 #[derive(Clone, Debug)]
 pub struct LightClientReplayV1 {
+    profiles: SccpChainProfilesV1,
     network: SccpNetworkV1,
     state: SccpLcMemoryStateV1,
     set_ids: BTreeSet<u64>,
@@ -362,12 +372,13 @@ impl LightClientReplayV1 {
     /// A replay of `light_client` with its stored `sets` and the known `checkpoints`.
     #[must_use]
     pub fn new(
+        profiles: &SccpChainProfilesV1,
         network: SccpNetworkV1,
         light_client: SccpLightClientV1,
         sets: Vec<SccpLcConsensusSetV1>,
         checkpoints: Vec<SccpLcCheckpointV1>,
     ) -> Self {
-        let mut replay = Self::empty(network);
+        let mut replay = Self::empty(profiles, network);
         replay.state.set_light_client(network, light_client);
         replay.apply(&SccpLcDeltaV1 {
             new_sets: sets,
@@ -379,8 +390,12 @@ impl LightClientReplayV1 {
 
     /// A replay of a light client installed from `initial`.
     #[must_use]
-    pub fn installed(network: SccpNetworkV1, initial: &SccpLcInitialStateV1) -> Self {
-        let mut replay = Self::empty(network);
+    pub fn installed(
+        profiles: &SccpChainProfilesV1,
+        network: SccpNetworkV1,
+        initial: &SccpLcInitialStateV1,
+    ) -> Self {
+        let mut replay = Self::empty(profiles, network);
         replay.state.install(network, initial);
         replay
             .set_ids
@@ -394,8 +409,9 @@ impl LightClientReplayV1 {
         replay
     }
 
-    fn empty(network: SccpNetworkV1) -> Self {
+    fn empty(profiles: &SccpChainProfilesV1, network: SccpNetworkV1) -> Self {
         Self {
+            profiles: *profiles,
             network,
             state: SccpLcMemoryStateV1::new(),
             set_ids: BTreeSet::new(),
@@ -448,7 +464,13 @@ impl LightClientReplayV1 {
         advance: &SccpLcAdvanceBytesV1,
         taira_now_ms: u64,
     ) -> Result<SccpLcDeltaV1, SccpLcError> {
-        let delta = light_client::apply_advance(&self.state, self.network, advance, taira_now_ms)?;
+        let delta = light_client::apply_advance_with_profiles(
+            &self.profiles,
+            &self.state,
+            self.network,
+            advance,
+            taira_now_ms,
+        )?;
         self.apply(&delta);
         Ok(delta)
     }
@@ -468,7 +490,13 @@ impl LightClientReplayV1 {
         for backfill in &evidence.backfills {
             replay.advance(backfill, taira_now_ms)?;
         }
-        light_client::verify_proof(&replay.state, self.network, &evidence.proof, taira_now_ms)
+        light_client::verify_proof_with_profiles(
+            &self.profiles,
+            &replay.state,
+            self.network,
+            &evidence.proof,
+            taira_now_ms,
+        )
     }
 }
 
@@ -487,6 +515,14 @@ impl TairaLightClientView for LightClientReplayV1 {
             .set_ids
             .iter()
             .filter_map(|set_id| self.state.consensus_set(self.network, *set_id))
+            // This off-chain RPC builder returns detached response records;
+            // the consensus verifier itself keeps the original borrowed view.
+            .map(|set| SccpLcConsensusSetV1 {
+                set_id: set.set_id,
+                valid_from_source_height: set.valid_from_source_height,
+                superseded_at_source_ms: set.superseded_at_source_ms,
+                set_bytes: set.set_bytes.to_vec(),
+            })
             .collect())
     }
 
@@ -674,6 +710,7 @@ mod tests {
             set_bytes: vec![1],
         };
         let mut replay = LightClientReplayV1::new(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
             network,
             light_client,
             vec![set.clone()],
@@ -702,6 +739,7 @@ mod tests {
         );
         assert!(
             LightClientReplayV1::new(
+                iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
                 SccpNetworkV1::TonMainnet,
                 light_client,
                 Vec::new(),

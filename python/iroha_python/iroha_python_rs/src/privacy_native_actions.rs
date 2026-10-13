@@ -2645,7 +2645,7 @@ mod tests {
     ) -> IrohaZkX509StarkP256StatementV1 {
         IrohaZkX509StarkP256StatementV1 {
             context: PrivacyStatementContextV1 {
-                network_id: context.network_id.clone(),
+                network_id: context.network_id,
                 action_index: 0,
                 transaction_intent_digest: PrivacyTransactionIntentDigestV1::new([0; 32]),
                 parameter_id: PrivacyParameterIdV1::new([0x21; 32]),

@@ -1,0 +1,16 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-backend
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo test --release --locked -p iroha_zkp_vole --example faest_cross_verify
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+    Finished `release` profile [optimized] target(s) in 0.54s
+     Running unittests examples/faest_cross_verify.rs (target/cargo-fast/parliament-backend/release/examples/faest_cross_verify-4398b0d0e7a6af02)
+
+running 1 test
+test tests::dispatcher_rejects_unknown_sets_and_bad_invocations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

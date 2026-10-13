@@ -3,10 +3,12 @@ async fn execute_torii_fanout_json_payloads_resolved_routes(
     app: &SharedAppState,
     routes: Vec<RoutingDecision>,
     route_scope: ToriiFanoutRouteScopeV1,
-    endpoint: ToriiReadEndpointV1,
-    path_args: Vec<String>,
-    query_string: Option<String>,
-    body: Vec<u8>,
+    ToriiReadPayload {
+        endpoint,
+        path_args,
+        query_string,
+        body,
+    }: ToriiReadPayload,
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Result<
     (

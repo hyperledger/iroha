@@ -1277,7 +1277,6 @@ SCCP_BEGIN_CALL = (
     "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)\n"
     "            .map_err(StateBlockStartError::Storage)?;"
 )
-
 SCCP_LAPSE_CALL = (
     "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)\n"
     "            .map_err(StateBlockStartError::Storage)?;"
@@ -1466,7 +1465,8 @@ def test_block_start_phase_bodies_reject_changed_height_or_rollback(
     (EXPIRY_CALL, "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h).unwrap();"),
     (ENACTMENT_CALL, "Self::apply_block_start_parliament_enactments(&mut sb, now_h).unwrap();"),
     (SCCP_BEGIN_CALL, "crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb).unwrap();"),
-    (SCCP_LAPSE_CALL, "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
+    (SCCP_LAPSE_CALL,
+     "crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb).unwrap();"),
     ("\n        let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n        let result = after_start(&mut sb, continuation).unwrap()"),
     ("\n            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?", "\n            let result = after_start(&mut sb, continuation).unwrap()"),
 ))

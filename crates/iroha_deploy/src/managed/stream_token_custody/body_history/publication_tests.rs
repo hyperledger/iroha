@@ -143,32 +143,29 @@ fn advance(
         &terms,
         fixture.options.deadline,
     )?;
-    let (selected, authorization) = match previous {
-        Some(previous) => {
-            let authorization =
-                turn.authorize_retained(&fixture.owner, &previous, fixture.options.deadline)?;
-            let selected = previous.reserve_successor(
-                &fixture.owner,
-                unsigned,
-                &current,
-                authorization,
-                fixture.options.deadline,
-            )?;
-            (selected, authorization)
-        }
-        None => {
-            let selected = BodyHistory::initialize(
-                &fixture.owner,
-                CustodyPurpose::Renewal(2),
-                unsigned,
-                &terms.fees,
-                &SigningTurn::RenewalSelection(&turn),
-                fixture.options.deadline,
-            )?;
-            let authorization =
-                turn.authorize_retained(&fixture.owner, &selected, fixture.options.deadline)?;
-            (selected, authorization)
-        }
+    let (selected, authorization) = if let Some(previous) = previous {
+        let authorization =
+            turn.authorize_retained(&fixture.owner, &previous, fixture.options.deadline)?;
+        let selected = previous.reserve_successor(
+            &fixture.owner,
+            unsigned,
+            &current,
+            authorization,
+            fixture.options.deadline,
+        )?;
+        (selected, authorization)
+    } else {
+        let selected = BodyHistory::initialize(
+            &fixture.owner,
+            CustodyPurpose::Renewal(2),
+            unsigned,
+            &terms.fees,
+            &SigningTurn::RenewalSelection(&turn),
+            fixture.options.deadline,
+        )?;
+        let authorization =
+            turn.authorize_retained(&fixture.owner, &selected, fixture.options.deadline)?;
+        (selected, authorization)
     };
     let finished = selected.finish_pending_with_reads(
         &fixture.owner,

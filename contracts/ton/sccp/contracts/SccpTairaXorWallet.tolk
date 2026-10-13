@@ -6,10 +6,13 @@
 
 import "@stdlib/gas-payments"
 import "sccp-addresses"
+import "sccp-cells"
 import "sccp-constants"
 import "sccp-errors"
 import "sccp-fees"
 import "sccp-messages"
+import "sccp-recovery"
+import "sccp-recovery-wire"
 import "sccp-storage"
 
 contract SccpTairaXorWallet {
@@ -20,13 +23,24 @@ contract SccpTairaXorWallet {
     incomingMessages: WalletMessage
 }
 
-type WalletMessage = AskToTransfer | AskToBurn | InternalTransferStep | TopUpTons
+type WalletMessage =
+    | AskToTransfer
+    | AskToBurn
+    | InternalTransferStep
+    | TopUpTons
+    | SccpRecoveryDispatch
+    | SccpRecoveryConfirm
+    | SccpRecoveryDrop
 
 type WalletBounce = InternalTransferStep | BurnNotificationForMinter
 
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
 
+    if (in.bouncedBody.preloadUint(32) == 0x53435244) {
+        // A bounced recovery ACK leaves both tokens and receipt intact.
+        return;
+    }
     val msg = lazy WalletBounce.fromSlice(in.bouncedBody);
     val restoreAmount = match (msg) {
         InternalTransferStep => msg.jettonAmount,
@@ -42,9 +56,76 @@ fun onInternalMessage(in: InMessage) {
     val msg = lazy WalletMessage.fromSlice(in.body);
 
     match (msg) {
+        SccpRecoveryDispatch => {
+            var storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            assert (
+                (msg.stage == SCCP_RECOVERY_MINT) & (msg.operationId > 0)
+            ) throw SccpErrors.BadRecovery;
+            assert (
+                (msg.amount > 0) & (msg.amount < SCCP_TON_AMOUNT_LIMIT)
+            ) throw SccpErrors.BadAmount;
+            var receipts = storage.recovery.load();
+            val existing = receipts.existing(msg.operationId, msg.stage, msg.attempt);
+            if (existing == null) {
+                assert (
+                    contract.getOriginalBalance() >=
+                    sccpWalletRecoveryFloor() + sccpGasFee(SCCP_GAS_WALLET_RECEIVE)
+                ) throw SccpErrors.NotEnoughValue;
+                receipts.record(msg.operationId, msg.stage, msg.attempt, SCCP_RECEIPT_APPLIED);
+                storage.jettonBalance += msg.amount;
+                storage.recovery = receipts.toCell();
+                storage.save();
+            }
+            sccpReserveFloor(sccpWalletRecoveryFloor(), in.valueCoins);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                SCCP_RECEIPT_APPLIED,
+                msg.queryId,
+                msg.response,
+            );
+        }
+        SccpRecoveryConfirm => {
+            val storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            val result = storage.recovery.load().confirm(msg.operationId, msg.stage, msg.attempt);
+            sccpReservePriorBalance(in.valueCoins);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                result,
+                msg.queryId,
+                msg.response,
+            );
+        }
+        SccpRecoveryDrop => {
+            var storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            var receipts = storage.recovery.load();
+            receipts.drop(msg.operationId, msg.stage, msg.attempt);
+            storage.recovery = receipts.toCell();
+            storage.save();
+            sccpReservePriorBalance(in.valueCoins);
+            sccpSendRecoveryAck(
+                storage.minterAddress,
+                msg.operationId,
+                msg.stage,
+                msg.attempt,
+                SCCP_RECEIPT_DROPPED,
+                msg.queryId,
+                msg.response,
+            );
+        }
+
         InternalTransferStep => {
             var storage = lazy WalletStorage.load();
-            if (in.senderAddress != storage.minterAddress) {
+            {
+                assert (msg.transferInitiator != null) throw SccpErrors.NotValidWallet;
                 assert (
                     in.senderAddress ==
                     sccpWalletAddress(
@@ -132,11 +213,9 @@ fun onInternalMessage(in: InMessage) {
             // §5.3.4 Burn step 2: the SCCP custom payload is mandatory.
             assert (msg.customPayload != null) throw SccpErrors.BadBurnPayload;
             val sccpPayload = msg.customPayload!;
-            // shape check only: op, one reference, nothing else
-            SccpBurnToTaira.fromCell(
-                sccpPayload,
-                { throwIfOpcodeDoesNotMatch: SccpErrors.BadBurnPayload },
-            );
+            // The fee bound includes at most nine recipient cells. Validate the
+            // entire ordinary canonical snake before debiting or forwarding.
+            sccpParseBurnToTaira(sccpPayload);
             assert (msg.jettonAmount > 0) throw SccpErrors.BadAmount;
             assert (in.valueCoins > sccpBurnRequiredValue()) throw SccpErrors.NotEnoughValue;
 

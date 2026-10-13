@@ -2,6 +2,87 @@
 
 use super::*;
 
+/// Signed genesis and original journals to authenticate as one phase chain.
+#[derive(Clone, Copy)]
+struct GenesisPhaseChain<'a> {
+    chain_id: &'a ChainId,
+    limits: NativeFinalityLimits,
+    network: NetworkId,
+    chain_discriminant: u16,
+    request: &'a GenesisRequest,
+    genesis: &'a GenesisProof,
+    phases: &'a [NativeFinalityJournal],
+    budget: &'a iroha_allocation::AllocationBudget,
+}
+
+/// Complete explicit inputs for one assemble genesis install.
+#[derive(Clone, Copy)]
+pub(super) struct AssembleGenesisInstall<'a> {
+    pub(super) chain_id: &'a ChainId,
+    pub(super) finality_limits: FinalityLimitsArgs,
+    pub(super) network: NetworkId,
+    pub(super) chain_discriminant: u16,
+    pub(super) bundle_path: &'a Path,
+    pub(super) signature_paths: &'a [PathBuf],
+    pub(super) output: &'a Path,
+    pub(super) budget: &'a iroha_allocation::AllocationBudget,
+}
+
+/// Complete explicit inputs for one sign genesis install.
+#[derive(Clone, Copy)]
+pub(super) struct SignGenesisInstall<'a> {
+    pub(super) chain_id: &'a ChainId,
+    pub(super) finality_limits: FinalityLimitsArgs,
+    pub(super) network: NetworkId,
+    pub(super) chain_discriminant: u16,
+    pub(super) bundle_path: &'a Path,
+    pub(super) signer_index: u16,
+    pub(super) key_fd: Option<i32>,
+    pub(super) config_fd: Option<i32>,
+    pub(super) output: &'a Path,
+    pub(super) budget: &'a iroha_allocation::AllocationBudget,
+}
+
+/// Complete explicit inputs for one assemble genesis dkg.
+#[derive(Clone, Copy)]
+pub(super) struct AssembleGenesisDkg<'a> {
+    pub(super) chain_id: &'a ChainId,
+    pub(super) finality_limits: FinalityLimitsArgs,
+    pub(super) network: NetworkId,
+    pub(super) chain_discriminant: u16,
+    pub(super) request_path: &'a Path,
+    pub(super) manifest_path: &'a Path,
+    pub(super) wire_path: &'a Path,
+    pub(super) key_path: &'a Path,
+    pub(super) phase_paths: &'a [PathBuf],
+    pub(super) public_session_path: &'a Path,
+    pub(super) provider_paths: &'a [PathBuf],
+    pub(super) certificate_height: u64,
+    pub(super) output: &'a Path,
+    pub(super) budget: &'a iroha_allocation::AllocationBudget,
+}
+
+/// Complete explicit inputs for one provision genesis seat.
+#[derive(Clone, Copy)]
+pub(super) struct ProvisionGenesisSeat<'a> {
+    pub(super) chain_id: &'a ChainId,
+    pub(super) finality_limits: FinalityLimitsArgs,
+    pub(super) network: NetworkId,
+    pub(super) chain_discriminant: u16,
+    pub(super) request_path: &'a Path,
+    pub(super) manifest_path: &'a Path,
+    pub(super) wire_path: &'a Path,
+    pub(super) key_path: &'a Path,
+    pub(super) signer_index: u16,
+    pub(super) key_fd: Option<i32>,
+    pub(super) config_fd: Option<i32>,
+    pub(super) public_fd: i32,
+    pub(super) finality_fd: i32,
+    pub(super) attempt_root: &'a Path,
+    pub(super) timeout_ms: u64,
+    pub(super) budget: &'a iroha_allocation::AllocationBudget,
+}
+
 const REQUEST_SCHEMA: &str = "iroha.global-beacon.bootstrap.request.v1";
 const BUNDLE_SCHEMA: &str = "iroha.global-beacon.bootstrap.bundle.v1";
 
@@ -218,23 +299,27 @@ fn verify_signed_genesis_attempt(
 )]
 /// Provision exactly one genesis voting seat under a signed-genesis trust root.
 pub(super) fn provision_genesis_seat_command(
-    chain_id: &ChainId,
-    finality_limits: FinalityLimitsArgs,
-    network: NetworkId,
-    chain_discriminant: u16,
-    request_path: &Path,
-    manifest_path: &Path,
-    wire_path: &Path,
-    key_path: &Path,
-    signer_index: u16,
-    key_fd: Option<i32>,
-    config_fd: Option<i32>,
-    public_fd: i32,
-    finality_fd: i32,
-    attempt_root: &Path,
-    timeout_ms: u64,
-    budget: &iroha_allocation::AllocationBudget,
+    ProvisionGenesisSeat {
+        chain_id,
+        finality_limits,
+        network,
+        chain_discriminant,
+        request_path,
+        manifest_path,
+        wire_path,
+        key_path,
+        signer_index,
+        key_fd,
+        config_fd,
+        public_fd,
+        finality_fd,
+        attempt_root,
+        timeout_ms,
+        budget,
+    }: ProvisionGenesisSeat<'_>,
 ) -> Result<()> {
+    use std::os::fd::FromRawFd as _;
+
     let limits = finality_limits.checked()?;
     let _profile =
         iroha_data_model::account::address::ChainDiscriminantGuard::enter(chain_discriminant);
@@ -246,8 +331,8 @@ pub(super) fn provision_genesis_seat_command(
     if public_fd < 3
         || finality_fd < 3
         || public_fd == finality_fd
-        || matches!(public_fd, 198 | 199 | 200)
-        || matches!(finality_fd, 198 | 199 | 200)
+        || matches!(public_fd, 198..=200)
+        || matches!(finality_fd, 198..=200)
         || timeout_ms == 0
         || timeout_ms > MAX_TIMEOUT_MS
     {
@@ -291,33 +376,34 @@ pub(super) fn provision_genesis_seat_command(
     let handle = &request.provider_handles[usize::from(signer_index - 1)];
     // SAFETY: distinct inherited FIFO sources were validated above and are
     // moved once, never duplicated or reacquired on a retained attempt retry.
-    use std::os::fd::FromRawFd as _;
-    let attempt = seat_attempt::SeatDkgAttempt::new(
+    let attempt = seat_attempt::SeatDkgAttempt::prepare(seat_attempt::SeatDkgAttemptPreparation {
         authority,
-        &roster,
+        roster: &roster,
         signer_index,
         signer,
-        unsafe { File::from_raw_fd(public_fd) },
-        unsafe { File::from_raw_fd(finality_fd) },
-        verifier,
-        handle,
-        request.provider_revision,
+        public_input: unsafe { File::from_raw_fd(public_fd) },
+        finality_input: unsafe { File::from_raw_fd(finality_fd) },
+        clock: verifier,
+        provider_handle: handle,
+        provider_revision: request.provider_revision,
         attempt_root,
         deadline,
         budget,
-    )?;
+    })?;
     attempt.resume().map_err(Error::PendingAttempt)
 }
 
 fn validate_genesis_phase_chain(
-    chain_id: &ChainId,
-    limits: NativeFinalityLimits,
-    network: NetworkId,
-    chain_discriminant: u16,
-    request: &GenesisRequest,
-    genesis: &GenesisProof,
-    phases: &[NativeFinalityJournal],
-    budget: &iroha_allocation::AllocationBudget,
+    GenesisPhaseChain {
+        chain_id,
+        limits,
+        network,
+        chain_discriminant,
+        request,
+        genesis,
+        phases,
+        budget,
+    }: GenesisPhaseChain<'_>,
 ) -> Result<Vec<PeerId>> {
     let (roster, mut verifier, cutoff, _authority) = verify_signed_genesis_attempt(
         chain_id,
@@ -374,16 +460,16 @@ fn validate_genesis_bundle(
     chain_discriminant: u16,
     budget: &iroha_allocation::AllocationBudget,
 ) -> Result<Vec<PeerId>> {
-    let roster = validate_genesis_phase_chain(
+    let roster = validate_genesis_phase_chain(GenesisPhaseChain {
         chain_id,
         limits,
         network,
         chain_discriminant,
-        &bundle.request,
-        &bundle.genesis,
-        &bundle.phase_proofs,
+        request: &bundle.request,
+        genesis: &bundle.genesis,
+        phases: &bundle.phase_proofs,
         budget,
-    )?;
+    })?;
     let session = bundle.request.dkg_session;
     bundle.record.validate(budget).map_err(Error::from)?;
     if bundle.schema != BUNDLE_SCHEMA
@@ -426,20 +512,22 @@ fn validate_genesis_bundle(
 /// Assemble the complete public genesis transcript after native H2–H4 finality.
 /// Signed H1 supplies body authority only; H2 authenticates its result.
 pub(super) fn assemble_genesis_dkg_command(
-    chain_id: &ChainId,
-    finality_limits: FinalityLimitsArgs,
-    network: NetworkId,
-    chain_discriminant: u16,
-    request_path: &Path,
-    manifest_path: &Path,
-    wire_path: &Path,
-    key_path: &Path,
-    phase_paths: &[PathBuf],
-    public_session_path: &Path,
-    provider_paths: &[PathBuf],
-    certificate_height: u64,
-    output: &Path,
-    budget: &iroha_allocation::AllocationBudget,
+    AssembleGenesisDkg {
+        chain_id,
+        finality_limits,
+        network,
+        chain_discriminant,
+        request_path,
+        manifest_path,
+        wire_path,
+        key_path,
+        phase_paths,
+        public_session_path,
+        provider_paths,
+        certificate_height,
+        output,
+        budget,
+    }: AssembleGenesisDkg<'_>,
 ) -> Result<()> {
     let limits = finality_limits.checked()?;
     let _profile =
@@ -453,16 +541,16 @@ pub(super) fn assemble_genesis_dkg_command(
             NativeFinalityJournal::decode(&bytes, limits).map_err(Error::from)
         })
         .collect::<Result<Vec<_>>>()?;
-    let roster = validate_genesis_phase_chain(
+    let roster = validate_genesis_phase_chain(GenesisPhaseChain {
         chain_id,
         limits,
         network,
         chain_discriminant,
-        &request,
-        &genesis,
-        &phase_proofs,
+        request: &request,
+        genesis: &genesis,
+        phases: &phase_proofs,
         budget,
-    )?;
+    })?;
     let bytes = read_public_bytes(public_session_path)?;
     let public: GlobalThresholdBeaconKeySessionV1 =
         norito::decode_canonical_with_limits(&bytes, norito::canonical_decode_limits(bytes.len()))
@@ -498,16 +586,18 @@ pub(super) fn assemble_genesis_dkg_command(
 
 /// Sign the exact genesis-roster installation draft with one native identity.
 pub(super) fn sign_genesis_install_command(
-    chain_id: &ChainId,
-    finality_limits: FinalityLimitsArgs,
-    network: NetworkId,
-    chain_discriminant: u16,
-    bundle_path: &Path,
-    signer_index: u16,
-    key_fd: Option<i32>,
-    config_fd: Option<i32>,
-    output: &Path,
-    budget: &iroha_allocation::AllocationBudget,
+    SignGenesisInstall {
+        chain_id,
+        finality_limits,
+        network,
+        chain_discriminant,
+        bundle_path,
+        signer_index,
+        key_fd,
+        config_fd,
+        output,
+        budget,
+    }: SignGenesisInstall<'_>,
 ) -> Result<()> {
     let limits = finality_limits.checked()?;
     let _profile =
@@ -540,14 +630,16 @@ pub(super) fn sign_genesis_install_command(
 
 /// Emit an install instruction only after the exact genesis quorum signs.
 pub(super) fn assemble_genesis_install_command(
-    chain_id: &ChainId,
-    finality_limits: FinalityLimitsArgs,
-    network: NetworkId,
-    chain_discriminant: u16,
-    bundle_path: &Path,
-    signature_paths: &[PathBuf],
-    output: &Path,
-    budget: &iroha_allocation::AllocationBudget,
+    AssembleGenesisInstall {
+        chain_id,
+        finality_limits,
+        network,
+        chain_discriminant,
+        bundle_path,
+        signature_paths,
+        output,
+        budget,
+    }: AssembleGenesisInstall<'_>,
 ) -> Result<()> {
     let limits = finality_limits.checked()?;
     let _profile =
@@ -749,7 +841,7 @@ mod tests {
                 Err(Error::Crypto)
             ));
             assert!(matches!(
-                assemble_rotation_draft(&draft, &roster, signatures[..quorum + 1].to_vec()),
+                assemble_rotation_draft(&draft, &roster, signatures[..=quorum].to_vec()),
                 Err(Error::Crypto)
             ));
         }

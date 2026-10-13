@@ -1117,7 +1117,7 @@ gas = "G_test + bytes"
         assert_eq!(
             sync_generated_outputs(&outputs, Mode::Write, "generator --write")
                 .expect("publish generated output"),
-            [path.clone()]
+            std::slice::from_ref(&path)
         );
         assert_eq!(
             fs::read_to_string(&path).expect("read published output"),
@@ -1144,7 +1144,7 @@ gas = "G_test + bytes"
         assert_eq!(
             sync_generated_outputs(&missing_outputs, Mode::Write, "generator --write")
                 .expect("create missing generated output"),
-            [missing_path.clone()]
+            std::slice::from_ref(&missing_path)
         );
         fs::remove_file(missing_path).expect("remove generated output");
     }

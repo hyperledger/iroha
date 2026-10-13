@@ -633,11 +633,13 @@ impl Genuine {
             &self.selection,
             &self.intent(components),
             Some(components),
-            index,
-            &original,
-            &destination,
-            &self.owner.authority.directory,
-            components.get(index).map(|c| c.directory()),
+            config::RenderTarget {
+                index,
+                original: &original,
+                destination: &destination,
+                material: &self.owner.authority.directory,
+                provider_material: components.get(index).map(|c| c.directory()),
+            },
         )
         .unwrap();
         assert!(!destination.exists());
@@ -692,12 +694,13 @@ fn catalog_first_launch_retains_exact_siblings_roles_topology_and_originals_with
             .selected_enrollment(ProviderId::new([0; 32]))
             .is_err()
     );
-    for index in 0..4 {
+    assert_eq!(originals.len(), 4);
+    for (index, original) in originals.iter().enumerate() {
         assert_eq!(
             iroha_fs::read_private(&prepared.peers[index].config_path, MAX_CONFIG_BYTES)
                 .unwrap()
                 .as_slice(),
-            originals[index]
+            original
         );
         assert_eq!(
             revision.peer(index).unwrap().path().parent().unwrap(),
@@ -795,7 +798,7 @@ fn catalog_first_launch_retains_exact_siblings_roles_topology_and_originals_with
             assert!(compliance.feeds.is_empty());
             assert_eq!(
                 compliance.max_catalog_validity.as_secs(),
-                plan.catalog_validity_seconds()
+                crate::localnet::service_authorities::RetainedGatewayCompliancePlan::catalog_validity_seconds()
             );
             assert!(config.torii.transport.https.is_some());
         } else {
@@ -1263,7 +1266,7 @@ fn ingest_projection_retains_original_signer_policy_paths_and_all_four_execution
             );
             assert!(ingest.finalized_archive.retention_authority.is_none());
             let journal = ingest.provider_attestation_journal.as_ref().unwrap();
-            let expected = plan.attestation_journal_policy();
+            let expected = crate::localnet::service_authorities::RetainedProviderServicePlan::attestation_journal_policy();
             assert_eq!(journal.clock.handle, sorafs_node::provider_attestation_native::NATIVE_PROVIDER_ATTESTATION_CLOCK_HANDLE_V1);
             assert_eq!(journal.clock.policy_digest, expected.digest().unwrap());
             assert_eq!(journal.inventory.handle, sorafs_node::provider_attestation_native::NATIVE_PROVIDER_ATTESTATION_INVENTORY_HANDLE_V1);
@@ -1362,11 +1365,13 @@ fn ingest_projection_rejects_policy_substitution_and_wrong_fixed_owner_or_signer
                 &selection,
                 selected_intent,
                 Some(&fixture.components),
-                0,
-                &original,
-                &destination,
-                &fixture.owner.authority.directory,
-                Some(fixture.components[0].directory()),
+                config::RenderTarget {
+                    index: 0,
+                    original: &original,
+                    destination: &destination,
+                    material: &fixture.owner.authority.directory,
+                    provider_material: Some(fixture.components[0].directory()),
+                },
             )
         };
         assert!(render(&intent).is_err());
@@ -1384,11 +1389,13 @@ fn ingest_projection_rejects_policy_substitution_and_wrong_fixed_owner_or_signer
             &fixture.selection,
             &intent,
             Some(&substituted),
-            0,
-            &original,
-            &destination,
-            &fixture.owner.authority.directory,
-            Some(fixture.components[0].directory())
+            config::RenderTarget {
+                index: 0,
+                original: &original,
+                destination: &destination,
+                material: &fixture.owner.authority.directory,
+                provider_material: Some(fixture.components[0].directory()),
+            },
         )
         .is_err()
     );
@@ -2310,11 +2317,13 @@ fn publication_projection_installs_exact_original_only_on_ready_seed_peer_and_pr
             &fixture.selection,
             &fixture.intent(&fixture.components),
             Some(&fixture.components),
-            0,
-            changed.as_bytes(),
-            &destination,
-            &fixture.owner.authority.directory,
-            Some(fixture.components[0].directory()),
+            config::RenderTarget {
+                index: 0,
+                original: changed.as_bytes(),
+                destination: &destination,
+                material: &fixture.owner.authority.directory,
+                provider_material: Some(fixture.components[0].directory()),
+            },
         )
         .is_err()
     );
@@ -2509,7 +2518,7 @@ fn runtime_selection_borrows_custody_originals_without_reparse() {
             .unwrap();
             (
                 custody.directory.identity().unwrap(),
-                iroha_fs::FileIdentity::of(&custody._lock).unwrap(),
+                iroha_fs::FileIdentity::of(&custody.lock).unwrap(),
             )
         })
         .collect();
@@ -2539,7 +2548,7 @@ fn runtime_selection_borrows_custody_originals_without_reparse() {
         .unwrap();
         assert_eq!(custody.directory.identity().unwrap(), originals[index].0);
         assert_eq!(
-            iroha_fs::FileIdentity::of(&custody._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&custody.lock).unwrap(),
             originals[index].1
         );
     }
@@ -2565,7 +2574,7 @@ fn runtime_selection_borrows_custody_originals_without_reparse() {
 fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retry() {
     use crate::managed::service_authority::ProviderPurpose;
     let _guard = crate::managed::native_test_guard();
-    let (_temporary, prepared, peers) = fixture("runtime-borrowed-refusal");
+    let (temporary, prepared, peers) = fixture("runtime-borrowed-refusal");
     let policies = select(&prepared);
     let owner = GeneratedServiceRuntime::open(&prepared).unwrap();
     let expected = RuntimeSelection::read(&owner.authority).unwrap();
@@ -2575,7 +2584,7 @@ fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retr
             .unwrap()
             .unwrap();
     let bootstrap_identity = bootstrap.directory.identity().unwrap();
-    let bootstrap_lock = iroha_fs::FileIdentity::of(&bootstrap._lock).unwrap();
+    let bootstrap_lock = iroha_fs::FileIdentity::of(&bootstrap.lock).unwrap();
     assert!(RuntimeSelection::read(&owner.authority).is_err());
     no_http(&peers);
     drop(bootstrap);
@@ -2587,7 +2596,7 @@ fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retr
             .unwrap();
     assert_eq!(bootstrap.directory.identity().unwrap(), bootstrap_identity);
     assert_eq!(
-        iroha_fs::FileIdentity::of(&bootstrap._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&bootstrap.lock).unwrap(),
         bootstrap_lock
     );
     drop(bootstrap);
@@ -2599,7 +2608,7 @@ fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retr
         )
         .unwrap();
         let directory = custody.directory.identity().unwrap();
-        let lock = iroha_fs::FileIdentity::of(&custody._lock).unwrap();
+        let lock = iroha_fs::FileIdentity::of(&custody.lock).unwrap();
         assert!(RuntimeSelection::read(&owner.authority).is_err());
         no_http(&peers);
         drop(custody);
@@ -2613,7 +2622,7 @@ fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retr
         .unwrap()
         .unwrap();
         assert_eq!(original.directory.identity().unwrap(), directory);
-        assert_eq!(iroha_fs::FileIdentity::of(&original._lock).unwrap(), lock);
+        assert_eq!(iroha_fs::FileIdentity::of(&original.lock).unwrap(), lock);
     }
     let root = PrivateDirectory::open_exact(generation_path(&prepared).unwrap()).unwrap();
     let original = root.read("peer3.toml", MAX_CONFIG_BYTES).unwrap();
@@ -2640,7 +2649,7 @@ fn runtime_selection_borrowed_custody_refuses_changed_sources_and_lock_with_retr
         encode(&expected.policies, MAX_POLICY_BYTES).unwrap()
     );
     let generation_identity = root.identity().unwrap();
-    let saved = _temporary.path().join("saved-runtime-selection-generation");
+    let saved = temporary.path().join("saved-runtime-selection-generation");
     #[cfg(unix)]
     {
         std::fs::rename(root.path(), &saved).unwrap();
@@ -2719,12 +2728,12 @@ fn runtime_selection_active_and_owned_custody_keeps_full_admission() {
     }
     drop(owner);
     let caller = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
-    let owned = caller
+    let generated_runtime = caller
         .with(|| GeneratedServiceRuntime::open(&prepared))
         .unwrap();
     assert!(!norito::core::decode_limits_active());
     let (selection, parses) =
-        count_profile_validations(|| RuntimeSelection::read(&owned.authority));
+        count_profile_validations(|| RuntimeSelection::read(&generated_runtime.authority));
     let selection = selection.unwrap();
     assert_eq!(
         parses, 4,
@@ -2735,7 +2744,7 @@ fn runtime_selection_active_and_owned_custody_keeps_full_admission() {
         encode(&selection.policies, MAX_POLICY_BYTES).unwrap(),
         encode(&expected.policies, MAX_POLICY_BYTES).unwrap()
     );
-    owned.authority.validate_profile().unwrap();
+    generated_runtime.authority.validate_profile().unwrap();
     no_http(&peers);
 }
 
@@ -2792,7 +2801,7 @@ fn runtime_selection_missing_original_bootstrap_keeps_absence_and_same_original_
         (
             bootstrap.directory.path().to_path_buf(),
             bootstrap.directory.identity().unwrap(),
-            iroha_fs::FileIdentity::of(&bootstrap._lock).unwrap(),
+            iroha_fs::FileIdentity::of(&bootstrap.lock).unwrap(),
             bootstrap.directory.entries(8).unwrap(),
             initial.identity().unwrap(),
             initial.read("original.nrt", 512 * 1024).unwrap(),
@@ -2824,7 +2833,7 @@ fn runtime_selection_missing_original_bootstrap_keeps_absence_and_same_original_
             .unwrap()
             .unwrap();
     assert_eq!(bootstrap.directory.identity().unwrap(), identity);
-    assert_eq!(iroha_fs::FileIdentity::of(&bootstrap._lock).unwrap(), lock);
+    assert_eq!(iroha_fs::FileIdentity::of(&bootstrap.lock).unwrap(), lock);
     assert_eq!(bootstrap.directory.entries(8).unwrap(), names);
     let initial = bootstrap.directory.open_child("initial").unwrap();
     assert_eq!(initial.identity().unwrap(), initial_identity);
@@ -3175,8 +3184,10 @@ fn fresh_catalog_round_preserves_original_census_and_expired_current_proof_refus
                 custody.verify_enrollment_at(
                     fixture.components[selected].enrollment(),
                     policy,
-                    floor.height,
-                    *floor.block_hash.as_ref(),
+                    crate::managed::stream_token_custody::EnrollmentFloor {
+                        height: floor.height,
+                        block_hash: *floor.block_hash.as_ref(),
+                    },
                     &current,
                     now_ms()?,
                     fixture.options.deadline,

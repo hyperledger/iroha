@@ -68,7 +68,14 @@ struct ValidatorLocator {
 /// row destruction releases every account before the final nested-charge ledger.
 struct ValidatorMap {
     rows: ChargedBuffer<ValidatorLocator>,
-    _account_charges: ChargedBuffer<AllocationCharge>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Original account storage charges must outlive the retained validator map; custody tests inspect their exact allocation"
+        )
+    )]
+    account_charges: ChargedBuffer<AllocationCharge>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -253,7 +260,7 @@ impl ValidatorMap {
         });
         Ok(Self {
             rows,
-            _account_charges: account_charges,
+            account_charges,
         })
     }
 
@@ -491,7 +498,7 @@ impl<'a> PenaltyApplier<'a> {
             // SCCP-only derivation neither constructs nor consults a peer-key locator map.
             ValidatorMap {
                 rows: ChargedBuffer::new(0, budget).map_err(EvidencePreparationError::from)?,
-                _account_charges: ChargedBuffer::new(0, budget)
+                account_charges: ChargedBuffer::new(0, budget)
                     .map_err(EvidencePreparationError::from)?,
             }
         };
@@ -758,7 +765,7 @@ impl<'a> PenaltyApplier<'a> {
                             locator.lane_id,
                             &locator.validator,
                             current_record,
-                            liability,
+                            &liability,
                             share_keys,
                         )
                         .wrap_err_with(|| {
@@ -798,7 +805,7 @@ impl<'a> PenaltyApplier<'a> {
                             slash.slash_id,
                             &slash.amount,
                             block_header.creation_time_ms,
-                            liability,
+                            &liability,
                             share_keys,
                         )
                         .wrap_err_with(|| {
@@ -1079,7 +1086,7 @@ fn apply_npos_consensus_effects_to_transaction_inner(
                         action.slash_id,
                         &action.amount,
                         now_ms,
-                        liability,
+                        &liability,
                         share_keys,
                     )?,
                     #[cfg(test)]
@@ -1091,7 +1098,7 @@ fn apply_npos_consensus_effects_to_transaction_inner(
                             action.slash_id,
                             &action.amount,
                             now_ms,
-                            liability,
+                            &liability,
                             share_keys,
                         )?;
                     }
@@ -1234,7 +1241,7 @@ pub(crate) fn seed_penalty_validator_for_tests(
     state: &State,
     lane_id: LaneId,
     peer: &PeerId,
-    stake: Quantity,
+    stake_quantity: Quantity,
 ) -> AccountId {
     use crate::smartcontracts::{Execute as _, isi::staking::prepare_stake_custody_credit};
     use iroha_data_model::{
@@ -1245,7 +1252,10 @@ pub(crate) fn seed_penalty_validator_for_tests(
     };
     use iroha_model_base::metadata::Metadata;
 
-    assert!(!stake.is_zero(), "penalty validator stake must be non-zero");
+    assert!(
+        !stake_quantity.is_zero(),
+        "penalty validator stake must be non-zero"
+    );
     let (asset_definition, escrow, _slash_sink) = penalty_staking_fixture_ids();
     let validator = AccountId::new(peer.public_key().clone());
     let mut state_block = state.block(penalty_staking_fixture_header());
@@ -1256,7 +1266,7 @@ pub(crate) fn seed_penalty_validator_for_tests(
             .expect("register penalty validator account");
     }
     let escrow_asset = AssetId::new(asset_definition, escrow.clone());
-    Mint::asset_quantity(stake.clone(), escrow_asset.clone())
+    Mint::asset_quantity(stake_quantity.clone(), escrow_asset.clone())
         .execute(&escrow, &mut transaction)
         .expect("mint exact penalty stake into escrow");
     let balance = transaction
@@ -1279,7 +1289,7 @@ pub(crate) fn seed_penalty_validator_for_tests(
         lane_id,
         &validator,
         &escrow_asset,
-        &stake,
+        &stake_quantity,
         &balance,
     )
     .expect("reserve the exact minted validator stake")
@@ -1295,8 +1305,8 @@ pub(crate) fn seed_penalty_validator_for_tests(
                     validator: validator.clone(),
                     peer_id: peer.clone(),
                     stake_account: validator.clone(),
-                    total_stake: stake.clone(),
-                    self_stake: stake.clone(),
+                    total_stake: stake_quantity.clone(),
+                    self_stake: stake_quantity.clone(),
                     metadata: Metadata::default(),
                     status: PublicLaneValidatorStatus::Active,
                     activation_height: 1,
@@ -1317,7 +1327,7 @@ pub(crate) fn seed_penalty_validator_for_tests(
                     lane_id,
                     validator: validator.clone(),
                     staker: validator.clone(),
-                    bonded: stake,
+                    bonded: stake_quantity,
                     pending_unbonds: BTreeMap::new(),
                     metadata: Metadata::default(),
                 },
@@ -1463,20 +1473,22 @@ mod tests {
     }
 
     fn fresh_state_with_shared_public_staking_lanes() -> State {
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.lane_catalog = LaneCatalog::new(
-            NonZeroU32::new(2).expect("non-zero lane count"),
-            vec![
-                LaneConfig::default(),
-                LaneConfig {
-                    id: LaneId::new(1),
-                    alias: "penalty-sibling".to_owned(),
-                    visibility: LaneVisibility::Public,
-                    ..LaneConfig::default()
-                },
-            ],
-        )
-        .expect("shared public penalty lane catalog");
+        let nexus = iroha_config::parameters::actual::Nexus {
+            lane_catalog: LaneCatalog::new(
+                NonZeroU32::new(2).expect("non-zero lane count"),
+                vec![
+                    LaneConfig::default(),
+                    LaneConfig {
+                        id: LaneId::new(1),
+                        alias: "penalty-sibling".to_owned(),
+                        visibility: LaneVisibility::Public,
+                        ..LaneConfig::default()
+                    },
+                ],
+            )
+            .expect("shared public penalty lane catalog"),
+            ..Default::default()
+        };
         let mut state = State::new_with_nexus_for_testing(
             World::default(),
             nexus,
@@ -2931,6 +2943,7 @@ mod tests {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: std::time::Duration::ZERO,
             };
             let transactions = [accepted];
             let original_transaction = transactions[0].hash_as_entrypoint();
@@ -3109,13 +3122,7 @@ mod tests {
         let snapshot = PenaltyApplier::parent_snapshot(&view, 2, budget, stake_budget)
             .expect("the same original source retries after physical allocation is restored");
         assert!(snapshot.validator_map.rows.as_slice().is_empty());
-        assert!(
-            snapshot
-                .validator_map
-                ._account_charges
-                .as_slice()
-                .is_empty()
-        );
+        assert!(snapshot.validator_map.account_charges.as_slice().is_empty());
         assert_eq!(snapshot.pending.as_slice().len(), 1);
         let retained = &snapshot.pending.as_slice()[0].0;
         assert_eq!(retained.0, due);

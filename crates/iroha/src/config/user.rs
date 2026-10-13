@@ -68,6 +68,9 @@ pub struct Root {
     /// Torii API URL.
     #[config(env = "TORII_URL")]
     pub torii_url: WithOrigin<Url>,
+    /// HTTP routing policy; generated owned localnets select direct loopback.
+    #[config(default = "super::HttpTransportPolicy::default()")]
+    pub http_transport_policy: WithOrigin<super::HttpTransportPolicy>,
     /// Optional HTTP Basic Auth credentials.
     pub basic_auth: Option<BasicAuth>,
     /// Owner-held Torii listener credential. Kept in private client configuration.
@@ -87,6 +90,9 @@ pub struct Root {
     #[config(nested)]
     /// Optional Musubi production-publication platform bindings.
     pub musubi: Musubi,
+    /// File-only SCCP wallet endpoint, journal and deployment preferences.
+    #[config(nested)]
+    pub sccp: super::sccp::SccpClientConfigUser,
 }
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 /// Errors found while validating or parsing user configuration.
@@ -106,6 +112,11 @@ pub enum ParseError {
         /// Scheme part of the provided URL.
         scheme: String,
     },
+    /// The explicit local HTTP policy rejects this Torii endpoint.
+    #[error(
+        "direct_loopback HTTP policy requires cleartext localhost, 127/8, or ::1 without URL credentials or fragments"
+    )]
+    DirectLoopbackEndpoint,
     /// Invalid `SoraFS` anonymity rollout policy label.
     #[error("Invalid `SoraFS` anonymity policy label: `{value}`")]
     InvalidSorafsAnonymityPolicy {
@@ -362,6 +373,7 @@ impl Root {
             network_id,
             network_id_file,
             torii_url,
+            http_transport_policy,
             basic_auth,
             api_token,
             torii_request_timeout_ms,
@@ -380,6 +392,7 @@ impl Root {
                     nonce: tx_add_nonce,
                 },
             sorafs,
+            sccp: _,
             musubi:
                 Musubi {
                     publication: musubi_publication,
@@ -419,6 +432,12 @@ impl Root {
                 .attach(torii_url.clone().into_attachment())
                 .attach("Note: only `http` and `https` protocols are supported"),
             ),
+        }
+        if !http_transport_policy.value().permits_url(torii_url.value()) {
+            emitter.emit(
+                Report::new(ParseError::DirectLoopbackEndpoint)
+                    .attach(http_transport_policy.clone().into_attachment()),
+            );
         }
         let torii_api_url = super::normalize_torii_api_url(torii_url.into_value());
         let account_chain_discriminant =
@@ -482,6 +501,7 @@ impl Root {
                 account_chain_discriminant,
                 key_pair: key_pair.unwrap(),
                 torii_api_url,
+                http_transport_policy: http_transport_policy.into_value(),
                 basic_auth,
                 api_token,
                 torii_request_timeout: torii_request_timeout_ms.into_value().get(),
@@ -783,6 +803,7 @@ mod tests {
                 iroha_crypto::Hash::prehashed([0xA5; iroha_crypto::Hash::LENGTH]),
             ))),
             network_id_file: None,
+            http_transport_policy: WithOrigin::inline(super::super::HttpTransportPolicy::Ordinary),
             torii_url: WithOrigin::inline(
                 Url::parse("http://127.0.0.1:8080/torii").expect("valid torii url"),
             ),
@@ -805,6 +826,7 @@ mod tests {
             },
             sorafs: Sorafs::default(),
             musubi: Musubi::default(),
+            sccp: super::super::sccp::SccpClientConfigUser::default(),
         }
     }
     #[test]

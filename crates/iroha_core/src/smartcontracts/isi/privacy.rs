@@ -1800,6 +1800,10 @@ struct PlannedZkX509RootAppendV1 {
     next_head: PrivacyRootHeadRecordV1,
     removals: Vec<PrivacyRootKeyV1>,
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the validated provenance becomes the owned root-head record"
+)]
 fn plan_zk_x509_root_append_v1(
     publication: PrivacyRootPublicationV1,
     provenance: PrivacyRootProvenanceV1,
@@ -3603,13 +3607,21 @@ fn load_active_bootle_lantern_policy_v1(
             "Bootle/Lantern authoritative issuer policy is revoked",
         ));
     }
-    if policy.issuer_id != statement.issuer_id
-        || policy.policy_id != statement.policy_id
-        || policy.epoch != statement.issuer_policy_epoch
-        || policy.record_digest != statement.issuer_policy_record_digest
-        || policy.issuer_parameter_id != statement.issuer_parameter_id
-        || policy.issuer_parameter_digest != statement.issuer_parameter_digest
-    {
+    if (
+        &policy.issuer_id,
+        &policy.policy_id,
+        policy.epoch,
+        &policy.record_digest,
+        &policy.issuer_parameter_id,
+        &policy.issuer_parameter_digest,
+    ) != (
+        &statement.issuer_id,
+        &statement.policy_id,
+        statement.issuer_policy_epoch,
+        &statement.issuer_policy_record_digest,
+        &statement.issuer_parameter_id,
+        &statement.issuer_parameter_digest,
+    ) {
         return Err(invalid_privacy_parameter(
             "Bootle/Lantern statement does not exactly match authoritative issuer-policy state",
         ));
@@ -4888,7 +4900,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.successor_state().epoch(),
                     effect.successor_state().root(),
@@ -5302,7 +5314,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),
@@ -5624,7 +5636,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     expected_next_epoch,
                     computed_next_root,
@@ -5906,7 +5918,7 @@ impl PreparedPrivacySubmissionV1 {
                     .map(|key| PrivacyRootRetentionAnchorV1::new(key.epoch(), key.root()))
                     .transpose()
                     .map_err(invalid_privacy_parameter)?
-                    .or(snapshot.retention_anchor());
+                    .or_else(|| snapshot.retention_anchor());
                 let root_head = PrivacyRootHeadRecordV1::new(
                     effect.next_epoch(),
                     effect.next_root(),

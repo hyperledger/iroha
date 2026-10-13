@@ -186,14 +186,18 @@ fn original_canonical_account_matcher_preserves_decode_refusal_and_retry() {
     );
     for malformed in ["", "not-an-encoded-account", "0x00"] {
         assert_eq!(
-            without_decode_allocation(|| account_matches_literal_or_encoded(malformed, &owner)),
-            Ok(false)
+            (without_decode_allocation(|| account_matches_literal_or_encoded(malformed, &owner)))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(false)
         );
     }
     let (foreign, _) = gen_account_in("different_canonical_routing_account");
     assert_eq!(
-        account_matches_literal_or_encoded(&foreign.to_string(), &owner),
-        Ok(false)
+        (account_matches_literal_or_encoded(&foreign.to_string(), &owner))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false)
     );
 }
 
@@ -207,42 +211,70 @@ fn account_matcher_completed_negatives_and_directory_authority_are_unchanged() {
     let match_alias = |world: &crate::state::World| {
         account_matches_with_world("holder@universal", &owner, &catalog, &world.view(), Some(0))
     };
-    assert_eq!(match_alias(&world), Ok(true));
     assert_eq!(
-        account_matches_with_world("invalid", &owner, &catalog, &world.view(), Some(0)),
-        Ok(false)
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(true)
     );
     assert_eq!(
-        account_matches_with_world(
+        (account_matches_with_world("invalid", &owner, &catalog, &world.view(), Some(0)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false)
+    );
+    assert_eq!(
+        (account_matches_with_world(
             "holder@universal",
             &owner,
             &catalog,
             &world.view(),
             Some(u64::MAX)
-        ),
-        Ok(false)
+        ))
+        .as_ref()
+        .expect("the operation must complete successfully"),
+        &(false)
     );
     let (other, _) = gen_account_in("foreign_router_binding");
     world.account_aliases.insert(alias.clone(), other);
-    assert_eq!(match_alias(&world), Ok(false));
+    assert_eq!(
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false)
+    );
     world.account_aliases.insert(alias.clone(), owner.clone());
-    assert_eq!(match_alias(&world), Ok(true));
+    assert_eq!(
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(true)
+    );
     world
         .smart_contract_state_mut_for_testing()
         .insert(key.clone(), vec![0xFF]);
     assert_eq!(
-        match_alias(&world),
-        Ok(false),
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false),
         "malformed original record remains a completed mismatch"
     );
     world
         .smart_contract_state_mut_for_testing()
         .insert(key.clone(), original.clone());
-    assert_eq!(match_alias(&world), Ok(true));
+    assert_eq!(
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(true)
+    );
     world.account_aliases = mv::storage::Storage::default();
     assert_eq!(
-        match_alias(&world),
-        Ok(false),
+        (match_alias(&world))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false),
         "revoked index cannot resolve"
     );
     world.account_aliases.insert(alias.clone(), owner.clone());
@@ -252,18 +284,26 @@ fn account_matcher_completed_negatives_and_directory_authority_are_unchanged() {
     assert_original_sns_refusal(view.world(), &alias);
     // The committed directory owns scope and does not need a second SNS decode.
     assert_eq!(
-        without_decode_allocation(|| account_matches_alias_scope_with_world(
+        (without_decode_allocation(|| account_matches_alias_scope_with_world(
             "universal",
             &owner,
             &catalog,
             view.world(),
             Some(0),
-        )),
-        Ok(true)
+        )))
+        .as_ref()
+        .expect("the operation must complete successfully"),
+        &(true)
     );
     assert_eq!(
-        without_decode_allocation(|| account_dataspace_target(Some(view.world()), &owner, Some(0))),
-        Ok(None)
+        (without_decode_allocation(|| account_dataspace_target(
+            Some(view.world()),
+            &owner,
+            Some(0)
+        )))
+        .as_ref()
+        .expect("the operation must complete successfully"),
+        &(None)
     );
     assert_eq!(
         view.world().smart_contract_state().get(&key),
@@ -279,8 +319,10 @@ fn original_wildcard_and_instruction_matchers_preserve_refusal_and_short_circuit
     let view = world.view();
     assert_original_sns_refusal(&view, &alias);
     assert_eq!(
-        account_matches_with_world("*@universal", &owner, &catalog, &view, Some(0)),
-        Ok(true)
+        (account_matches_with_world("*@universal", &owner, &catalog, &view, Some(0)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(true)
     );
     let refused = without_decode_allocation(|| {
         account_matches_with_world("*@universal", &owner, &catalog, &view, Some(0))
@@ -299,8 +341,10 @@ fn original_wildcard_and_instruction_matchers_preserve_refusal_and_short_circuit
     ));
     let tx = sample_transaction(&sender, key.private_key(), vec![asset_transfer.clone()]);
     assert_eq!(
-        instructions_match_with_world("transfer@universal", &tx, &catalog, &view, Some(0)),
-        Ok(true)
+        (instructions_match_with_world("transfer@universal", &tx, &catalog, &view, Some(0)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(true)
     );
     let refused = without_decode_allocation(|| {
         instructions_match_with_world("transfer@universal", &tx, &catalog, &view, Some(0))
@@ -320,14 +364,16 @@ fn original_wildcard_and_instruction_matchers_preserve_refusal_and_short_circuit
         vec![pure_transfer.into(), asset_transfer],
     );
     assert_eq!(
-        without_decode_allocation(|| instructions_match_with_world(
+        (without_decode_allocation(|| instructions_match_with_world(
             "transfer@universal",
             &tx,
             &catalog,
             &view,
             Some(0)
-        )),
-        Ok(true),
+        )))
+        .as_ref()
+        .expect("the operation must complete successfully"),
+        &(true),
         "first completed matching instruction prevents later reads"
     );
 }
@@ -363,8 +409,10 @@ fn fallible_rule_selection_keeps_first_match_and_skips_inapplicable_query_rules(
     let mut instruction_only = rules[1].clone();
     instruction_only.matcher.instruction = Some("transfer".into());
     assert_eq!(
-        without_decode_allocation(|| query_rule_matches(&instruction_only, &owner, None)),
-        Ok(false)
+        (without_decode_allocation(|| query_rule_matches(&instruction_only, &owner, None)))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(false)
     );
     assert!(
         without_decode_allocation(
@@ -409,10 +457,10 @@ fn original_native_policy_account_matcher_retains_refusal_before_route_selection
         "original matcher".to_owned(),
     )]);
     builder.set_creation_time(core::time::Duration::from_millis(1));
-    let signed = builder.sign(signer.private_key());
+    let signed_payload = builder.sign(signer.private_key());
     let (_, time_source) = TimeSource::new_mock(core::time::Duration::from_millis(2));
     let tx = AcceptedTransaction::accept_with_time_source(
-        signed,
+        signed_payload,
         chain.state().network_id_ref(),
         core::time::Duration::from_secs(30),
         TransactionParameters::default(),

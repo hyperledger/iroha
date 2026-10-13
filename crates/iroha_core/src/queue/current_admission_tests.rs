@@ -255,8 +255,9 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
     )
     .unwrap();
     assert_eq!(
-        Queue::compute_proposal_gas_cost(&accepted, &crate::gas::DEFAULT_ZK_GAS),
-        Ok(block_gas)
+        Queue::compute_proposal_gas_cost(&accepted, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("completed proposal gas quote"),
+        block_gas
     );
     let original = accepted.entrypoint_bytes().to_vec();
     let hash = accepted.hash_as_entrypoint();
@@ -289,8 +290,14 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
             "the global chain cannot steal fresh native-lane work"
         );
         let selected = lane_inputs
-            .candidates(4, max_bytes, &BTreeSet::new())
-            .expect("completed original lane routing read");
+            .candidates(
+                4,
+                max_bytes,
+                &BTreeSet::new(),
+                &state.ivm_execution_budget(),
+            )
+            .expect("completed original lane routing read")
+            .0;
         assert_eq!(
             selected.len(),
             1,
@@ -306,8 +313,9 @@ fn current_payload_selects_full_block_gas_call_with_idle_catalog_route() {
             original.as_slice()
         );
         assert_eq!(
-            Queue::compute_proposal_gas_cost(&pending[0], &crate::gas::DEFAULT_ZK_GAS),
-            Ok(block_gas)
+            Queue::compute_proposal_gas_cost(&pending[0], &crate::gas::DEFAULT_ZK_GAS)
+                .expect("completed proposal gas quote"),
+            block_gas
         );
         assert_eq!(queue.routing_plans.get(&hash).unwrap().value(), &plan);
         assert_eq!((queue.active_len(), queue.queued_len()), (1, 1));
@@ -687,16 +695,19 @@ fn native_lane_candidates_preserve_complete_sealed_reveal_and_pending_identity()
         time,
     );
     assert!(original_bytes.len() > accepted.encoded_len());
+    let budget = state.ivm_execution_budget();
     assert!(
-        lane.candidates(4, original_bytes.len() - 1, &BTreeSet::new())
+        lane.candidates(4, original_bytes.len() - 1, &BTreeSet::new(), &budget)
             .unwrap()
+            .0
             .is_empty(),
         "lane packing counts every original carrier byte"
     );
     for _ in 0..2 {
-        let selected = lane
-            .candidates(4, original_bytes.len(), &BTreeSet::new())
+        let (selected, lease) = lane
+            .candidates(4, original_bytes.len(), &BTreeSet::new(), &budget)
             .unwrap();
+        assert!(lane.lease_is_current(&lease, &budget).unwrap());
         assert_eq!(selected.len(), 1);
         assert_eq!(
             norito::encode_canonical(&selected[0]).unwrap(),
@@ -719,8 +730,9 @@ fn native_lane_candidates_preserve_complete_sealed_reveal_and_pending_identity()
         );
         assert_eq!((queue.active_len(), queue.queued_len()), (1, 1));
         assert!(
-            lane.candidates(4, original_bytes.len(), &BTreeSet::from([original_hash]))
+            lane.candidates(4, original_bytes.len(), &BTreeSet::from([original_hash]), &budget)
                 .unwrap()
+                .0
                 .is_empty()
         );
     }
@@ -825,4 +837,61 @@ fn ordinary_sccp_admission_needs_no_history_but_exempt_shapes_bind_original_time
         assert_eq!(queue.active_len(), 0);
         assert_eq!(queue.queued_len(), 0);
     }
+}
+
+#[test]
+fn public_pause_admission_checks_authority_and_original_time_before_fee_exemption() {
+    use crate::smartcontracts::isi::sccp::{admission, hold::SccpCommittedTimeError};
+    use iroha_data_model::{
+        bridge::SccpNetworkV1,
+        isi::sccp::{AcceptSccpPausePanelSeatV1, EndorseSccpFastPauseV1},
+        sccp::params::SccpParametersV1,
+    };
+
+    let (state, time) = current_admission_queue_fixture();
+    seed_committed_height_for_queue_test(&state, 1);
+    {
+        let mut world = state.world.block();
+        *world.sccp_parameters.get_mut() = Some(SccpParametersV1::taira_default());
+        world.commit();
+    }
+    let queue = Queue::test(config_factory(), &time);
+    let (authority, key) = gen_account_in("public-pause-admission");
+    let accept = accepted_tx_with(
+        authority.clone(),
+        &key,
+        &time,
+        vec![AcceptSccpPausePanelSeatV1 { panel_seq: 1 }.into()],
+        Metadata::default(),
+    );
+    let endorse = accepted_tx_with(
+        authority,
+        &key,
+        &time,
+        vec![EndorseSccpFastPauseV1 {
+            network_id: *state.view().network_id(),
+            network: SccpNetworkV1::EthereumMainnet,
+            panel_id: [1; 32],
+            head: 0,
+            incident_digest: [2; 32],
+        }
+        .into()],
+        Metadata::default(),
+    );
+    let view = state.view();
+    let mut access = EagerAdmissionStateAccess::new(&view, 2, 0);
+    for transaction in [&accept, &endorse] {
+        assert!(admission::exempt_shape(transaction.external().unwrap().payload()).is_none());
+    }
+    assert!(matches!(
+        access.sccp_exempt_admission(&queue, accept.external().unwrap()),
+        Err(Error::NexusFeeAdmissionRejected { code: FeeRejectionCode::OperationNotAllowed, reason })
+            if reason.contains("no standing panel")
+    ));
+    assert!(matches!(
+        access.sccp_exempt_admission(&queue, endorse.external().unwrap()),
+        Err(Error::AdmissionInvariant { reason })
+            if reason == SccpCommittedTimeError::Missing.to_string()
+    ));
+    assert_eq!((queue.active_len(), queue.queued_len()), (0, 0));
 }

@@ -89,6 +89,10 @@ impl PublishedAnchor {
 
 // These variants are private to the concrete body owner. They are never decoded from disk,
 // manufactured from a height/hash/path, returned by a callback, or accepted by an effect API.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Publication hands off original retained values; active decode limits preserve the measured full-parser allocation recipe"
+)]
 pub(super) enum PublishedBodyDelta {
     Anchor(PublishedAnchor),
     Reserved {
@@ -177,7 +181,7 @@ impl PublishedBodyDelta {
         expected: &Reservation,
     ) -> Result<Self> {
         let directory = Arc::new(directory);
-        let names = checked_names(&directory, &["reserved.nrt"], 1)?;
+        let names = checked_names(&directory, &["reserved.nrt", "operation.nrt"], 2)?;
         let (reservation, reserved): (Reservation, _) =
             read_observed(&directory, "reserved.nrt", MAX_BODY_BYTES)?;
         if !same(&reservation, expected, MAX_BODY_BYTES)? {
@@ -211,7 +215,10 @@ impl PublishedBodyDelta {
         let snapshots = Arc::new(Snapshot {
             previous: None,
             records: vec![reserved, original_record, activation_record, unused_record],
-            names: vec![NamesSnapshot::from_read(Arc::clone(&directory), 1, names)],
+            names: vec![NamesSnapshot::from_reserved_read(
+                Arc::clone(&directory),
+                names,
+            )],
             root: None,
         });
         Ok(Self::Reserved {
@@ -572,11 +579,11 @@ impl BodyHistory {
         drop(timing);
         #[cfg(test)]
         let step = publication.step();
-        let result = (|| {
-            #[cfg(test)]
-            publication_tests::before_admission(step, &self, owner)?;
-            self.admit_publication(owner, publication, reference, plan, wallets)
-        })();
+        #[cfg(test)]
+        let result = publication_tests::before_admission(step, &self, owner)
+            .and_then(|()| self.admit_publication(owner, publication, reference, plan, wallets));
+        #[cfg(not(test))]
+        let result = self.admit_publication(owner, publication, reference, plan, wallets);
         // Match the canonical producer: original profile exit outranks every ordinary inner
         // result. No transition capability or borrowed profile verdict survives this point.
         #[cfg(test)]
@@ -734,8 +741,8 @@ impl BodyHistory {
             Some(&previous),
             &mut epochs,
             wallets,
+            Some(&snapshots),
         )?;
-        snapshots.revalidate()?;
         root_names.revalidate()?;
         if let Some(graph) = previous.retained_graph() {
             graph.revalidate_retained_handles()?;
@@ -747,3 +754,7 @@ impl BodyHistory {
 #[cfg(test)]
 #[path = "publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "publication_close_tests.rs"]
+mod publication_close_tests;

@@ -746,9 +746,9 @@ fn payload_u64(payload: &norito::json::Map, field: &str) -> Result<u64, Error> {
         return Ok(value);
     }
     if let Some(value) = value.as_i64()
-        && value >= 0
+        && let Ok(value) = u64::try_from(value)
     {
-        return Ok(value as u64);
+        return Ok(value);
     }
     Err(signature_err(format!(
         "DeFi oracle payload field `{field}` must be a non-negative integer"
@@ -1513,7 +1513,7 @@ impl Execute for OpenOracleDispute {
         crate::smartcontracts::isi::asset::isi::execute_oracle_dispute_bond_transfer(
             state_transaction,
             authority,
-            &dispute_id,
+            dispute_id,
             challenger_asset,
             escrow_asset,
             bond_amount.clone(),
@@ -2148,11 +2148,10 @@ pub mod query {
                 .world()
                 .oracle_provider_stats()
                 .iter()
-                .filter_map(|(key, stats)| {
-                    (key.feed_id == feed_id).then(|| OracleProviderStatsRecord {
-                        key: key.clone(),
-                        stats: *stats,
-                    })
+                .filter(|&(key, _stats)| key.feed_id == feed_id)
+                .map(|(key, stats)| OracleProviderStatsRecord {
+                    key: key.clone(),
+                    stats: *stats,
                 })
                 .filter(move |record| filter.applies(record))
                 .collect::<Vec<_>>();
@@ -2207,7 +2206,8 @@ pub mod query {
                 .world()
                 .oracle_disputes()
                 .iter()
-                .filter_map(|(_, dispute)| (dispute.feed_id == feed_id).then(|| dispute.clone()))
+                .filter(|&(_, dispute)| dispute.feed_id == feed_id)
+                .map(|(_, dispute)| dispute.clone())
                 .filter(move |dispute| filter.applies(dispute))
                 .collect::<Vec<_>>();
             Ok(items.into_iter())

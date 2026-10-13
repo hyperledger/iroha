@@ -725,12 +725,12 @@ fn install_governed_contract_for_test(
 ) {
     let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
         .compile_source_with_manifest(
-            r#"
+            r"
 seiyaku GovernedReadFixture { permission CanTransferGovernedFixture;
     view fn balance() authorize(anyone) -> bool { return true; }
     kotoage fn transfer() authorize(CanTransferGovernedFixture) {}
 }
-"#,
+",
         )
         .expect("compile governed contract fixture");
     let verified =

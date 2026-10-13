@@ -73,10 +73,10 @@ fn compact_schema_validates_an_unused_numeric_root_argument_before_its_constant_
         let result = vm.run_with_host(&mut host);
         assert!(vm.remaining_gas() < 4_000_000);
         if valid {
-            assert_eq!(result, Ok(()));
+            assert!(matches!(result, Ok(())));
             assert_eq!(quantity_result(&vm), "7");
         } else {
-            assert_eq!(result, Err(VMError::DecodeError));
+            assert!(matches!(result, Err(VMError::DecodeError)));
             assert!(vm.call_result_word_count().is_err());
         }
     }
@@ -91,12 +91,12 @@ fn compact_schema_rejects_a_genuine_invalid_durable_quantity_before_an_unused_pr
     let mut initialize = IVM::new(4_000_000);
     initialize.load_program(&program).unwrap();
     common::select_kotodama_entrypoint(&mut initialize, &program, "hajimari");
-    assert_eq!(initialize.run_with_host(&mut host), Ok(()));
+    assert!(matches!(initialize.run_with_host(&mut host), Ok(())));
     let original = host.state_bytes("source").unwrap();
     let mut valid = IVM::new(4_000_000);
     valid.load_program(&program).unwrap();
     common::select_kotodama_entrypoint(&mut valid, &program, "main");
-    assert_eq!(valid.run_with_host(&mut host), Ok(()));
+    assert!(matches!(valid.run_with_host(&mut host), Ok(())));
     assert_eq!(quantity_result(&valid), "7");
     assert_eq!(host.state_bytes("source").unwrap(), original);
     let invalid = common::encode_pointer_state_value(
@@ -111,7 +111,10 @@ fn compact_schema_rejects_a_genuine_invalid_durable_quantity_before_an_unused_pr
     let mut vm = IVM::new(4_000_000);
     vm.load_program(&program).unwrap();
     common::select_kotodama_entrypoint(&mut vm, &program, "main");
-    assert_eq!(vm.run_with_host(&mut host), Err(VMError::DecodeError));
+    assert!(matches!(
+        vm.run_with_host(&mut host),
+        Err(VMError::DecodeError)
+    ));
     assert!(vm.call_result_word_count().is_err());
     assert!(vm.remaining_gas() < 4_000_000);
     assert_eq!(
@@ -123,6 +126,6 @@ fn compact_schema_rejects_a_genuine_invalid_durable_quantity_before_an_unused_pr
     let mut retry = IVM::new(4_000_000);
     retry.load_program(&program).unwrap();
     common::select_kotodama_entrypoint(&mut retry, &program, "main");
-    assert_eq!(retry.run_with_host(&mut host), Ok(()));
+    assert!(matches!(retry.run_with_host(&mut host), Ok(())));
     assert_eq!(quantity_result(&retry), "7");
 }

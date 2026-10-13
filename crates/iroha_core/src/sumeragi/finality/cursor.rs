@@ -194,12 +194,11 @@ impl Carrier {
         if !self
             .acquisition
             .matches_owner(view.kura(), self.height, self.hash, budget)
-            || view.block_hashes().get(
-                usize::try_from(self.height)
-                    .map_err(|_| Error::Source)?
-                    .checked_sub(1)
-                    .ok_or(Error::Source)?,
-            ) != Some(&self.hash)
+            || usize::try_from(self.height)
+                .ok()
+                .and_then(|height| height.checked_sub(1))
+                .and_then(|index| view.block_hashes().get(index))
+                != Some(&self.hash)
         {
             return Err(Error::Source);
         }
@@ -306,12 +305,11 @@ impl NativeFinalityCursorV1 {
             || !core::ptr::eq(original.kura.as_ref(), view.kura())
             || !original.prefix.belongs_to(budget)
             || original.native_height > target
-            || view.block_hashes().get(
-                usize::try_from(original.native_height)
-                    .map_err(|_| Error::Source)?
-                    .checked_sub(1)
-                    .ok_or(Error::Source)?,
-            ) != Some(&original.native_hash)
+            || usize::try_from(original.native_height)
+                .ok()
+                .and_then(|height| height.checked_sub(1))
+                .and_then(|index| view.block_hashes().get(index))
+                != Some(&original.native_hash)
         {
             return Err(Error::Source);
         }
@@ -688,7 +686,6 @@ fn buffer_error(error: iroha_allocation::ChargedBufferError) -> Error {
 fn proof_destination_error(error: super::ProofDestinationError) -> Error {
     use iroha_allocation::ChargedBufferFromChargeError;
     use iroha_crypto::PublicKeyAllocationError;
-
     #[cfg(test)]
     tests::observe_pending_destination(&error);
     match error {
@@ -802,27 +799,27 @@ impl OutputRead {
                     SumeragiFinalityVerifier::from_trusted_checkpoint(checkpoint, &network, chain)
                         .map_err(ProofError::from)?;
                 check(deadline)?;
-                let verified = verifier
+                let authenticated = verifier
                     .verify_retained_decision(checkpoint.tip())
                     .map_err(ProofError::from)?;
                 check(deadline)?;
-                output.push_reserved(verified);
+                output.push_reserved(authenticated);
             }
-            let verified = &output.as_slice()[0];
+            let authenticated = &output.as_slice()[0];
             if native.as_slice().is_empty() {
                 check(deadline)?;
-                let receipt = read_frame(durable.clone(), *height, verified.root_scope())
+                let receipt = read_frame(durable.clone(), *height, authenticated.root_scope())
                     .map_err(ProofError::from)?;
                 native.push_reserved(receipt);
             }
             let receipt = &native.as_slice()[0];
             if coherent_height(view)? != current
-                || verified.height() != *height
-                || verified.block().hash() != *hash
-                || receipt.block_hash() != verified.block().hash()
-                || receipt.core_hash() != verified.core_hash()
-                || receipt.result() != verified.result()
-                || receipt.id().0.as_ref() != verified.context_id().as_ref()
+                || authenticated.height() != *height
+                || authenticated.block().hash() != *hash
+                || receipt.block_hash() != authenticated.block().hash()
+                || receipt.core_hash() != authenticated.core_hash()
+                || receipt.result() != authenticated.result()
+                || receipt.id().0.as_ref() != authenticated.context_id().as_ref()
             {
                 return Err(Error::Source);
             }

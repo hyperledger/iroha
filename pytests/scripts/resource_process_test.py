@@ -20,6 +20,13 @@ SPEC.loader.exec_module(process)
 UUID = bytes(range(1, 17))
 
 
+@pytest.fixture(autouse=True)
+def mocked_native_clock_on_other_hosts(monkeypatch):
+    """Native-call fakes use a deterministic clock; actual Darwin keeps its clock."""
+    if sys.platform != "darwin":
+        monkeypatch.setattr(process, "darwin_absolute_time", lambda: 1)
+
+
 def thin(uuid=UUID, order="<"):
     return struct.pack(order + "8I", 0xFEEDFACF, 0x100000C, 0, 2, 1, 24, 0, 0) + struct.pack(order + "II", 0x1B, 24) + uuid
 

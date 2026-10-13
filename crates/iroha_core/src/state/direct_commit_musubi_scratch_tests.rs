@@ -10,7 +10,7 @@ use iroha_allocation::AllocationBudget;
 use iroha_data_model::{block::BlockHeader, musubi::MusubiOrderedPackageEntryV1};
 use mv::storage::StorageReadOnly;
 use std::{
-    collections::HashSet,
+    collections::BTreeSet,
     future::Future,
     num::NonZeroUsize,
     pin::Pin,
@@ -60,6 +60,10 @@ fn stage_musubi(world: &mut WorldBlock<'_>) {
         *seeded.musubi_replication_shortfall_releases.view().get();
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the acquired block owns the supplied header independently of the caller"
+)]
 pub(super) fn staged_block(
     state: &State,
     header: BlockHeader,
@@ -79,7 +83,7 @@ pub(super) fn staged_block(
     // header records. None of the production publication guards are bypassed.
     block.finalize_axt_asset_incarnations().unwrap();
     block.transactions.insert_block(
-        HashSet::new(),
+        BTreeSet::new(),
         NonZeroUsize::new(usize::try_from(header.height().get()).unwrap()).unwrap(),
     );
     block.transactions.validate_commit().unwrap();
@@ -214,8 +218,8 @@ fn check_direct_refusal(replacement: bool) {
     );
 
     let wakes = Arc::new(Wakes::default());
-    let waker = Waker::from(Arc::clone(&wakes));
-    let mut context = Context::from_waker(&waker);
+    let task_waker = Waker::from(Arc::clone(&wakes));
+    let mut context = Context::from_waker(&task_waker);
     let mut abandoned = release.clone().wait_for_release(&mut registration);
     assert_eq!(
         Pin::new(&mut abandoned).poll(&mut context),
@@ -258,10 +262,13 @@ fn check_direct_refusal(replacement: bool) {
         .expect("retry publishes after original pool release");
     assert_eq!(
         state.transactions.latest_height(),
-        header.height().get() as usize
+        usize::try_from(header.height().get()).expect("fixture value fits usize")
     );
     assert_eq!(state.latest_block_hash_fast(), Some(header.hash()));
-    assert_eq!(state.committed_height(), header.height().get() as usize);
+    assert_eq!(
+        state.committed_height(),
+        usize::try_from(header.height().get()).expect("fixture value fits usize")
+    );
     assert_eq!(state.world.musubi_public_directory.view().len(), 1);
     assert_eq!(state.world.musubi_resolver_index.view().len(), 1);
     assert_ne!(
@@ -405,7 +412,7 @@ fn retained_state_retries_actual_musubi_capacity_without_rebuilding_its_world_ta
     drop(block);
     assert_eq!(
         state.transactions.latest_height(),
-        header.height().get() as usize
+        usize::try_from(header.height().get()).expect("fixture value fits usize")
     );
     assert_eq!(state.latest_block_hash_fast(), Some(header.hash()));
     assert_eq!(state.world.musubi_public_directory.view().len(), 1);
@@ -542,7 +549,7 @@ fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_o
         assert_eq!(state.world.musubi_public_directory.view().len(), 1);
         assert_eq!(
             state.transactions.latest_height(),
-            header.height().get() as usize
+            usize::try_from(header.height().get()).expect("fixture value fits usize")
         );
     }
 }
@@ -766,7 +773,7 @@ fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free
     );
     assert_eq!(
         state.transactions.latest_height(),
-        header.height().get() as usize
+        usize::try_from(header.height().get()).expect("fixture value fits usize")
     );
 }
 

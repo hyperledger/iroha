@@ -17,6 +17,13 @@ type PackageValue = iroha_data_model::musubi::MusubiPackageRecordV1;
 
 /// Exact local structural/admission cause; no physical lock wait is fabricated.
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+    )
+)]
 pub(crate) enum RetainedPackageReadError {
     /// Only the original completely frozen, nonterminal publisher may capture.
     NotFrozen,
@@ -120,6 +127,13 @@ impl StateBlock<'_> {
     /// Start on the original frozen publisher after a real publication refusal.
     /// Return the same scope on every start failure, never acquire substitute credit.
     /// This request does not validate Musubi or authorize a State root/publication.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn start_original_package_read(
         &mut self,
         scope: OwnedAllocationScope,
@@ -226,6 +240,13 @@ impl StateBlock<'_> {
     }
 
     /// Observe retained physical-row progress without scanning or resetting work.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn original_package_read_progress(&self) -> Option<PackageReadProgress> {
         self.publication
             .as_ref()?
@@ -236,6 +257,13 @@ impl StateBlock<'_> {
 
     /// Continue the same positions/cursors/cumulative work; successful prefixes stay.
     /// A changed ceiling is explicit caller policy, never an implicit retry reset.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn advance_original_package_read(
         &mut self,
         limit: usize,
@@ -252,6 +280,13 @@ impl StateBlock<'_> {
 
     /// Resolve one original current position with bounded admitted structural work.
     /// The borrow cannot outlive its retained source; no get/nth/key rescan runs.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn original_package_current_row(
         &mut self,
         index: usize,
@@ -268,6 +303,13 @@ impl StateBlock<'_> {
     }
 
     /// Resolve a raw original undo row; it is not the complete predecessor image.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn original_package_undo_row(
         &mut self,
         index: usize,
@@ -286,6 +328,13 @@ impl StateBlock<'_> {
     /// Retire actual positions/cursors/readers before recovering this same field.
     /// A remaining reader keeps the same scope and paired owner for another try.
     /// There is no physical writer lock to wait for; callers retire their handles.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect admitted semantic Musubi read plans; preserve the original charged current/undo positions across refusal and reader-held retirement"
+        )
+    )]
     pub(crate) fn retire_original_package_read(&mut self) -> Result<(), RetainedPackageReadError> {
         self.check_original_package_read()?;
         let publication = self

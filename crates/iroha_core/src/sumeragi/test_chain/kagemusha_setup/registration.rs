@@ -109,11 +109,11 @@ fn execute_registration(
         let height = setup.chain.height();
         let proof =
             crate::sumeragi::finality::build_proof(&setup.chain.state().view(), height).unwrap();
-        let verified = verifier.verify(&proof).unwrap();
+        let authenticated = verifier.verify(&proof).unwrap();
         proofs.push(proof);
-        let committed = committed(&verified);
+        let committed = committed(&authenticated);
         let selected = verify_finalized_kagemusha_wallet_registration_v1(
-            &verified,
+            &authenticated,
             &committed,
             setup.chain.network_id(),
             CHAIN,

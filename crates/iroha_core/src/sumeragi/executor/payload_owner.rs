@@ -248,7 +248,7 @@ impl Worker<'_> {
         scope: OriginalPayloadScope,
         physical_parent: &SignedBlock,
         current_view: &crate::state::StateView<'_>,
-    ) -> Result<Option<Option<PayloadBytes>>, PublicationError> {
+    ) -> Result<Option<PayloadBytes>, PublicationError> {
         let reusable = match self.completed_payload.as_ref() {
             None => return Ok(None),
             Some(original) => {
@@ -292,7 +292,7 @@ impl Worker<'_> {
             .as_ref()
             .expect("exact owner checked above");
         check_proposer_clock(original.creation_time, self.context.time_source.now())?;
-        Ok(Some(Some(original.payload.clone())))
+        Ok(Some(original.payload.clone()))
     }
 
     /// Keep the original nonempty funded output only while its captured queue inputs remain live.
@@ -402,6 +402,90 @@ mod tests {
         queue_work(chain, 2_000, &queue, &time);
         worker.queue = Some(Arc::clone(&queue));
         (queue, clock, time)
+    }
+
+    #[test]
+    fn completed_original_payload_survives_unrelated_queue_admissions_without_recapture() {
+        let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(30_000));
+        super::super::publication_tests::with_worker_clock(
+            time.clone(),
+            move |chain, worker, _blocks, _events| {
+                let queue = Arc::new(Queue::test(
+                    iroha_config::parameters::actual::Queue::default(),
+                    &time,
+                ));
+                let input = queue_work(chain, 2_000, &queue, &time);
+                worker.queue = Some(Arc::clone(&queue));
+                let original = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+                for created in 2_001..2_009 {
+                    let unrelated = queue_work(chain, created, &queue, &time);
+                    assert_ne!(unrelated, input);
+                    let retained = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+                    assert_eq!(
+                        retained.as_slice().as_ptr(),
+                        original.as_slice().as_ptr(),
+                        "unrelated Queue admissions must not replace the original completed Global payload"
+                    );
+                    assert_eq!(retained.as_slice(), original.as_slice());
+                    let proposal = payload::decode(retained.as_slice()).unwrap();
+                    assert_eq!(proposal.network_entrypoint_count(), 1);
+                    assert_eq!(proposal.network_entrypoints().next().unwrap().hash(), input);
+                }
+                queue.clear_all();
+                assert_eq!(queue_work(chain, 2_000, &queue, &time), input);
+                let readmitted = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+                assert_ne!(
+                    readmitted.as_slice().as_ptr(),
+                    original.as_slice().as_ptr(),
+                    "same-hash readmission must acquire its own current admission custody"
+                );
+                assert_eq!(worker.state.view().height(), 1);
+            },
+        );
+    }
+
+    #[test]
+    fn fresh_view_refreshes_authenticated_block_time_without_replacing_signed_input() {
+        let (clock, time) =
+            iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(2_001));
+        super::super::publication_tests::with_worker_clock(
+            time.clone(),
+            move |chain, worker, _blocks, _events| {
+                let queue = Arc::new(Queue::test(
+                    iroha_config::parameters::actual::Queue::default(),
+                    &time,
+                ));
+                let input = queue_work(chain, 2_000, &queue, &time);
+                worker.queue = Some(Arc::clone(&queue));
+                let first = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+                let original = payload::decode(first.as_slice()).unwrap();
+                assert_eq!(
+                    original.header().creation_time(),
+                    Duration::from_millis(2_001)
+                );
+                assert_eq!(original.network_entrypoints().next().unwrap().hash(), input);
+
+                clock.set(Duration::from_millis(20_000));
+                let retained = worker.build(2, 0, 1 << 20, 100).unwrap().unwrap();
+                assert_eq!(retained.as_slice().as_ptr(), first.as_slice().as_ptr());
+                assert_eq!(retained.as_slice(), first.as_slice());
+                let fresh = worker.build(2, 1, 1 << 20, 100).unwrap().unwrap();
+                let proposal = payload::decode(fresh.as_slice()).unwrap();
+                assert_eq!(
+                    proposal.header().creation_time(),
+                    Duration::from_millis(20_000),
+                    "fresh view must refresh certified time without another signed transaction"
+                );
+                assert_eq!(proposal.network_entrypoints().count(), 1);
+                assert_eq!(
+                    proposal.external_entrypoints_slice(),
+                    original.external_entrypoints_slice()
+                );
+                assert_eq!(queue.queued_len(), 1);
+                assert!(queue.contains_entrypoint_hash(input));
+                assert_eq!(worker.state.view().height(), 1);
+            },
+        );
     }
 
     #[test]
@@ -592,7 +676,7 @@ mod tests {
             queue,
             (1 << 20) - PAYLOAD_OVERHEAD,
             &merges,
-            iroha_primitives::time::TimeSource::new_system().now(),
+            worker.context.time_source.now(),
         )
         .unwrap();
         assert_eq!(selected.len(), 1);
@@ -608,6 +692,7 @@ mod tests {
                 parent: &parent,
                 view: 0,
                 cadence: Duration::from_millis(scheduled.params.block_time_ms),
+                proposed_time: worker.context.time_source.now(),
             },
             &selected,
             &merges,
@@ -678,6 +763,7 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -687,8 +773,6 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
-
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
@@ -870,7 +954,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(pending);
             let Some(output) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("both actual physical releases permit the same paid original wire");
             };
@@ -883,12 +966,11 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_preserves_actual_publication_release_until_source_withdrawal() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
-
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
@@ -941,7 +1023,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(released);
             drop((current_view, parent));
             assert!(
                 worker.payload_storage_wait().is_none(),
@@ -1042,7 +1123,10 @@ mod tests {
             let PublicationError::Deferred(ref refusal) = failure else {
                 panic!("original certificate preparation must retain its capacity refusal");
             };
-            let original_refusal = refusal.clone();
+            let original_refusal = refusal
+                .allocation_refusal()
+                .expect("original State pool refusal")
+                .clone();
             let Some(AllocationRefusal::Capacity { release, .. }) = refusal.allocation_refusal()
             else {
                 panic!("the actual original State pool supplies the release observation");
@@ -1051,7 +1135,18 @@ mod tests {
             let context = &mut Context::from_waker(Waker::noop());
             assert_eq!(registration.poll_wait(&wait, context), Poll::Pending);
             scheduler.done(0, ExecDone::Prepared(Err(failure)));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             assert!(scheduler.next(0).is_none());
             assert_eq!(scheduler.wakeup(), u64::MAX);
             assert_eq!(retained_partial_pointer(worker), partial_pointer);
@@ -1089,7 +1184,18 @@ mod tests {
                 panic!("actual original-pool retirement permits the same committed head to retry");
             };
             assert!(Arc::ptr_eq(&original, &retry));
-            assert_eq!(scheduler.preparation_refusal(), Some(&original_refusal));
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::allocation_refusal),
+                Some(&original_refusal)
+            );
+            assert_eq!(
+                scheduler
+                    .preparation_refusal()
+                    .and_then(PublicationDeferral::release_wait),
+                Some(&wait)
+            );
             // The independent pressure owner is deliberately still retained at
             // every retirement, identity and wake assertion above.
             drop(pressure);
@@ -1098,6 +1204,7 @@ mod tests {
 
     #[test]
     fn retained_partial_payload_idle_expiry_refunds_while_original_parent_stays_unavailable() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         struct OriginalJournal {
             path: std::path::PathBuf,
             saved: std::path::PathBuf,
@@ -1107,8 +1214,6 @@ mod tests {
                 std::fs::rename(&self.saved, &self.path).unwrap();
             }
         }
-
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, _time) = attach_queue(chain, worker);
@@ -1365,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_original_payload_retires_on_actual_queue_mutation_expiry_or_rejection() {
+    fn completed_original_payload_retires_on_expiry_or_rejection_after_unrelated_admission() {
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, clock, time) = attach_queue(chain, worker);
             let Some(original) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
@@ -1374,26 +1479,26 @@ mod tests {
             let original_hash = {
                 let block = payload::decode(original.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
-                let hash = block.network_entrypoints().next().unwrap().hash();
-                hash
+
+                block.network_entrypoints().next().unwrap().hash()
             };
             let added_hash = queue_work(chain, 2_001, &queue, &time);
             assert_ne!(added_hash, original_hash);
             let Some(next) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("next input")
             };
-            assert_ne!(next.as_slice().as_ptr(), original.as_slice().as_ptr());
+            assert_eq!(next.as_slice().as_ptr(), original.as_slice().as_ptr());
             {
                 let next_block = payload::decode(next.as_slice()).unwrap();
                 assert_eq!(
                     next_block.network_entrypoint_count(),
                     1,
-                    "the bounded FIFO window advances from the old row to the newly admitted suffix"
+                    "unrelated input admission preserves the original completed FIFO selection"
                 );
                 assert_eq!(
                     next_block.network_entrypoints().next().unwrap().hash(),
-                    added_hash,
-                    "queue mutation retires old reuse authority and selects the exact new input"
+                    original_hash,
+                    "the completed payload retains its exact selected original admission"
                 );
             }
             assert_eq!(queue.queued_len(), 2);
@@ -1487,7 +1592,7 @@ mod tests {
                 &queue,
                 (1 << 20) - PAYLOAD_OVERHEAD,
                 &payload::MergeProposal::default(),
-                iroha_primitives::time::TimeSource::new_system().now(),
+                worker.context.time_source.now(),
             )
             .unwrap();
             assert_eq!(selected.len(), 1);
@@ -1510,6 +1615,7 @@ mod tests {
                     parent: &parent,
                     view: 0,
                     cadence: Duration::from_millis(scheduled.params.block_time_ms),
+                    proposed_time: worker.context.time_source.now(),
                 },
                 &selected,
             )
@@ -1611,12 +1717,11 @@ mod tests {
     #[test]
     fn completed_original_payload_preserves_actual_publisher_release_and_expires_while_it_is_held()
     {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
-
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         let _fixture_epoch = crossbeam_epoch::pin();
         for expire_while_held in [false, true] {
             super::super::publication_tests::with_worker(move |chain, worker, _blocks, _events| {
@@ -1641,7 +1746,7 @@ mod tests {
                     &queue,
                     (1 << 20) - PAYLOAD_OVERHEAD,
                     &payload::MergeProposal::default(),
-                    iroha_primitives::time::TimeSource::new_system().now(),
+                    worker.context.time_source.now(),
                 )
                 .unwrap();
                 assert_eq!(selected.len(), 1);
@@ -1663,6 +1768,7 @@ mod tests {
                         parent: &parent,
                         view: 0,
                         cadence: Duration::from_millis(scheduled.params.block_time_ms),
+                        proposed_time: worker.context.time_source.now(),
                     },
                     &selected,
                 )
@@ -1771,7 +1877,6 @@ mod tests {
                         .poll(&mut Context::from_waker(Waker::noop())),
                     Poll::Ready(())
                 );
-                drop(released);
                 assert!(state.try_view_once().is_ok());
                 assert!(
                     worker.payload_storage_wait().is_none(),
@@ -1792,12 +1897,11 @@ mod tests {
 
     #[test]
     fn completed_original_payload_retries_the_same_backing_after_actual_header_reader_release() {
+        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         use std::{
             future::Future,
             task::{Context, Poll, Waker},
         };
-
-        // Pin before genesis so retired fixture State generations cannot alter exact refunds.
         let _fixture_epoch = crossbeam_epoch::pin();
         super::super::publication_tests::with_worker(|chain, worker, _blocks, _events| {
             let (queue, _clock, _time) = attach_queue(chain, worker);
@@ -1843,7 +1947,6 @@ mod tests {
                     .poll(&mut Context::from_waker(Waker::noop())),
                 Poll::Ready(())
             );
-            drop(released);
             let Some(retried) = worker.build(2, 0, 1 << 20, 100).unwrap() else {
                 panic!("retry")
             };
@@ -1899,8 +2002,8 @@ mod tests {
             let original_hash = {
                 let block = payload::decode(original.as_slice()).unwrap();
                 assert_eq!(block.network_entrypoint_count(), 1);
-                let hash = block.network_entrypoints().next().unwrap().hash();
-                hash
+
+                block.network_entrypoints().next().unwrap().hash()
             };
             drop(original);
             assert!(worker.completed_payload.is_some());
@@ -1959,10 +2062,17 @@ mod tests {
             assert_eq!(queue.queued_len(), 2);
             assert!(queue.contains_entrypoint_hash(new_hash));
             let Some(after_wake) = worker.build(2, 0, 1 << 20, 101).unwrap() else {
-                panic!("the next request must see actual newly admitted signed work");
+                panic!("unrelated callback admission must retain the completed original");
+            };
+            assert_eq!(after_wake.as_slice().as_ptr(), next.as_slice().as_ptr());
+            assert_eq!(after_wake.as_slice(), next.as_slice());
+            // A genuinely changed request retires that completed selection and can
+            // select the callback's pending suffix. Mere arrival cannot revoke it.
+            let Some(changed_request) = worker.build(2, 0, 1 << 20, 102).unwrap() else {
+                panic!("a fresh request must see actual newly admitted signed work");
             };
             {
-                let after_wake_block = payload::decode(after_wake.as_slice()).unwrap();
+                let after_wake_block = payload::decode(changed_request.as_slice()).unwrap();
                 assert_eq!(
                     after_wake_block.network_entrypoint_count(),
                     1,
@@ -1980,7 +2090,7 @@ mod tests {
             }
             assert!(queue.contains_entrypoint_hash(original_hash));
             assert!(queue.contains_entrypoint_hash(new_hash));
-            drop((next, after_wake));
+            drop((next, after_wake, changed_request));
             worker.retire_completed_payload(2);
             assert_eq!(
                 queue.queued_len(),

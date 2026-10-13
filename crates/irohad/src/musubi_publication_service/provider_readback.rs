@@ -1,4 +1,4 @@
-//! Complete provider-specific Musubi readback through the authenticated SoraFS fetch transport.
+//! Complete provider-specific Musubi readback through the authenticated `SoraFS` fetch transport.
 //!
 //! This backend never treats a provider's claimed digest as readback. It obtains the exact plan
 //! and CAR through the authenticated provider client, consumes the complete bounded stream, and
@@ -123,7 +123,7 @@ impl<S: AuthenticatedReadbackSourceV1> ReadbackCoreV1<S> {
     }
 }
 
-/// Daemon-owned service backend using the actual authenticated SoraFS archive fetch client.
+/// Daemon-owned service backend using the actual authenticated `SoraFS` archive fetch client.
 ///
 /// The constructor binds the transport's genesis-derived network to the daemon context. The
 /// private publication factory must retain this backend as the service's readback dependency;

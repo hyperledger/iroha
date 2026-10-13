@@ -3104,7 +3104,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
             prefix_bytes,
             32,
         );
-        norito::with_decode_limits_scope(limits, || prefix());
+        norito::with_decode_limits_scope(limits, &prefix);
         let producer_refusal = norito::with_decode_limits_scope(limits, || {
             prefix();
             crate::smartcontracts::code::fetch_bound_contract_record(

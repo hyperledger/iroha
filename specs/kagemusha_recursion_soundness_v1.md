@@ -237,6 +237,32 @@ simulated Omega is unnecessary. Existing transcript domains separate encoded
 addresses; they neither justify changing the surviving law nor give the same
 address different answers when a public proof becomes a private input or replay.
 
+On the deciding support, that remaining view has a smaller exact representation:
+the original public sigma bodies, including c/f but excluding their unabsorbed
+generator suffixes, jointly with the 16 Pallas and 16 Vesta accumulator
+challenges. The pinned generators reconstruct deciding G values; public sigma
+statements and their bodies reconstruct their own challenges and suffixes;
+public18 and P reconstruct D_A. Projection and reconstruction are efficient
+inverses on this support. Malformed inputs and failed decides keep their actual
+branches. The required comparison is therefore the joint distribution of this
+representation after executing the private source, not equality of its hidden
+Direct prefixes or separate marginal hiding of each challenge vector.
+
+For adaptive composition, a public-only sampler must also preserve related
+durable selected-object states and the residual oracle service after every
+fresh attempt, including refusals. A bound epsilon_t conditional on each reached
+public history then composes by stopping at the first divergence and summing
+`E[1_{attempt t reached before divergence} epsilon_t(h_t)]` over fresh attempts.
+Exact replay of an already selected original
+adds no fresh proof error; storage outcomes still need their own state-relation
+argument. Equal returned errors alone are insufficient when immutable objects
+can be written before manifest publication. This is a sufficient reduction to
+prove, not a new privacy assumption or an established sampler. The
+[same-frame opening result](kagemusha_local_zk_v1.md#same-direct-frame-and-the-actual-opening-value)
+removes polynomial/blind differences within a common good fiber and preserves
+complete private proof bytes through deterministic consumers. It does not
+compare the distributions induced by different private Direct frames.
+
 Substituting H in native producers while retaining their genuine fixed-F
 consumers does not supply that alternative construction: the no-incoming Load
 and Send Q branches bind the native own-claim challenges to round cells computed

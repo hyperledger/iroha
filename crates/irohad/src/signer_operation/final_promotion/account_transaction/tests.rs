@@ -139,7 +139,7 @@ struct Fixture {
     journal: SignerReceiptJournalV1,
     reserve_signed: Option<SignedTransaction>,
     reserve_floor: Option<FinalPromotionCheckFloorV1>,
-    _directory: tempfile::TempDir,
+    directory: tempfile::TempDir,
 }
 impl Fixture {
     fn new() -> Self {
@@ -178,7 +178,7 @@ impl Fixture {
             journal,
             reserve_signed: None,
             reserve_floor: None,
-            _directory: directory,
+            directory,
         };
         let configure_receipt = MutateSorafsFinalPromotionAuthority {
             deployment_id: DEPLOYMENT.into(),
@@ -675,7 +675,7 @@ fn account_transaction_signing_retains_exact_native_authority_and_payload_throug
         .unwrap();
     assert!(complete.receipt.is_some());
     complete.recheck(times().0).unwrap();
-    let path = f._directory.path().join(format!(
+    let path = f.directory.path().join(format!(
         "{}.receipt.norito",
         hex::encode(f.expected.operation_id)
     ));

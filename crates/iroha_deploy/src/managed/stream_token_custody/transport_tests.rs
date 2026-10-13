@@ -1,6 +1,7 @@
 //! Real HTTP refusal before initial intent publication; this is not recovery/finality qualification.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::UnavailablePeers;
 use iroha_data_model::transaction::FeePaymentIntent;
 use sorafs_manifest::signer::{
@@ -104,7 +105,7 @@ fn unavailable_finality_over_http_cannot_publish_intent_quote_or_dispatch() {
             .open_child("configure")
             .unwrap();
         assert!(journal::read_original(&directory).unwrap().is_none());
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory.open_child("transaction").err().unwrap().kind(),
             io::ErrorKind::NotFound
@@ -187,7 +188,7 @@ fn selected_custody_recovery_distinguishes_absent_empty_and_dirty_without_http()
     };
     drop(ports);
     let mut peers = UnavailablePeers::start(&prepared);
-    for dirty in 0..3 {
+    for dirty in 0..4 {
         let configure = owner.recover_configure_selected_if_present(
             &policy,
             &Fees::from_options(&options).unwrap(),
@@ -198,10 +199,17 @@ fn selected_custody_recovery_distinguishes_absent_empty_and_dirty_without_http()
             &Fees::from_options(&options).unwrap(),
             options.deadline,
         );
-        if dirty == 2 {
+        if dirty == 3 {
             assert!(configure.is_err() && enroll.is_err());
-        } else if dirty == 1 {
-            assert!(configure.unwrap().is_none());
+        } else if dirty == 1 || dirty == 2 {
+            if dirty == 1 {
+                assert!(
+                    matches!(configure, Err(crate::managed::Error::Invalid(message))
+                    if message == "operation metadata image is absent")
+                );
+            } else {
+                assert!(configure.unwrap().is_none());
+            }
             // Enroll publishes its root with the original selection and anchor atomically.
             // An existing empty root is custody loss, never a fresh preflight directory.
             assert!(matches!(
@@ -221,7 +229,19 @@ fn selected_custody_recovery_distinguishes_absent_empty_and_dirty_without_http()
                 let directory = owner.authority.directory.open_child(name).unwrap();
                 assert!(!directory.path().join("transaction").exists());
                 if dirty == 1 {
-                    require_empty(&directory).unwrap();
+                    crate::managed::native_operation::require_empty(&directory).unwrap();
+                    if name == "configure" {
+                        let path = directory.path().to_path_buf();
+                        drop(directory);
+                        std::fs::remove_dir(&path).unwrap();
+                        metadata::ensure_operation(&owner.authority.directory, name).unwrap();
+                    }
+                } else if dirty == 2 {
+                    if name == "configure" {
+                        metadata::require_unselected(&directory).unwrap();
+                    } else {
+                        crate::managed::native_operation::require_empty(&directory).unwrap();
+                    }
                     directory
                         .write_atomic("incomplete.nrt", &[1], PublishMode::CreateNew)
                         .unwrap();

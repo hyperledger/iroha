@@ -15,8 +15,9 @@ use iroha_sccp::v1::{
     },
     destination_abi::{EVENT_TOPICS, SELECTORS, TOPIC_CERTIFICATE},
     evm_abi::{
-        self, AbiToken, CommitteeViewV1, PauseViewV1, TransferToTairaLogV1, ViewCallV1,
-        ViewReturnV1, VoidedLogV1, encode_tokens,
+        self, AbiToken, CommitteeViewV1, ConstructorArgsV1, PauseViewV1, SCCP_EVM_CREATION_CODE,
+        SCCP_EVM_DEPLOYER, SCCP_EVM_SALT, TransferToTairaLogV1, ViewCallV1, ViewReturnV1,
+        VoidedLogV1, encode_tokens,
     },
     finality::{
         FLAG_ACTIVE, FLAG_ROTATION, QcFixedV1, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
@@ -104,6 +105,104 @@ fn call_json(label: &str, function: &str, calldata: &[u8]) -> Value {
     ])
 }
 
+/// Dynamic voids authenticate their result logs on-chain, while the local decoder
+/// accepts only the canonical encoder output. Pin both verdicts independently.
+fn expired_void_conformance(function: &str, canonical: &[u8], source_words: usize) -> Vec<Value> {
+    let word = |at: usize| {
+        usize::try_from(u64::from_be_bytes(
+            canonical[4 + at + 24..4 + at + WORD].try_into().unwrap(),
+        ))
+        .unwrap()
+    };
+    let source = word(WORD);
+    let proof = word(2 * WORD);
+    let payload = proof + word(proof);
+    let path = proof + word(proof + 2 * WORD);
+    let block = proof + word(proof + 3 * WORD);
+    let history = block + word(block + 4 * WORD);
+    let mut rows = Vec::new();
+    let mut add = |label: &str, calldata: Vec<u8>, contract: &str| {
+        let decoder = match VoidCallV1::decode(&calldata) {
+            Ok(_) => text(ACCEPT),
+            Err(error) => error_name(error),
+        };
+        assert_eq!(decoder == text(ACCEPT), label == "canonical", "{label}");
+        rows.push(obj([
+            ("function", text(function)),
+            ("label", text(label)),
+            ("calldata", hex(&calldata)),
+            ("decoder", decoder),
+            ("contract", text(contract)),
+        ]));
+    };
+    add("canonical", canonical.to_vec(), ACCEPT);
+    add("trailing_byte", appended(canonical, &[0]), ACCEPT);
+    add("trailing_word", appended(canonical, &[0; WORD]), ACCEPT);
+    add(
+        "truncated_byte",
+        canonical[..canonical.len() - 1].to_vec(),
+        EMPTY_REVERT,
+    );
+    for (label, at, byte) in [
+        ("dirty_nonce_high_bits", 0, 23),
+        ("dirty_leaf_index_high_bits", proof + WORD, 27),
+        ("dirty_block_height_high_bits", block, 23),
+        ("dirty_message_count_high_bits", block + 2 * WORD, 27),
+        ("dirty_history_index_high_bits", block + 3 * WORD, 23),
+    ] {
+        add(label, dirty(canonical, at, byte), EMPTY_REVERT);
+    }
+    add(
+        "source_offset_overflow",
+        dirty(canonical, WORD, 0),
+        EMPTY_REVERT,
+    );
+    for (label, at, offsets) in [
+        ("source_offset_gap", source, vec![WORD, 2 * WORD]),
+        ("proof_offset_gap", proof, vec![2 * WORD]),
+        (
+            "payload_offset_gap",
+            payload,
+            vec![proof, proof + 2 * WORD, proof + 3 * WORD],
+        ),
+        (
+            "path_offset_gap",
+            path,
+            vec![proof + 2 * WORD, proof + 3 * WORD],
+        ),
+        ("block_offset_gap", block, vec![proof + 3 * WORD]),
+        ("history_offset_gap", history, vec![block + 4 * WORD]),
+    ] {
+        let mut changed = with_gap(canonical, at);
+        for offset in offsets {
+            bump(&mut changed, offset, WORD as u64);
+        }
+        add(label, changed, ACCEPT);
+    }
+    let mut changed = canonical.to_vec();
+    let payload_len = word(payload);
+    assert_ne!(payload_len % WORD, 0);
+    changed[4 + payload + WORD + payload_len] = 1;
+    add("payload_nonzero_padding", changed, ACCEPT);
+    for index in 0..source_words {
+        let data = source + word(source + index * WORD);
+        let mut changed = with_gap(canonical, data);
+        for following in index..source_words {
+            bump(&mut changed, source + following * WORD, WORD as u64);
+        }
+        bump(&mut changed, 2 * WORD, WORD as u64);
+        add(&format!("source_{index}_offset_gap"), changed, ACCEPT);
+        let len = word(data);
+        if len % WORD != 0 {
+            let mut changed = canonical.to_vec();
+            changed[4 + data + WORD + len] = 1;
+            add(&format!("source_{index}_nonzero_padding"), changed, ACCEPT);
+        }
+    }
+    assert_eq!(rows.len(), if source_words == 1 { 19 } else { 25 });
+    rows
+}
+
 /// Construct the current signed native-certificate EVM conformance scenario.
 #[allow(
     clippy::too_many_lines,
@@ -112,7 +211,23 @@ fn call_json(label: &str, function: &str, calldata: &[u8]) -> Value {
 pub fn fixture() -> Value {
     let g7 = Committee::new(7);
     let g8 = Committee::new(8);
-    let destination = eth_destination();
+    let mut destination = eth_destination();
+    let pin = SccpCommitteePinV1 {
+        generation: 7,
+        committee_root: g7.root(),
+        start_height: 1,
+        until_ms: T0 + 14 * DAY,
+    };
+    let deployment = ConstructorArgsV1 {
+        taira_network_id: TAIRA,
+        consensus_instance: INSTANCE,
+        network: destination.network,
+        route_revision: destination.route_revision,
+        max_wrapped_supply: 1_000_000_000_000_000_000,
+        pin,
+    };
+    // The fixture replays on the real CREATE2 deployment without relocating code or state.
+    destination.destination_word = word_address(&deployment.address());
     let control_fields = ControlLeafV1 {
         route_revision: 1,
         control_nonce: 1,
@@ -130,10 +245,18 @@ pub fn fixture() -> Value {
     )
     .unwrap();
     let payloads: Vec<_> = (0..4).map(eth_outbound).collect();
-    let block50 = PromoteOddTree::block(&[eth_transfer_leaf(0)]).unwrap();
-    let block100 =
-        PromoteOddTree::block(&[eth_transfer_leaf(1), eth_transfer_leaf(2), control_hash]).unwrap();
-    let block200 = PromoteOddTree::block(&[eth_transfer_leaf(3)]).unwrap();
+    let leaves: Vec<_> = payloads
+        .iter()
+        .map(|payload| {
+            transfer_leaf(
+                &payload.message_id(&TAIRA).unwrap(),
+                &destination.destination_word,
+            )
+        })
+        .collect();
+    let block50 = PromoteOddTree::block(&[leaves[0]]).unwrap();
+    let block100 = PromoteOddTree::block(&[leaves[1], leaves[2], control_hash]).unwrap();
+    let block200 = PromoteOddTree::block(&[leaves[3]]).unwrap();
     let history = [
         history_leaf(50, &block50.root(), 1),
         history_leaf(100, &block100.root(), 3),
@@ -176,12 +299,6 @@ pub fn fixture() -> Value {
     let (c100, sigma100) = g7.certificate(&x100);
     let (c150, sigma150) = g7.certificate(&x150);
     let (c200, sigma200) = g8.certificate(&x200);
-    let pin = SccpCommitteePinV1 {
-        generation: 7,
-        committee_root: g7.root(),
-        start_height: 1,
-        until_ms: T0 + 14 * DAY,
-    };
     let initial = CommitteeStateV1::from_pin(
         pin.generation,
         pin.committee_root,
@@ -492,12 +609,44 @@ pub fn fixture() -> Value {
         ("pause_state_return", hex(&pause_return)),
         ("initial_committee_return", hex(&pin_return)),
     ]);
+    let mut conformance = calldata_conformance(&transfer_call);
+    conformance.extend(expired_void_conformance("voidExpired", &void_inline, 5));
+    conformance.extend(expired_void_conformance(
+        "voidExpiredFromCheckpoint",
+        &void_checkpoint,
+        1,
+    ));
     with(
         header(
             "iroha.sccp.evm-calldata.v1",
             "specs/sccp.md §3.7, §5.1–§5.2.2 (revision 5)",
         ),
         vec![
+            (
+                "deployment",
+                obj([
+                    ("network", profile(deployment.network)),
+                    ("taira_network_id", hex(&deployment.taira_network_id)),
+                    ("consensus_instance", hex(&deployment.consensus_instance)),
+                    ("route_revision", num(u64::from(deployment.route_revision))),
+                    (
+                        "max_wrapped_supply",
+                        text(&deployment.max_wrapped_supply.to_string()),
+                    ),
+                    ("deployer", hex(&SCCP_EVM_DEPLOYER)),
+                    ("salt", hex(&SCCP_EVM_SALT)),
+                    (
+                        "creation_code_hash",
+                        hex(&keccak256(&[&SCCP_EVM_CREATION_CODE])),
+                    ),
+                    ("constructor_args", hex(&deployment.encode())),
+                    (
+                        "init_code_hash",
+                        hex(&keccak256(&[&deployment.init_code()])),
+                    ),
+                    ("address", hex(&deployment.address())),
+                ]),
+            ),
             ("scenario", scenario),
             (
                 "selectors",
@@ -528,10 +677,7 @@ pub fn fixture() -> Value {
             ("calls", Value::Array(calls)),
             ("views", Value::Array(views)),
             ("logs", Value::Array(logs)),
-            (
-                "calldata_conformance",
-                Value::Array(calldata_conformance(&transfer_call)),
-            ),
+            ("calldata_conformance", Value::Array(conformance)),
         ],
     )
 }

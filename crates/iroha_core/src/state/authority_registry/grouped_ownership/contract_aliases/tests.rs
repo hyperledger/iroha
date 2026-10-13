@@ -223,7 +223,7 @@ fn both_original_readers_detect_publication_after_capture() {
 #[test]
 fn checked_capture_uses_original_state_budget_and_retained_rows() {
     let state = State::new_for_testing(
-        *fixture(),
+        fixture(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );

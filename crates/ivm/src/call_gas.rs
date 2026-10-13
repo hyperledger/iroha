@@ -39,20 +39,20 @@ mod tests {
     use super::*;
     #[test]
     fn frame_cost_covers_each_allocation_byte_at_the_v1_bounds() {
-        assert_eq!(frame(16, 1), Ok(3));
-        assert_eq!(
+        assert!(matches!(frame(16, 1), Ok(3)));
+        assert!(matches!(
             frame(
                 ivm_abi::call::MAX_CALL_FRAME_BYTES_V1,
                 ivm_abi::call::MAX_CALL_WORDS_V1
             ),
             Ok(532_480)
-        );
-        assert_eq!(frame(0, 0), Ok(0));
+        ));
+        assert!(matches!(frame(0, 0), Ok(0)));
     }
     #[test]
     fn pointer_cost_is_byte_linear_and_overflow_checked() {
-        assert_eq!(pointer(0), Ok(55));
-        assert_eq!(pointer(1), Ok(56));
-        assert_eq!(pointer(u64::MAX), Err(VMError::GasCostOverflow));
+        assert!(matches!(pointer(0), Ok(55)));
+        assert!(matches!(pointer(1), Ok(56)));
+        assert!(matches!(pointer(u64::MAX), Err(VMError::GasCostOverflow)));
     }
 }

@@ -6,7 +6,7 @@ async fn tx_order_same_in_validation_and_revalidation() {
     let account = Account::new(alice_id.clone()).build(&alice_id);
     let domain = Domain::new(domain_id).build(&alice_id);
     let (account_a_id, _) = gen_account_in("wonderland");
-    let (account_b_id, _) = gen_account_in("wonderland");
+    let (second_account_id, _) = gen_account_in("wonderland");
     let world = World::with([domain], [account], []);
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
@@ -20,7 +20,7 @@ async fn tx_order_same_in_validation_and_revalidation() {
     };
     // Two independent register instructions (no ordering dependencies)
     let register_a = Register::account(Account::new(account_a_id));
-    let register_b = Register::account(Account::new(account_b_id));
+    let register_b = Register::account(Account::new(second_account_id));
     let tx = TransactionBuilder::new(
         state.network_id,
         alice_id.clone(),

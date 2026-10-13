@@ -381,13 +381,13 @@ fn private_settlement_authority_rejects_recreated_roster_and_stale_incarnation()
         &replacement,
     )
     .expect("new incarnation's exact pinned roster");
-    let mut stale = replacement;
-    stale.route.lane_incarnation = original.route.lane_incarnation;
+    let mut outdated = replacement;
+    outdated.route.lane_incarnation = original.route.lane_incarnation;
     assert!(
         crate::private_settlement::validate_private_settlement_committee_authority_v1(
             &state.view(),
             7,
-            &stale,
+            &outdated,
         )
         .is_err(),
         "current members cannot authorize an old incarnation"
@@ -682,7 +682,7 @@ fn exact_lane_committee_rejects_manifest_dataspace_mismatch() {
         .map(|key| AccountId::new(key.public_key().clone()))
         .collect();
     let retained = resolve_universal_committee(&state).expect("valid canonical manifest authority");
-    let stale =
+    let outdated =
         stale_lane_manifest_registry_for_test(&state, &[(LaneId::SINGLE, other, validators)]);
     assert_eq!(
         resolve_universal_committee(&state)
@@ -692,7 +692,7 @@ fn exact_lane_committee_rejects_manifest_dataspace_mismatch() {
     );
     // Retain the deliberately malformed source in an isolated resolver view.
     let mut view = state.view();
-    view.lane_manifests = stale;
+    view.lane_manifests = outdated;
     assert!(matches!(
         view.resolve_lane_committee_at_height(
             LaneAuthorityRoute::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL),

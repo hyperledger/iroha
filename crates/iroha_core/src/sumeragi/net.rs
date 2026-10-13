@@ -549,7 +549,7 @@ impl SumeragiIngress {
 
     /// Stop routing `instance`; returns whether it was routed.
     pub fn unregister(&self, instance: &Hash32) -> bool {
-        if cfg!(all(test, sumeragi_core_mutation = "HC279")) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC347")) {
             return self.routes.write().remove(instance).is_some();
         }
         // The removed driver owns release callbacks; they may reenter routing.
@@ -1274,10 +1274,10 @@ mod tests {
         let original = net.envelope(&frame);
         let replacement = net.envelope(&row_frame(99));
         assert!(!Arc::ptr_eq(&original, &replacement));
-        let owner_ptr = std::ptr::from_ref::<dyn PendingSend>(&*owner) as *const ();
+        let owner_ptr = std::ptr::from_ref::<dyn PendingSend>(&*owner).cast::<()>();
         let owner = pending(owner.retry());
         assert_eq!(
-            std::ptr::from_ref::<dyn PendingSend>(&*owner) as *const (),
+            std::ptr::from_ref::<dyn PendingSend>(&*owner).cast::<()>(),
             owner_ptr,
             "retry must return the same owner"
         );
@@ -1346,7 +1346,7 @@ mod tests {
         let target_peer = PeerId::new(target.public_key().clone());
         let (network, mut actor) = IrohaNetwork::actor_admission_for_tests(
             PeerId::new(bls(3).public_key().clone()),
-            std::collections::HashSet::from([target_peer.clone()]),
+            std::collections::BTreeSet::from([target_peer.clone()]),
             std::num::NonZeroUsize::new(4).unwrap(),
         );
         let net = P2pNet::new(network);
@@ -1414,14 +1414,14 @@ mod tests {
             SendOutcome::Admitted
         ));
         let cancelled = pending(net.send(&ka, &row_frame(1)));
-        let next = pending(net.send(&ka, &row_frame(2)));
+        let retried_send = pending(net.send(&ka, &row_frame(2)));
         assert!(matches!(
             net.send(&kb, &row_frame(0)),
             SendOutcome::Admitted
         ));
         assert_eq!(actor.drain_posts(|_| {}), 2);
         drop(cancelled);
-        assert!(matches!(next.retry(), SendOutcome::Admitted));
+        assert!(matches!(retried_send.retry(), SendOutcome::Admitted));
         assert_eq!(
             actor.drain_posts(|post| assert_eq!(post.peer_id, targets[0])),
             1
@@ -1437,7 +1437,7 @@ mod tests {
         let target_peer = PeerId::new(target.public_key().clone());
         let (network, mut actor) = IrohaNetwork::actor_admission_for_tests(
             PeerId::new(bls(3).public_key().clone()),
-            std::collections::HashSet::from([target_peer.clone()]),
+            std::collections::BTreeSet::from([target_peer.clone()]),
             std::num::NonZeroUsize::new(4).unwrap(),
         );
         let net = P2pNet::new(network);
@@ -1492,7 +1492,7 @@ mod tests {
         let target = bls(4);
         let (network, actor) = IrohaNetwork::actor_admission_for_tests(
             PeerId::new(bls(3).public_key().clone()),
-            std::collections::HashSet::from([PeerId::new(target.public_key().clone())]),
+            std::collections::BTreeSet::from([PeerId::new(target.public_key().clone())]),
             std::num::NonZeroUsize::new(4).unwrap(),
         );
         let net = P2pNet::new(network);
@@ -1513,7 +1513,7 @@ mod tests {
         let target = bls(4);
         let (network, mut actor) = IrohaNetwork::actor_admission_for_tests(
             PeerId::new(bls(3).public_key().clone()),
-            std::collections::HashSet::new(),
+            std::collections::BTreeSet::new(),
             std::num::NonZeroUsize::new(1).unwrap(),
         );
         let net = P2pNet::new(network);

@@ -214,6 +214,10 @@ pub struct QueueLaneTransactions {
     time_source: iroha_primitives::time::TimeSource,
 }
 
+/// Original Queue admission captured under the lane's execution allocation pool.
+/// Its private lease cannot be decoded or reconstructed from selected transaction hashes.
+pub struct QueueLaneLease(crate::queue::PendingPayloadLease);
+
 impl QueueLaneTransactions {
     /// The share of `lane` in `queue`, routed with `state` and paced by the proposer clock.
     #[must_use]
@@ -233,6 +237,8 @@ impl QueueLaneTransactions {
 }
 
 impl LaneTransactions for QueueLaneTransactions {
+    type Lease = Option<QueueLaneLease>;
+
     #[cfg(test)]
     fn empty_payload_answer(&self) {
         self.queue.record_empty_lane_payload();
@@ -243,13 +249,22 @@ impl LaneTransactions for QueueLaneTransactions {
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<TransactionEntrypoint>, LaneSelectionError> {
-        let view = self.state.view();
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(Vec<TransactionEntrypoint>, Self::Lease), LaneSelectionError> {
+        let generation = self.state.state_view_generation();
+        let view = self
+            .state
+            .try_view_once()
+            .map_err(crate::sumeragi::driver::traits::PublicationError::from)?;
+        let selection = self
+            .queue
+            .begin_pending_payload_selection(&self.state, generation)
+            .ok_or(LaneSelectionError::Changed)?;
         let Some(pending) = self
             .queue
             .bounded_pending_snapshot(&view, crate::sumeragi::payload::MAX_QUEUE_SCAN)
         else {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         };
         let routing = RoutingSnapshot::of(&view)?;
         let inputs = routing.inputs(view.world());
@@ -282,12 +297,60 @@ impl LaneTransactions for QueueLaneTransactions {
                 continue;
             }
             bytes = next;
-            selected.push(transaction.into_entrypoint());
+            selected.push(transaction);
         }
         if selected.is_empty() && future {
             return Err(LaneSelectionError::ClockAhead);
         }
-        Ok(selected)
+        if selected.is_empty() {
+            return Ok((Vec::new(), None));
+        }
+        let lease = self
+            .queue
+            .capture_pending_payload_lease(&self.state, selection, &view, &selected, budget)
+            .map_err(|error| {
+                let original: crate::execution_attempt::ExecutionDeferred = match error {
+                    iroha_allocation::ChargedBufferError::Admission(original) => original.into(),
+                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                        ivm::error::ExecutionDeferral::AllocationUnavailable.into()
+                    }
+                };
+                LaneSelectionError::Publication(
+                    crate::sumeragi::driver::traits::PublicationError::Deferred(original.into()),
+                )
+            })?
+            .ok_or(LaneSelectionError::Changed)?;
+        Ok((
+            selected
+                .iter()
+                .map(|transaction| transaction.entrypoint().clone())
+                .collect(),
+            Some(QueueLaneLease(lease)),
+        ))
+    }
+
+    fn retain_prefix(&self, lease: &mut Self::Lease, count: usize) {
+        if let Some(lease) = lease {
+            lease.0.retain_prefix(count);
+        }
+    }
+
+    fn lease_is_current(
+        &self,
+        lease: &Self::Lease,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        use crate::sumeragi::driver::traits::{PublicationDeferral, PublicationError};
+        let Some(lease) = lease.as_ref().filter(|lease| lease.0.belongs_to(budget)) else {
+            return Ok(false);
+        };
+        let view = self.state.try_view_once()?;
+        self.queue
+            .pending_payload_lease_wait(&self.state, &view, &lease.0)
+            .map(|wait| wait.is_some())
+            .map_err(|release| {
+                PublicationError::Deferred(PublicationDeferral::PublicationBusy(release))
+            })
     }
 }
 

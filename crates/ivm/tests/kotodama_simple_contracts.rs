@@ -42,7 +42,7 @@ fn expect_preserves_zero_empty_bytes_names_and_aggregate_state() {
         }"#,
     );
     vm.run().expect("extract present state values");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -73,16 +73,15 @@ fn expect_absence_aborts_with_the_authenticated_nominal_error() {
             .expect_err("missing state must abort")
             .split_metered()
             .1;
-        assert_eq!(
-            error,
-            VMError::ContractAbort {
+        assert!(
+            matches!((&(error), &(VMError::ContractAbort {
                 contract: "MissingState".into(),
                 name: "Missing".to_owned(),
                 error_type: descriptor.identity.clone(),
                 schema_hash: descriptor.schema_hash(),
                 code: 1101,
                 message: None,
-            },
+            })), (VMError::ContractAbort { contract: __actual_contract, name: __actual_name, error_type: __actual_error_type, schema_hash: __actual_schema_hash, code: __actual_code, message: __actual_message }, VMError::ContractAbort { contract: __expected_contract, name: __expected_name, error_type: __expected_error_type, schema_hash: __expected_schema_hash, code: __expected_code, message: __expected_message }) if __actual_contract == __expected_contract && __actual_name == __expected_name && __actual_error_type == __expected_error_type && __actual_schema_hash == __expected_schema_hash && __actual_code == __expected_code && __actual_message == __expected_message),
             "missing {ty} must preserve the nominal error identity"
         );
     }
@@ -106,7 +105,7 @@ fn expect_evaluates_a_stateful_receiver_once() {
         }"#,
     );
     vm.run().expect("execute receiver once");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -131,7 +130,7 @@ fn expect_evaluates_its_nominal_error_once_after_the_receiver() {
     );
     vm.run()
         .expect("evaluate receiver and error in source order");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -280,23 +279,20 @@ fn concise_proposal_transition_preserves_record_state_and_nominal_rejections() {
                 .iter()
                 .find(|error| error.identity == "Proposals::Failure")
                 .expect("proposal nominal error");
-            assert_eq!(
-                vm.run()
+            assert!(matches!((&(vm.run()
                     .expect_err("invalid proposal must reject")
                     .split_metered()
-                    .1,
-                VMError::ContractAbort {
+                    .1), &(VMError::ContractAbort {
                     contract: "Proposals".into(),
                     name: name.into(),
                     error_type: descriptor.identity.clone(),
                     schema_hash: descriptor.schema_hash(),
                     code: code_value,
                     message: None,
-                }
-            );
+                })), (VMError::ContractAbort { contract: __actual_contract, name: __actual_name, error_type: __actual_error_type, schema_hash: __actual_schema_hash, code: __actual_code, message: __actual_message }, VMError::ContractAbort { contract: __expected_contract, name: __expected_name, error_type: __expected_error_type, schema_hash: __expected_schema_hash, code: __expected_code, message: __expected_message }) if __actual_contract == __expected_contract && __actual_name == __expected_name && __actual_error_type == __expected_error_type && __actual_schema_hash == __expected_schema_hash && __actual_code == __expected_code && __actual_message == __expected_message));
         } else {
             vm.run().expect("execute concise proposal lifecycle");
-            assert_eq!(vm.public_call_result_word(0), Ok(1));
+            assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         }
     }
 }
@@ -321,7 +317,7 @@ fn positional_and_named_calls_preserve_source_evaluation_order() {
         }"#,
     );
     vm.run().expect("execute positional and named calls");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -354,7 +350,7 @@ fn mutable_record_fields_roundtrip_without_changing_other_fields() {
         }"#,
     );
     vm.run().expect("mutate and persist selected record fields");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -417,7 +413,7 @@ fn wide_records_cross_stack_table_windows_without_corrupting_fields() {
     let (mut vm, _) = load(&source);
     vm.run()
         .expect("transfer all fields across stack table windows");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -449,7 +445,7 @@ fn record_updates_survive_control_flow_merges_and_evaluate_rhs_once() {
     );
     vm.run()
         .expect("merge record field updates across branches and loops");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -470,7 +466,7 @@ fn durable_record_fields_observe_updates_from_effectful_helpers() {
     );
     vm.run()
         .expect("read durable fields after an effectful helper");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }
 
 #[test]
@@ -505,5 +501,5 @@ fn nested_tuple_record_swaps_survive_continue_and_break() {
     );
     vm.run()
         .expect("copy overlapping product fields through continue and break edges");
-    assert_eq!(vm.public_call_result_word(0), Ok(1));
+    assert!(matches!(vm.public_call_result_word(0), Ok(1)));
 }

@@ -42,9 +42,8 @@ fn assert_checked_result(
     let (result, destination) = actual;
     match expected {
         Some(value) => {
-            assert_eq!(
-                result,
-                Ok(()),
+            assert!(
+                matches!(result, Ok(())),
                 "{operation} unexpectedly trapped for {left} and {right:?}"
             );
             assert_eq!(
@@ -53,9 +52,8 @@ fn assert_checked_result(
             );
         }
         None => {
-            assert_eq!(
-                result,
-                Err(VMError::AssertionFailed),
+            assert!(
+                matches!(result, Err(VMError::AssertionFailed)),
                 "{operation} must trap for {left} and {right:?}"
             );
             assert_eq!(

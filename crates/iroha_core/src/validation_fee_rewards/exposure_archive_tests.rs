@@ -229,11 +229,11 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
     )
     .expect("unbond has separate fee funding and an exact signed admission quote");
     drop(view);
-    let signed = builder
+    let signed_payload = builder
         .with_fee_payment_intent(quote.recommended_intent)
         .sign(signer.private_key());
     assert_eq!(
-        chain.commit_at(timestamp, vec![signed]),
+        chain.commit_at(timestamp, vec![signed_payload]),
         vec![true],
         "signed unbond must apply before the archived exposure changes: {:?}",
         chain.committed(chain.height()).block().network_output_at(0)

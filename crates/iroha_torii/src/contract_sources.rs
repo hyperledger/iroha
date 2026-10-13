@@ -1,4 +1,3 @@
-#![cfg(feature = "app_api")]
 use crate::{Error, JsonBody, data_dir};
 use axum::{http::StatusCode, response::IntoResponse};
 use iroha_core::state::{State as CoreState, WorldReadOnly};
@@ -45,7 +44,7 @@ const VERIFIED_SOURCE_SUBMISSION_JSON_STRUCTURAL_BYTES_V1: usize = 1024 * 1024;
 /// This derives from Kotodama's canonical source and logical-path limits and admits the worst-case
 /// six-byte JSON escape for every UTF-8 input byte. The route therefore bounds transport memory
 /// without reducing the language's V1 source surface.
-pub(crate) const VERIFIED_SOURCE_SUBMISSION_MAX_HTTP_BODY_BYTES_V1: usize =
+pub const VERIFIED_SOURCE_SUBMISSION_MAX_HTTP_BODY_BYTES_V1: usize =
     VERIFIED_SOURCE_JSON_MAX_ESCAPE_BYTES_PER_INPUT_BYTE_V1
         * (kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCE_BYTES
             + VERIFIED_SOURCE_NAME_MAX_BYTES_V1 * kotodama_lang::linker::MAX_MODULE_GRAPH_SOURCES
@@ -708,7 +707,8 @@ fn open_storage_parent(
         })?;
         if !opened.is_dir()
             || (!trusted_system_symlink
-                && (named.st_dev as u64 != opened.dev() || named.st_ino as u64 != opened.ino()))
+                && (crate::utils::stat_device_identity(&named) != opened.dev()
+                    || named.st_ino != opened.ino()))
         {
             return Err(conversion_error(format!(
                 "{label} directory changed while it was being opened: {}",
@@ -798,7 +798,7 @@ fn read_bounded_relative(
         || opened.mode() & 0o7077 != 0
         || opened.nlink() != 1
         || u64::try_from(before.st_dev).ok() != Some(opened.dev())
-        || u64::try_from(before.st_ino).ok() != Some(opened.ino())
+        || before.st_ino != opened.ino()
         || opened.len() > maximum_u64
         || u64::try_from(before.st_size).ok() != Some(opened.len())
     {
@@ -890,7 +890,7 @@ fn create_secure_temporary(
                 }
                 return Ok((file, name));
             }
-            Err(rustix::io::Errno::EXIST) => continue,
+            Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(io::Error::from(error)),
         }
     }
@@ -1772,7 +1772,8 @@ fn kotodama_string_literal(value: &str) -> String {
             '\t' => rendered.push_str("\\t"),
             '\0' => rendered.push_str("\\0"),
             character if character.is_control() => {
-                rendered.push_str(&format!("\\u{{{:x}}}", u32::from(character)));
+                write!(rendered, "\\u{{{:x}}}", u32::from(character))
+                    .expect("writing to String is infallible");
             }
             character => rendered.push(character),
         }
@@ -1840,10 +1841,10 @@ fn render_program_syscalls(analysis: &ProgramAnalysis) -> String {
 fn trigger_label(
     trigger: &iroha_data_model::smart_contract::manifest::TriggerDescriptor,
 ) -> String {
-    let callback = match &trigger.callback.namespace {
-        Some(namespace) => format!("{namespace}.{}", trigger.callback.entrypoint),
-        None => trigger.callback.entrypoint.clone(),
-    };
+    let callback = trigger.callback.namespace.as_ref().map_or_else(
+        || trigger.callback.entrypoint.clone(),
+        |namespace| format!("{namespace}.{}", trigger.callback.entrypoint),
+    );
     format!("{} -> {}", trigger.id, callback)
 }
 fn render_pseudo_source(
@@ -2117,16 +2118,16 @@ fn build_contract_view(mut input: ContractViewBuildInput) -> Result<ContractCode
             Ok(verified) => {
                 let verified_hash = hash_hex(&canonical_hash);
                 if declared_code_hash.is_none() {
-                    declared_code_hash = input.code_hash.clone();
+                    declared_code_hash.clone_from(&input.code_hash);
                 }
                 if code_hash.is_empty() {
-                    code_hash = verified_hash.clone();
+                    code_hash.clone_from(&verified_hash);
                 } else if code_hash != verified_hash {
                     input.warnings.push(format!(
                         "Declared code hash {code_hash} does not match verified artifact hash {verified_hash}; showing the verified artifact hash."
                     ));
                     declared_code_hash = Some(code_hash.clone());
-                    code_hash = verified_hash.clone();
+                    code_hash.clone_from(&verified_hash);
                 }
                 let verified_manifest = verified.manifest;
                 match manifest.as_ref() {
@@ -2402,7 +2403,10 @@ fn source_bundle_bound_error(
         if artifact.source_name.is_empty()
             || artifact.source_name.len() > VERIFIED_SOURCE_NAME_MAX_BYTES_V1
             || artifact.source_name.chars().any(char::is_control)
-            || !artifact.source_name.ends_with(".to")
+            || artifact
+                .source_name
+                .rsplit_once('.')
+                .is_none_or(|(_, extension)| extension != "to")
             || artifact.artifact.is_empty()
         {
             return Some(
@@ -2846,17 +2850,19 @@ pub fn handle_post_verified_source_job(
             Err(error) => Some(error.into_diagnostics()),
         }
     };
-    let compile_result = match canonical_error {
-        Some(error) => Err(error),
-        None => compile_verified_source(
-            source_name.as_deref(),
-            &source_text,
-            &sources,
-            &imports,
-            &packages,
-            &artifacts,
-        ),
-    };
+    let compile_result = canonical_error.map_or_else(
+        || {
+            compile_verified_source(
+                source_name.as_deref(),
+                &source_text,
+                &sources,
+                &imports,
+                &packages,
+                &artifacts,
+            )
+        },
+        Err,
+    );
     let response = match compile_result {
         Ok(output) => {
             let kotodama_lang::session::CompileOutput {
@@ -4007,9 +4013,9 @@ seiyaku Display {
     #[test]
     fn verified_source_job_accepts_exact_match_and_persists_record() {
         let _guard = TestDataDirGuard::new();
-        let source = r#"
+        let source = r"
 seiyaku Demo { permission Run;  kotoage fn main() authorize(Run) {} }
-"#;
+";
         let (compiled, _, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest_and_report(source)
             .expect("compile contract");

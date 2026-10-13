@@ -165,10 +165,13 @@ seiyaku GuardedNativeEvent {
     vm.set_register(11, base);
     vm.set_register(12, 1);
     let before = budget.reserved_bytes();
-    assert_eq!(
-        host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm),
-        Err(ivm::VMError::DecodeError)
-    );
+    assert!(matches!(
+        (
+            &(host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm)),
+            &(ivm::VMError::DecodeError)
+        ),
+        (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+    ));
     assert!(host.queued.is_empty());
     vm.set_register(10, 0);
     vm.store_u64(base, 2).unwrap();
@@ -180,16 +183,28 @@ seiyaku GuardedNativeEvent {
     assert_eq!(budget.reserved_bytes(), before);
     vm.store_u64(base, 1).unwrap();
     host.execution_class = HostExecutionClass::View;
-    assert_eq!(
-        host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm),
-        Err(ivm::VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm)),
+            &(ivm::VMError::PermissionDenied)
+        ),
+        (
+            Err(ivm::VMError::PermissionDenied),
+            ivm::VMError::PermissionDenied
+        )
+    ));
     host.execution_class = HostExecutionClass::Contract;
     host.current_entrypoint_authorization = None;
-    assert_eq!(
-        host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm),
-        Err(ivm::VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm)),
+            &(ivm::VMError::PermissionDenied)
+        ),
+        (
+            Err(ivm::VMError::PermissionDenied),
+            ivm::VMError::PermissionDenied
+        )
+    ));
     assert_eq!(budget.reserved_bytes(), before);
 }
 
@@ -212,10 +227,16 @@ seiyaku PrivateEventOperands {
     let before = budget.reserved_bytes();
     for register in [10, 11, 12] {
         vm.registers.set_tag(register, true);
-        assert_eq!(
-            host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm),
-            Err(ivm::VMError::PrivacyViolation)
-        );
+        assert!(matches!(
+            (
+                &(host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm)),
+                &(ivm::VMError::PrivacyViolation)
+            ),
+            (
+                Err(ivm::VMError::PrivacyViolation),
+                ivm::VMError::PrivacyViolation
+            )
+        ));
         assert!(host.queued.is_empty());
         assert_eq!(budget.reserved_bytes(), before);
         vm.registers.set_tag(register, false);
@@ -223,10 +244,16 @@ seiyaku PrivateEventOperands {
     vm.set_zk_mode(false).unwrap();
     let authorization = host.current_entrypoint_authorization.as_mut().unwrap();
     authorization.code_hash = Hash::new(b"different authenticated program");
-    assert_eq!(
-        host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm),
-        Err(ivm::VMError::PermissionDenied)
-    );
+    assert!(matches!(
+        (
+            &(host.prepare_syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &vm)),
+            &(ivm::VMError::PermissionDenied)
+        ),
+        (
+            Err(ivm::VMError::PermissionDenied),
+            ivm::VMError::PermissionDenied
+        )
+    ));
     assert!(host.queued.is_empty());
 }
 
@@ -284,7 +311,10 @@ fn native_event_preparation_does_not_traverse_guest_values_before_gas_reservatio
     let error = host
         .syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &mut vm)
         .unwrap_err();
-    assert_eq!(error.as_unmetered(), &ivm::VMError::DecodeError);
+    assert!(matches!(
+        (&(error.as_unmetered()), &(ivm::VMError::DecodeError)),
+        (ivm::VMError::DecodeError, ivm::VMError::DecodeError)
+    ));
     assert_eq!(error.metered_gas(), Some(32));
     assert!(host.queued.is_empty());
     let base = vm.alloc_heap(8).unwrap();
@@ -293,7 +323,10 @@ fn native_event_preparation_does_not_traverse_guest_values_before_gas_reservatio
     let error = host
         .syscall(ivm_sys::SYSCALL_EMIT_CONTRACT_EVENT, &mut vm)
         .unwrap_err();
-    assert_eq!(error.as_unmetered(), &ivm::VMError::OutOfGas);
+    assert!(matches!(
+        (&(error.as_unmetered()), &(ivm::VMError::OutOfGas)),
+        (ivm::VMError::OutOfGas, ivm::VMError::OutOfGas)
+    ));
     assert_eq!(error.metered_gas(), Some(32));
     assert!(host.queued.is_empty());
 }

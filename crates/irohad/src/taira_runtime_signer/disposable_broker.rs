@@ -15,7 +15,7 @@ const THRESHOLD_SLOTS: &[IrohaRuntimeProviderSlotV1] = &[
 ];
 
 fn threshold_import_error(
-    error: RuntimeConsensusThresholdSignerCredentialErrorV1,
+    error: &RuntimeConsensusThresholdSignerCredentialErrorV1,
 ) -> IrohaRuntimeProviderRegistryErrorV1 {
     match error {
         RuntimeConsensusThresholdSignerCredentialErrorV1::Unavailable
@@ -81,7 +81,7 @@ pub(super) fn load_with_signer(
             reader,
             &credential_budget,
         )
-        .map_err(threshold_import_error)?;
+        .map_err(|error| threshold_import_error(&error))?;
     let signer = requested_signer
         .map(|binding| {
             let exact = binding
@@ -149,14 +149,14 @@ mod threshold_import_error_tests {
             .err()
             .unwrap();
         assert_eq!(threshold_import_error(
-            RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(
+            &RuntimeConsensusThresholdSignerCredentialErrorV1::ParliamentFunding(
                 crate::external_software_signer::RuntimeParliamentTleCredentialFundingErrorV1::Storage(
                     iroha_allocation::ChargedBufferError::Admission(original),
                 ),
             ),
         ), IrohaRuntimeProviderRegistryErrorV1::Unavailable);
         assert_eq!(
-            threshold_import_error(RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected),
+            threshold_import_error(&RuntimeConsensusThresholdSignerCredentialErrorV1::Rejected),
             IrohaRuntimeProviderRegistryErrorV1::BindingMismatch
         );
     }

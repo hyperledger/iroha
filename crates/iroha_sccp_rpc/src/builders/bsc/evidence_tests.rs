@@ -59,14 +59,23 @@ impl BscSource for ParliaSource {
             .collect())
     }
 
-    fn event_block(&self, tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError> {
+    fn event_block(
+        &self,
+        tx_hash: &[u8; 32],
+        _max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError> {
         self.events
             .get(tx_hash)
             .cloned()
             .ok_or_else(|| BuildError::Unavailable("not mined".into()))
     }
 
-    fn finalizing_vote(&self, from: u64, _until: u64) -> Result<(Vec<u8>, BscVoteV1), BuildError> {
+    fn finalizing_vote(
+        &self,
+        _profile: &BscChainProfileV1,
+        from: u64,
+        _until: u64,
+    ) -> Result<(Vec<u8>, BscVoteV1), BuildError> {
         let set_height = self
             .rosters
             .iter()
@@ -124,7 +133,11 @@ fn advanced(burns: &[u64]) -> (ParliaSource, LightClientReplayV1) {
     let now = SyntheticParliaChainV1::time_ms(5_000) + 1_000;
     let initial = lc::verify_bootstrap(BSC, &params(), &chain.bootstrap(5), now)
         .expect("the bootstrap verifies");
-    let mut replay = LightClientReplayV1::installed(BSC, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        BSC,
+        &initial,
+    );
     let source = ParliaSource {
         chain,
         finalized: TRANSITION + 10,
@@ -174,6 +187,7 @@ fn build(
     now: u64,
 ) -> SourceEvidenceV1 {
     let evidence = build_evidence(
+        &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
         source,
         &tx(burn),
         EthereumEventV1::TransferToTaira { log_index: 0 },
@@ -241,6 +255,7 @@ fn the_epoch_checkpoint_reaches_255_blocks_directly_and_256_with_one_backfill() 
 fn burns_without_a_fresh_set_or_checkpoint_are_unavailable() {
     let (source, replay) = advanced(&[6_900]);
     let bare = LightClientReplayV1::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
         BSC,
         replay.light_client().expect("installed"),
         replay.sets().expect("sets"),
@@ -248,6 +263,7 @@ fn burns_without_a_fresh_set_or_checkpoint_are_unavailable() {
     );
     assert!(matches!(
         build_evidence(
+            &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
             &source,
             &tx(6_900),
             EthereumEventV1::TransferToTaira { log_index: 0 },
@@ -258,6 +274,7 @@ fn burns_without_a_fresh_set_or_checkpoint_are_unavailable() {
     ));
     assert!(matches!(
         build_evidence(
+            &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().bsc,
             &source,
             &tx(1),
             EthereumEventV1::TransferToTaira { log_index: 0 },

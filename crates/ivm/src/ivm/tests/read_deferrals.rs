@@ -93,10 +93,10 @@ fn public_and_input_only_tlv_decoders_preserve_header_and_envelope_refusals() {
             }
             assert_eq!(budget.reserved_bytes(), occupied);
             // An invalid address retains its deterministic decoder fault.
-            assert_eq!(
+            assert!(matches!(
                 vm.validate_tlv(u64::MAX).err().unwrap(),
                 VMError::NoritoInvalid
-            );
+            ));
             budget.set_limit_bytes(occupied + 8 * std::mem::size_of::<crate::AccessRange>());
             assert!(
                 vm.validate_tlv(Memory::INPUT_START)
@@ -122,10 +122,10 @@ fn private_tlv_snapshot_preserves_header_and_complete_envelope_refusals() {
         assert_eq!(budget.reserved_bytes(), occupied);
         budget.set_limit_bytes(occupied + 8 * std::mem::size_of::<crate::AccessRange>());
         assert_eq!(vm.snapshot_private_tlv(address, tlv.len()).unwrap(), tlv);
-        assert_eq!(
+        assert!(matches!(
             vm.validate_tlv(address).err().unwrap(),
             VMError::PrivacyViolation
-        );
+        ));
     }
 }
 
@@ -161,9 +161,8 @@ fn staged_numeric_envelope_reads_keep_operational_errors_and_fault_semantics() {
             iroha_primitives::bigint::BigInt::from(34)
         );
         vm.set_register(10, u64::MAX);
-        assert_eq!(
-            vm.execute_staged_syscall(&mut host, crate::syscalls::SYSCALL_INT_ADD, &prepared_log),
-            Err(VMError::PointerAbiFault(
+        assert!(
+            matches!(vm.execute_staged_syscall(&mut host, crate::syscalls::SYSCALL_INT_ADD, &prepared_log), Err(VMError::PointerAbiFault(__actual_error_field)) if __actual_error_field == (
                 crate::numeric::PointerAbiFaultV1::InvalidAddress
             ))
         );
@@ -352,14 +351,23 @@ fn program_loader_returns_cursor_scan_refusal_and_succeeds_after_resource_retry(
         control.run().unwrap();
         assert_eq!(vm.remaining_gas(), control.remaining_gas());
         assert_eq!(vm.memory.current_root(), control.memory.current_root());
-        assert_eq!(
+        match (
             vm.call_result_word_count(),
-            control.call_result_word_count()
-        );
+            control.call_result_word_count(),
+        ) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+            (Err(VMError::AssertionFailed), Err(VMError::AssertionFailed)) => {
+                assert!(
+                    !prepared,
+                    "completed contract must publish its root result table"
+                );
+            }
+            (actual, expected) => panic!("root result custody differs: {actual:?} != {expected:?}"),
+        }
         if prepared {
             assert_eq!(
-                vm.public_call_result_word(0),
-                control.public_call_result_word(0)
+                vm.public_call_result_word(0).unwrap(),
+                control.public_call_result_word(0).unwrap()
             );
         }
         drop(vm);

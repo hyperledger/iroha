@@ -161,6 +161,10 @@ impl PrivateSettlementPhaseSignerV1 {
         self.sign(body)
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the complete phase body is transferred into the signed vote"
+    )]
     fn sign(
         &self,
         body: PrivateSettlementPhaseBodyV1,

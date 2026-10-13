@@ -431,6 +431,7 @@ mod tests {
             account: ALICE_ID.clone(),
             account_chain_discriminant:
                 iroha_config::parameters::defaults::common::chain_discriminant(),
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: "http://127.0.0.1:1".parse().expect("valid url"),
             torii_request_timeout: Duration::from_millis(50),
             basic_auth: None,

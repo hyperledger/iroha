@@ -337,22 +337,6 @@ pub(crate) fn current_kernel() -> Option<Kernel> {
     ACTIVE.with(|slot| slot.borrow().as_ref().map(|active| active.kernel))
 }
 
-pub(crate) fn activate_kernel(kernel: Kernel, artifact: PtxArtifact) -> bool {
-    ACTIVE.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let Some(active) = slot.as_mut() else {
-            return false;
-        };
-        if !active.device.usable() || !active.policy.kernels[kernel as usize].can_attempt(artifact)
-        {
-            return false;
-        }
-        active.kernel = kernel;
-        active.artifact = artifact;
-        true
-    })
-}
-
 pub(crate) fn quarantine_current_kernel() -> bool {
     ACTIVE.with(|slot| {
         let Some(active) = slot.borrow().clone() else {

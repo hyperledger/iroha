@@ -1,0 +1,37 @@
+
+/tmp/parliament-resource-contract/resource-portable:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000188b0 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE>:
+1000188b0:     	stp	x20, x19, [sp, #-0x20]!
+1000188b4:     	stp	x29, x30, [sp, #0x10]
+1000188b8:     	add	x29, sp, #0x10
+1000188bc:     	mov	x19, x0
+1000188c0:     	ldr	x8, [x0]
+1000188c4:     	cbz	x8, 0x1000188d8 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE+0x28>
+1000188c8:     	ldr	x0, [x19, #0x8]
+1000188cc:     	lsl	x1, x8, #3
+1000188d0:     	mov	w2, #0x8                ; =8
+1000188d4:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+1000188d8:     	ldr	x1, [x19, #0x18]
+1000188dc:     	cbz	x1, 0x1000188ec <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE+0x3c>
+1000188e0:     	ldr	x0, [x19, #0x20]
+1000188e4:     	mov	w2, #0x1                ; =1
+1000188e8:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+1000188ec:     	ldr	x1, [x19, #0x30]
+1000188f0:     	cbz	x1, 0x100018900 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE+0x50>
+1000188f4:     	ldr	x0, [x19, #0x38]
+1000188f8:     	mov	w2, #0x1                ; =1
+1000188fc:     	bl	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100018900:     	ldr	x8, [x19, #0x48]
+100018904:     	cbz	x8, 0x100018920 <__ZN4core3ptr57drop_in_place$LT$iroha_zkp_vole..bavc..Reconstruction$GT$17hb89b4a61a2571b3dE+0x70>
+100018908:     	ldr	x0, [x19, #0x50]
+10001890c:     	lsl	x1, x8, #1
+100018910:     	mov	w2, #0x2                ; =2
+100018914:     	ldp	x29, x30, [sp, #0x10]
+100018918:     	ldp	x20, x19, [sp], #0x20
+10001891c:     	b	0x1000022f8 <__RNvCsdBezzDwma51_7___rustc14___rust_dealloc>
+100018920:     	ldp	x29, x30, [sp, #0x10]
+100018924:     	ldp	x20, x19, [sp], #0x20
+100018928:     	ret

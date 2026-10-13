@@ -67,9 +67,7 @@ fn panicked_worker_does_not_leave_other_workers_owned_by_caller() {
         [0, 1, 2],
         true,
         |slot| {
-            if slot == 0 {
-                panic!("scheduler-only injected panic");
-            }
+            assert!(slot != 0, "scheduler-only injected panic");
             finished.fetch_add(1, Ordering::SeqCst);
             Ok::<_, &'static str>(slot)
         },

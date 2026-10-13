@@ -690,7 +690,20 @@ export function getLatestDefiOracleAttestation(
   query: DefiOracleAttestationQuery,
 ): Promise<JsonValue>;
 
+/** Exact signed native intent; gateway mappings validate these identities. */
+export interface IsoNexusSettlement {
+  networkId: NetworkId;
+  /** Payer-selected absolute block height, retained unchanged across retries. */
+  expiresAtHeight: bigint | number | string;
+  sourceAccountId: string;
+  targetAccountId: string;
+  assetDefinitionId: string;
+}
+
 export interface BuildPacs008Options {
+  /** Payer-retained UUID, canonicalized to lowercase; never a gateway MsgId. */
+  uetr: string;
+  nexusSettlement: IsoNexusSettlement;
   messageId: string;
   creationDateTime: string | Date;
   instructionId: string;
@@ -712,6 +725,9 @@ export interface BuildPacs008Options {
 }
 
 export interface BuildPacs009Options {
+  /** Payer-retained UUID, canonicalized to lowercase; never a gateway MsgId. */
+  uetr: string;
+  nexusSettlement: IsoNexusSettlement;
   messageId?: string;
   businessMessageId?: string;
   messageDefinitionId?: string;
@@ -740,11 +756,16 @@ export interface SampleIsoMessageOptions {
   creationDateTime?: string | Date;
   settlementDate?: string | Date;
 }
+/** Demo envelope fields with caller-owned network, reference, and exact terms. */
+export interface SamplePacsMessageOptions extends SampleIsoMessageOptions {
+  uetr: string;
+  nexusSettlement: IsoNexusSettlement;
+}
 export function buildSamplePacs008Message(
-  options?: SampleIsoMessageOptions,
+  options: SamplePacsMessageOptions,
 ): string;
 export function buildSamplePacs009Message(
-  options?: SampleIsoMessageOptions,
+  options: SamplePacsMessageOptions,
 ): string;
 export interface CamtReportBalance {
   typeCode?: string;
@@ -5707,6 +5728,8 @@ export type ToriiSumeragiHaltReason =
 export interface ToriiSumeragiParameters {
   block_cadence_ms: ToriiU64;
   max_clock_drift_ms: ToriiU64;
+  /** Positive committed first-Prepare freshness allowance for due work. */
+  due_work_max_lag_ms: ToriiU64;
   key_activation_lead_blocks: ToriiU64;
   key_overlap_grace_blocks: ToriiU64;
   key_expiry_grace_blocks: ToriiU64;
@@ -7057,6 +7080,7 @@ export interface IsoPacs008SubmissionResponse
 export interface IsoPacs009SubmissionResponse
   extends IsoMessageSubmissionResponseBase {}
 
+/** Node-reported observation; not an independently verified monetary receipt. */
 export interface IsoMessageStatusResponse
   extends IsoMessageSubmissionResponseBase {
   detail: string | null;
@@ -7076,6 +7100,7 @@ export interface IsoMessagePollEvent {
   status: IsoMessageStatusResponse | null;
 }
 
+/** Poll reported status only; successful polling does not authorize customer credit. */
 export interface IsoMessageWaitOptions {
   maxAttempts?: number;
   pollIntervalMs?: number;

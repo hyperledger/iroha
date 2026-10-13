@@ -1,0 +1,12 @@
+{
+  "changed_source_files": [
+    "Cargo.lock"
+  ],
+  "later_change": "integration_tests dependency list adds iroha_sccp",
+  "later_lock_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+  "measured_lock_sha256": "ecfb0f0635527e68e3e329bfbde338e051912e10986839d66d8e384011e9e303",
+  "observed_at_utc": "2026-10-13T03:02:46.410219+00:00",
+  "production_qualified": false,
+  "recovery": "Removed that single later dependency edge in memory; recovered bytes match the frozen manifest SHA-256 exactly; live Cargo.lock unchanged.",
+  "saved_as": "measured-root-Cargo.lock.template"
+}

@@ -215,6 +215,7 @@ impl LaneAuthority {
         );
         let (count, horizon, delay, retired) = original.policy();
         let (current_count, current_horizon, current_delay, current_retired) = current_row.policy();
+        let genesis_matches = original.frontier() == self.genesis();
         if original.identity() != identity
             || current_row.identity() != identity
             || usize::try_from(count).ok() != Some(self.config().committee.n())
@@ -223,7 +224,7 @@ impl LaneAuthority {
             || policy != Some((horizon, delay))
             || (current_horizon, current_delay) != (horizon, delay)
             || current_retired.is_some_and(|retired| retired > current.carrier().1)
-            || original.frontier() != self.genesis()
+            || !genesis_matches
             || (current_row.frontier().height == 0 && current_row.frontier() != original.frontier())
         {
             return Err(LanePayloadError::Source);

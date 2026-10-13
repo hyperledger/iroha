@@ -5,7 +5,7 @@ use iroha_core::{smartcontracts::isi::sccp::params, state::WorldReadOnly};
 
 /// Refuse an unsafe current or retained liability window before installing startup policy.
 /// Chains without SCCP keep the ordinary staking defaults.
-pub(crate) fn validate(
+pub fn validate(
     world: &(impl WorldReadOnly + ?Sized),
     staking: &NexusStaking,
 ) -> Result<(), params::SccpPolicyError> {
@@ -36,9 +36,11 @@ mod tests {
         );
         let mut block = state.block(BlockHeader::new(NonZeroU64::MIN, None, None, 1, 0));
         let mut stx = block.transaction();
-        let mut staking = NexusStaking::default();
-        staking.unbonding_delay = Duration::ZERO;
-        staking.max_slash_bps = 0;
+        let mut staking = NexusStaking {
+            unbonding_delay: Duration::ZERO,
+            max_slash_bps: 0,
+            ..NexusStaking::default()
+        };
         validate(&*stx.world, &staking).unwrap();
         let mut parameters = SccpParametersV1::taira_default();
         parameters.enabled = false;

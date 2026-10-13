@@ -51,7 +51,8 @@ fn torii_test_harness_with_zk_policy(
             .get_mut()
             .set_parameter(iroha_data_model::parameter::Parameter::Custom(
                 policy.into_custom_parameter(),
-            ));
+            ))
+            .expect("valid fixture proof policy");
         block.commit();
     }
     // The State carries the same genesis-derived network identity Torii is given.

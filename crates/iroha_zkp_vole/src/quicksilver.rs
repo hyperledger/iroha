@@ -66,8 +66,14 @@
 //! witness, `V` and `Q` in place from the buffers of [`crate::vole`]. For a
 //! relation of 36,000 witness bits at `lambda = 256` the engine's own state is
 //! below 2 kB next to the 4,500-byte witness and the 1,152,000 bytes of `V` or
-//! `Q` it borrows; values a relation keeps while it runs (a prover value is
-//! `8 * 32 + 1` bytes at `lambda = 256`) are the relation's.
+//! `Q` it borrows. Values a relation keeps while it runs are the relation's: a
+//! prover value is `8 * 32` coefficient bytes plus the degree tag at
+//! `lambda = 256` (264 bytes with alignment), so a relation that buffers three
+//! arrays of 1,600 values (one Keccak state before the linear layer, after it and
+//! after chi) holds about 1.3 MB of prover scratch, and about 0.2 MB in the plain
+//! evaluator and in the verifier (40 bytes a value).
+//! That is too much for a small thread stack: it belongs on the heap, allocated
+//! once per [`Relation::emit`] and reused, never once per constraint.
 //!
 //! # Secrets
 //!
@@ -75,8 +81,14 @@
 //! combined with field additions and multiplications only, over loops whose
 //! bounds are the public degrees; no value selects a branch, an index or an early
 //! exit, and structurally zero coefficients are multiplied like any other. The
-//! hash states are erased on drop. Values are `Copy` and live on the stack of the
-//! relation code: the engine cannot erase copies a relation leaves behind.
+//! hash states are erased on drop. Values are `Copy` and the engine cannot erase
+//! the copies a relation keeps, so every [`ConstraintSystem::Value`] is
+//! [`Zeroize`]: a relation **must** keep its value scratch in
+//! `zeroize::Zeroizing<Vec<C::Value>>` (or zeroize its arrays before `emit`
+//! returns on every path), allocate it once per [`Relation::emit`] and never per
+//! constraint. Erasing a value leaves the constant 0. Temporaries passed by value
+//! between operations stay in registers and on the stack frame of the relation
+//! code like any other intermediate of a field computation.
 //! [`violated_constraints`] branches on which constraints fail and is for tests
 //! and diagnostics; [`is_satisfied`] folds the outcomes into one flag.
 
@@ -85,6 +97,7 @@ mod prover;
 mod verifier;
 
 use thiserror::Error;
+use zeroize::Zeroize;
 
 pub use self::{plain::PlainValue, prover::Polynomial, verifier::Key};
 use crate::{
@@ -108,7 +121,11 @@ pub trait ConstraintSystem {
     /// The field `GF(2^lambda)` public scalars and constants live in.
     type Field: LambdaField;
     /// A value: a witness coordinate, a constant, or a combination of them.
-    type Value: Copy;
+    ///
+    /// Prover and plain values are secret; erasing one leaves the constant 0. See
+    /// "Secrets" in the module documentation for what a relation must do with the
+    /// values it buffers.
+    type Value: Copy + Zeroize;
 
     /// Witness coordinate `index`, of degree 1.
     fn witness(&self, index: usize) -> Self::Value;
@@ -599,7 +616,7 @@ pub(crate) mod tests {
     impl Mixed {
         /// The public constant of the scalar constraint: the scalars of the
         /// coordinates whose public bit `3 + i` is set.
-        pub(crate) fn target<F: LambdaField>(public: &[bool]) -> F {
+        pub fn target<F: LambdaField>(public: &[bool]) -> F {
             let mut acc = F::ZERO;
             for (i, seed) in MIXED_SCALARS.into_iter().enumerate() {
                 acc += element::<F>(seed).mul_bit(u8::from(public[3 + i]));
@@ -608,7 +625,7 @@ pub(crate) mod tests {
         }
 
         /// A witness satisfying the relation for `public`, varied by `salt`.
-        pub(crate) fn witness(public: &[bool], salt: u64) -> Vec<u8> {
+        pub fn witness(public: &[bool], salt: u64) -> Vec<u8> {
             let mut bits = [false; 64];
             for (i, bit) in bits.iter_mut().enumerate() {
                 *bit = (salt.wrapping_mul(0x2545_f491_4f6c_dd1d) >> (i % 61)) & 1 == 1;
@@ -805,11 +822,91 @@ pub(crate) mod tests {
         }
     }
 
-    fn evaluate<F: LambdaField>(polynomial: &[F; DEGREE + 1], point: F) -> F {
+    /// The value of `polynomial` (coefficient of `X^j` at index `j`) at `point`.
+    pub fn evaluate<F: LambdaField>(polynomial: &[F; DEGREE + 1], point: F) -> F {
         polynomial
             .iter()
             .rev()
             .fold(F::ZERO, |acc, coefficient| acc * point + *coefficient)
+    }
+
+    /// The lifted constraint stream of one relation under each evaluator, on the
+    /// same field-valued witness.
+    pub struct Streams<F> {
+        /// The prover's polynomial of every constraint.
+        pub polynomials: Vec<[F; DEGREE + 1]>,
+        /// The verifier's value of every constraint.
+        pub keys: Vec<F>,
+        /// The plain value of every constraint.
+        pub plain: Vec<F>,
+        /// The verifier's `Delta`.
+        pub delta: F,
+    }
+
+    /// Run `relation` (Booleanity constraints included) under the prover, the
+    /// verifier and the plain evaluator on the witness `values`, which need not
+    /// be bits, with tags, keys and `Delta` derived from `seed`.
+    pub fn evaluators<F: LambdaField, R: Relation<F> + ?Sized>(
+        relation: &R,
+        public: &R::PublicInput,
+        values: Vec<F>,
+        seed: u64,
+    ) -> Streams<F> {
+        let total = values.len() + relation.constraints();
+        let fixture = instance(values, seed);
+        let mut prover = prover::Prover::<F>::with_elements(
+            &fixture.values,
+            &fixture.tags,
+            total,
+            &fixture.challenge,
+        )
+        .expect("valid challenge");
+        prover.record();
+        prover.booleanity();
+        relation.emit(public, &mut prover);
+        let polynomials = prover.recorded().to_vec();
+        prover
+            .finish(&fixture.mask_values, &fixture.mask_tags)
+            .expect("well formed");
+
+        let mut verifier = verifier::Verifier::<F>::with_keys(
+            &fixture.keys,
+            fixture.delta,
+            total,
+            &fixture.challenge,
+        )
+        .expect("valid challenge");
+        verifier.record();
+        verifier.booleanity();
+        relation.emit(public, &mut verifier);
+        let keys = verifier.recorded().to_vec();
+
+        let mut plain = plain::Plain::<F>::with_elements(&fixture.values, total);
+        plain.booleanity();
+        relation.emit(public, &mut plain);
+        let plain = plain.recorded().to_vec();
+        Streams {
+            polynomials,
+            keys,
+            plain,
+            delta: fixture.delta,
+        }
+    }
+
+    #[test]
+    fn the_stream_helper_reproduces_the_three_evaluations() {
+        let values: Vec<Gf128> = (0..64u64).map(|i| element(7000 + i)).collect();
+        let streams = evaluators::<Gf128, _>(&Mixed, &PUBLIC[..], values, 5);
+        assert_eq!(streams.polynomials.len(), 72);
+        for ((polynomial, key), plain) in streams
+            .polynomials
+            .iter()
+            .zip(&streams.keys)
+            .zip(&streams.plain)
+        {
+            assert_eq!(evaluate(polynomial, streams.delta), *key);
+            assert_eq!(polynomial[DEGREE], *plain);
+        }
     }
 
     #[test]

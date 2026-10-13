@@ -185,10 +185,20 @@ pub trait GatewayComplianceFeedTransport: Send + Sync {
     /// instance that performs [`Self::resolve`] and [`Self::fetch`]. Provider
     /// diagnostics must remain behind this boundary; callers intentionally see
     /// only the payload-free [`GatewayComplianceFeedTransportProbeError`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a probe error if the provider cannot attest the identity of the
+    /// same runtime instance that performs DNS resolution and HTTPS fetches.
     fn qualification(
         &self,
     ) -> Result<GatewayComplianceFeedTransportIdentityV1, GatewayComplianceFeedTransportProbeError>;
     /// Resolve a DNS hostname using the runtime's pinned resolver.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pinned resolver cannot resolve the hostname
+    /// within the supplied timeout or rejects the request.
     fn resolve(
         &self,
         hostname: &str,
@@ -196,6 +206,11 @@ pub trait GatewayComplianceFeedTransport: Send + Sync {
     ) -> Result<Vec<IpAddr>, GatewayComplianceError>;
     /// Fetch through only the supplied pinned addresses, without automatic
     /// redirects or transparent decompression.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authenticated HTTPS transport through the pinned
+    /// addresses fails, exceeds its deadline or resource bounds, or is refused.
     fn fetch(
         &self,
         request: &GatewayComplianceFetchRequest,
@@ -246,6 +261,12 @@ pub struct GatewayComplianceControllerConfig {
 }
 impl GatewayComplianceControllerConfig {
     /// Validate bounds, ordering, HTTPS allowlists, and pins.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid trust policy or serving scope, invalid or
+    /// unordered feed definitions, unsafe HTTPS allowlists or pins, an invalid
+    /// transport binding, or inconsistent resource and freshness limits.
     pub fn validate(&self) -> Result<(), GatewayComplianceError> {
         self.trust_policy.validate()?;
         if normalize_scope(&self.region_scope).ok().as_deref() != Some(self.region_scope.as_str())
@@ -611,8 +632,18 @@ pub struct GatewayComplianceStoreSnapshot {
 /// Process-lifetime exclusive lease over one durable checkpoint backend.
 pub trait GatewayComplianceStoreLease: Debug + Send + Sync {
     /// Load the exact current checkpoint snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint cannot be securely read under the
+    /// active lease or violates the backend bounds.
     fn load(&self) -> Result<GatewayComplianceStoreSnapshot, GatewayComplianceError>;
     /// Atomically replace the checkpoint only when its exact generation matches.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the expected generation differs from durable state,
+    /// the replacement violates bounds, or atomic persistence fails.
     fn compare_and_store(
         &self,
         expected: GatewayComplianceStoreGeneration,
@@ -623,6 +654,11 @@ pub trait GatewayComplianceStoreLease: Debug + Send + Sync {
 /// its complete lifetime.
 pub trait GatewayComplianceStore: Debug + Send + Sync {
     /// Acquire the one active process-lifetime lease.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if another owner holds the lease or the backend cannot
+    /// securely acquire and retain exclusive checkpoint access.
     fn try_acquire(&self) -> Result<Box<dyn GatewayComplianceStoreLease>, GatewayComplianceError>;
 }
 #[cfg(test)]
@@ -715,6 +751,12 @@ struct FileGatewayComplianceStoreTestHook {
 impl FileGatewayComplianceStore {
     /// Construct an absolute-path store. The parent directory must be provisioned ahead of startup,
     /// must not traverse symlinks, and must not be group- or world-writable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path is not an absolute file path or its parent
+    /// cannot be validated as an existing directory without symlink traversal or
+    /// group/world write access.
     pub fn new(path: PathBuf) -> Result<Self, GatewayComplianceError> {
         if !path.is_absolute() || path.file_name().is_none() {
             return Err(GatewayComplianceError::Persistence(
@@ -1042,6 +1084,12 @@ impl GatewayComplianceController {
         })
     }
     /// Fetch, pin, decompress, decode, and normalize one configured feed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown feed or unqualified or changed transport,
+    /// failed pinned fetching or decompression, exceeded resource bounds, malformed
+    /// feed JSON, an identity mismatch, or failed normalization.
     pub fn fetch_feed(
         &self,
         feed_id: &str,
@@ -1073,6 +1121,12 @@ impl GatewayComplianceController {
     }
     /// Deterministically merge normalized feeds into an unsigned catalog.
     #[cfg(any(test, feature = "test-fixtures"))]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown, duplicate, missing required, or noncanonical
+    /// feeds, failed digest construction or normalization, or a catalog that does
+    /// not satisfy the configured policy and freshness bounds.
     pub fn build_catalog_payload(
         &self,
         sequence: u64,
@@ -1141,6 +1195,12 @@ impl GatewayComplianceController {
     /// Durably stage a threshold-signed candidate under an exact request binding. Exact replays
     /// return the original durable result even after a later promotion; same-key substitution and
     /// same-sequence equivocation are rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for conflicting request bindings, invalid signatures or
+    /// freshness, invalid catalog transitions, sequence equivocation, a fenced
+    /// controller, or failed bounded checkpoint persistence.
     pub fn stage_catalog(
         &self,
         catalog: GatewayComplianceCatalogV1,
@@ -1197,6 +1257,12 @@ impl GatewayComplianceController {
     /// when its vote and catalog are unchanged and its signed timestamp strictly increases. This
     /// retains one vote per gateway; promotion still verifies the original catalog lifetime and
     /// current acknowledgement quorum. Exact request replays never replace a newer observation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for conflicting request bindings, a missing candidate,
+    /// invalid signatures or freshness, gateway equivocation, exhausted acknowledgement
+    /// capacity, a fenced controller, or failed checkpoint persistence.
     pub fn acknowledge(
         &self,
         acknowledgement: GatewayComplianceAcknowledgementV1,
@@ -1275,6 +1341,12 @@ impl GatewayComplianceController {
         })
     }
     /// Promote the exact expected staged catalog after the configured regional-gateway quorum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for conflicting request bindings, a missing or mismatched
+    /// candidate, failed catalog or acknowledgement verification, insufficient quorum,
+    /// full history, a fenced controller, or failed checkpoint persistence.
     pub fn promote(
         &self,
         expected_catalog_digest: [u8; 32],
@@ -1362,6 +1434,12 @@ impl GatewayComplianceController {
     }
     /// Roll the serving pointer back to the last-known-good catalog while
     /// preserving the promoted predecessor-chain head.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for conflicting request bindings, invalid rollback authority,
+    /// missing or mismatched serving catalogs, invalid or stale last-known-good state,
+    /// full history, a fenced controller, or failed checkpoint persistence.
     pub fn rollback(
         &self,
         authorization: &GatewayComplianceRollbackV1,
@@ -1442,6 +1520,11 @@ impl GatewayComplianceController {
     }
     /// Evaluate the active catalog with mandatory precedence:
     /// legal/safety hold, accepted appeal, then baseline policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid scope or subject, a fenced controller,
+    /// missing serving catalog, or failed catalog digest or freshness validation.
     pub fn evaluate(
         &self,
         scope: &str,
@@ -1454,6 +1537,11 @@ impl GatewayComplianceController {
     }
     /// Evaluate the complete serving scope for this gateway while preserving
     /// precedence across global, regional, and gateway-specific records.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid subject, a fenced controller, a missing
+    /// serving catalog, or failed catalog digest or freshness validation.
     pub fn evaluate_serving(
         &self,
         subject_kind: GatewayComplianceSubjectKindV1,
@@ -1564,6 +1652,11 @@ impl GatewayComplianceController {
         })
     }
     /// Return a payload-safe state snapshot for authenticated control/read APIs.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CheckpointConflict` if a durable generation conflict has fenced
+    /// the controller from serving further state snapshots.
     pub fn checkpoint(&self) -> Result<GatewayComplianceCheckpointV1, GatewayComplianceError> {
         Ok(self.read_state()?.checkpoint.clone())
     }
@@ -1683,8 +1776,7 @@ fn append_mutation_record(
 }
 /// Build a fresh governed empty catalog for Torii request tests.
 #[cfg(test)]
-pub(crate) fn allow_all_gateway_compliance_controller_for_tests() -> Arc<GatewayComplianceController>
-{
+pub fn allow_all_gateway_compliance_controller_for_tests() -> Arc<GatewayComplianceController> {
     use ed25519_dalek::{Signer as _, SigningKey};
     let catalog_key = SigningKey::from_bytes(&[0xC1; 32]);
     let gateway_key = SigningKey::from_bytes(&[0xD2; 32]);

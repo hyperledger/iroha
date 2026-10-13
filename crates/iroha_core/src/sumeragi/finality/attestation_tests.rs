@@ -396,6 +396,7 @@ fn attestation_tail_refuses_changed_native_genesis_before_status_and_retries_ori
 #[cfg(unix)]
 #[inline(never)]
 fn check_tail_source_retry(chain: &CertifiedTestChain) {
+    use std::os::unix::fs::MetadataExt as _;
     struct RestoreJournal<'a> {
         source: &'a std::path::Path,
         saved: &'a std::path::Path,
@@ -408,8 +409,6 @@ fn check_tail_source_retry(chain: &CertifiedTestChain) {
             std::fs::rename(self.saved, self.source).unwrap();
         }
     }
-
-    use std::os::unix::fs::MetadataExt as _;
     let original_height = chain.height();
     let view = chain.state().view();
     let original = capture(&view, chain, [49; 32], status(chain)).unwrap();

@@ -105,7 +105,10 @@ fn replacing_vm_during_traced_host_callback_fails_closed() {
     vm.set_zk_trace_enabled(true);
     let mut host = ReplacingHost { retained_vm: None };
 
-    assert_eq!(vm.run_with_host(&mut host), Err(VMError::PrivacyViolation));
+    assert!(matches!(
+        vm.run_with_host(&mut host),
+        Err(VMError::PrivacyViolation)
+    ));
 
     assert_eq!(vm.register(6), 0xC0FFEE);
     assert_eq!(vm.register(7), 0);
@@ -194,10 +197,18 @@ fn moved_detached_vm_cannot_adopt_the_outer_scratch_log() {
         nested_result: None,
     };
 
-    assert_eq!(vm.run_with_host(&mut host), Err(VMError::PrivacyViolation));
-    assert_eq!(
-        host.nested_result,
-        Some(Err(VMError::PrivacyViolation)),
+    assert!(matches!(
+        vm.run_with_host(&mut host),
+        Err(VMError::PrivacyViolation)
+    ));
+    assert!(
+        matches!(
+            (&(host.nested_result), &(VMError::PrivacyViolation)),
+            (
+                Some(Err(VMError::PrivacyViolation)),
+                VMError::PrivacyViolation
+            )
+        ),
         "a moved VM must reject reuse while it carries outer callback ownership"
     );
     let retained_vm = host.retained_vm.as_mut().expect("callback retains old VM");
@@ -277,9 +288,8 @@ fn destructive_host_callback_lifecycle_changes_fail_closed() {
             program: program.clone(),
         };
 
-        assert_eq!(
-            vm.run_with_host(&mut host),
-            Err(VMError::PrivacyViolation),
+        assert!(
+            matches!(vm.run_with_host(&mut host), Err(VMError::PrivacyViolation)),
             "{mutation:?} must invalidate the active proof"
         );
         assert!(
@@ -411,7 +421,7 @@ fn nested_untraced_vm_masks_the_outer_register_logger() {
             let mut nested = IVM::new(u64::MAX);
             nested.load_code(&code)?;
             nested.set_register(8, foreign_secret);
-            assert_eq!(nested.run(), Err(VMError::MissingHalt));
+            assert!(matches!(nested.run(), Err(VMError::MissingHalt)));
             vm.set_register(9, 0xC011_AB1E);
             vm.set_zk_trace_enabled(false);
             Ok(0)
@@ -471,7 +481,7 @@ fn nested_untraced_vm_masks_the_outer_register_logger() {
         "callback trace toggle must not truncate the active invocation"
     );
 
-    assert_eq!(vm.run(), Err(VMError::MissingHalt));
+    assert!(matches!(vm.run(), Err(VMError::MissingHalt)));
     assert!(
         common::diagnostic_snapshot(&vm).register_event_count() == 0,
         "an untraced invocation must clear the preceding register log"

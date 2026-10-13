@@ -41,12 +41,23 @@ pub trait StreamTokenSignerClientV1: Send + Sync {
     /// Exact configured production signer runtime handle, without credentials.
     fn handle(&self) -> &str;
     /// Sign the exact independently prepared body once; never retry after ambiguous completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider refuses the exact operation, transport
+    /// fails or has ambiguous completion, or the response is invalid. An error
+    /// does not authorize another signing attempt.
     fn sign(
         &self,
         expected: &SignerStreamTokenExpectedV1,
         body: &StreamTokenBodyV1,
     ) -> Result<StreamTokenSignerReceiptV1, StreamTokenSignerCallErrorV1>;
     /// Read only the same prepared operation's immutable receipt; never reserve, commit or sign.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the immutable receipt cannot be recovered because the
+    /// provider is unavailable, refuses the request, or returns an invalid response.
     fn recover(
         &self,
         expected: &SignerStreamTokenExpectedV1,
@@ -65,6 +76,12 @@ pub trait StreamTokenStateObserverClientV1: Send + Sync {
     /// Sign and submit exactly this fresh native Check, then wait for committed application.
     /// The instruction reads application state; its signed transaction is recorded on chain.
     /// The caller independently consumes its same-State Kura/QC execution proof before use.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if signing or submitting the exact check fails, committed
+    /// application cannot be confirmed, or the returned transaction is invalid.
+    /// A transport error may leave the submission outcome ambiguous.
     fn finalize_check(
         &self,
         instruction: &iroha_data_model::isi::sorafs::MutateSorafsStreamTokenAuthority,
@@ -73,6 +90,12 @@ pub trait StreamTokenStateObserverClientV1: Send + Sync {
     /// Native completed observations may sign and submit an internal Check before replying;
     /// a transport or local refusal does not authorize replaying this method. The caller may
     /// retry only local verification of an already returned exact reply.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the exact observation is refused, transport fails or
+    /// is ambiguous, or the reply is invalid. This does not authorize replaying
+    /// the observation.
     fn observe(
         &self,
         request: &SignerStreamTokenObservationRequestV1,

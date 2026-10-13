@@ -58,10 +58,13 @@ fn role15_software_key_signs_only_the_exact_authorized_reserve_once() {
         .check_account(after_account, times().0, times().1)
         .unwrap();
     let after_receipt = f.execute_receipt_check(after_receipt);
-    let signed = pending
+    let released_transaction = pending
         .release(after_receipt, times().0, times().1)
         .unwrap();
-    let transaction = signed.for_submission(times().0, times().1).unwrap().clone();
+    let transaction = released_transaction
+        .for_submission(times().0, times().1)
+        .unwrap()
+        .clone();
     assert_eq!(transaction.payload(), &original);
     transaction.verify_signature().unwrap();
     assert_eq!(f.native.commit(NOW, vec![transaction.clone()]), [true]);

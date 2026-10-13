@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Record scoped lifecycle tests/builds, without changing library source.
+
+Requires Python 3.11+, the pinned Rust toolchain, and the workspace dependencies.
+Run from any directory; --repo defaults to this file's repository. Uses normal
+metadata and the parliament-lifecycle target slot. A 1200-second wait timeout
+leaves a child running and records its PID; it never kills a build. Evidence is
+written only under --output, binaries under --binary-dir. Not an attested build.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import subprocess
+import time
+
+
+def digest(path: Path) -> str:
+    """Return the SHA-256 of one file."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main() -> int:
+    """Run one guarded portable/accelerated validation campaign."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--binary-dir", type=Path, default=Path("/tmp/parliament-prover-lifecycle"))
+    args = parser.parse_args()
+    repo = args.repo.resolve()
+    output = (args.output or repo / "docs/validation/parliament_ballot_prover_lifecycle").resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    args.binary_dir.mkdir(parents=True, exist_ok=True)
+    base_manifest = repo / "docs/validation/parliament_ballot_resource_contract/build-source.sha256"
+    base = dict((name, sha) for sha, name in (line.split("  ", 1) for line in base_manifest.read_text().splitlines()))
+    initial_drift = {name: {"expected": sha, "actual": digest(repo / name)} for name, sha in base.items() if digest(repo / name) != sha}
+    added = [
+        "crates/iroha_parliament_ballot_proof/examples/prover_lifecycle.rs",
+        "crates/iroha_parliament_ballot_proof/examples/prover_lifecycle/job.rs",
+        "crates/iroha_parliament_ballot_proof/tests/prover_lifecycle.rs",
+        "crates/iroha_parliament_ballot_proof/tests/prover_lifecycle/allocator_probe.rs",
+        "crates/iroha_parliament_ballot_proof/tests/common/mod.rs",
+        "specs/parliament_ballot_prover_lifecycle.md",
+        "docs/validation/parliament_ballot_prover_lifecycle/run_validation.py",
+    ]
+    added.extend(f"crates/iroha_parliament_ballot_proof/tests/fixtures/{name}.proof" for name in ["reg_fast", "reg_comparator", "vote_S3_i1_fast", "vote_S3_i1_comparator"])
+    source = {name: digest(repo / name) for name in sorted(set(base) | set(added))}
+    manifest = output / "source.sha256"
+    manifest.write_text("".join(f"{sha}  {name}\n" for name, sha in source.items()))
+    shutil.copyfile(repo / "Cargo.lock", output / "build-Cargo.lock.template")
+    shutil.copyfile(repo / "crates/norito/src/lib.rs", output / "build-norito-lib.rs.template")
+    receipt = {
+        "scope": "Standalone finish-and-discard lifecycle; selected live-buffer pre-deallocation observations only. Normal-metadata controlled build linkage, not hermetic attestation.",
+        "profile_qualified": False,
+        "whole_secret_erasure_qualified": False,
+        "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "prior_resource_source_count": len(base),
+        "prior_resource_source_manifest_sha256": digest(base_manifest),
+        "prior_resource_source_drift": initial_drift,
+        "source_count": len(source),
+        "source_manifest_sha256": digest(manifest),
+        "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
+        "rustc": subprocess.check_output(["rustc", "-vV"], cwd=repo, text=True),
+        "host": platform.platform(),
+        "machine": platform.machine(),
+        "environment": {name: os.environ.get(name) for name in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET", "RUSTC_WRAPPER", "VERGEN_GIT_SHA", "IROHA_GIT_COMMIT_HASH"]},
+        "commands": [], "binaries": {}, "source_changes": {}, "passed": False,
+        "limitations": [
+            "Public deterministic fixture inputs; no production entropy or live credentials.",
+            "Registration and S=3 vote, both rows and modes; no phone or roster-size cancellation qualification.",
+            "Selected secret48/tape112/witness4480or6688/proof initialized ranges only; no backend/provider/compiler/register/stack/caller-copy erasure certificate.",
+            "No panic, abort, process kill, detached work, or forced cancellation cleanup claim.",
+            "8MiB requested thread stack is not a measured cap. Native TLS and allocator costs are not bounded by this experiment.",
+            "Cargo test harness uses its normal panic strategy; no unwind result is treated as erasure evidence.",
+        ],
+    }
+
+    def save() -> None:
+        (output / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+
+    def guard() -> None:
+        changed = {name: {"expected": sha, "actual": digest(repo / name)} for name, sha in source.items() if digest(repo / name) != sha}
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        if head != receipt["head"]:
+            changed["git_HEAD"] = {"expected": receipt["head"], "actual": head}
+        if changed:
+            receipt["source_changes"] = changed
+            raise RuntimeError(f"Source or metadata drift: {changed}")
+
+    def run(label: str, command: list[str]) -> str:
+        guard()
+        log = output / f"{label}.txt"
+        entry = {"label": label, "command": command, "log": log.name}
+        receipt["commands"].append(entry)
+        start = time.monotonic()
+        with log.open("w") as stream:
+            child = subprocess.Popen(command, cwd=repo, stdout=stream, stderr=subprocess.STDOUT)
+            try:
+                code = child.wait(timeout=1200)
+            except subprocess.TimeoutExpired:
+                entry.update({"timeout_seconds": 1200, "pid_left_running": child.pid, "signal_sent": False})
+                save()
+                raise RuntimeError(f"Timed out waiting for {label}; child {child.pid} left running") from None
+        entry.update({"exit": code, "elapsed_seconds": time.monotonic() - start, "log_sha256": digest(log)})
+        save()
+        guard()
+        if code != 0:
+            raise RuntimeError(f"{label} failed with exit {code}; see {log}")
+        return log.read_text()
+
+    def retain_binary(label: str, path: Path) -> Path:
+        destination = args.binary_dir / label
+        shutil.copy2(path, destination)
+        receipt["binaries"][label] = {"built_path": str(path.relative_to(repo)), "retained_path": str(destination), "sha256": digest(destination)}
+        save()
+        return destination
+
+    cargo = ["scripts/cargo_fast.sh", "--target-slot", "parliament-lifecycle", "--incremental", "--"]
+    package = ["--release", "--locked", "-p", "iroha_parliament_ballot_proof"]
+    try:
+        for mode, features in [("portable", []), ("accel", ["--features", "accel"])]:
+            log = run(f"test-{mode}", cargo + ["test"] + package + ["--test", "prover_lifecycle"] + features + ["--", "--nocapture", "--test-threads=1"])
+            match = re.search(r"Running tests/prover_lifecycle.rs \(([^)]+)\)", log)
+            if not match or "8 passed; 0 failed" not in log:
+                raise RuntimeError("Missing expected test artifact or eight-test success")
+            retain_binary(f"test-{mode}", repo / match[1])
+            run(f"clippy-{mode}", cargo + ["clippy"] + package + ["--test", "prover_lifecycle", "--example", "prover_lifecycle"] + features + ["--", "-D", "warnings"])
+            run(f"build-{mode}", cargo + ["build"] + package + ["--example", "prover_lifecycle"] + features)
+            binary = retain_binary(f"example-{mode}", repo / "target/cargo-fast/parliament-lifecycle/release/examples/prover_lifecycle")
+            for action in ["publish", "cancel", "cancel-after-wait", "drop"]:
+                report = json.loads(run(f"example-{mode}-{action}", [str(binary), "candidate", "registration", action]))
+                expected = "published" if action == "publish" else "dropped_and_joined" if action == "drop" else "proved_and_discarded"
+                if report["outcome"] != expected or report["backend"] != mode or report["cancellation_after_completion"] != "TooLate":
+                    raise RuntimeError(f"Incorrect example outcome: {report}")
+                if report["released_proof_bytes"] != (160148 if action == "publish" else 0):
+                    raise RuntimeError(f"Unexpected publication: {report}")
+        run("rustfmt", ["rustfmt", "--check", "--edition", "2024"] + added[:4])
+        run("no-legacy-codec", ["bash", "scripts/check_no_legacy_codec.sh"])
+        guard()
+        receipt["passed"] = True
+    except Exception as error:
+        receipt["failure"] = str(error)
+        raise
+    finally:
+        receipt["finished_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        save()
+    print(json.dumps({"passed": True, "sources": len(source), "guarded_base_sources": len(base), "receipt": str(output / "receipt.json")}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,258 @@
+{
+  "all_parameter_sets": [
+    "faest_128s",
+    "faest_128f",
+    "faest_192s",
+    "faest_192f",
+    "faest_256s",
+    "faest_256f",
+    "faest_em_128s",
+    "faest_em_128f",
+    "faest_em_192s",
+    "faest_em_192f",
+    "faest_em_256s",
+    "faest_em_256f"
+  ],
+  "corpus": [
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_128s",
+      "signature_bytes": 4066,
+      "signature_sha256": "8503abdf16f9f2a99639cef5f36005edd133937b3315c2300a4b074a095afbce"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_128s",
+      "signature_bytes": 4066,
+      "signature_sha256": "e808bf087e36550ab90b3e6a51ef0b1a1aa05aac8f8789f41ea359661bdbfb69"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_128f",
+      "signature_bytes": 5170,
+      "signature_sha256": "2b2c2368d87d3ff780afd39cd0a5de93c7e528281f4115c65d6f1e2a3175d7ec"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_128f",
+      "signature_bytes": 5170,
+      "signature_sha256": "6fb85f70865094fef845db1805857adef1bb4c4731242b1c1720cbd4603df227"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_192s",
+      "signature_bytes": 9410,
+      "signature_sha256": "5b61a0e1350d4b9925a13ea4273ad262fd140563a00990927ba3657959d5eeb8"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_192s",
+      "signature_bytes": 9410,
+      "signature_sha256": "95ee272a49a5613de005cb08ddd135dd73d9624e283f569429aeb73c4f68a39a"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_192f",
+      "signature_bytes": 11738,
+      "signature_sha256": "5d0e1a92032d1a2d2da3010dce03ce237dcb85188b205b13af20a5609f73c927"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_192f",
+      "signature_bytes": 11738,
+      "signature_sha256": "60bd2db5528e773fcf378e7a73aada300492ab0f6f9342cec433c8a4a9981e44"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_256s",
+      "signature_bytes": 16626,
+      "signature_sha256": "9fa904e728459885090aea86209b745c08926b75f945b363935ea1b98d62baa5"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_256s",
+      "signature_bytes": 16626,
+      "signature_sha256": "57774279bfef404f6978f5312ac1c6774d3ede7e112ee445f2b1d0693b623624"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_256f",
+      "signature_bytes": 20856,
+      "signature_sha256": "857cf49bc9f7d3dfa78b553df9d61c639d74643217bdebcb95fbadbfd09a73a5"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_256f",
+      "signature_bytes": 20856,
+      "signature_sha256": "62c8950ed9e79d4ca8d16962eaae9d8805a9b660b74267372300d7c4c47a042d"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_128s",
+      "signature_bytes": 3466,
+      "signature_sha256": "ebb2e3edb4a233d39d9a1cec593f075912d6c3451d1a80615d1dbc56d26f5f13"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_128s",
+      "signature_bytes": 3466,
+      "signature_sha256": "c1f4aac32c549c3cf5991a6d3a6161aa6486ff33fdfb650855ee424d7ed631c1"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_128f",
+      "signature_bytes": 4170,
+      "signature_sha256": "ba5abd7cf2620bf58a38bfc493875d14c0ccd3f479ce07f54042645e65849042"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_128f",
+      "signature_bytes": 4170,
+      "signature_sha256": "2cab00db515ebe016016257b477e591a878d3476a39ee05c76205b46aa39701b"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_192s",
+      "signature_bytes": 7874,
+      "signature_sha256": "2e60873a9de303c19c9b1a1f9433591001d64c58c174dcb3305180fb2188fba5"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_192s",
+      "signature_bytes": 7874,
+      "signature_sha256": "37baea0da7e2a98ed4f55a94f97688250fa60e46e0672b4e004fd4e10ec6fe26"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_192f",
+      "signature_bytes": 9818,
+      "signature_sha256": "e5b5ae1f0b9e8e0f089b6a49165338e9c810f6fc4e98732a578c3bccc41445ea"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_192f",
+      "signature_bytes": 9818,
+      "signature_sha256": "b7c13908ee7aa038662d15b311be7cac0ddc84b9ef6c2291886b4d8c65d5b1c8"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_256s",
+      "signature_bytes": 14554,
+      "signature_sha256": "0bba754515111445d2681e71322216717046ad1bc67713aad348d8fffb1a07bc"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_256s",
+      "signature_bytes": 14554,
+      "signature_sha256": "f5fad6e3583c972a6d20ed30073f0ec33955af58b9418983a02879c532867118"
+    },
+    {
+      "origin": "upstream",
+      "provenance": "regenerated C signature; original bytes were not retained",
+      "set": "faest_em_256f",
+      "signature_bytes": 18084,
+      "signature_sha256": "40ee13c4bd7b534c44976cab67a25132fac69ec505910193e2a929e381aed3ed"
+    },
+    {
+      "origin": "rust",
+      "provenance": "original retained Rust signature; original accel bytes identical",
+      "set": "faest_em_256f",
+      "signature_bytes": 18084,
+      "signature_sha256": "4f0bd6e4b7eda27fd2a3867863e58628f67de56af4b6d61d2633f99d6d1fff23"
+    }
+  ],
+  "harness_checks": {
+    "python_unit_tests": 6,
+    "rust_example_tests": 1,
+    "strict_clippy_modes": [
+      "portable",
+      "accel"
+    ]
+  },
+  "original_campaign": {
+    "completed_case_blocks": 24,
+    "direct_cross_implementation_positive_verify_calls": 48,
+    "keypair_validations": 12,
+    "negative_inputs": 384,
+    "negative_verify_calls": {
+      "rust_accel": 384,
+      "rust_portable": 384,
+      "total": 1152,
+      "upstream": 384
+    },
+    "positive_verify_calls": {
+      "rust_accel": 24,
+      "rust_portable": 24,
+      "total": 84,
+      "upstream": 36
+    },
+    "publication_status": "rejected_source_drift",
+    "raw_upstream_negative_codes_retained": false,
+    "rust_accel_signatures_byte_identical_to_portable": 12,
+    "rust_command_counts": {
+      "rust-accel/identity/exit=0": 1,
+      "rust-accel/sign/exit=0": 12,
+      "rust-accel/verify/exit=0": 24,
+      "rust-accel/verify/exit=1": 384,
+      "rust-portable/identity/exit=0": 1,
+      "rust-portable/layout/exit=0": 12,
+      "rust-portable/public-key/exit=0": 12,
+      "rust-portable/sign/exit=0": 12,
+      "rust-portable/verify/exit=0": 24,
+      "rust-portable/verify/exit=1": 384
+    },
+    "rust_signatures_retained": 12,
+    "upstream_rejection_evidence": "Archived driver checks nonzero before each of the 24 retained completed-case lines; individual raw return values were lost.",
+    "upstream_signature_bytes_retained": false
+  },
+  "recovery": {
+    "direct_cross_implementation_positive_verify_calls": 48,
+    "frozen_build_lock_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+    "keypair_validations": 12,
+    "live_lock_sha256_observed": "6d8e3d424264d8c934fc1683111659e246d71960cc4b247efa512502235b435c",
+    "negative_verify_calls": 0,
+    "positive_verify_calls": {
+      "rust_accel": 24,
+      "rust_portable": 24,
+      "total": 84,
+      "upstream": 36
+    },
+    "publication_status": "diagnostic_complete",
+    "regenerated_upstream_signatures": 12,
+    "retained_original_rust_signatures": 12,
+    "rust_accel_signatures_byte_identical_to_portable": 12,
+    "rust_command_counts": {
+      "rust-accel/identity/exit=0": 1,
+      "rust-accel/verify/exit=0": 24,
+      "rust-portable/identity/exit=0": 1,
+      "rust-portable/layout/exit=0": 12,
+      "rust-portable/verify/exit=0": 24
+    },
+    "scope": "frozen binaries/library/build-lock plus current backend source and diagnostic drivers; live lock is separately recorded, not an execution input",
+    "source_guard_passed": true
+  },
+  "scope": "Reference-mode interoperability only, not extended ballot or security qualification. Original source-drift publication remains rejected.",
+  "security_qualified": false
+}

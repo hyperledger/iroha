@@ -178,7 +178,7 @@ fn descriptor_rejects_replacement_loss_permissions_and_links_without_returning_a
                 EnrollmentSigner::open(&provider.signer_private_key, &provider),
                 Err(Error::Unavailable)
             ));
-        } else if case >= 2 && case <= 4 {
+        } else if (2..=4).contains(&case) {
             assert!(EnrollmentSigner::open(&provider.signer_private_key, &provider).is_err());
         }
     }

@@ -208,8 +208,10 @@ mod tests {
         };
         assert!(validate_sumeragi_lane_state(network, 0, &SumeragiLaneState::default()).is_ok());
         assert!(validate_sumeragi_lane_state(network, 0, &exact).is_err());
-        let mut zero = SumeragiLaneState::default();
-        zero.incarnations = 1;
+        let mut zero = SumeragiLaneState {
+            incarnations: 1,
+            ..Default::default()
+        };
         assert!(validate_sumeragi_lane_state(network, 0, &zero).is_err());
         zero = SumeragiLaneState::default();
         zero.samples = vec![iroha_data_model::sumeragi_lanes::SumeragiLaneSample {

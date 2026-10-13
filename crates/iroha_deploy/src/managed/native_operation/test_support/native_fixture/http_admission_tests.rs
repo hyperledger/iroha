@@ -87,9 +87,9 @@ fn check_http_admission(native: &NativeFixture, authority: &ServiceAuthority) {
                 serial[0].is_ok(),
                 "one complete original response is admitted"
             );
-            assert!(serial[1..].iter().all(|result| result.is_err()));
+            assert!(serial[1..].iter().all(std::result::Result::is_err));
         } else {
-            assert!(serial.iter().all(|result| result.is_err()));
+            assert!(serial.iter().all(std::result::Result::is_err));
         }
 
         server.requests.lock().unwrap().clear();

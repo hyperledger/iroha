@@ -475,7 +475,7 @@ fn spawn_leader_loop(recovery_in_flight: bool) -> LeaderLoop {
             stopped: Mutex::new(None),
             metrics: None,
         });
-        let (sender, receiver) = mpsc::channel();
+        let (sender, response_receiver) = mpsc::channel();
         let inputs = DriverInputs {
             sender,
             wake: shared.wake.clone(),
@@ -511,7 +511,7 @@ fn spawn_leader_loop(recovery_in_flight: bool) -> LeaderLoop {
         kernel
             .exec
             .bind_release_waker(shared.wake.clone().into_waker());
-        run_loop(kernel, &receiver, &shared, &clock, &workers)
+        run_loop(kernel, &response_receiver, &shared, &clock, &workers)
     });
     let (handle, shared, executed, persisted, served, net) =
         received.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -650,8 +650,8 @@ fn actual_run_loop_drains_terminal_recovery_before_due_tick_dispatch() {
         std::thread::sleep(Duration::from_millis(5));
     }
     let status = fixture.shared.status.lock().clone();
-    let persisted: Vec<_> = fixture.persisted.try_iter().collect();
-    let executed: Vec<_> = fixture.executed.try_iter().collect();
+    let persisted_count = fixture.persisted.try_iter().count();
+    let executed_count = fixture.executed.try_iter().count();
     let sent = fixture.net.sent();
     let _serving: Vec<_> = fixture.served.try_iter().collect();
     fixture.handle.inputs.send(Input::Stop).unwrap();
@@ -664,11 +664,11 @@ fn actual_run_loop_drains_terminal_recovery_before_due_tick_dispatch() {
         (1, 0, 0)
     );
     assert!(
-        !persisted.is_empty(),
+        persisted_count > 0,
         "original safety persistence survives recovery"
     );
     assert!(
-        executed.is_empty(),
+        executed_count == 0,
         "no worker operation starts after recovery"
     );
     assert!(
@@ -766,7 +766,7 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
             stopped: Mutex::new(None),
             metrics: None,
         });
-        let (sender, receiver) = mpsc::channel();
+        let (sender, response_receiver) = mpsc::channel();
         let handle = DriverHandle {
             shared: Arc::clone(&shared),
             inputs: DriverInputs {
@@ -812,7 +812,7 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
         kernel
             .exec
             .bind_release_waker(shared.wake.clone().into_waker());
-        run_loop(kernel, &receiver, &shared, &clock, &workers)
+        run_loop(kernel, &response_receiver, &shared, &clock, &workers)
     });
     let (handle, shared, budget, original_bytes, persisted, served, net) =
         received.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -828,7 +828,7 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
             .unwrap();
     }
     let released = release.send(());
-    let next = builds.recv_timeout(Duration::from_secs(5));
+    let next_build = builds.recv_timeout(Duration::from_secs(5));
     handle.inputs.send(Input::Stop).unwrap();
     let ended = event_loop.join();
     let sent = net.sent();
@@ -849,9 +849,9 @@ fn actual_run_loop_retains_build_arrival_before_dispatch_turn_finishes() {
         height: next_height,
         view: next_view,
         ..
-    }) = next
+    }) = next_build
     else {
-        panic!("in-Build arrival must follow EMPTY with a fresh dispatch: {next:?}");
+        panic!("in-Build arrival must follow EMPTY with a fresh dispatch: {next_build:?}");
     };
     assert_ne!(first_req, next_req);
     assert_eq!((first_height, first_view), (1, 0));

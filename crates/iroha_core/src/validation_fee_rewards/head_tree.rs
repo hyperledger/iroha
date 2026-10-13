@@ -314,13 +314,13 @@ mod tests {
             );
         }
         let wallet = account(20);
-        let mut changed = heads[&wallet].clone();
-        changed.sequence = 1;
-        changed.last_receipt_hash = Some([7; 32]);
-        changed.updated_at_height = 10;
-        changed.current_account_id = account(99);
-        update_receipt_head_tree(&mut stx.world, &changed).unwrap();
-        heads.insert(wallet.clone(), changed.clone());
+        let mut tampered_value = heads[&wallet].clone();
+        tampered_value.sequence = 1;
+        tampered_value.last_receipt_hash = Some([7; 32]);
+        tampered_value.updated_at_height = 10;
+        tampered_value.current_account_id = account(99);
+        update_receipt_head_tree(&mut stx.world, &tampered_value).unwrap();
+        heads.insert(wallet.clone(), tampered_value.clone());
         let nodes = stx
             .world
             .smart_contract_state
@@ -368,8 +368,8 @@ mod tests {
                     .is_err()
             );
         }
-        let mut stale = changed;
-        stale.last_receipt_hash = Some([8; 32]);
-        assert!(receipt_head_membership(&stx.world, &stale).is_err());
+        let mut outdated = tampered_value;
+        outdated.last_receipt_hash = Some([8; 32]);
+        assert!(receipt_head_membership(&stx.world, &outdated).is_err());
     }
 }

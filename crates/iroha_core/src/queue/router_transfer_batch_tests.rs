@@ -57,23 +57,30 @@ fn transfer_batch_scoped_atomic_and_independent_routes_match_sealed_and_world_vi
         ));
         let expected = RoutingPlan::single(RoutingDecision::new(lane, dataspace));
         for transaction in [&ordinary, &sealed] {
-            assert_eq!(router.try_route_plan_without_state(transaction), Ok(None));
+            assert_eq!(
+                (router.try_route_plan_without_state(transaction))
+                    .as_ref()
+                    .expect("the operation must complete successfully"),
+                &(None)
+            );
             let view = state.view();
             let from_view = router
                 .try_route_plan_with_view(transaction, &view)
                 .expect("committed scoped batch route");
             assert_eq!(from_view, expected, "{mode:?}");
             assert_eq!(
-                evaluate_policy_plan_with_catalog_and_world_at(
+                (evaluate_policy_plan_with_catalog_and_world_at(
                     &default_routing_policy(),
                     &lanes,
                     &catalog,
                     transaction,
                     view.world(),
                     state_view_ledger_time_ms(&view),
-                ),
-                Ok(expected.clone()),
-                "{mode:?} execution must use the same committed definition policy",
+                ))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+                &(expected.clone()),
+                "{mode:?} execution must use the same committed definition policy"
             );
             crate::queue::validate_current_admission_route(&from_view)
                 .expect("same-dataspace batch has one supported route");
@@ -132,22 +139,26 @@ fn transfer_batch_cross_dataspace_preserves_all_targets_and_refuses_current_admi
         let transaction = sample_transaction(&alice, key.private_key(), vec![instruction.clone()]);
         let view = state.view();
         assert_eq!(
-            deferred_instruction_concrete_dataspace_targets(
+            (deferred_instruction_concrete_dataspace_targets(
                 &*instruction,
                 Some(&catalog),
                 Some(&view)
-            ),
-            Ok(Some(BTreeSet::from([first, second]))),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(Some(BTreeSet::from([first, second])))
         );
         assert_eq!(
-            native_amx_participant_dataspaces_with_world_at(
+            (native_amx_participant_dataspaces_with_world_at(
                 &transaction,
                 &catalog,
                 view.world(),
                 None,
-            ),
-            Ok(vec![first, second]),
-            "batch participants cannot disappear during plan reconciliation",
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(vec![first, second]),
+            "batch participants cannot disappear during plan reconciliation"
         );
         let plan = router
             .try_route_plan_with_view(&transaction, &view)
@@ -157,15 +168,17 @@ fn transfer_batch_cross_dataspace_preserves_all_targets_and_refuses_current_admi
             "{mode:?}: {plan:?}"
         );
         assert_eq!(
-            evaluate_policy_plan_with_catalog_and_world_at(
+            (evaluate_policy_plan_with_catalog_and_world_at(
                 &default_routing_policy(),
                 &lanes,
                 &catalog,
                 &transaction,
                 view.world(),
                 state_view_ledger_time_ms(&view),
-            ),
-            Ok(plan.clone()),
+            ))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+            &(plan.clone())
         );
         assert!(matches!(
             crate::queue::validate_current_admission_route(&plan),
@@ -217,19 +230,23 @@ fn transfer_batch_global_definition_keeps_the_global_balance_owner() {
     let expected =
         RoutingPlan::single(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL));
     assert_eq!(
-        router.try_route_plan_with_view(&transaction, &view),
-        Ok(expected.clone())
+        (router.try_route_plan_with_view(&transaction, &view))
+            .as_ref()
+            .expect("the operation must complete successfully"),
+        &(expected.clone())
     );
     assert_eq!(
-        evaluate_policy_plan_with_catalog_and_world_at(
+        (evaluate_policy_plan_with_catalog_and_world_at(
             &default_routing_policy(),
             &lanes,
             &catalog,
             &transaction,
             view.world(),
             state_view_ledger_time_ms(&view),
-        ),
-        Ok(expected),
+        ))
+        .as_ref()
+        .expect("the operation must complete successfully"),
+        &(expected)
     );
 }
 
@@ -299,7 +316,6 @@ fn transfer_batch_policy_matchers_select_the_same_profile_as_original_single_tra
                     description: None,
                 },
             }],
-            ..default_routing_policy()
         };
         let router = ConfigLaneRouter::new(policy.clone(), catalog.clone(), lanes.clone());
         install_router_nexus(&mut state, &router);
@@ -324,8 +340,10 @@ fn transfer_batch_policy_matchers_select_the_same_profile_as_original_single_tra
         let expected = RoutingPlan::single(RoutingDecision::new(selected_lane, dataspace));
         let view = state.view();
         assert_eq!(
-            router.try_route_plan_with_view(&singles, &view),
-            Ok(expected.clone()),
+            (router.try_route_plan_with_view(&singles, &view))
+                .as_ref()
+                .expect("the operation must complete successfully"),
+            &(expected.clone()),
             "{matcher}"
         );
         for mode in [BatchMode::Atomic, BatchMode::Independent] {
@@ -355,21 +373,25 @@ fn transfer_batch_policy_matchers_select_the_same_profile_as_original_single_tra
             ));
             for transaction in [&ordinary, &sealed] {
                 assert_eq!(
-                    router.try_route_plan_with_view(transaction, &view),
-                    Ok(expected.clone()),
+                    (router.try_route_plan_with_view(transaction, &view))
+                        .as_ref()
+                        .expect("the operation must complete successfully"),
+                    &(expected.clone()),
                     "{matcher}: {mode:?}"
                 );
                 assert_eq!(
-                    evaluate_policy_plan_with_catalog_and_world_at(
+                    (evaluate_policy_plan_with_catalog_and_world_at(
                         &policy,
                         &lanes,
                         &catalog,
                         transaction,
                         view.world(),
                         state_view_ledger_time_ms(&view),
-                    ),
-                    Ok(expected.clone()),
-                    "{matcher}: {mode:?}",
+                    ))
+                    .as_ref()
+                    .expect("the operation must complete successfully"),
+                    &(expected.clone()),
+                    "{matcher}: {mode:?}"
                 );
             }
         }

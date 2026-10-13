@@ -296,22 +296,19 @@ fn borrowed_check_relation_rejects_omission_duplicate_and_foreign_fork() {
         let floor = chain.walk(3, 3).next().unwrap().unwrap();
         proof.consume(&floor).unwrap();
         match mode {
-            0 => assert_eq!(
-                proof.finish().err(),
-                Some(ExecutionAttemptError::Rejected(
+            0 => assert!(
+                matches!(proof.finish().err(), Some(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                     NativeCheckErrorV1::Execution
                 ))
             ),
             1 => {
-                assert_eq!(
-                    proof.consume(&floor),
-                    Err(ExecutionAttemptError::Rejected(
+                assert!(
+                    matches!(proof.consume(&floor), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                         NativeCheckErrorV1::Finality
                     ))
                 );
-                assert_eq!(
-                    proof.finish().err(),
-                    Some(ExecutionAttemptError::Rejected(
+                assert!(
+                    matches!(proof.finish().err(), Some(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                         NativeCheckErrorV1::Execution
                     ))
                 );
@@ -326,15 +323,13 @@ fn borrowed_check_relation_rejects_omission_duplicate_and_foreign_fork() {
                     .next()
                     .unwrap()
                     .unwrap();
-                assert_eq!(
-                    proof.consume(&foreign),
-                    Err(ExecutionAttemptError::Rejected(
+                assert!(
+                    matches!(proof.consume(&foreign), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                         NativeCheckErrorV1::Finality
                     ))
                 );
-                assert_eq!(
-                    proof.finish().err(),
-                    Some(ExecutionAttemptError::Rejected(
+                assert!(
+                    matches!(proof.finish().err(), Some(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
                         NativeCheckErrorV1::Execution
                     ))
                 );
@@ -409,15 +404,13 @@ fn identical_body_and_context_with_another_valid_qc_cannot_change_check_source()
         right.block().commit_certificate()
     );
     proof.consume(&floor).unwrap();
-    assert_eq!(
-        proof.consume(&foreign),
-        Err(ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(proof.consume(&foreign), Err(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             NativeCheckErrorV1::Finality
         ))
     );
-    assert_eq!(
-        proof.finish().err(),
-        Some(ExecutionAttemptError::Rejected(
+    assert!(
+        matches!(proof.finish().err(), Some(ExecutionAttemptError::Rejected(actual_rejection)) if actual_rejection == (
             NativeCheckErrorV1::Execution
         ))
     );

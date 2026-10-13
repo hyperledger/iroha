@@ -9,19 +9,19 @@ fn privacy_release_qualification_records_match_native_json_fields() {
     let schemas = component_schemas(&document);
     let key = iroha_crypto::KeyPair::try_from_seed(vec![41; 32], iroha_crypto::Algorithm::Ed25519)
         .unwrap();
-    let fixture_0 = PrivacyReleaseSourceIdentityV1 {
+    let source_identity = PrivacyReleaseSourceIdentityV1 {
         source_tree_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         source_tree_clean: true,
         toolchain_id: "schema-fixture".to_owned(),
         toolchain_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         cargo_lock_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
     };
-    let fixture_1 = PrivacyReleaseExecutableArtifactV1 {
+    let executable_artifact = PrivacyReleaseExecutableArtifactV1 {
         kind: PrivacyReleaseExecutableKindV1::Binary,
         name: "schema-fixture".to_owned(),
         artifact_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
     };
-    let fixture_2 = PrivacyReleaseProtocolBindingV1 {
+    let protocol_binding = PrivacyReleaseProtocolBindingV1 {
         protocol_id: PrivacyProtocolIdV1::ALL[0],
         proof_system_id: PrivacyProtocolIdV1::ALL[0].expected_proof_system(),
         engine_id: PrivacyProtocolIdV1::ALL[0].expected_engine(),
@@ -43,7 +43,7 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         },
         security_claim_digest: PrivacySecurityClaimDigestV1::new([1; 32]),
     };
-    let fixture_3 = PrivacyReleaseStageReceiptV1 {
+    let stage_receipt = PrivacyReleaseStageReceiptV1 {
         stage_ordinal: 1,
         protocol_id: PrivacyProtocolIdV1::ALL[0],
         stage: PrivacyReleaseStageV1::PositiveCanonicalEndToEnd,
@@ -53,7 +53,7 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         engine_manifest_digest: PrivacyEngineManifestDigestV1::new([1; 32]),
         receipt_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
     };
-    let fixture_4 = PrivacyReleaseProofArtifactV1 {
+    let proof_artifact = PrivacyReleaseProofArtifactV1 {
         protocol_id: PrivacyProtocolIdV1::ALL[0],
         stage: PrivacyReleaseStageV1::PositiveCanonicalEndToEnd,
         stage_artifact_ordinal: 1,
@@ -64,14 +64,14 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         engine_manifest_digest: PrivacyEngineManifestDigestV1::new([1; 32]),
         artifact_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
     };
-    let fixture_5 = PrivacyReleaseSdkPackageV1 {
+    let sdk_package = PrivacyReleaseSdkPackageV1 {
         consumer: PrivacyReleaseSdkConsumerV1::KotlinJvm,
         package_name: "schema-fixture".to_owned(),
         package_version: "schema-fixture".to_owned(),
         package_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         fixture_corpus_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
     };
-    let fixture_6 = PrivacyReleaseHardwareResultV1 {
+    let hardware_result = PrivacyReleaseHardwareResultV1 {
         backend: PrivacyReleaseHardwareBackendV1::Scalar,
         tested_binary_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         deterministic_output_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
@@ -79,13 +79,13 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         result_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         runtime_self_test_passed: true,
     };
-    let fixture_7 = PrivacyAcceptedMediumDispositionV1 {
+    let medium_disposition = PrivacyAcceptedMediumDispositionV1 {
         finding_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         disposition_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         release_artifact_set_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         signature: iroha_crypto::Signature::new(key.private_key(), b"schema-only"),
     };
-    let fixture_8 = PrivacyReleaseAuditV1 {
+    let audit_record = PrivacyReleaseAuditV1 {
         audit_class: PrivacyReleaseAuditClassV1::Cryptographic,
         report_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         release_artifact_set_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
@@ -95,16 +95,16 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         auditor: key.public_key().clone(),
         signature: iroha_crypto::Signature::new(key.private_key(), b"schema-only"),
     };
-    let fixture_9 = PrivacyReleaseSignatureV1 {
+    let release_signature = PrivacyReleaseSignatureV1 {
         role: PrivacyReleaseSignatureRoleV1::ReleaseEngineering,
         signer: key.public_key().clone(),
         signature: iroha_crypto::Signature::new(key.private_key(), b"schema-only"),
     };
-    let fixture_10 = PrivacyExact12ReleaseManifestV1 {
+    let release_manifest = PrivacyExact12ReleaseManifestV1 {
         version: 1,
         catalog_id: "schema-fixture".to_owned(),
         catalog_commitment: PrivacyExact12CatalogCommitmentV1::canonical(),
-        source: fixture_0.clone(),
+        source: source_identity.clone(),
         abi_version: 1,
         abi_hash: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         syscall_list_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
@@ -120,11 +120,11 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         release_signatures: Vec::new(),
         manifest_digest: PrivacyExact12ReleaseManifestDigestV1::new([1; 32]),
     };
-    let fixture_11 = PrivacyDeploymentActivationV1 {
+    let activation = PrivacyDeploymentActivationV1 {
         protocol_id: PrivacyProtocolIdV1::ALL[0],
         activation_height: 1,
     };
-    let fixture_12 = PrivacyDeploymentValidatorCanaryV1 {
+    let validator_canary = PrivacyDeploymentValidatorCanaryV1 {
         validator_index: 1,
         validator: key.public_key().clone(),
         rollout_wave: 1,
@@ -136,11 +136,11 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         converged_state_digest: PrivacyReleaseArtifactDigestV1::new([1; 32]),
         endpoint_version: "schema-fixture".to_owned(),
     };
-    let fixture_13 = PrivacyDeploymentValidatorSignatureV1 {
+    let validator_signature = PrivacyDeploymentValidatorSignatureV1 {
         validator_index: 1,
         signature: iroha_crypto::Signature::new(key.private_key(), b"schema-only"),
     };
-    let fixture_14 = PrivacyExact12DeploymentQualificationV1 {
+    let deployment_qualification = PrivacyExact12DeploymentQualificationV1 {
         version: 1,
         chain_id: iroha_model_base::chain::ChainId::from("schema-fixture"),
         network_id: iroha_data_model::NetworkId::from_genesis_hash(
@@ -158,74 +158,74 @@ fn privacy_release_qualification_records_match_native_json_fields() {
         validator_signatures: Vec::new(),
         qualification_digest: PrivacyExact12DeploymentQualificationDigestV1::new([1; 32]),
     };
-    let fixture_15 = PrivacyExact12QualificationRecordV1 {
-        release_manifest: fixture_10.clone(),
-        deployment_qualification: fixture_14.clone(),
+    let qualification_record = PrivacyExact12QualificationRecordV1 {
+        release_manifest: release_manifest.clone(),
+        deployment_qualification: deployment_qualification.clone(),
     };
     let samples = [
         (
             "PrivacyReleaseSourceIdentityV1",
-            norito::json::to_value(&fixture_0).unwrap(),
+            norito::json::to_value(&source_identity).unwrap(),
         ),
         (
             "PrivacyReleaseExecutableArtifactV1",
-            norito::json::to_value(&fixture_1).unwrap(),
+            norito::json::to_value(&executable_artifact).unwrap(),
         ),
         (
             "PrivacyReleaseProtocolBindingV1",
-            norito::json::to_value(&fixture_2).unwrap(),
+            norito::json::to_value(&protocol_binding).unwrap(),
         ),
         (
             "PrivacyReleaseStageReceiptV1",
-            norito::json::to_value(&fixture_3).unwrap(),
+            norito::json::to_value(&stage_receipt).unwrap(),
         ),
         (
             "PrivacyReleaseProofArtifactV1",
-            norito::json::to_value(&fixture_4).unwrap(),
+            norito::json::to_value(&proof_artifact).unwrap(),
         ),
         (
             "PrivacyReleaseSdkPackageV1",
-            norito::json::to_value(&fixture_5).unwrap(),
+            norito::json::to_value(&sdk_package).unwrap(),
         ),
         (
             "PrivacyReleaseHardwareResultV1",
-            norito::json::to_value(&fixture_6).unwrap(),
+            norito::json::to_value(&hardware_result).unwrap(),
         ),
         (
             "PrivacyAcceptedMediumDispositionV1",
-            norito::json::to_value(&fixture_7).unwrap(),
+            norito::json::to_value(&medium_disposition).unwrap(),
         ),
         (
             "PrivacyReleaseAuditV1",
-            norito::json::to_value(&fixture_8).unwrap(),
+            norito::json::to_value(&audit_record).unwrap(),
         ),
         (
             "PrivacyReleaseSignatureV1",
-            norito::json::to_value(&fixture_9).unwrap(),
+            norito::json::to_value(&release_signature).unwrap(),
         ),
         (
             "PrivacyExact12ReleaseManifestV1",
-            norito::json::to_value(&fixture_10).unwrap(),
+            norito::json::to_value(&release_manifest).unwrap(),
         ),
         (
             "PrivacyDeploymentActivationV1",
-            norito::json::to_value(&fixture_11).unwrap(),
+            norito::json::to_value(&activation).unwrap(),
         ),
         (
             "PrivacyDeploymentValidatorCanaryV1",
-            norito::json::to_value(&fixture_12).unwrap(),
+            norito::json::to_value(&validator_canary).unwrap(),
         ),
         (
             "PrivacyDeploymentValidatorSignatureV1",
-            norito::json::to_value(&fixture_13).unwrap(),
+            norito::json::to_value(&validator_signature).unwrap(),
         ),
         (
             "PrivacyExact12DeploymentQualificationV1",
-            norito::json::to_value(&fixture_14).unwrap(),
+            norito::json::to_value(&deployment_qualification).unwrap(),
         ),
         (
             "PrivacyExact12QualificationRecordV1",
-            norito::json::to_value(&fixture_15).unwrap(),
+            norito::json::to_value(&qualification_record).unwrap(),
         ),
     ];
     for (name, value) in samples {

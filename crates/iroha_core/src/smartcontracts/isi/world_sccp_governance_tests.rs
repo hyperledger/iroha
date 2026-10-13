@@ -87,21 +87,24 @@ world_test!(sccp_route_governance_proposal_requires_permission_or_bond {
             iroha_executor_data_model::permission::sccp::CanProposeSccpRouteGovernance,
         )]),
     );
-    gov::ProposeSccpRouteGovernance { proposal }
-        .execute(&ALICE_ID, &mut stx)
-        .expect("the exact proposer permission admits the proposal");
-    assert_eq!(stx.world.governance_proposals.iter().count(), 1);
+    let before_events = stx.world.internal_event_buf.len();
+    let result = gov::ProposeSccpRouteGovernance { proposal }.execute(&ALICE_ID, &mut stx);
+    assert!(
+        result.is_err(),
+        "SCCP proposer permission must not bypass the Parliament ballot gate"
+    );
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("ParliamentBallotUnavailable"));
+    assert!(stx.world.governance_proposals.iter().next().is_none());
+    assert_eq!(stx.world.internal_event_buf.len(), before_events);
 });
 
-world_test!(sccp_route_governance_proposal_records_once_and_replays_idempotently {
+world_test!(sccp_route_governance_storage_records_once_and_replays_idempotently {
     blank_test_state_transaction!(checked state, block, stx);
     bond_sccp_route_governance_test_proposer(&mut stx);
     let proposal = sccp_route_governance_test_proposal(stx.network_id);
-    gov::ProposeSccpRouteGovernance {
-        proposal: proposal.clone(),
-    }
-    .execute(&ALICE_ID, &mut stx)
-    .expect("a bonded citizen may propose a valid SCCP governance change");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("proposal storage component");
     let kind = sccp_route_governance_test_kind(&proposal);
     let proposal_id = kind.fingerprint();
     let record = stx
@@ -116,17 +119,23 @@ world_test!(sccp_route_governance_proposal_records_once_and_replays_idempotently
         crate::state::GovernanceProposalStatus::Proposed
     );
     let before = norito::codec::Encode::encode(record);
-    gov::ProposeSccpRouteGovernance { proposal }
-        .execute(&ALICE_ID, &mut stx)
-        .expect("an exact re-proposal is idempotent");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("an exact storage replay is idempotent");
     assert_eq!(stx.world.governance_proposals.iter().count(), 1);
     assert_eq!(
         stx.world
             .governance_proposals
             .get(&proposal_id)
             .map(norito::codec::Encode::encode),
-        Some(before)
+        Some(before.clone())
     );
+    let events = stx.world.internal_event_buf.len();
+    let error = gov::ProposeSccpRouteGovernance { proposal }
+        .execute(&ALICE_ID, &mut stx)
+        .expect_err("a bonded citizen or existing record cannot bypass the ballot gate");
+    assert!(error.to_string().contains("ParliamentBallotUnavailable"));
+    assert_eq!(stx.world.governance_proposals.get(&proposal_id).map(norito::codec::Encode::encode), Some(before));
+    assert_eq!(stx.world.internal_event_buf.len(), events);
 });
 
 world_test!(sccp_route_governance_expected_head_is_scoped_per_subject {
@@ -205,11 +214,8 @@ world_test!(sccp_governance_proposals_list_open_proposals_with_their_admissibili
     bond_sccp_route_governance_test_proposer(&mut stx);
     assert!(read::governance_proposals(&*stx.world).is_empty());
     let proposal = sccp_route_governance_test_proposal(stx.network_id);
-    gov::ProposeSccpRouteGovernance {
-        proposal: proposal.clone(),
-    }
-    .execute(&ALICE_ID, &mut stx)
-    .expect("a bonded citizen proposes");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("proposal listing DATA; not a qualified ballot or admitted proposal");
     let listed = read::governance_proposals(&*stx.world);
     let [open] = listed.as_slice() else {
         panic!("one open proposal: {listed:?}");
@@ -299,11 +305,30 @@ fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state(
             .unwrap()
             .clone();
         let mut execution = state_block.transaction();
-        assert_eq!(
+        let outcome =
             execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
-                .unwrap(),
-            DueParliamentCertificateExecutionV1::Applied
-        );
+                .unwrap();
+        if !paused {
+            assert!(
+                matches!(
+                    outcome,
+                    DueParliamentCertificateExecutionV1::EffectFailed { .. }
+                ),
+                "an approving certificate without its original Policy Jury opening cannot lift fast-pause state"
+            );
+            assert_eq!(
+                store::fast_pauses::get(&*execution.world, &network),
+                Some(&original_pause)
+            );
+            let revision = &store::routes::get(&*execution.world, &network)
+                .unwrap()
+                .revisions[&1];
+            assert!(revision.destination_paused);
+            assert_eq!(revision.next_control_nonce, 1);
+            assert!(store::control_messages::get(&*execution.world, &(network, 1, 1)).is_none());
+            continue;
+        }
+        assert_eq!(outcome, DueParliamentCertificateExecutionV1::Applied);
         let expected_id = *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes();
         assert_ne!(expected_id, fixture.proposal_id);
         let row = *store::control_messages::get(&*execution.world, &(network, 1, 1)).unwrap();
@@ -377,7 +402,11 @@ fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
         let mut seed = state_block.transaction();
         let fixture = seed_due_sccp_control_certificate(&mut seed, true);
         for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
-            leaves::allocate_leaf(&mut seed, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+            leaves::allocate_leaf(
+                &mut seed,
+                SccpLeafRefV1::transfer([index.to_le_bytes()[0]; 32]),
+            )
+            .unwrap();
         }
         seed.apply();
         fixture

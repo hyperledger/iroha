@@ -32,6 +32,7 @@ Both profiles use the same creation code, built by solc
 | `test/harness/SccpDirtyMemoryHarness.sol` | Test-only subclass that runs the certificate-verifying entry points on memory that is not zero |
 | `test/sccp_bls.test.js` | Library suite |
 | `test/sccp_v1_fixtures.test.js` | Fixture replay suite |
+| `test/sccp_live_fourpeer.js` | Replays the authentic public four-peer export through the locked chain-1 CREATE2 destination |
 | `test/sccp_taira_xor.test.js` | Behaviour and revert-path suite |
 | `test/sccp_gas.test.js`, `test/gas_baseline_v1.json` | Gas suite and its committed baseline (§5.4) |
 
@@ -185,6 +186,16 @@ node --test contracts/evm/sccp/test/sccp_gas.test.js
 bash scripts/sccp_evm_contract_smoke.sh                  # all of the above, fail-closed, in a private directory
 ```
 
+After the real `sccp_lanes` integration test exports
+`target/sccp-continuation/live-fourpeer-sccp.json`, run
+`node contracts/evm/sccp/test/sccp_live_fourpeer.js target/sccp-continuation/live-fourpeer-sccp.json`.
+The replay checks the original generation and exact native quorum on Ethereum chain 1
+under Prague and Osaka, then submits the genuine checkpoint to the locked CREATE2
+deployment. It rejects signature and network substitutions, duplicate progress and an
+expired generation. It keeps supply and operation count at zero: route activation and
+a genuine monetary corridor still require the Parliament launch gate. Monetary component
+qualification remains in the separate fixture and behaviour suites.
+
 The toolchain policy (native arm64/x86-64 compiler, no Rosetta or Docker,
 cancun legacy pipeline without metadata hash or CBOR) is described in
 [`scripts/contract_tooling/README.md`](../../../scripts/contract_tooling/README.md).
@@ -206,7 +217,11 @@ execution evidence for the contract, not a measurement of a BSC node.
   `control_v1.json` row by row: outcome or exact error with its arguments,
   logs as raw topics and data, return value, and the full state after every
   step. Every certificate and scenario also runs through
-  `SccpDirtyMemoryHarness.sol`. Its last test of each hardfork fails when a
+  `SccpDirtyMemoryHarness.sol`. It also rebuilds all 24 selectors and eight
+  event topics of the Rust `evm_calldata_v1.json`, executes its 13 golden
+  calls and 15 views, compares its four logs and recorded view returns,
+  and deploys its P4 sample at the CREATE2 address derived from the locked
+  creation code and all nine constructor words. Its last test of each hardfork fails when a
   row did not run or a pinned row count changed.
 - `sccp_taira_xor.test.js` covers what the fixtures do not (§11): constructor
   bounds, raw storage slots, every admitted committee size, the first failing

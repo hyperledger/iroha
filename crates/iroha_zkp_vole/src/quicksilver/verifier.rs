@@ -1,5 +1,7 @@
 //! The verifier's evaluator: constraints as values at `Delta`.
 
+use zeroize::Zeroize;
+
 use super::{ConstraintSystem, DEGREE, Degree, MASKS, QuickSilverError, Stream};
 use crate::{field::LambdaField, universal_hash::ZkHasher};
 
@@ -9,6 +11,15 @@ use crate::{field::LambdaField, universal_hash::ZkHasher};
 pub struct Key<F> {
     key: F,
     degree: Degree,
+}
+
+impl<F: Zeroize> Zeroize for Key<F> {
+    /// Reset to the constant 0. Keys are public: this exists so that a relation's
+    /// value scratch is erased the same way under every evaluator.
+    fn zeroize(&mut self) {
+        self.key.zeroize();
+        self.degree = Degree::ZERO;
+    }
 }
 
 impl<F: LambdaField> Key<F> {
@@ -256,6 +267,19 @@ mod tests {
             system.powers[7],
             delta.square().square() * delta.square() * delta
         );
+    }
+
+    #[test]
+    fn erasing_a_key_leaves_the_constant_zero() {
+        let mut key = Key {
+            key: Gf256::from_u64(9),
+            degree: Degree::TWO,
+        };
+        key.zeroize();
+        assert_eq!(key, Key::marked(Degree::ZERO));
+        let mut marked = Key::<Gf256>::marked(Degree::Overflow);
+        marked.zeroize();
+        assert_eq!(marked.degree, Degree::ZERO);
     }
 
     #[test]

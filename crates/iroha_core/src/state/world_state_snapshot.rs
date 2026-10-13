@@ -7,6 +7,8 @@
 //! complete reconstructed root/count must match certified R; current typed targets
 //! that changed in the tail are refused. Decoded restoration requires native replay.
 
+#[path = "world_state_snapshot/amx_approval.rs"]
+mod amx_approval;
 #[path = "world_state_snapshot/reserve_account.rs"]
 mod reserve_account;
 #[path = "world_state_snapshot/reserve_policy.rs"]

@@ -3095,7 +3095,8 @@ mod tests {
                 .is_some_and(norito::json::Value::is_null),
             "canonical runtime Inrou plan must emit explicit null for initrd_image_path"
         );
-        for required_field in ["initrd_image_path"] {
+        {
+            let required_field = "initrd_image_path";
             let mut missing = inrou_value.clone();
             missing
                 .as_object_mut()

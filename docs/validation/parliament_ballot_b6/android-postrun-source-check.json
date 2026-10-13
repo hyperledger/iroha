@@ -1,0 +1,13 @@
+{
+  "all_match": false,
+  "at_utc": "2026-10-13T03:02:07.948081+00:00",
+  "mismatches": [
+    {
+      "expected_sha256": "ecfb0f0635527e68e3e329bfbde338e051912e10986839d66d8e384011e9e303",
+      "file": "Cargo.lock",
+      "observed_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48"
+    }
+  ],
+  "scope": "Additional checkout observation after all eight execution source checks and all four device runs completed; does not alter the frozen binary/source identity.",
+  "stage": "postprocessing_after_completed_runs"
+}

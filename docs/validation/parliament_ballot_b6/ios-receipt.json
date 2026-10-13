@@ -1,0 +1,23 @@
+{
+  "bridge_library_sha256": {
+    "accel": "d9378e6027190dad8d0fcfdd3dd7d5132ca7975ad8c2022f08088b69f7ccbe6d",
+    "portable": "b37eac34a2faad8ea0b2556002d1d3e70bf712ae346f042e018a04118da86b8b"
+  },
+  "commands": "See ios_host_template/README.md; actual run labels/samples/rows in device metadata and headers; signing inputs runtime only",
+  "qualification": false,
+  "release": {
+    "codegen_units": 1,
+    "lto": "thin",
+    "opt_level": 3
+  },
+  "rust_target": "aarch64-apple-ios",
+  "sampling": "250ms main-thread task_info, plus initial/final observations; foreground dedicated worker; USB charging; no cooldown protocol",
+  "signed_executable_sha256": {
+    "accel": "a3e4ea52fc3fb4ae9d1847d1b7561cb0cfd3e2337b425aeabf3cd81bf376e6b6",
+    "portable": "107bc5d61b4440916be60c143c903ae9ad50aa72e2cb5f0ee5d3c3fae804e018"
+  },
+  "source_files_verified_after_runs": 223,
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "source_only_host": "ios_host_template",
+  "xcode": "27.0 (27A266a)"
+}

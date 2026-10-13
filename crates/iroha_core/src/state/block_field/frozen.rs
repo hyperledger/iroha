@@ -55,6 +55,13 @@ impl<B: OriginalPublicationBlock> BlockField<B> {
 
     /// Transfer the original journal and notices to the aggregate's exact retry
     /// cursor. This does not create a second publisher or refresh its predecessor.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry; return the same frozen journal without cloning or replacing original custody"
+        )
+    )]
     pub(crate) fn into_frozen(mut self) -> (B::Frozen, CaptureCleanup) {
         assert!(!self.released, "field was terminally released");
         assert!(

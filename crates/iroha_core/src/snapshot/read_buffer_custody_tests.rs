@@ -178,7 +178,7 @@ fn snapshot_read_buffer_gc_refusal_preserves_pointer_and_both_retained_generatio
         std::fs::read(store.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap(),
         pointer
     );
-    for directory in [&rollback, &current, &next.generation_dir] {
+    for directory in [&rollback, &current, &next.snapshot_directory] {
         assert!(
             directory.is_dir(),
             "capacity is not invalidity and must preserve every generation"
@@ -189,7 +189,7 @@ fn snapshot_read_buffer_gc_refusal_preserves_pointer_and_both_retained_generatio
     assert_eq!(current_generation_name(&store), next.name);
     assert!(!rollback.exists());
     assert!(current.is_dir());
-    assert!(next.generation_dir.is_dir());
+    assert!(next.snapshot_directory.is_dir());
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -224,7 +224,7 @@ fn snapshot_read_buffer_gc_fallback_cannot_filter_out_a_capacity_refusal() {
         pointer
     );
     assert!(rollback.is_dir());
-    assert!(current.generation_dir.is_dir());
+    assert!(current.snapshot_directory.is_dir());
     drop(occupied);
     let plan = plan_snapshot_generation_gc(
         &current,
@@ -333,8 +333,8 @@ async fn snapshot_read_buffer_writer_notifies_after_unlock_on_success_and_error(
             assert!(
                 matches!(result, Err(TryWriteError::PublicationIntegrity(ref reason)) if reason.contains("ambiguous"))
             );
-            assert!(first.generation_dir.is_dir());
-            assert!(second.generation_dir.is_dir());
+            assert!(first.snapshot_directory.is_dir());
+            assert!(second.snapshot_directory.is_dir());
         } else {
             result.unwrap();
         }

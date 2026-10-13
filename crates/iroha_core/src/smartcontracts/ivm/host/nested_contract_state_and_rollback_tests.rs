@@ -12,7 +12,7 @@ seiyaku Caller {
 ",
         0,
     );
-    let callee_contract = install_contract(
+    let nested_contract = install_contract(
         &state,
         &authority,
         r"
@@ -30,7 +30,7 @@ seiyaku Callee {
         &state,
         &authority,
         &caller_contract,
-        &callee_contract,
+        &nested_contract,
         "value",
         Json::new(()),
     );
@@ -44,11 +44,12 @@ seiyaku Callee {
         !log.durable_read_paths.contains(logical_path),
         "deployed contracts must not read the raw unscoped namespace"
     );
-    let callee_digest = hex::encode(Hash::new(callee_contract.to_string().as_bytes()).as_ref());
+    let nested_scope_digest =
+        hex::encode(Hash::new(nested_contract.to_string().as_bytes()).as_ref());
     let caller_digest = hex::encode(Hash::new(caller_contract.to_string().as_bytes()).as_ref());
     assert!(
         log.durable_read_paths
-            .contains(&format!("sc/{callee_digest}/{logical_path}")),
+            .contains(&format!("sc/{nested_scope_digest}/{logical_path}")),
         "selective retry must fingerprint the actual nested contract namespace"
     );
     assert!(
@@ -208,7 +209,7 @@ seiyaku Callee {{ permission AssetOps;
 "#
     );
     let code = compile_bound_contract_import(&state, &descendant, "descendant.to", &source);
-    let callee = install_contract_artifact_with_interface_and_lifecycle(
+    let target_contract = install_contract_artifact_with_interface_and_lifecycle(
         &state,
         &authority,
         code,
@@ -216,15 +217,21 @@ seiyaku Callee {{ permission AssetOps;
         false,
         |_| {},
     );
-    grant_contract_entrypoint_to_account(&state, &authority, root.subject_id(), &callee, "attempt");
     grant_contract_entrypoint_to_account(
         &state,
         &authority,
-        callee.subject_id(),
+        root.subject_id(),
+        &target_contract,
+        "attempt",
+    );
+    grant_contract_entrypoint_to_account(
+        &state,
+        &authority,
+        target_contract.subject_id(),
         &descendant,
         "quote",
     );
-    let code = installed_contract_artifact(&state, &callee);
+    let code = installed_contract_artifact(&state, &target_contract);
     let interface = ivm::ProgramMetadata::parse(&code)
         .unwrap()
         .contract_interface
@@ -242,7 +249,7 @@ seiyaku Callee {{ permission AssetOps;
             &state,
             &authority,
             &root,
-            &callee,
+            &target_contract,
             "attempt",
             Json::from(norito::json!({"succeed": succeed})),
         );
@@ -299,7 +306,7 @@ seiyaku Callback {{ permission AssetOps;
 "#
     );
     let code = compile_bound_contract_import(&state, &root, "root.to", &source);
-    let callee = install_contract_artifact_with_interface_and_lifecycle(
+    let target_contract = install_contract_artifact_with_interface_and_lifecycle(
         &state,
         &authority,
         code,
@@ -307,8 +314,14 @@ seiyaku Callback {{ permission AssetOps;
         false,
         |_| {},
     );
-    grant_contract_entrypoint_to_account(&state, &authority, root.subject_id(), &callee, "quote");
-    for target in [&root, &callee] {
+    grant_contract_entrypoint_to_account(
+        &state,
+        &authority,
+        root.subject_id(),
+        &target_contract,
+        "quote",
+    );
+    for target in [&root, &target_contract] {
         let (outcome, _, overlay) = call_contract_syscall(
             &state,
             &authority,
@@ -437,11 +450,12 @@ seiyaku RootResult { permission AssetOps;
                 "rollback cannot refund executed work"
             );
             assert_eq!(
-                ivm::sum::entrypoint_return_is_error(
+                (ivm::sum::entrypoint_return_is_error(
                     &vm,
                     descriptor.return_schema.as_ref().unwrap()
-                ),
-                Ok(expected_error)
+                ))
+                .expect("expected successful VM operation"),
+                expected_error
             );
             if expected_error {
                 assert!(host.state_access_log.write_keys.is_empty());
@@ -487,17 +501,19 @@ seiyaku FaultChild {
         let artifact =
             iroha_data_model::smart_contract::ContractArtifactId::for_address(&child, hash)
                 .unwrap();
-        let ordinal = view
-            .world()
-            .contract_manifests()
-            .get(&artifact)
-            .unwrap()
-            .entrypoints
-            .as_ref()
-            .unwrap()
-            .iter()
-            .position(|entry| entry.name == "divide")
-            .unwrap() as u32;
+        let ordinal = u32::try_from(
+            view.world()
+                .contract_manifests()
+                .get(&artifact)
+                .unwrap()
+                .entrypoints
+                .as_ref()
+                .unwrap()
+                .iter()
+                .position(|entry| entry.name == "divide")
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         (hash, ordinal)
     };
     let (outcome, vm, overlay, _) = dispatch_call_contract_syscall(
@@ -510,9 +526,8 @@ seiyaku FaultChild {
         1_000_000,
     );
     let error = outcome.expect_err("division by zero must trap after the staged write");
-    assert_eq!(
-        error.as_unmetered(),
-        &ivm::VMError::NumericFault(ivm::numeric::NumericFaultV1::DivisionByZero)
+    assert!(
+        matches!((&(error.as_unmetered()), &(ivm::VMError::NumericFault(ivm::numeric::NumericFaultV1::DivisionByZero))), (ivm::VMError::NumericFault(__actual_0), ivm::VMError::NumericFault(__expected_0)) if __actual_0 == __expected_0)
     );
     let ValidationFail::IvmFault(fault) = crate::execution_attempt::expect_completed_rejection(
         crate::smartcontracts::ivm::map_vm_error_with_context_to_validation(&vm, error),

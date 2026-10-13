@@ -145,6 +145,75 @@ fun SccpTairaXorWallet.sendTopUpTons(
     return net.send(from, genericMsg);
 }
 
+fun SccpTairaXorWallet.sendSccpRecoveryDispatch(
+    self,
+    from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    nonce: uint64,
+    count: uint16,
+    amount: uint96,
+    queryId: uint64,
+    response: address,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SccpRecoveryDispatch {
+            operationId,
+            stage,
+            attempt,
+            nonce,
+            count,
+            amount,
+            queryId,
+            response,
+        },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun SccpTairaXorWallet.sendSccpRecoveryConfirm(
+    self,
+    from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    queryId: uint64,
+    response: address,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SccpRecoveryConfirm { operationId, stage, attempt, queryId, response },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun SccpTairaXorWallet.sendSccpRecoveryDrop(
+    self,
+    from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    queryId: uint64,
+    response: address,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: SccpRecoveryDrop { operationId, stage, attempt, queryId, response },
+    });
+    return net.send(from, genericMsg);
+}
+
 /// Send message to the contract with a custom body cell
 fun SccpTairaXorWallet.sendAny(
     self,

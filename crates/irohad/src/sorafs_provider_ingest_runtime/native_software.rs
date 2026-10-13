@@ -20,7 +20,7 @@ use std::{
 use zeroize::Zeroizing;
 
 /// Prepared credential custody; State is bound once after authenticated replay and before work starts.
-pub(crate) struct NativeProducerV1 {
+pub struct NativeProducerV1 {
     resolver: Arc<NativeResolverV1>,
     checkpoint: Arc<NativeCheckpointV1>,
     source: Arc<NativeAssignedSourceV1>,

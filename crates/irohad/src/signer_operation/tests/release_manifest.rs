@@ -76,8 +76,10 @@ fn software_release_manifest_signing_commits_and_recovers_without_retrying_the_k
         fixture.coordinator.record.clone(),
         fixture.coordinator.trust.clone(),
         Some(source.clone()),
-        expected(),
-        intent(SignerOperationActionV1::Sign).previous_audit,
+        SignerReleaseManifestReviewV1 {
+            expected: expected(),
+            previous_audit: intent(SignerOperationActionV1::Sign).previous_audit,
+        },
         SignerReceiptJournalV1::open_test(&canonical, SignerReceiptPurposeV1::ReleaseManifest)
             .unwrap(),
     )
@@ -134,8 +136,10 @@ fn software_release_manifest_assembly_refuses_unreviewed_purpose_and_absent_stat
             record.clone(),
             trust.clone(),
             None,
-            expected(),
-            intent(SignerOperationActionV1::Sign).previous_audit,
+            SignerReleaseManifestReviewV1 {
+                expected: expected(),
+                previous_audit: intent(SignerOperationActionV1::Sign).previous_audit
+            },
             journal(),
         ),
         Err(SignerReleaseManifestErrorV1::Operation(
@@ -151,8 +155,10 @@ fn software_release_manifest_assembly_refuses_unreviewed_purpose_and_absent_stat
             record.clone(),
             trust.clone(),
             Some(source.clone()),
-            expected(),
-            intent(SignerOperationActionV1::Sign).previous_audit,
+            SignerReleaseManifestReviewV1 {
+                expected: expected(),
+                previous_audit: intent(SignerOperationActionV1::Sign).previous_audit
+            },
             journal(),
         ),
         Err(SignerReleaseManifestErrorV1::Receipt(
@@ -168,8 +174,10 @@ fn software_release_manifest_assembly_refuses_unreviewed_purpose_and_absent_stat
             record,
             trust,
             Some(source.clone()),
-            wrong_review,
-            intent(SignerOperationActionV1::Sign).previous_audit,
+            SignerReleaseManifestReviewV1 {
+                expected: wrong_review,
+                previous_audit: intent(SignerOperationActionV1::Sign).previous_audit
+            },
             journal(),
         ),
         Err(SignerReleaseManifestErrorV1::Receipt(
@@ -183,8 +191,10 @@ fn software_release_manifest_assembly_refuses_unreviewed_purpose_and_absent_stat
             fixture.coordinator.record.clone(),
             fixture.coordinator.trust.clone(),
             Some(source.clone()),
-            expected(),
-            intent(SignerOperationActionV1::Sign).previous_audit,
+            SignerReleaseManifestReviewV1 {
+                expected: expected(),
+                previous_audit: intent(SignerOperationActionV1::Sign).previous_audit
+            },
             SignerReceiptJournalV1::open_test(&canonical, SignerReceiptPurposeV1::StreamToken)
                 .unwrap(),
         ),

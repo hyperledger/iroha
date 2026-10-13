@@ -934,6 +934,11 @@ record!(
     "iroha_data_model::isi::sccp::InitializeSccpV1"
 );
 record!(
+    sccp_prove_sccp_forged_mint_v1,
+    crate::isi::sccp::ProveSccpForgedMintV1,
+    "iroha_data_model::isi::sccp::ProveSccpForgedMintV1"
+);
+record!(
     sccp_record_sccp_message,
     crate::isi::sccp::RecordSccpMessage,
     "iroha_data_model::isi::sccp::RecordSccpMessage"
@@ -1665,3 +1670,14 @@ record!(
     "iroha_data_model::isi::staking::RegisterPublicLaneCandidate"
 );
 }
+
+record!(
+    sccp_accept_sccp_pause_panel_seat_v1,
+    crate::isi::sccp::AcceptSccpPausePanelSeatV1,
+    "iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1"
+);
+record!(
+    sccp_endorse_sccp_fast_pause_v1,
+    crate::isi::sccp::EndorseSccpFastPauseV1,
+    "iroha_data_model::isi::sccp::EndorseSccpFastPauseV1"
+);

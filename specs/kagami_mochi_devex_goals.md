@@ -293,6 +293,24 @@ leave a recoverable unsigned request, but cannot authorize signing or dispatch. 
 path no longer probes the same immutable original evidence endpoint a second time. Profile,
 source, authorization, wallet, fee and finite-clock fences remain independent; no receipt
 survives the call or replaces current signing authority.
+Each managed operation stores its dispatch, closure and attempt metadata in one bounded
+canonical Norito `operation.nrt` image. Logical component frames retain their 16 KiB limits
+and staged semantic decode order. The image has its own finite aggregate-frame bound,
+intersects inherited decoder limits, and retains the 64-row and cumulative attempt bounds.
+Pending Original bytes retain their existing purpose-specific bound.
+Updates compare the exact previous image and read back the durable replacement under the
+existing purpose lock. Native attempt and wallet transaction directories retain their own
+identity, inventory, permissions and current-authority checks.
+A new fixed operation directory atomically publishes its explicit unselected metadata state.
+Initial publication durably retains the exact pending Original bytes before creating
+`original.nrt`, then promotes the metadata to its published-Original state. Explicit producer
+recovery completes only that pending publication before selecting fresh inputs; read-only
+operations cannot complete it. An existing operation directory with missing metadata or
+a lost published Original refuses recovery. This does not detect deletion of the entire child
+directory without a retained parent commitment.
+Enrollment reservation and its initial metadata image publish together. Operation inventories
+reject the retired scattered metadata files; there is no fallback or migration path. Native
+crash, corruption, resource-bound and unchanged latency acceptance remain required for this layout.
 Managed environments likewise publish keys, signed genesis, final-path configurations
 and their sole generation manifest together. Only an unpublished stage may be discarded
 under exclusive operation ownership. A published incomplete generation fails closed;
@@ -444,13 +462,15 @@ exact body's immutable Original already checked by the enclosing snapshot entry 
 Persistent source failure at exit supersedes any ordinary inner result; a change restored
 entirely between observations may be unseen. Parser-local and wallet callback checks retain
 their fresh Original reads, as do active budgets, unmatched snapshots and standalone bodies.
-The same graph-only borrow shares native ancestry for scope evidence. Root inventory and body
-suffix checks remain fresh, with complete root and immutable snapshot checks at both outer
-boundaries. Exact native handle ownership determines prefix sharing; reopening the same path
-does not qualify. All identity, semantic, predecessor and fee comparisons remain independent.
-Persistent source failures still supersede ordinary inner results; a prefix change restored
-between observations can be unseen. Active budgets and parser-local checks retain their
-independent ancestry checks.
+Scope evidence can share native ancestry within the complete graph traversal or an already-owned,
+callback-free parser-local census. The parser-local census keeps both fresh Original reads;
+it does not borrow graph-only Original coverage. Root inventory and body suffix checks remain
+fresh, with complete root and immutable snapshot checks at both outer boundaries. Exact snapshot
+and native handle ownership determine prefix sharing; reopening the same path does not qualify.
+All identity, semantic, predecessor and fee comparisons remain independent. Persistent source
+failures still supersede ordinary inner results; a prefix change restored between observations
+can be unseen. Active budgets, missing or foreign snapshot owners and unmatched native prefixes
+retain their independent ancestry checks.
 Completing an already-reserved successor that expired during downtime consumes that turn's one
 replacement claim; attempting another body in the same turn returns `ReplacementLimit`. A later
 fresh invocation may advance that unused body. Missing anchored local material refuses without

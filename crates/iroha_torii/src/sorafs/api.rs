@@ -1,4 +1,3 @@
-#![cfg(feature = "app_api")]
 #![allow(clippy::result_large_err)]
 //! HTTP handlers for SoraFS discovery endpoints.
 mod stream_token_body;
@@ -7908,13 +7907,14 @@ fn verify_governance_car_segment_artifacts(
         Some(&car_archive_blake3),
         "governance CAR archive",
     )?;
-    let stats = CarVerifier::verify_canonical_car_with_plan(&plan, &car_bytes).map_err(|err| {
-        warn!(error = %err, "retained governance CAR failed canonical verification");
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{context} retained archive is not canonical"),
-        )
-    })?;
+    let verification_stats = CarVerifier::verify_canonical_car_with_plan(&plan, &car_bytes)
+        .map_err(|err| {
+            warn!(error = %err, "retained governance CAR failed canonical verification");
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{context} retained archive is not canonical"),
+            )
+        })?;
     let expected_roots = segment
         .get("root_cids_hex")
         .and_then(Value::as_array)
@@ -7924,22 +7924,23 @@ fn verify_governance_car_segment_artifacts(
                 format!("{context} retained root CID inventory is missing"),
             )
         })?;
-    let actual_roots = stats
+    let actual_roots = verification_stats
         .root_cids
         .iter()
         .map(|cid| Value::from(hex::encode(cid)))
         .collect::<Vec<_>>();
-    if stats.car_size != car_size
-        || stats.car_archive_digest.to_hex().as_str() != car_archive_blake3
-        || stats.car_payload_digest.to_hex().as_str()
+    if verification_stats.car_size != car_size
+        || verification_stats.car_archive_digest.to_hex().as_str() != car_archive_blake3
+        || verification_stats.car_payload_digest.to_hex().as_str()
             != required_map_string(segment, "car_payload_blake3", context)?
-        || hex::encode(&stats.car_cid) != required_map_string(segment, "car_cid_hex", context)?
+        || hex::encode(&verification_stats.car_cid)
+            != required_map_string(segment, "car_cid_hex", context)?
         || actual_roots.as_slice() != expected_roots.as_slice()
-        || stats.dag_codec != required_map_u64(segment, "dag_codec", context)?
-        || u64::try_from(stats.chunk_count).ok()
+        || verification_stats.dag_codec != required_map_u64(segment, "dag_codec", context)?
+        || u64::try_from(verification_stats.chunk_count).ok()
             != Some(required_map_u64(segment, "chunk_count", context)?)
-        || stats.payload_bytes != required_map_u64(segment, "payload_bytes", context)?
-        || stats.chunk_profile != ChunkProfile::DEFAULT
+        || verification_stats.payload_bytes != required_map_u64(segment, "payload_bytes", context)?
+        || verification_stats.chunk_profile != ChunkProfile::DEFAULT
     {
         return Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -8543,17 +8544,13 @@ fn normalize_governance_dag_lookup_hex(raw: &str, field: &str) -> Result<String,
             format!("{field} must not be empty"),
         ));
     }
-    if trimmed.len() % 2 != 0 {
+    if !trimmed.len().is_multiple_of(2) {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             format!("{field} must have an even number of hexadecimal characters"),
         ));
     }
-    if !trimmed
-        .as_bytes()
-        .iter()
-        .all(|byte| byte.is_ascii_hexdigit())
-    {
+    if !trimmed.as_bytes().iter().all(u8::is_ascii_hexdigit) {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
             format!("{field} must be hexadecimal"),
@@ -10551,7 +10548,7 @@ fn require_reputation_canonical_auth(
     body: &[u8],
 ) -> Result<(), Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -10568,9 +10565,7 @@ fn require_reputation_canonical_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -10992,6 +10987,10 @@ pub(crate) async fn handle_get_sorafs_reputation_events_stream(
     .await;
     finalize_reputation_route_response(response)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Axum extracts state, authentication inputs, websocket upgrade and body independently."
+)]
 pub(crate) async fn handle_get_sorafs_reputation_events_ws(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
@@ -12109,38 +12108,44 @@ pub(crate) async fn handle_get_sorafs_moderation_ballot(
         Ok(snapshot) => snapshot,
         Err(response) => return response,
     };
-    match snapshot.case(&case_id, &round_id) {
-        Some(record) => {
+    snapshot.case(&case_id, &round_id).map_or_else(
+        || {
+            json_error(
+                StatusCode::NOT_FOUND,
+                format!("SoraFS moderation ballot `{case_id}` round `{round_id}` was not found"),
+            )
+        },
+        |record| {
             let (record, projection_arrays_truncated) =
                 bounded_finalized_moderation_case_projection(record, limit);
-            match json::to_value(&record) {
-                Ok(projection) => JsonBody(json_object(vec![
-                    json_entry("schema", Value::from("sorafs.moderation.finalized_case.v1")),
-                    json_entry("source", Value::from("finalized_chain")),
-                    json_entry("finalized_height", Value::from(snapshot.finalized_height)),
-                    json_entry(
-                        "finalized_block_hash_hex",
-                        Value::from(hex::encode(snapshot.finalized_block_hash)),
-                    ),
-                    json_entry("limit", limit as u64),
-                    json_entry(
-                        "projection_arrays_truncated",
-                        Value::from(projection_arrays_truncated),
-                    ),
-                    json_entry("case", projection),
-                ]))
-                .into_response(),
-                Err(_) => json_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "failed to encode finalized SoraFS moderation case",
-                ),
-            }
-        }
-        None => json_error(
-            StatusCode::NOT_FOUND,
-            format!("SoraFS moderation ballot `{case_id}` round `{round_id}` was not found"),
-        ),
-    }
+            json::to_value(&record).map_or_else(
+                |_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "failed to encode finalized SoraFS moderation case",
+                    )
+                },
+                |projection| {
+                    JsonBody(json_object(vec![
+                        json_entry("schema", Value::from("sorafs.moderation.finalized_case.v1")),
+                        json_entry("source", Value::from("finalized_chain")),
+                        json_entry("finalized_height", Value::from(snapshot.finalized_height)),
+                        json_entry(
+                            "finalized_block_hash_hex",
+                            Value::from(hex::encode(snapshot.finalized_block_hash)),
+                        ),
+                        json_entry("limit", limit as u64),
+                        json_entry(
+                            "projection_arrays_truncated",
+                            Value::from(projection_arrays_truncated),
+                        ),
+                        json_entry("case", projection),
+                    ]))
+                    .into_response()
+                },
+            )
+        },
+    )
 }
 fn bounded_finalized_moderation_case_projection(
     record: &sorafs_node::moderation_orchestrator::ModerationFinalizedCaseViewV1,
@@ -12320,7 +12325,9 @@ pub(crate) async fn handle_get_sorafs_moderation_ballot_events(
             );
         }
     };
-    let next_after = events.last().map(|event| event.cursor());
+    let next_after = events
+        .last()
+        .map(sorafs_node::moderation_orchestrator::ModerationFinalizedEventV1::cursor);
     let next_after = match next_after.as_ref().map(json::to_value).transpose() {
         Ok(Some(cursor)) => cursor,
         Ok(None) => Value::Null,
@@ -12852,7 +12859,7 @@ pub(crate) async fn handle_post_sorafs_moderation_quarantine_appeal_handoff(
             urgency: Some(request.urgency.clone()),
             panel_size: Some(request.panel_size),
         },
-        &config,
+        config,
     ) {
         Ok(input) => input,
         Err(err) => return json_error(StatusCode::BAD_REQUEST, err),
@@ -13390,7 +13397,7 @@ fn require_moderation_request_auth(
     expected_account: Option<&AccountId>,
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -13401,9 +13408,7 @@ fn require_moderation_request_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         expected_account,
         authentication_owner.allocation_context(),
     ) {
@@ -13511,7 +13516,7 @@ fn require_appeal_finance_request_auth(
     body: &[u8],
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -13522,9 +13527,7 @@ fn require_appeal_finance_request_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -13553,7 +13556,7 @@ fn require_transparency_source_request_auth(
     body: &[u8],
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -13564,9 +13567,7 @@ fn require_transparency_source_request_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -14858,7 +14859,7 @@ pub(crate) async fn run_sorafs_appeal_finance_forwarder_scan(
                 continue;
             }
         };
-        let exact_transaction_applied = signed_transaction.as_ref().and_then(|_| {
+        let exact_transaction_applied = signed_transaction.as_ref().and({
             if let Some(AppealFinanceAuthoritativeTransactionOutcomeV1::Applied {
                 block_height,
                 block_hash,
@@ -15080,8 +15081,9 @@ pub(crate) async fn run_sorafs_appeal_finance_forwarder_scan(
                         continue;
                     }
                 };
-                let signed = sign_sorafs_appeal_finance_delivery(state, &signer, &claimed).await;
-                let Some(bytes) = signed else {
+                let signed_payload =
+                    sign_sorafs_appeal_finance_delivery(state, &signer, &claimed).await;
+                let Some(bytes) = signed_payload else {
                     match mark_appeal_finance_signing_failed(
                         submitter,
                         delivery.operation_id,
@@ -15758,7 +15760,7 @@ fn appeal_finance_outbox_policy_status(
                 return AppealFinanceOutboxPolicyStatusV1::InvalidContext;
             };
             if context.settlement.refund_xor.is_zero()
-                || &request.authority != &context.expected.payer_account
+                || request.authority != context.expected.payer_account
                 || record.remaining_amount != context.settlement.refund_xor
                 || record.id != *instruction.escrow_id()
                 || record.remaining_amount != *instruction.expected_remaining_amount()
@@ -15913,10 +15915,7 @@ fn enqueue_appeal_finance_followup(
     if !matches!(request.operation, AppealFinanceOperationV1::Drawdown(_)) {
         return Some(false);
     }
-    let Some(context) = decode_appeal_finance_outbox_context(&request.reconciliation_context)
-    else {
-        return None;
-    };
+    let context = decode_appeal_finance_outbox_context(&request.reconciliation_context)?;
     let Ok(verdict) = appeal_verdict_from_request(&context.outcome) else {
         return None;
     };
@@ -19625,11 +19624,12 @@ fn appeal_finance_deposit_expectation_with_policy(
     }
     let evidence_hashes = appeal_finance_evidence_hashes(req.evidence_hashes_hex.as_deref())?;
     let escrow_id = appeal_finance_deposit_escrow_id(
-        &case_id,
-        round_id.as_deref(),
-        &payer_account,
-        &destination_account,
-        release_authority_account.as_ref(),
+        (&case_id, round_id.as_deref()),
+        (
+            &payer_account,
+            &destination_account,
+            release_authority_account.as_ref(),
+        ),
         &asset_definition_id,
         &deposit_xor,
         req.expires_at_ms,
@@ -19762,14 +19762,15 @@ fn appeal_finance_deposit_settlement_receipt(
     let receipt_id = appeal_finance_settlement_receipt_id(
         expected,
         appeal_finance_policy_digest,
-        verdict,
-        panel_size,
+        (verdict, panel_size),
         step,
         tx_hash_hex,
         &reconciliation.reconciliation_digest_hex,
-        finalized_block_height,
-        finalized_block_hash,
-        generated_at_unix_ms,
+        (
+            finalized_block_height,
+            finalized_block_hash,
+            generated_at_unix_ms,
+        ),
     );
     let xor_quantity = |field: &str, value: &Quantity| {
         XorQuantity::try_from_quantity(value.clone())
@@ -19825,14 +19826,11 @@ fn appeal_finance_manifest_outcome_from_verdict(
 fn appeal_finance_settlement_receipt_id(
     expected: &AppealFinanceDepositExpectation,
     appeal_finance_policy_digest: [u8; 32],
-    verdict: AppealVerdict,
-    panel_size: u32,
+    (verdict, panel_size): (AppealVerdict, u32),
     step: &AppealFinanceSettlementStep,
     tx_hash_hex: &str,
     reconciliation_digest_hex: &str,
-    finalized_block_height: u64,
-    finalized_block_hash: [u8; 32],
-    generated_at_unix_ms: u64,
+    (finalized_block_height, finalized_block_hash, generated_at_unix_ms): (u64, [u8; 32], u64),
 ) -> [u8; 16] {
     let mut material = String::from("sorafs.appeal_finance.settlement_receipt.id.v1\n");
     push_digest_field(&mut material, "case_id", &expected.case_id);
@@ -20394,9 +20392,7 @@ fn required_appeal_finance_label(field: &'static str, raw: &str) -> Result<Strin
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         Err(format!("SoraFS appeal finance `{field}` must not be empty"))
-    } else if trimmed.len() > MAX_LABEL_BYTES
-        || trimmed.chars().any(|character| character.is_control())
-    {
+    } else if trimmed.len() > MAX_LABEL_BYTES || trimmed.chars().any(char::is_control) {
         Err(format!(
             "SoraFS appeal finance `{field}` must be at most {MAX_LABEL_BYTES} bytes without control characters"
         ))
@@ -20453,11 +20449,12 @@ fn appeal_finance_deposit_expectation_is_canonical(
     }
     expected.escrow_id
         == appeal_finance_deposit_escrow_id(
-            &expected.case_id,
-            expected.round_id.as_deref(),
-            &expected.payer_account,
-            &expected.destination_account,
-            expected.release_authority_account.as_ref(),
+            (&expected.case_id, expected.round_id.as_deref()),
+            (
+                &expected.payer_account,
+                &expected.destination_account,
+                expected.release_authority_account.as_ref(),
+            ),
             &expected.asset_definition_id,
             &expected.deposit_xor,
             expected.expires_at_ms,
@@ -20545,11 +20542,12 @@ fn appeal_finance_deposit_record_visible_to(
         || record.release_authority.as_ref() == Some(account)
 }
 fn appeal_finance_deposit_escrow_id(
-    case_id: &str,
-    round_id: Option<&str>,
-    payer_account: &AccountId,
-    destination_account: &AccountId,
-    release_authority_account: Option<&AccountId>,
+    (case_id, round_id): (&str, Option<&str>),
+    (payer_account, destination_account, release_authority_account): (
+        &AccountId,
+        &AccountId,
+        Option<&AccountId>,
+    ),
     asset_definition_id: &AssetDefinitionId,
     deposit_xor: &Quantity,
     expires_at_ms: Option<u64>,
@@ -23068,7 +23066,7 @@ fn reputation_weights_etag(snapshot: &ReputationSnapshotV1) -> String {
     let weights_version = [snapshot.weights.version];
     let por_success = snapshot.weights.por_success_bps.to_le_bytes();
     let pdp_success = snapshot.weights.pdp_success_bps.to_le_bytes();
-    let potr_success = snapshot.weights.potr_success_bps.to_le_bytes();
+    let time_sampling_success = snapshot.weights.potr_success_bps.to_le_bytes();
     let latency = snapshot.weights.latency_bps.to_le_bytes();
     let dispute = snapshot.weights.dispute_bps.to_le_bytes();
     let token_violation = snapshot.weights.token_violation_bps.to_le_bytes();
@@ -23083,7 +23081,7 @@ fn reputation_weights_etag(snapshot: &ReputationSnapshotV1) -> String {
             weights_version.as_ref(),
             por_success.as_ref(),
             pdp_success.as_ref(),
-            potr_success.as_ref(),
+            time_sampling_success.as_ref(),
             latency.as_ref(),
             dispute.as_ref(),
             token_violation.as_ref(),
@@ -23205,10 +23203,7 @@ fn reputation_events_json(
     events: &[ReputationSnapshotEventV1],
 ) -> Result<Value, String> {
     let mut root = Map::new();
-    root.insert(
-        "since".into(),
-        since.map_or(Value::Null, |value| Value::from(value)),
-    );
+    root.insert("since".into(), since.map_or(Value::Null, Value::from));
     root.insert("limit".into(), Value::from(limit as u64));
     root.insert("count".into(), Value::from(events.len() as u64));
     root.insert(
@@ -24096,7 +24091,7 @@ pub(crate) async fn handle_get_sorafs_storage_manifest(
         let file_count = stored.files().len();
         let offset = query
             .offset
-            .map(|offset| usize::try_from(offset).unwrap_or(usize::MAX))
+            .map(|value| usize::try_from(value).unwrap_or(usize::MAX))
             .unwrap_or(0)
             .min(file_count);
         let limit = query
@@ -24202,7 +24197,7 @@ pub(crate) async fn handle_get_sorafs_storage_plan(
         let file_count = stored.files().len();
         let offset = query
             .offset
-            .map(|offset| usize::try_from(offset).unwrap_or(usize::MAX))
+            .map(|value| usize::try_from(value).unwrap_or(usize::MAX))
             .unwrap_or(0);
         let file_offset = offset.min(file_count);
         let files = stored
@@ -24479,7 +24474,7 @@ pub(crate) async fn handle_get_sorafs_replication_orders(
     let limit = normalize_limit(query.limit);
     let requested_offset = query
         .offset
-        .and_then(|offset| usize::try_from(offset).ok())
+        .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(0);
     let (attestation, page) = match pin_projection_with_attestation(&state, |world| {
         collect_replication_order_page(world, requested_offset, limit, |record| {
@@ -24499,7 +24494,7 @@ pub(crate) async fn handle_get_sorafs_replication_orders(
     let order_values = match page
         .orders
         .iter()
-        .map(|order| order.to_json())
+        .map(super::registry::RegistryReplicationOrder::to_json)
         .collect::<Result<Vec<_>, _>>()
     {
         Ok(values) => values,
@@ -24831,13 +24826,20 @@ async fn validate_local_gateway_manifest(
     .await
 }
 
+#[cfg_attr(
+    test,
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "tests use loopback when remote headers are absent; production rejects the missing address"
+    )
+)]
 fn gateway_request_remote(headers: &HeaderMap) -> Result<SocketAddr, Response> {
     if let Some(ip) = crate::limits::effective_remote_ip(headers, None) {
         return Ok(SocketAddr::new(ip, 0));
     }
     #[cfg(test)]
     {
-        return Ok(SocketAddr::from(([127, 0, 0, 1], 0)));
+        Ok(SocketAddr::from(([127, 0, 0, 1], 0)))
     }
     #[cfg(not(test))]
     Err(json_error(
@@ -26664,7 +26666,7 @@ mod gateway_policy_violation_tests {
             let status = obj
                 .get("status")
                 .and_then(Value::as_u64)
-                .and_then(|code| u16::try_from(code).ok())
+                .and_then(|value| u16::try_from(value).ok())
                 .expect("policy matrix entry missing status");
             let error = obj.get("error").and_then(Value::as_str).map(str::to_owned);
             entries.insert(id.to_string(), (status, error));
@@ -28628,14 +28630,12 @@ pub(crate) async fn handle_post_sorafs_pdp_proof(
     // material. Even invalid base64 or an oversized proof is represented by a
     // bounded malformed byte slice so the protocol can durably reject the
     // named challenge and enqueue its authoritative repair.
-    let proof_bytes = match decode_bounded_pdp_base64(
+    let proof_bytes = decode_bounded_pdp_base64(
         &req.proof_b64,
         PDP_PROOF_MAX_CANONICAL_BYTES_V1,
         "proof_b64",
-    ) {
-        Ok(bytes) => bytes,
-        Err(_) => Vec::new(),
-    };
+    )
+    .unwrap_or_default();
     match protocol.submit_proof_for_challenge_bytes(
         challenge_id,
         &proof_bytes,
@@ -28714,7 +28714,7 @@ pub(crate) async fn handle_post_sorafs_pdp_export(
         Ok(statuses) => {
             let next_sequence = statuses
                 .last()
-                .map_or(req.after_sequence.unwrap_or(0), |status| status.sequence);
+                .map_or_else(|| req.after_sequence.unwrap_or(0), |status| status.sequence);
             (
                 StatusCode::OK,
                 JsonBody(json_object(vec![
@@ -29003,13 +29003,13 @@ pub(crate) async fn handle_post_sorafs_proof_stream(
                 expected_finalized_cursor,
             );
             let finalized = query.execute(&state.state.query_view());
-            let response = match finalized {
+
+            match finalized {
                 Ok(finalized) => {
                     render_finalized_proof_stream_response(&state, &finalized, &request)
                 }
                 Err(error) => proof_outcome_query_error_response(error, "potr"),
-            };
-            response
+            }
         }
         ProofStreamKind::Pdp => {
             let challenge_id = request
@@ -29030,13 +29030,13 @@ pub(crate) async fn handle_post_sorafs_proof_stream(
                 expected_finalized_cursor,
             );
             let finalized = query.execute(&state.state.query_view());
-            let response = match finalized {
+
+            match finalized {
                 Ok(finalized) => {
                     render_finalized_proof_stream_response(&state, &finalized, &request)
                 }
                 Err(error) => proof_outcome_query_error_response(error, "pdp"),
-            };
-            response
+            }
         }
     }
 }
@@ -31040,7 +31040,7 @@ fn admission_error_reason(err: &AdvertError) -> &'static str {
         AdvertError::ReplayCheckpoint(_) => "replay_checkpoint",
         AdvertError::UnknownCapabilities { .. } => "unknown_capabilities",
         AdvertError::AdmissionMissing { .. } => "admission_missing",
-        AdvertError::AdmissionFailed { error, .. } => match error {
+        AdvertError::AdmissionFailed { error, .. } => match error.as_ref() {
             Admission::NetworkMismatch { .. } => "network_mismatch",
             Admission::Digest(_) => "digest_error",
             Admission::BodyMismatch => "body_mismatch",
@@ -31354,10 +31354,10 @@ mod advert_tests {
         api_test_response_json(response).await
     }
 
-    fn api_test_header_str<'a>(
-        headers: &'a HeaderMap,
+    fn api_test_header_str(
+        headers: &HeaderMap,
         name: impl axum::http::header::AsHeaderName,
-    ) -> Option<&'a str> {
+    ) -> Option<&str> {
         headers.get(name).and_then(|value| value.to_str().ok())
     }
 
@@ -36788,7 +36788,7 @@ mod advert_tests {
         .expect("canonical authenticated PoR request");
         let response = handle_post_sorafs_proof_stream(State(state), JsonOnly(request)).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let metrics = telemetry.metrics().await;
+        let metrics = telemetry.metrics();
         assert_eq!(
             metrics
                 .torii_sorafs_proof_stream_events_total
@@ -37105,8 +37105,10 @@ mod advert_tests {
         let chunker_handle = default_chunker_handle();
         let chunk_digest = [0xAA; 32];
         let issuer = test_account();
-        let mut policy = RegistryPinPolicy::default();
-        policy.retention_epoch = 10;
+        let policy = RegistryPinPolicy {
+            retention_epoch: 10,
+            ..Default::default()
+        };
         let content_length = 1024;
         let amount = pricing
             .public_pin_fee(
@@ -37716,7 +37718,7 @@ mod advert_tests {
                 CapabilityType::ToriiGateway,
                 CapabilityType::ChunkRangeFetch,
             ],
-            &[AdvertWarning::MissingTransportHints],
+            &[AdvertWarning::TransportHints],
         )
         .expect("advert serialises");
         let obj = json.as_object().expect("top-level object");
@@ -37985,11 +37987,9 @@ mod advert_tests {
         stream_token_issuer_for_tests_with_mode(ApiTestStreamTokenSignerMode::Sign, provider, 1)
     }
     fn test_stream_token_operator()
-    -> Option<Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey>> {
-        Some(Extension(
-            crate::operator_signatures::AuthenticatedOperatorPublicKey(
-                checked_test_keypair(0x73).public_key().clone(),
-            ),
+    -> Extension<crate::operator_signatures::AuthenticatedOperatorPublicKey> {
+        Extension(crate::operator_signatures::AuthenticatedOperatorPublicKey(
+            checked_test_keypair(0x73).public_key().clone(),
         ))
     }
     async fn handle_post_sorafs_storage_token(
@@ -37997,7 +37997,7 @@ mod advert_tests {
         headers: HeaderMap,
         request: JsonOnly<StreamTokenRequestDto>,
     ) -> Response {
-        api_test_route!(post_storage_token_authenticated; test_stream_token_operator(); state; headers; request)
+        api_test_route!(post_storage_token_authenticated; Some(test_stream_token_operator()); state; headers; request)
     }
     fn token_enabled_state() -> (SharedAppState, TempDir, String) {
         let app = mk_app_state_for_tests();
@@ -38155,8 +38155,10 @@ mod advert_tests {
 
     fn manifest_for_plan(seed: u8, payload: &[u8], plan: &CarBuildPlan) -> ManifestV1 {
         let car_stats = canonical_fixture_car_stats(plan, payload);
-        let mut pin_policy = PinPolicy::default();
-        pin_policy.retention_epoch = 10;
+        let pin_policy = PinPolicy {
+            retention_epoch: 10,
+            ..Default::default()
+        };
         let manifest = ManifestBuilder::new()
             .root_cid(car_stats.root_cids[0].clone())
             .dag_codec(DagCodecId(car_stats.dag_codec))
@@ -39221,11 +39223,17 @@ mod advert_tests {
     }
     #[tokio::test]
     async fn site_binding_prefers_authoritative_soracloud_app_state() {
-        assert_authoritative_site_binding(AuthoritativeSiteBindingCase::BoundService).await;
+        Box::pin(assert_authoritative_site_binding(
+            AuthoritativeSiteBindingCase::BoundService,
+        ))
+        .await;
     }
     #[tokio::test]
     async fn authoritative_root_ignores_public_services_without_static_site_binding_config() {
-        assert_authoritative_site_binding(AuthoritativeSiteBindingCase::UnboundService).await;
+        Box::pin(assert_authoritative_site_binding(
+            AuthoritativeSiteBindingCase::UnboundService,
+        ))
+        .await;
     }
 
     #[test]
@@ -40330,7 +40338,7 @@ mod advert_tests {
             "",
             TELEMETRY_ENDPOINT_CAR_RANGE,
         ];
-        let metrics_before = context.app.telemetry.metrics().await;
+        let metrics_before = context.app.telemetry.metrics();
         let counter_before = metrics_before
             .torii_sorafs_gateway_refusals_total
             .with_label_values(&label_values)
@@ -40349,7 +40357,7 @@ mod advert_tests {
 
         let response = context.car_range(headers, 8090).await;
         assert_eq!(response.status(), StatusCode::PRECONDITION_REQUIRED);
-        let metrics_after = context.app.telemetry.metrics().await;
+        let metrics_after = context.app.telemetry.metrics();
         let counter_after = metrics_after
             .torii_sorafs_gateway_refusals_total
             .with_label_values(&label_values)
@@ -41167,7 +41175,7 @@ mod advert_tests {
         let chunk_digest_hex = hex::encode(chunk_record.digest);
         let token_base64 = issue_token_base64(&context, TokenOverrides::default()).await;
         let (car_requests_before, car_bytes_before, chunk_requests_before, chunk_bytes_before) = {
-            let metrics = context.app.telemetry.metrics().await;
+            let metrics = context.app.telemetry.metrics();
             let car_requests = metrics
                 .torii_sorafs_chunk_range_requests_total
                 .with_label_values(&[TELEMETRY_ENDPOINT_CAR_RANGE, "206"])
@@ -41226,7 +41234,7 @@ mod advert_tests {
         assert_eq!(chunk_response.status(), StatusCode::OK);
         let chunk_body_bytes = api_test_response_body(chunk_response).await;
         let chunk_payload_len = chunk_body_bytes.len() as u64;
-        let metrics_after = context.app.telemetry.metrics().await;
+        let metrics_after = context.app.telemetry.metrics();
         let car_requests_after = metrics_after
             .torii_sorafs_chunk_range_requests_total
             .with_label_values(&[TELEMETRY_ENDPOINT_CAR_RANGE, "206"])
@@ -41311,7 +41319,7 @@ mod advert_tests {
             Bytes::from(norito::to_bytes(fixture.advert()).expect("serialize provider advert"));
         let response = handle_post_sorafs_provider_advert(State(app.clone()), advert_bytes).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let metrics = app.telemetry.metrics().await;
+        let metrics = app.telemetry.metrics();
         assert_eq!(
             metrics
                 .torii_sorafs_provider_range_capability_total
@@ -41368,7 +41376,7 @@ mod advert_tests {
         let context = token_test_context_with_payload(payload);
         let manifest = context.manifest();
         let requested_bytes = manifest.content_length();
-        let baseline_metrics = context.app.telemetry.metrics().await;
+        let baseline_metrics = context.app.telemetry.metrics();
         let baseline_concurrency = baseline_metrics
             .torii_sorafs_range_fetch_concurrency_current
             .get();
@@ -41412,7 +41420,7 @@ mod advert_tests {
         .await
         .expect_err("quota enforcement should reject second request");
         assert_eq!(quota_retry.status(), StatusCode::TOO_MANY_REQUESTS);
-        let quota_metrics = context.app.telemetry.metrics().await;
+        let quota_metrics = context.app.telemetry.metrics();
         assert_eq!(
             quota_metrics
                 .torii_sorafs_range_fetch_throttle_events_total
@@ -41441,7 +41449,7 @@ mod advert_tests {
         .await
         .expect_err("rate limit should reject oversized fetch");
         assert_eq!(rate_error.status(), StatusCode::TOO_MANY_REQUESTS);
-        let final_metrics = context.app.telemetry.metrics().await;
+        let final_metrics = context.app.telemetry.metrics();
         assert_eq!(
             final_metrics
                 .torii_sorafs_range_fetch_throttle_events_total

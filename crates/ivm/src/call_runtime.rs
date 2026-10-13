@@ -521,13 +521,16 @@ mod tests {
             },
         );
         for word in [1, 7] {
-            assert_eq!(vm.validate_call_word(address, word, &role), Ok(()));
+            assert!(matches!(
+                vm.validate_call_word(address, word, &role),
+                Ok(())
+            ));
         }
         for word in [0, 2, u64::from(u32::MAX) + 1, u64::MAX] {
-            assert_eq!(
+            assert!(matches!(
                 vm.validate_call_word(address, word, &role),
                 Err(VMError::DecodeError)
-            );
+            ));
         }
     }
     #[test]
@@ -535,13 +538,13 @@ mod tests {
         let mut vm = boolean_root(100_000);
         assert!(vm.call_result_word_count().is_err());
         vm.run().unwrap();
-        assert_eq!(vm.call_result_word_count(), Ok(1));
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.call_result_word_count(), Ok(1)));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         assert!(vm.public_call_result_word(1).is_err());
         vm.set_register(10, u64::MAX);
         vm.set_register(11, 8192);
-        assert_eq!(vm.call_result_word_count(), Ok(1));
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.call_result_word_count(), Ok(1)));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         vm.reset().expect("private lifecycle cleanup succeeds");
         assert!(vm.call_result_word_count().is_err());
         assert!(vm.public_call_result_word(0).is_err());
@@ -554,17 +557,17 @@ mod tests {
         ).unwrap();
         let mut vm = IVM::new(100_000);
         vm.load_program(&code).unwrap();
-        assert_eq!(
+        assert!(matches!(
             vm.select_entrypoint("helper"),
             Err(VMError::PermissionDenied)
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             vm.select_entrypoint("missing"),
             Err(VMError::PermissionDenied)
-        );
+        ));
         vm.select_entrypoint("main").unwrap();
         vm.run().unwrap();
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
         for (entrypoint, success) in [
             (None, false),
             (Some("helper"), false),
@@ -587,24 +590,24 @@ mod tests {
         let result = vm.registers.get(12);
         vm.registers.set(10, result);
         vm.registers.set(11, 1);
-        assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+        assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
         vm.store_u64(result, 2).unwrap();
-        assert_eq!(vm.finish_call(), Err(VMError::DecodeError));
+        assert!(matches!(vm.finish_call(), Err(VMError::DecodeError)));
         vm.store_u64(result, 1).unwrap();
         vm.registers.set(10, result + 8);
-        assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+        assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
         vm.registers.set(10, result);
         vm.registers.set(11, 0);
-        assert_eq!(vm.finish_call(), Err(VMError::AssertionFailed));
+        assert!(matches!(vm.finish_call(), Err(VMError::AssertionFailed)));
         vm.registers.set(11, 1);
         vm.finish_call().unwrap();
-        assert_eq!(vm.public_call_result_word(0), Ok(1));
+        assert!(matches!(vm.public_call_result_word(0), Ok(1)));
     }
 
     #[test]
     fn root_preparation_and_result_validation_debit_before_work() {
         let mut vm = boolean_root(7);
-        assert_eq!(vm.run(), Err(VMError::OutOfGas));
+        assert!(matches!(vm.run(), Err(VMError::OutOfGas)));
         assert_eq!(vm.memory.heap_allocated_len(), 0);
         assert!(vm.call_result_word_count().is_err());
 
@@ -615,7 +618,7 @@ mod tests {
         vm.registers.set(10, result);
         vm.registers.set(11, 1);
         vm.set_gas_limit(7);
-        assert_eq!(vm.finish_call(), Err(VMError::OutOfGas));
+        assert!(matches!(vm.finish_call(), Err(VMError::OutOfGas)));
         assert!(vm.call_result_word_count().is_err());
     }
 
@@ -631,25 +634,25 @@ mod tests {
         vm.validate_call_pointer(pointer, Some(PointerType::Blob as u16))
             .unwrap();
         assert_eq!(before - vm.remaining_gas(), 16 + 39 + 5);
-        assert_eq!(
+        assert!(matches!(
             vm.validate_call_pointer(pointer, Some(PointerType::Int as u16)),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         vm.set_gas_limit(16 + 39 + 4);
-        assert_eq!(
+        assert!(matches!(
             vm.validate_call_pointer(pointer, Some(PointerType::Blob as u16)),
             Err(VMError::OutOfGas)
-        );
+        ));
         let pointer = vm
             .alloc_host_tlv(
                 &ivm_abi::numeric_tlv::encode_envelope(PointerType::Int, b"bad").unwrap(),
             )
             .unwrap();
         vm.set_gas_limit(100_000);
-        assert_eq!(
+        assert!(matches!(
             vm.validate_call_pointer(pointer, Some(PointerType::Int as u16)),
             Err(VMError::NoritoInvalid)
-        );
+        ));
     }
 
     #[test]
@@ -669,14 +672,11 @@ mod tests {
             .unwrap();
         vm.store_u64(slot, invalid_pointer).unwrap();
         let before = vm.remaining_gas();
-        assert_eq!(
-            vm.validate_call_word(
+        assert!(matches!(vm.validate_call_word(
                 slot,
                 invalid_pointer,
                 &CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })
-            ),
-            Err(VMError::NoritoInvalid)
-        );
+            ), Err(VMError::NoritoInvalid)));
         assert_eq!(
             before - vm.remaining_gas(),
             crate::call_gas::pointer(invalid_payload.len() as u64).unwrap()
@@ -698,14 +698,11 @@ mod tests {
             .unwrap();
         vm.store_u64(slot, valid_pointer).unwrap();
         let before = vm.remaining_gas();
-        assert_eq!(
-            vm.validate_call_word(
+        assert!(matches!(vm.validate_call_word(
                 slot,
                 valid_pointer,
                 &CallTypeNodeV1::StateCursor(iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeV1 { nodes: vec![iroha_data_model::smart_contract::entrypoint::EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)] })
-            ),
-            Ok(())
-        );
+            ), Ok(())));
         assert_eq!(
             before - vm.remaining_gas(),
             crate::call_gas::pointer(valid_payload.len() as u64).unwrap()
@@ -796,10 +793,10 @@ mod tests {
         let (wrong, cost) = cursor_pointer(&mut vm, EntrypointValueKindV1::Bool);
         vm.store_u64(tables.argument_base, wrong).unwrap();
         let before = vm.remaining_gas();
-        assert_eq!(
+        assert!(matches!(
             vm.validate_call_tables(&callable, true),
             Err(VMError::NoritoInvalid)
-        );
+        ));
         assert_eq!(
             before - vm.remaining_gas(),
             crate::call_gas::frame(callable.frame_bytes, 1).unwrap()
@@ -850,19 +847,34 @@ mod tests {
         vm.registers.set(13, 1);
         vm.store_u64(parent_stack, wrong).unwrap();
         let target = vm.program_prefix_len + child.entry_pc;
-        assert_eq!(vm.begin_child_call(target), Err(VMError::NoritoInvalid));
-        assert_eq!(vm.memory.call_frames.entry_pc(), Ok(root.entry_pc));
+        assert!(matches!(
+            vm.begin_child_call(target),
+            Err(VMError::NoritoInvalid)
+        ));
+        assert_eq!(
+            (vm.memory.call_frames.entry_pc()).expect("expected successful fixture result"),
+            root.entry_pc
+        );
         vm.store_u64(parent_stack, correct).unwrap();
         vm.begin_child_call(target).unwrap();
-        assert_eq!(vm.memory.call_frames.entry_pc(), Ok(child.entry_pc));
+        assert_eq!(
+            (vm.memory.call_frames.entry_pc()).expect("expected successful fixture result"),
+            child.entry_pc
+        );
         vm.store_u64(child_results, wrong).unwrap();
         vm.registers.set(10, child_results);
-        assert_eq!(vm.finish_call(), Err(VMError::NoritoInvalid));
-        assert_eq!(vm.memory.call_frames.entry_pc(), Ok(child.entry_pc));
+        assert!(matches!(vm.finish_call(), Err(VMError::NoritoInvalid)));
+        assert_eq!(
+            (vm.memory.call_frames.entry_pc()).expect("expected successful fixture result"),
+            child.entry_pc
+        );
         assert!(vm.call_result_word_count().is_err());
         vm.store_u64(child_results, correct).unwrap();
         vm.finish_call().unwrap();
-        assert_eq!(vm.memory.call_frames.entry_pc(), Ok(root.entry_pc));
+        assert_eq!(
+            (vm.memory.call_frames.entry_pc()).expect("expected successful fixture result"),
+            root.entry_pc
+        );
         assert!(vm.call_result_word_count().is_err());
     }
 
@@ -884,7 +896,7 @@ mod tests {
         vm.registers.set(10, tables.result_base);
         vm.registers.set(11, tables.result_words);
         let before = vm.remaining_gas();
-        assert_eq!(vm.finish_call(), Err(VMError::NoritoInvalid));
+        assert!(matches!(vm.finish_call(), Err(VMError::NoritoInvalid)));
         assert_eq!(
             before - vm.remaining_gas(),
             crate::call_gas::NODE + crate::call_gas::WORD + cost
@@ -893,8 +905,11 @@ mod tests {
         assert!(vm.public_call_result_word(0).is_err());
         vm.store_u64(tables.result_base, correct).unwrap();
         vm.finish_call().unwrap();
-        assert_eq!(vm.call_result_word_count(), Ok(1));
-        assert_eq!(vm.public_call_result_word(0), Ok(correct));
+        assert!(matches!(vm.call_result_word_count(), Ok(1)));
+        assert_eq!(
+            (vm.public_call_result_word(0)).expect("expected successful fixture result"),
+            correct
+        );
     }
 
     #[test]
@@ -920,25 +935,25 @@ mod tests {
             )
             .unwrap();
             costs.push(before - vm.remaining_gas());
-            assert_eq!(
+            assert!(matches!(
                 vm.validate_call_word(
                     slot,
                     pointer,
                     &CallTypeNodeV1::Leaf(EntrypointValueKindV1::Int)
                 ),
                 Err(VMError::PrivacyViolation)
-            );
-            assert_eq!(
+            ));
+            assert!(matches!(
                 vm.validate_call_pointer(pointer, Some(PointerType::Int as u16)),
                 Err(VMError::PrivacyViolation)
-            );
+            ));
         }
         assert_eq!(costs, vec![16 + 39 + MAX_INT_FRAME_BYTES_V1 as u64; 2]);
         vm.store_u8(slot, 0).unwrap();
-        assert_eq!(
+        assert!(matches!(
             vm.validate_call_word(slot, 0, &CallTypeNodeV1::Unit),
             Err(VMError::PrivacyViolation)
-        );
+        ));
     }
 }
 

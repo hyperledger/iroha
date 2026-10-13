@@ -4,7 +4,7 @@ use norito::json::{Error, Parser};
 
 /// Decode both retained cuts with the exact bytes emitted by MV's Cell codec.
 /// No map, temporary string, payload copy or comparison serialization is needed.
-pub(crate) fn decode_snapshot(source: &str) -> Result<(u64, Option<u64>), Error> {
+pub fn decode_snapshot(source: &str) -> Result<(u64, Option<u64>), Error> {
     let mut parser = Parser::new(source);
     literal(&mut parser, b"{\"revert\":")?;
     let revert = if parser.peek() == Some(b'n') {

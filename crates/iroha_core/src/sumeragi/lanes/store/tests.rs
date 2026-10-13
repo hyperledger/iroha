@@ -249,7 +249,8 @@ fn startup_and_entry_keep_original_allocations_across_resource_refusals() {
     );
     store.append(&body, &qc).unwrap();
     let path = store.dir.join(frame_name(1));
-    let raw = usize::try_from(fs::metadata(&path).unwrap().len()).unwrap();
+    let raw =
+        usize::try_from(fs::metadata(&path).unwrap().len()).expect("fixture value fits usize");
     drop(store);
     drop(body);
     drop(qc);

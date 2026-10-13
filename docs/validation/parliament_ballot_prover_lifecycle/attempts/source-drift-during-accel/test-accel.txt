@@ -1,0 +1,33 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-lifecycle
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] running: cargo test --release --locked -p iroha_parliament_ballot_proof --test prover_lifecycle --features accel -- --nocapture --test-threads=1
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 13.33s
+     Running tests/prover_lifecycle.rs (target/cargo-fast/parliament-lifecycle/release/deps/prover_lifecycle-2a6c2814ca392f5f)
+
+running 8 tests
+test cancellation_inside_actual_prove_finishes_discards_and_erases_selected_buffers ... cancel_in_prove row=Candidate role=Registration witness_bytes=4480 computation=proved published=false selected_buffers_erased=true cancellation_to_finish_ms=247.994
+cancel_in_prove row=Candidate role=Vote witness_bytes=6688 computation=proved published=false selected_buffers_erased=true cancellation_to_finish_ms=402.807
+cancel_in_prove row=Comparator role=Registration witness_bytes=4480 computation=proved published=false selected_buffers_erased=true cancellation_to_finish_ms=473.879
+cancel_in_prove row=Comparator role=Vote witness_bytes=6688 computation=proved published=false selected_buffers_erased=true cancellation_to_finish_ms=650.039
+ok
+test completed_but_unpublished_proof_can_still_be_cancelled ... ok
+test dropping_inflight_job_joins_and_discards ... ok
+test observer_distinguishes_zeroed_and_nonzero_releases_including_last_byte ... ok
+test ordinary_errors_do_not_publish_or_retain_secret_and_tape ... ok
+test ordinary_publication_matches_independent_fixtures_and_cleans_input_owners ... published row=Candidate role=Registration bytes=160148 fixture_equal=true input_owners_erased=true
+published row=Candidate role=Vote bytes=233012 fixture_equal=true input_owners_erased=true
+published row=Comparator role=Registration bytes=109498 fixture_equal=true input_owners_erased=true
+published row=Comparator role=Vote bytes=158074 fixture_equal=true input_owners_erased=true
+ok
+test partial_entropy_fill_failure_erases_actual_owner_allocations ... ok
+test publication_and_cancellation_race_has_one_consistent_winner ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.24s
+

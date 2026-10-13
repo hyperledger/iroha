@@ -46,16 +46,24 @@ impl State {
         let publish_cursors = releases.is_some();
         let mut slot = self.geometry_publication.lock();
         if let Some(original) = slot.as_ref() {
-            let updated_incarnations = request.updated_incarnations;
             if original.publish_cursors != publish_cursors
                 || !lane_config_entries_match(&original.previous, request.previous)
                 || !lane_config_entries_match(&original.current, request.updated)
-                || original.previous_incarnations != *request.previous_incarnations
-                || original.current_incarnations != *updated_incarnations
-                || original.previous_activation_heights != *request.previous_activation_heights
-                || original.current_activation_heights != *request.updated_activation_heights
-                || original.previous_lineage_root != request.previous_lineage_root
-                || original.current_lineage_root != request.updated_lineage_root
+                || (
+                    &original.previous_incarnations,
+                    &original.current_incarnations,
+                ) != (request.previous_incarnations, request.updated_incarnations)
+                || (
+                    &original.previous_activation_heights,
+                    &original.current_activation_heights,
+                ) != (
+                    request.previous_activation_heights,
+                    request.updated_activation_heights,
+                )
+                || (
+                    original.previous_lineage_root,
+                    original.current_lineage_root,
+                ) != (request.previous_lineage_root, request.updated_lineage_root)
                 || original.transition_height != request.transition_height
                 || original.replaced != *replaced
                 || original

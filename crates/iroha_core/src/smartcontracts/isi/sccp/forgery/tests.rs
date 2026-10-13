@@ -35,7 +35,7 @@ fn control(stop: &AtomicBool) -> SccpNativeReadControl<'_> {
     }
 }
 
-fn keys() -> Vec<KeyPair> {
+pub(crate) fn keys() -> Vec<KeyPair> {
     let mut keys = (0x91..=0x94)
         .map(|seed| KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap())
         .collect::<Vec<_>>();
@@ -54,20 +54,15 @@ fn raw_key(key: &KeyPair) -> [u8; 48] {
 
 // Real signed NPoS genesis, InitializeSccp, StateExecutor output seal and exact-q QC.
 // The owned keys intentionally permit adversarial signed certificates in these tests.
-/// Genuine initialized native chain with intentionally absent G6 registrations.
+/// Genuine initialized native chain with every G1 member funded and registered.
 pub(crate) fn active_chain() -> (CertifiedTestChain, Vec<KeyPair>) {
-    configured_chain(0)
+    configured_chain(4)
 }
 
 /// Genuine genesis registrations, captured by the same generation finalizer as its QC.
 /// No retained committee field or opaque tip is changed after authenticated execution.
 pub(crate) fn active_member_chain() -> (CertifiedTestChain, Vec<KeyPair>) {
     configured_chain(4)
-}
-
-/// Genuine chain with two resolved G6 members and two intentionally unregistered keys.
-pub(super) fn partial_member_chain() -> (CertifiedTestChain, Vec<KeyPair>) {
-    configured_chain(2)
 }
 
 /// Bind output limits and an optional real forgery-event callback in the signed genesis.
@@ -245,7 +240,7 @@ fn configured_chain_with_output(
     (chain, keys, ordinary_signer)
 }
 
-fn register_genesis_members(
+pub(crate) fn register_genesis_members(
     config: &mut TestChainConfig,
     keys: &[KeyPair],
     staking: &iroha_config::parameters::actual::NexusStaking,
@@ -698,10 +693,62 @@ fn signed_e3_e4_use_original_parent_and_open_anchors_despite_offered_witness() {
                 .0,
                 path: [[0; 32]; 12],
             });
-            let candidate =
-                verify_committed(&view, &evidence, 4_000, &budget, control(&stop)).unwrap();
+            let candidate = verify_committed(&view, &evidence, 4_000, &budget, control(&stop))
+                .expect("SC18 original parent/open anchor must prevail over offered witness");
             assert_eq!(candidate.rule(), rule);
         }
+    }
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash() {
+    let (chain, _) = active_chain();
+    let evidence = original(&chain);
+    let view = chain.state().view();
+    let parent = view.native_execution_tip().unwrap();
+    let qc = QcFixedV1::parse(&evidence.qc).unwrap();
+    assert_eq!(qc.block_hash, parent.core_hash().0);
+    assert_ne!(parent.iroha_hash().as_ref(), &parent.core_hash().0);
+    let budget = AllocationBudget::new(128 << 20);
+    let stop = AtomicBool::new(false);
+    assert!(
+        matches!(
+            verify_committed(&view, &evidence, 4_000, &budget, control(&stop)),
+            Err(ForgeryVerificationError::NotEvidence)
+        ),
+        "SC18 genuine native certificate cannot become E3 through outer block hash substitution"
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn signed_body_digest_only_forgery_is_e4_against_original_anchor() {
+    let (chain, keys) = active_chain();
+    let original = original(&chain);
+    let mut evidence = original.clone();
+    let mut qc = QcFixedV1::parse(&evidence.qc).unwrap();
+    qc.result_body[0] ^= 1;
+    evidence.qc = qc.encode();
+    resign(&mut evidence, &keys, chain.instance());
+    assert_eq!(evidence.header, original.header, "only D_body changes");
+    assert_eq!(
+        qc.block_hash,
+        QcFixedV1::parse(&original.qc).unwrap().block_hash
+    );
+    let budget = AllocationBudget::new(128 << 20);
+    let stop = AtomicBool::new(false);
+    let view = chain.state().view();
+    {
+        let result = verify_committed(&view, &evidence, 4_000, &budget, control(&stop));
+        assert!(
+            result
+                .as_ref()
+                .is_ok_and(|candidate| candidate.rule() == SccpForgeryRuleV1::E4),
+            "SC13 signed D_body mismatch must remain punishable E4 evidence"
+        );
+        let candidate = result.unwrap();
+        assert_eq!(candidate.rule(), SccpForgeryRuleV1::E4);
     }
     assert_eq!(budget.reserved_bytes(), 0);
 }
@@ -852,10 +899,13 @@ fn generation_lookup_and_inclusive_liability_use_captured_values_only() {
         .unwrap();
     let last = rec.liable_until_lc + rec.progress_cap_ms;
     assert!(generation_for_claim(Current(&*stx.world), &x, 2, last).is_ok());
-    assert!(matches!(
-        generation_for_claim(Current(&*stx.world), &x, 2, last + 1),
-        Err(ForgeryVerificationError::EvidenceExpired)
-    ));
+    assert!(
+        matches!(
+            generation_for_claim(Current(&*stx.world), &x, 2, last + 1),
+            Err(ForgeryVerificationError::EvidenceExpired)
+        ),
+        "SC14 expired captured generation must fail E0 before signature verification"
+    );
     assert!(
         generation_for_claim(Current(&*stx.world), &x, 1, u64::MAX).is_ok(),
         "current generation remains liable"
@@ -1076,8 +1126,11 @@ fn cheap_precheck_requires_actual_pairing_and_preserves_exact_original_observati
     let mut evidence = future(&chain, &keys);
     let view = chain.state().view();
     let budget = AllocationBudget::new(128 << 20);
-    let checked =
-        verify_prechecked(prepare_committed(&view, &evidence, 3_000).unwrap(), &budget).unwrap();
+    let checked = verify_prechecked(
+        &prepare_committed(&view, &evidence, 3_000).unwrap(),
+        &budget,
+    )
+    .unwrap();
     assert_eq!(checked.parent(), view.native_execution_tip().unwrap());
     assert_eq!(checked.rule(), SccpForgeryRuleV1::E2);
     assert_eq!(checked.signers().filter(|(_, _, m)| m.is_some()).count(), 3);
@@ -1085,7 +1138,7 @@ fn cheap_precheck_requires_actual_pairing_and_preserves_exact_original_observati
     let precheck = prepare_committed(&view, &evidence, 3_000)
         .expect("cheap stage grants no signature authority");
     assert!(matches!(
-        verify_prechecked(precheck, &budget),
+        verify_prechecked(&precheck, &budget),
         Err(ForgeryVerificationError::BadSignature)
     ));
     assert_eq!(budget.reserved_bytes(), 0);

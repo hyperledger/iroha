@@ -3,7 +3,7 @@
 use super::*;
 
 /// Actual native startup owners; no scalar verdict can substitute for this handoff.
-pub(super) struct PreparedNative {
+pub struct PreparedNative {
     pub(super) config: Config,
     pub(super) supervisor: Supervisor,
     pub(super) kura: Arc<Kura>,
@@ -31,14 +31,14 @@ pub(super) struct PreparedNative {
 }
 
 /// Resource custody that outlives every fallible phase and its original child drain.
-pub(super) struct StartupLifetime {
+pub struct StartupLifetime {
     pub(super) nts_reservation: iroha_core::time::SamplerReservation,
     pub(super) kura: Option<Arc<Kura>>,
     pub(super) state: Option<Arc<State>>,
 }
 
 /// Own the actual prepared node and its cleanup lifetime through provider resolution.
-pub(super) struct PreparedStartup {
+pub struct PreparedStartup {
     // Keep the original large configuration/native owner off the Result and async handoff
     // stacks. Preparation still creates it once; activation or joined cleanup consumes it.
     pub(super) native: Box<PreparedNative>,
@@ -149,10 +149,10 @@ impl PreparedStartup {
             supervisor.monitor(child);
             handle
         };
-        let telemetry_profile = if !emergency_fast {
-            config.telemetry_profile
-        } else {
+        let telemetry_profile = if emergency_fast {
             iroha_config::parameters::actual::TelemetryProfile::Disabled
+        } else {
+            config.telemetry_profile
         };
         #[cfg(feature = "telemetry")]
         let (metrics, state_telemetry, streaming_telemetry) = {
@@ -366,21 +366,19 @@ impl PreparedStartup {
         }
         // Reuse the policy snapshot installed before geometry; emergency Fast never scans local
         // policy sources.
-        let (frozen_startup_lane_manifests, frozen_startup_lane_compliance) = if let Some(
-            policies,
-        ) =
-            &startup_lane_policies
-        {
-            (Arc::clone(&policies.manifests), policies.compliance.clone())
-        } else {
-            iroha_logger::warn!(
-                "emergency Fast startup deferred lane-manifest and compliance directory loading until a Strict restart"
+        let (frozen_startup_lane_manifests, frozen_startup_lane_compliance) =
+            startup_lane_policies.as_ref().map_or_else(
+                || {
+                    iroha_logger::warn!(
+                        "emergency Fast startup deferred lane-manifest and compliance directory loading until a Strict restart"
+                    );
+                    (
+                        Arc::new(LaneManifestRegistry::provisional_empty_for_emergency_fast_startup()),
+                        None,
+                    )
+                },
+                |policies| (Arc::clone(&policies.manifests), policies.compliance.clone()),
             );
-            (
-                Arc::new(LaneManifestRegistry::provisional_empty_for_emergency_fast_startup()),
-                None,
-            )
-        };
         if emergency_fast {
             state
                 .install_provisional_empty_lane_manifests_for_emergency_fast_pre_auth()
@@ -420,7 +418,7 @@ impl PreparedStartup {
             install_node_pipeline_config(&mut state, &config)
                 .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
             state.set_oracle(config.oracle.clone());
-            state.set_fraud_monitoring(config.fraud_monitoring.clone());
+            state.install_node_fraud_monitoring(config.fraud_monitoring.clone());
             state.set_gov(config.gov.clone());
             log_startup_trace(
                 "irohad.state.runtime_config_applied",

@@ -25,7 +25,11 @@ fn forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel() {
     ] {
         revision.forgery_floor = floor;
         *stx.world.sccp_forgery_max_generation.get_mut() = maximum;
-        assert_eq!(forgery_or_quarantine(&*stx.world, revision), expected);
+        assert_eq!(
+            forgery_or_quarantine(&*stx.world, revision),
+            expected,
+            "SC25 must hold every revision whose original forgery floor is not above the maximum offence"
+        );
     }
 }
 

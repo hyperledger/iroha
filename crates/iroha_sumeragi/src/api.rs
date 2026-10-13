@@ -206,7 +206,12 @@ pub struct Init {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ExecOutcome {
     /// Deterministic success with execution commitment `R`.
-    Valid(Hash32),
+    Valid {
+        /// Deterministic execution commitment.
+        result: Hash32,
+        /// Original application owner checked immediately before the first Prepare.
+        admission: crate::prepare_admission::ExecutionAdmission,
+    },
     /// Deterministically invalid block.
     Invalid,
     /// Local executor failure (panic, I/O, resource exhaustion) — never invalidity.
