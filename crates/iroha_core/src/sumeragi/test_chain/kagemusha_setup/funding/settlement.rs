@@ -153,11 +153,92 @@ fn require_funded_receipt(setup: &ExecutedKagemushaSetup, input: &Inputs) {
     );
 }
 
+// The native producer already signed this adversarial fixture using the retained simulated
+// C key. Read its exact public original; never create another signature or wallet operation.
+fn retained_bad_sigma_claim(
+    input: &Inputs,
+    claim: &KagemushaWalletUnloadClaimV1,
+) -> (Vec<u8>, [u8; 32]) {
+    let path = selected("KAGEMUSHA_NATIVE_EXCHANGE_RESULT");
+    let bytes = read(
+        &path,
+        16 << 10,
+        pin("KAGEMUSHA_NATIVE_EXCHANGE_RESULT_SHA256"),
+    );
+    let result: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        result["schema"].as_str(),
+        Some("iroha.kagemusha.native-abc-result.v1")
+    );
+    assert_eq!(
+        result["target_sha256"].as_str().unwrap(),
+        hex::encode(input.target_sha256)
+    );
+    assert_eq!(
+        result["c_unload_claim_sha256"].as_str().unwrap(),
+        hex::encode(pin("KAGEMUSHA_NATIVE_UNLOAD_CLAIM_SHA256"))
+    );
+    let row = &result["c_unload_bad_sigma_claim"];
+    assert_eq!(
+        row["name"].as_str(),
+        Some("c-unload-bad-sigma-claim.norito")
+    );
+    assert_eq!(row["mutation"].as_str(), Some("sigma_ipa_f_plus_one"));
+    assert_eq!(row["model_verified"].as_bool(), Some(true));
+    assert_eq!(row["native_proof_rejected"].as_bool(), Some(true));
+    assert_eq!(row["adversarial_fixture_signatures"].as_u64(), Some(1));
+    let digest: [u8; 32] = hex::decode(row["sha256"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let bytes = read(
+        &path
+            .parent()
+            .unwrap()
+            .join("c-unload-bad-sigma-claim.norito"),
+        KAGEMUSHA_WALLET_UNLOAD_CLAIM_MAX_BYTES_V1,
+        digest,
+    );
+    assert_eq!(row["bytes"].as_u64(), Some(bytes.len() as u64));
+    let mut bad =
+        KagemushaWalletUnloadClaimV1::decode_canonical(&bytes, &input.scheme.scheme_id()).unwrap();
+    let paid = bad.verify(&input.scheme).unwrap();
+    assert_eq!(
+        (paid.amount, paid.account_payout, paid.online_charge),
+        (100, 100, 0)
+    );
+    // The pinned native producer checked the Vesta transcript schedule and f -> f+1.
+    // Independently constrain its only proof-byte change to that final scalar window.
+    let original = &claim.package.step_proof.bytes;
+    let changed = &bad.package.step_proof.bytes;
+    assert_eq!(changed.len(), original.len());
+    assert!(original.len() >= 96 && original.len().is_multiple_of(32));
+    let f_offset = original.len() - 64;
+    assert_eq!(&changed[..f_offset], &original[..f_offset]);
+    assert_ne!(
+        &changed[f_offset..f_offset + 32],
+        &original[f_offset..f_offset + 32]
+    );
+    assert_eq!(&changed[f_offset + 32..], &original[f_offset + 32..]);
+    assert_ne!(
+        bad.package.receipt.signature,
+        claim.package.receipt.signature
+    );
+    bad.package.step_proof.bytes = original.clone();
+    bad.package.receipt.signature = claim.package.receipt.signature;
+    assert_eq!(
+        &bad, claim,
+        "every field except the documented scalar and receipt signature stays exact"
+    );
+    (bytes, digest)
+}
+
 fn settlement_proofs(
     setup: &ExecutedKagemushaSetup,
     output: &Path,
     instruction: &KagemushaWalletLedgerV1,
     transaction_hash: [u8; 32],
+    bad_sigma_claim_sha256: [u8; 32],
 ) {
     assert!(!output.exists());
     let mut directory = fs::DirBuilder::new();
@@ -229,6 +310,12 @@ fn settlement_proofs(
         "settlement_block_hash_hex": (hex::encode(setup.chain.committed(6).block().hash().as_ref())),
         "settlement_instruction_index": 0,
         "certified_replay_heights": (vec![6, 9]),
+        "preproposal_refusals": (vec!["unload_claim.account", "receipt_signature"]),
+        "crypto_rejection_height": 8,
+        "crypto_rejection": "KAGEMUSHA ledger: native package proof rejected",
+        "bad_sigma_claim_sha256": (hex::encode(bad_sigma_claim_sha256)),
+        "native_exchange_result_sha256": (hex::encode(pin("KAGEMUSHA_NATIVE_EXCHANGE_RESULT_SHA256"))),
+        "signed_log_height": 9,
         "fresh_state_replay_executed": true,
         "disk_restart_executed": false,
         "initial_supply_atomic_units": "1000",
@@ -238,7 +325,7 @@ fn settlement_proofs(
         "recipient_c_balance_atomic_units": "100",
         "reserve_balance_atomic_units": "0",
         "exact_once_payout": true,
-        "scope": "Actual native proof verification and ledger execution with exact receipt replay; fresh StateExecutor recovery from original certified frames before exact retry and after refused mutations. Fixture signs exactly three votes of a four-seat committee. Disk/power-loss, real P2P rounds and physical hardware qualification remain separate.",
+        "scope": "Actual native proof verification and ledger execution with exact receipt replay; fresh StateExecutor recovery from original certified frames before exact retry and after two preproposal refusals, a model-valid native-proof rejection at height 8, and a signed Log at height 9. Fixture signs exactly three votes of a four-seat committee. Disk/power-loss, real P2P rounds and physical hardware qualification remain separate.",
         "originals": records,
     });
     publish(
@@ -314,7 +401,8 @@ fn execute_actual_c_unload_with_conservation_and_permanent_replay() {
     );
     assert_eq!(balance(&setup, &setup.reserve), Quantity::zero());
 
-    // Even after payout, a modified claim must pass complete verification before replay lookup.
+    // These claims are structurally refused before block assembly, not failed ledger
+    // executions. Assert both the exact model reason and the production routing boundary.
     for (index, changed) in [
         {
             let mut changed = claim.clone();
@@ -330,16 +418,93 @@ fn execute_actual_c_unload_with_conservation_and_permanent_replay() {
     .into_iter()
     .enumerate()
     {
-        let instruction = KagemushaWalletLedgerV1::new(
-            input.scheme.scheme_id(),
-            Action::Unload(norito::encode_canonical(&changed).unwrap()),
+        let bytes = norito::encode_canonical(&changed).unwrap();
+        let require_reason = |error: KagemushaWalletValidationErrorV1| match (index, error) {
+            (
+                0,
+                KagemushaWalletValidationErrorV1::InvalidField {
+                    field: "unload_claim.account",
+                },
+            )
+            | (
+                1,
+                KagemushaWalletValidationErrorV1::InvalidSignature {
+                    domain: KagemushaWalletSigningDomainV1::Receipt,
+                },
+            ) => {}
+            (_, error) => panic!("unexpected preproposal refusal for mutation {index}: {error:?}"),
+        };
+        require_reason(
+            KagemushaWalletUnloadClaimV1::decode_canonical(&bytes, &input.scheme.scheme_id())
+                .unwrap_err(),
         );
-        let time = (8 + index as u64) * 1_000;
-        let transaction = setup.chain.sign(&key(43), [instruction.into()], time - 1);
-        assert_eq!(setup.chain.commit_at(time, vec![transaction]), [false]);
+        let changed_instruction =
+            KagemushaWalletLedgerV1::new(input.scheme.scheme_id(), Action::Unload(bytes));
+        let transaction = setup
+            .chain
+            .sign(&key(43), [changed_instruction.clone().into()], 7_999);
+        let view = setup.chain.state().view();
+        match crate::kagemusha_wallet_v1::routing::dataspace(view.world(), &changed_instruction) {
+            Err(crate::kagemusha_wallet_v1::Error::Model(error)) => require_reason(error),
+            result => panic!("expected the exact model refusal during routing: {result:?}"),
+        }
+        assert_eq!(
+            crate::sumeragi::lanes::routing::RoutingSnapshot::of(&view)
+                .unwrap()
+                .inputs(view.world())
+                .execution_route(transaction.payload(), 8)
+                .unwrap(),
+            None
+        );
+        drop(view);
+        assert_eq!(
+            setup.chain.height(),
+            7,
+            "preproposal refusal creates no certified height"
+        );
         require_conservation(&setup, [900, 0, 100, 0]);
         assert_eq!(ledger_rows(&setup), rows);
     }
+
+    // A model-valid, correctly re-signed but cryptographically invalid sigma must reach
+    // the real ledger verifier and be rejected before the permanent replay lookup.
+    let (bad_sigma, bad_sigma_claim_sha256) = retained_bad_sigma_claim(&input, &claim);
+    let changed_instruction =
+        KagemushaWalletLedgerV1::new(input.scheme.scheme_id(), Action::Unload(bad_sigma));
+    let transaction = setup
+        .chain
+        .sign(&key(43), [changed_instruction.into()], 7_999);
+    assert_eq!(setup.chain.commit_at(8_000, vec![transaction]), [false]);
+    assert_eq!(
+        setup.chain.committed(8).block().output_error(0),
+        Some(
+            &iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
+                iroha_data_model::ValidationFail::InstructionFailed(
+                    iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                        "KAGEMUSHA ledger: native package proof rejected".into()
+                    )
+                )
+            )
+        )
+    );
+    require_conservation(&setup, [900, 0, 100, 0]);
+    assert_eq!(ledger_rows(&setup), rows);
+
+    // Retain height 9 honestly with a real signed Log, preserving the confirmation fixture's
+    // original certified suffix without pretending either preproposal refusal was committed.
+    let log = setup.chain.tick(8_999);
+    let log_hash = log.hash();
+    assert_eq!(setup.chain.commit_at(9_000, vec![log]), [true]);
+    let log_block = setup.chain.committed(9);
+    let iroha_data_model::transaction::TransactionEntrypoint::External(signed) =
+        log_block.block().network_entrypoint_at(0).unwrap()
+    else {
+        panic!("exact signed Log transaction")
+    };
+    assert_eq!(signed.hash(), log_hash);
+    assert_eq!(setup.chain.height(), 9);
+    require_conservation(&setup, [900, 0, 100, 0]);
+    assert_eq!(ledger_rows(&setup), rows);
     assert_eq!(
         balance(&setup, &setup.account),
         Quantity::from_canonical_numeric(Numeric::new(900, SCALE)).unwrap()
@@ -359,5 +524,6 @@ fn execute_actual_c_unload_with_conservation_and_permanent_replay() {
         &selected("KAGEMUSHA_EXECUTED_UNLOAD_OUTPUT"),
         &instruction,
         transaction_hash,
+        bad_sigma_claim_sha256,
     );
 }
