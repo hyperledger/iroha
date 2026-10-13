@@ -457,6 +457,142 @@ readiness. Operators must keep the feature governed and disabled until the
 deployment has passed the real-process, leakage, performance, independent
 cryptographic-review, and artifact-publication gates.
 
+## Settlement, escrow, repo and domain-lease builders
+
+These Node.js helpers build the strict instruction JSON admitted by the native
+codec. Ordering, consent hashes, Norito frames and every executor invariant
+stay native-owned; the builders only normalize inputs.
+
+Identifiers return the exact JSON literal each native type accepts:
+
+| Helper | Native type | Literal |
+| --- | --- | --- |
+| `generateAssetDefinitionId()` | `AssetDefinitionId` | random UUIDv4 Base58 address |
+| `assetDefinitionIdFromSeed(seed)` | `AssetDefinitionId` | `derive_from_components`: first 16 bytes of BLAKE3(seed) with UUIDv4 bits; `{ domain, name }` hashes `"<name>#<domain>"` |
+| `newEscrowId(seed?)` | `EscrowId` | `hash:<HEX>#<CRC>`; a seed gives `EscrowId::new(Hash::new(seed))` |
+| `newSettlementId(seed?)` | `SettlementId` | `settlement-<32 hex>` |
+| `newRepoAgreementId(seed?)` | `RepoAgreementId` | `repo-<32 hex>`; also the repo consent `settlement_id` |
+
+Instruction builders:
+
+- `buildGrantSettlementConsentInstruction({ grantee, debitedAssetHoldingId, settlementId, intentHash })`
+  grants `CanExecuteSettlement`. The owner of the debited bucket signs it; the
+  grantee submits the settlement or repo instruction.
+- `buildGrantAssetDefinitionAliasScopeInstruction({ grantee, domainId })` grants
+  domain-scoped `CanManageAssetDefinitionAlias`, which the Initial executor
+  requires before `SetAssetDefinitionAlias` or alias registration under
+  `<name>#<domain>.<dataspace>`. The current domain owner may grant it to itself.
+- `buildSetAssetDefinitionKeyValueInstruction({ assetDefinitionId, key, value })`.
+- `buildOpenConditionalEscrowInstruction({ escrowId, assetDefinitionId, beneficiary, amount, conditions, expiresAtMs, evidenceHashes? })`
+  locks the signer's global balance. Conditions are
+  `{ id, attestor, equals }` (boolean → `Bool`, string → `Text`,
+  bigint/`KotodamaQuantity`/`{ quantity }` → `Quantity`),
+  `{ id, attestor, quantityAtMost }`, or one `{ id, withinMs }` window.
+  Oracle sequences are assigned 1..n in array order unless all are given.
+- `buildAttestEscrowConditionInstruction({ escrowId, conditionId, value, evidenceHash? })`
+  and `buildExpireConditionalEscrowInstruction({ escrowId })`.
+- `buildSettleAtomicInstruction({ networkId, settlementId, movements, expiresAtHeight, metadata? })`
+  with movements `{ sourceAssetHoldingId, recipient, quantity }`. Movements are
+  sorted natively by `(AssetId, AccountId)`; count, duplicate and self-transfer
+  rules are enforced natively.
+- `buildRepoInitiateInstruction({ agreementId, initiator, counterparty, custodian?, cashLeg, collateralLeg, rateBps, maturityTimestampMs, governance: { haircutBps, marginFrequencySecs } })`
+  and `buildRepoReverseInstruction({ agreementId })`.
+
+Consent hashes are computed natively from the canonical instruction and are
+returned as the `intent_hash` literal of `CanExecuteSettlement`:
+
+```js
+import {
+  buildGrantSettlementConsentInstruction,
+  buildSettleAtomicInstruction,
+  newSettlementId,
+  settleAtomicIntentHash,
+} from "@iroha/iroha-js";
+
+const settlement = buildSettleAtomicInstruction({
+  networkId, // NetworkId from GET /v1/accounts/capabilities
+  settlementId: newSettlementId(),
+  movements: [
+    { sourceAssetHoldingId: `${cash}#${investor}`, recipient: issuer, quantity: "1015.5" },
+    { sourceAssetHoldingId: `${bond}#${issuer}`, recipient: investor, quantity: "10" },
+  ],
+  expiresAtHeight: currentHeight + 100,
+});
+// Signed by the investor, granting the submitting issuer exact consent.
+const consent = buildGrantSettlementConsentInstruction({
+  grantee: issuer,
+  debitedAssetHoldingId: `${cash}#${investor}`,
+  settlementId: settlement.Settlement.Atomic.settlement_id,
+  intentHash: settleAtomicIntentHash(settlement),
+});
+```
+
+For a repo, `repoIntentHashes(initiate)` returns `{ initiation, maturity }`.
+Before the initiator submits `Repo::Initiate`, the counterparty grants it
+consent for its cash bucket with `initiation`, and the collateral holder
+(custodian, else counterparty) grants consent for the collateral bucket with
+`maturity`; both use `settlementId = agreementId`.
+
+### Domain leases
+
+After genesis a domain is created only by a paid SNS domain lease.
+`planDomainLease(torii, { owner, domain, years }, { canonicalAuth })` reads the
+domain policy (`GET /v1/sns/policies/4098`), builds one `EnsureAlias` domain
+intent whose quote guard pins the policy version, payment asset, price cap
+(matching tier base price times `years`, or `maxAmount`) and deadline, and asks
+the read-only planner `POST /v1/aliases/setup/plan` (`ToriiClient.planAliasSetup`) to quote it. Each planned
+`{ wire_id, framed_payload }` frame is decoded natively, re-framed for an exact
+byte comparison and checked against the requested intent before it is returned
+as `{ EnsureAlias: ... }` instruction JSON. The canonical-auth account is the
+plan authority and pays the lease; the client needs a `LocalSigningContext`.
+Submit the returned `instructions` before `validUntilMs` (at most 60 s), then
+grant `buildGrantAssetDefinitionAliasScopeInstruction` to bind asset aliases.
+
+### Testnet faucet
+
+`claimFaucet(torii, { accountId, networkId })` implements the V1 faucet: it
+reads `/v1/accounts/faucet/policy`, fetches `/v1/accounts/faucet/puzzle`,
+solves the `scrypt-leading-zero-bits-v1` proof of work with `node:crypto`,
+binds the claim with the native claim hash, prepares it, authenticates the
+faucet-signed envelope natively against the policy (`options.policy`, else the
+advertised policy of the selected network), submits the envelope verbatim and
+waits for global state-resolved `Applied`. Stale anchors and solutions
+invalidated by an adaptive difficulty increase refetch the puzzle. It returns
+`{ hash, blockHeight }`.
+
+### External wallet signers
+
+`transactionPayloadSigningHash(payloadBytes)` returns the exact 32 bytes an
+external wallet Ed25519-signs (`HashOf<TransactionPayload>`), and
+`finalizeSignedTransaction({ networkId, payloadBytes, signature, publicKey, authority })`
+attaches that signature, returning the canonical signed wire and the same hash
+as `hashSignedTransaction`.
+
+Torii quotes fees only for payloads whose authority signs the quote request.
+Admission does not require a quote: each computed charge needs a signed limit
+of the same kind and asset whose maximum is at least the computed amount, and
+only the computed amount is debited.
+`prepareExternalSignerTransactionPayload(client, input, { canonicalAuth })`
+quotes an identical payload authored by the service account, keeps every quoted
+charge kind and asset, multiplies each maximum by `feeLimitMarginBps / 10000`
+(default 2x, rounded up) and builds the wallet-authored payload. The wallet
+account pays the fee and must hold the fee asset.
+
+From Node.js 22 or later, `createConnectAppSession` from
+`@iroha/iroha-js/connect-browser` uses the global `WebSocket` and sends the
+token only as `Sec-WebSocket-Protocol: iroha-connect.token.v1.<b64url>`; Torii
+echoes that subprotocol. Wallet approvals are verified natively.
+
+Plain Connect frames use the native Norito layout that the Torii relay decodes
+and re-encodes: `frame.sid`, `Open.app_pk` and `Approve.wallet_pk` are `[u8; 32]`
+fields with one u64-length-prefixed element per byte, and `Approve.sig_wallet`
+is a u32 algorithm field followed by a u64 count and element-framed signature
+bytes. The app session encodes this layout and rejects the raw-array layout.
+`fixtures/connect/relay_frames_v1.json` pins live relay frames that both the
+Rust codec and the SDK reproduce byte for byte. The end-to-end encrypted
+envelope is unchanged: inside it, `SignResultOk` carries a u8 algorithm and raw
+signature bytes.
+
 ## Native Privacy Bridge
 
 The first-release native catalog surface exposes local build metadata:
@@ -5087,7 +5223,7 @@ frame size before a network release can enable these proofs.
 `validateConnectTransactionTransportStatus(status, payloadLength)` from
 `@iroha/iroha-js/connect-browser` checks the endpoint-reported Connect WebSocket
 and session-buffer bounds against the complete transaction plus the current
-216-byte V1 encrypted-frame overhead. It does not authenticate the endpoint or
+472-byte V1 encrypted-frame overhead. It does not authenticate the endpoint or
 the wallet. Native deployments can explicitly apply
 `configs/soranexus/execution-proof-transport.toml`; its dedicated reliable Connect
 P2P topic preserves the Health frame bound. Applications should additionally

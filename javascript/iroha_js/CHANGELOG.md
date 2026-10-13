@@ -4,6 +4,39 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Added settlement, conditional-escrow, repo and domain-lease helpers:
+  `generateAssetDefinitionId`, `assetDefinitionIdFromSeed` (native
+  `derive_from_components` rule), `newEscrowId`, `newSettlementId`,
+  `newRepoAgreementId`; builders `buildGrantSettlementConsentInstruction`,
+  `buildGrantAssetDefinitionAliasScopeInstruction`,
+  `buildSetAssetDefinitionKeyValueInstruction`,
+  `buildOpenConditionalEscrowInstruction`,
+  `buildAttestEscrowConditionInstruction`,
+  `buildExpireConditionalEscrowInstruction`, `buildSettleAtomicInstruction`
+  (native movement ordering), `buildRepoInitiateInstruction` and
+  `buildRepoReverseInstruction`; native consent hashes
+  `settleAtomicIntentHash` and `repoIntentHashes`. The native codec admits the
+  strict `OpenConditionalEscrow`, `AttestEscrowCondition`,
+  `ExpireConditionalEscrow`, `Repo`, `EnsureAlias` and
+  `SetKeyValue.AssetDefinition` JSON envelopes.
+- Added `ToriiClient.planAliasSetup` and `planDomainLease`, which plans a paid
+  SNS domain lease and returns natively verified `EnsureAlias` instructions.
+- Added the Node.js `claimFaucet` V1 proof-of-work faucet flow; prepared
+  envelopes are authenticated natively against the faucet policy before
+  submission.
+- Added `transactionPayloadSigningHash`, `finalizeSignedTransaction` and
+  `prepareExternalSignerTransactionPayload` for external Ed25519 wallet signers.
+- Fixed: Connect app sessions encode and strictly decode plain frames in the
+  native relay layout (`[u8; 32]` sid and X25519 keys element-framed;
+  `sig_wallet` as a u32 algorithm plus an element-framed signature), pinned by
+  live TAIRA relay frames in `fixtures/connect/relay_frames_v1.json`. The
+  previous raw-array layout was closed by the relay and is now rejected.
+  `CONNECT_SIGN_REQUEST_TX_FRAME_OVERHEAD_V1` is now 472 bytes.
+- Fixed: SNS suffix policies decode the native tagged `status` and
+  `auction_kind` values (`{"status": ..., "detail": null}`), and a Connect app
+  session whose socket fails before `waitForApproval()` no longer raises an
+  unhandled rejection.
+
 - Removed the retired KAGEMUSHA surface: the `Kagemusha` namespace, the
   `./kagemusha` subpath and `kagemusha.d.ts`; the Node and browser
   `getKagemushaReadiness`, `submitKagemushaTopUp`, `submitKagemushaRedemption`
