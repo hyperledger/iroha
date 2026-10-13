@@ -60,10 +60,79 @@ class NativeInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "registration differs"):
             self.validate()
 
+    def test_merged_original_custody_and_sccp_schedule_controls_require_exact_owners(self):
+        """Merged controls remain mandatory and reject equal-count substitutions."""
+        expected = {'native State preverify backend and key admission': (('state.rs',
+                                                               'state/state_preverify_backend_admission_tests.rs',
+                                                               'state_preverify_backend_admission_tests',
+                                                               'state::state_preverify_backend_admission_tests'),
+                                                              ('original_state_preverify_refusal_does_not_publish_dedup_and_retries',
+                                                               'proof_quota_preflight_is_nonmutating_and_registration_preserves_limits')),
+         'native original Queue payload lease custody': (('queue.rs',
+                                                          'queue/payload_leases.rs',
+                                                          'payload_leases',
+                                                          'queue::payload_leases::tests'),
+                                                         ('pending_payload_selection_keeps_original_rows_across_unrelated_admissions',
+                                                          'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions',
+                                                          'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry',
+                                                          'pending_payload_admission_exhaustion_refuses_before_input_publication')),
+         'native publication custody': (('sumeragi/executor.rs',
+                                         'sumeragi/executor_publication_tests.rs',
+                                         'publication_tests',
+                                         'sumeragi::executor::publication_tests'),
+                                        ('published_execution_result_binds_the_original_header_and_body_digest',
+                                         'original_worker_world_cut_physical_allocator_refusal_retains_tail_and_publication')),
+         'native preparation refusal identity': (('sumeragi/executor/preparation.rs',
+                                                  'sumeragi/executor/preparation/tests.rs',
+                                                  'tests',
+                                                  'sumeragi::executor::preparation::tests'),
+                                                 ('cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery',
+                                                  'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery')),
+         'native executed beacon controls': (('sumeragi/epoch_beacon/producer/tests.rs',
+                                              'sumeragi/epoch_beacon/producer/execution_tests.rs',
+                                              'execution_tests',
+                                              'sumeragi::epoch_beacon::producer::tests::execution_tests'),
+                                             ('sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height',)),
+         'native frozen epoch schedule': (('sumeragi/schedule.rs',
+                                           'sumeragi/schedule/tests.rs',
+                                           'tests',
+                                           'sumeragi::schedule::tests'),
+                                          ('due_work_parameter_changes_preserve_combined_margin_and_genesis_order_independence',)),
+         'native executed genesis registration': (('sumeragi/schedule/execution.rs',
+                                                   'sumeragi/schedule/execution_tests.rs',
+                                                   'tests',
+                                                   'sumeragi::schedule::execution::tests'),
+                                                  ('sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment',
+                                                   'executed_genesis_due_work_policy_cannot_be_bypassed_by_raw_state'))}
+        for label, (edge, leaves) in expected.items():
+            with self.subTest(owner=label):
+                owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS if row[0] == label)
+                self.assertEqual(owner[1:5], edge)
+                for leaf in leaves:
+                    self.assertEqual(owner[-1].count(leaf), 1)
+                for relative in owner[1:3]:
+                    target = self.package / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(ROOT / 'crates/iroha_core/src' / relative, target)
+                source = self.package / owner[2]
+                original = source.read_text()
+                self.assertEqual(inventory.validate_native_source_inventory(self.root, owners=(owner,)),
+                                 {owner[4] + '::' + leaf for leaf in owner[-1]})
+                for leaf in leaves:
+                    with self.subTest(control=leaf):
+                        declaration = 'fn ' + leaf + '('
+                        self.assertEqual(original.count(declaration), 1)
+                        source.write_text(original.replace(declaration, 'fn unreviewed_merged_replacement('))
+                        with self.assertRaisesRegex(ValueError, 'census differs') as refusal:
+                            inventory.validate_native_source_inventory(self.root, owners=(owner,))
+                        self.assertIn(leaf, str(refusal.exception))
+                        self.assertIn('unreviewed_merged_replacement', str(refusal.exception))
+                source.write_text(original)
+
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 505)
+        self.assertEqual(len(names), 519)
 
     def test_authenticated_epoch_schedule_stays_in_exact_boundary_census(self):
         owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS

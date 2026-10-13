@@ -57,6 +57,7 @@ def test_rust_corpus_keeps_every_lane_state_and_unsigned_range():
     assert (record.created_at, record.active_from) == (40, 42)
     assert (record.merged.height, record.merged.block_hash, record.merged.result) == (7, "22" * 32, "33" * 32)
     assert record.params.key_allowed_algorithms == ("bls_normal",)
+    assert record.params.due_work_max_lag_ms == 60_000
     assert record.da_layout == SumeragiDataAvailabilityLayout("reed_solomon16", 262144, 4, 2, 16777216, 1024)
     assert running.instance is not None and running.instance.protocol_version == 1
     assert running.instance.leader == record.committee[0].peer
@@ -153,13 +154,48 @@ def test_data_availability_keeps_compact_final_stripes_and_rejects_invalid_geome
         _parse(value)
 
 
-@pytest.mark.parametrize("field", ["block_cadence_ms", "payload_retry_interval_ms", "exec_budget_ms",
+@pytest.mark.parametrize("field", ["block_cadence_ms", "due_work_max_lag_ms", "payload_retry_interval_ms", "exec_budget_ms",
                                    "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"])
 def test_nonzero_lane_parameters_reject_zero(field):
     value = _lanes()
     value[0]["record"]["params"][field] = 0
     with pytest.raises(ValueError):
         _parse(value)
+
+
+def test_due_work_lag_preserves_nonzero_u64_and_requires_the_current_field():
+    for lag in (1, 65_537, U64_MAX):
+        value = _lanes()
+        value[0]["record"]["params"]["due_work_max_lag_ms"] = lag
+        direct = parse_native_lanes(value)
+        encoded = _parse(value)
+        assert encoded == direct
+        assert encoded[0].record.params.due_work_max_lag_ms == lag
+        assert type(encoded[0].record.params.due_work_max_lag_ms) is int
+    value = _lanes()
+    del value[0]["record"]["params"]["due_work_max_lag_ms"]
+    for parse in (parse_native_lanes, _parse):
+        with pytest.raises(ValueError, match="native lane parameters requires exactly its native fields"):
+            parse(value)
+
+
+@pytest.mark.parametrize("bad", [0, -1, U64_MAX + 1, True, None, "60000", 60000.5])
+def test_due_work_lag_rejects_non_native_numeric_values(bad):
+    value = _lanes()
+    value[0]["record"]["params"]["due_work_max_lag_ms"] = bad
+    for parse in (parse_native_lanes, _parse):
+        with pytest.raises(ValueError):
+            parse(value)
+
+
+def test_due_work_lag_rejects_signed_zero_and_duplicate_json_fields():
+    current = '"due_work_max_lag_ms":60000'
+    running = ROWS["running_lane"]
+    assert running.count(current) == 1
+    for invalid in ('"due_work_max_lag_ms":-0', current + ',' + current):
+        raw = running.replace(current, invalid).encode()
+        with pytest.raises(ValueError):
+            parse_native_lanes_json(raw)
 
 
 def test_malformed_hashes_keys_proofs_and_bodies_are_rejected():

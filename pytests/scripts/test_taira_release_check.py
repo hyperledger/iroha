@@ -30,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2012 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2045 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 2047 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 2080 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -1466,6 +1466,60 @@ class BasicReleaseQualificationTests(unittest.TestCase):
                              ["storage::admitted_tests::" + name for name in restoration])
         self.assertEqual(gate.HARNESS_TARGETS["mv-admitted-map"][3], ["-p", "mv", "--test", "admitted_map_custody"])
         self.assertEqual(gate.HARNESS_TARGETS["concread"][3], ["-p", "concread", "--lib"])
+
+    def test_original_native_frame_physical_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::native_frame_release_tests::original_native_frame_metadata_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_absence_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_metadata_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_success_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_body_refusal_notifies_after_storage_fences', 'kura::native_frame_release_tests::original_native_frame_partial_refusals_retain_exact_storage_errors', 'kura::native_frame_release_tests::original_native_frame_unwind_notifies_after_each_acquired_prefix']
+        controls = (Path(__file__).resolve().parents[2] /
+                    'crates/iroha_core/src/kura/native_frame_release_tests.rs').read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_original_geometry_recovery_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_preflight_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_replay_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_success_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_startup_refusal_notifies_after_all_fences', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_partial_refusals_keep_exact_errors_and_release_sources', 'kura::lane_geometry::tests::original_recovery_release_tests::original_geometry_recovery_unwind_notifies_after_every_acquired_fence']
+        controls = (Path(__file__).resolve().parents[2] /
+                    "crates/iroha_core/src/kura/lane_geometry_tests/09_recovery_releases.rs").read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
+
+    def test_native_physical_reader_controls_are_required_and_focused_in_both_scopes(self):
+        names = ['sumeragi::lanes::registry::tests::original_native_history_reader_success_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_absence_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_error_reenters_after_scan_unlock', 'sumeragi::lanes::registry::tests::original_native_history_reader_reentry_preserves_concurrent_ready_owner', 'sumeragi::lanes::registry::tests::original_native_history_partial_reader_refusal_retains_exact_source_after_unlock', 'sumeragi::lanes::registry::tests::original_authority_recheck_retains_reentrant_opening_and_historical_interest']
+        controls = (Path(__file__).resolve().parents[2] /
+                    "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs").read_text()
+        for name in names:
+            self.assertEqual(controls.count("fn " + name.rsplit("::", 1)[-1] + "()"), 1)
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)["core"]
+            actual = [name for _, tests in selected for name in tests]
+            for name in names:
+                with self.subTest(scope=scope, regression=name):
+                    self.assertEqual(actual.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual([test for _, tests in focused["core"] for test in tests], [name])
+                    listing = "\n".join(test + ": test" for test in actual if test != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected)
 
     def test_original_history_custody_is_required_and_focused_in_both_scopes(self):
         stages = gate.native_owner_stages("native original transaction history custody")

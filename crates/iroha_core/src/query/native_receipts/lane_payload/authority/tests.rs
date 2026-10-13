@@ -116,6 +116,113 @@ fn selected_authority_matches_existing_creation_context_and_exact_original_crede
 }
 
 #[test]
+fn selected_authority_preserves_all_current_parameter_coordinates_and_original_context() {
+    use std::num::{NonZeroU32, NonZeroU64};
+
+    let (network, mut record) = record();
+    record.params = iroha_data_model::parameter::system::SumeragiParameters {
+        block_cadence_ms: NonZeroU64::new(1_001).unwrap(),
+        max_clock_drift_ms: 123,
+        due_work_max_lag_ms: NonZeroU64::new(65_432).unwrap(),
+        key_activation_lead_blocks: 71,
+        key_overlap_grace_blocks: 73,
+        key_expiry_grace_blocks: 79,
+        key_allowed_algorithms: vec![Algorithm::BlsNormal],
+        payload_retry_interval_ms: NonZeroU64::new(6_001).unwrap(),
+        exec_budget_ms: NonZeroU64::new(4_001).unwrap(),
+        apply_budget_ms: NonZeroU64::new(1_003).unwrap(),
+        max_block_bytes: NonZeroU32::new(8 * 1024 * 1024).unwrap(),
+        epoch_length_blocks: NonZeroU64::new(3_691).unwrap(),
+        demotion_window: NonZeroU64::new(131).unwrap(),
+    };
+    record.params.validate_clock_policy().unwrap();
+    record.merged.result = crate::sumeragi::lanes::lane_genesis_result(&record).0;
+    let encoded = record.encode();
+    let decoded =
+        <SumeragiLaneRecord as norito::codec::DecodeAll>::decode_all(&mut encoded.as_slice())
+            .unwrap();
+    assert_eq!(decoded, record);
+    let raw = RawAuthority::parse(&encoded).unwrap();
+    assert_eq!(
+        raw.params,
+        crate::sumeragi::schedule::ChainParamsRecord::from_parameters(&record.params)
+    );
+    assert_eq!(raw.demotion_window, record.params.demotion_window.get());
+    assert_eq!(raw.context().unwrap().0, record.merged.result);
+    assert_eq!(raw.frontier().unwrap(), record.merged);
+
+    // The clock policy stays authenticated even though it is not a ChainParams field.
+    let mut changed = record.clone();
+    changed.params.due_work_max_lag_ms = NonZeroU64::new(65_433).unwrap();
+    let changed_bytes = changed.encode();
+    let changed_raw = RawAuthority::parse(&changed_bytes).unwrap();
+    assert_eq!(changed_raw.params, raw.params);
+    assert_eq!(
+        changed_raw.context().unwrap(),
+        crate::sumeragi::lanes::lane_genesis_result(&changed)
+    );
+    assert_ne!(changed_raw.context().unwrap(), raw.context().unwrap());
+
+    let expected = crate::sumeragi::lanes::lane_height_config(&record).unwrap();
+    let budget = AllocationBudget::new(1 << 20);
+    let source = source(network, &record, &budget);
+    let original = source.bytes.as_slice().as_ptr();
+    let held = budget.reserved_bytes();
+    let demand = raw.demand().unwrap().bytes;
+    let owner = LaneAuthorityRead::new(source, record.incarnation)
+        .complete(&budget)
+        .unwrap_or_else(|(_, error)| panic!("selected current parameter authority: {error}"));
+    assert_eq!(owner.config(), &expected);
+    assert_eq!(owner.demotion_window(), record.params.demotion_window.get());
+    assert_eq!(owner.source.bytes.as_slice().as_ptr(), original);
+    assert!(owner.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), held + demand);
+    drop(owner);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn selected_authority_requires_exact_current_parameter_field_count() {
+    use crate::query::native_receipts::lane_payload::select::fields;
+
+    // Only construct malformed fixtures here: production accepts the exact current layout.
+    let encode_fields = |fields: &[&[u8]]| {
+        let mut bytes = Vec::new();
+        for field in fields {
+            norito::core::write_len_with_flags(
+                &mut bytes,
+                u64::try_from(field.len()).unwrap(),
+                norito::core::default_encode_flags(),
+            )
+            .unwrap();
+            bytes.extend_from_slice(field);
+        }
+        bytes
+    };
+    let (_, record) = record();
+    let encoded = record.encode();
+    let current = fields::<13>(&encoded).unwrap();
+    let parameters = fields::<13>(current[4]).unwrap();
+    assert_eq!(encode_fields(&current), encoded);
+    assert_eq!(encode_fields(&parameters), record.params.encode());
+    RawAuthority::parse(&encoded).unwrap();
+
+    let mut missing_clock_policy = parameters.to_vec();
+    missing_clock_policy.remove(2);
+    let mut extra_parameter = parameters.to_vec();
+    extra_parameter.push(parameters[12]);
+    for malformed in [missing_clock_policy, extra_parameter] {
+        let parameter_bytes = encode_fields(&malformed);
+        let mut altered = current;
+        altered[4] = &parameter_bytes;
+        assert!(matches!(
+            RawAuthority::parse(&encode_fields(&altered)),
+            Err(LanePayloadError::Codec(norito::Error::LengthMismatch))
+        ));
+    }
+}
+
+#[test]
 fn selected_authority_refuses_before_graph_allocation_then_retries_same_source_at_exact_demand() {
     let (network, record) = record();
     let budget = AllocationBudget::new(1 << 20);

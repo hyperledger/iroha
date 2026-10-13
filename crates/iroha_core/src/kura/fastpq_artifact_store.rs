@@ -127,15 +127,23 @@ impl Kura {
         }
         let reference = FastpqStoredArtifactReference::for_bytes(bytes);
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
         let _canonical_guard = self.canonical_chain_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(2);
         self.durable_mutation_authorized()?;
         // Preserve Kura's capacity-owner lock order: pending canonical bytes
         // require block-store locks before either geometry or sidecar locks.
         let pending_canonical_bytes =
             self.pending_canonical_capacity_bytes_under_prune_and_canonical_guards()?;
         let _geometry_guard = self.lane_geometry_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(3);
         let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(4);
         // Recovery and publication own sequential, disjoint path snapshots.
         // Any error leaves their common resource owner unavailable.
         let mut usage_mutation = self
@@ -247,10 +255,16 @@ impl Kura {
             ));
         }
         let _prune_guard = self.prune_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(1);
         self.ensure_prune_recovery_not_required()?;
         let _canonical_guard = self.canonical_chain_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(2);
         self.durable_mutation_authorized()?;
         let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(3);
         let namespace = self.open_fastpq_artifact_namespace(false)?;
         self.inventory_fastpq_artifacts(&namespace, limits)?;
         let path = directory.join(reference.file_name());
@@ -1154,4 +1168,10 @@ mod tests {
         );
         assert_eq!(kura.fastpq_artifact_policy, limits(8, 2, 16));
     }
+}
+
+/// Original physical notification custody for retained FASTPQ artifact APIs.
+#[cfg(all(test, unix, not(target_os = "espidf")))]
+mod original_release_tests {
+    include!("fastpq_artifact_release_tests.rs");
 }

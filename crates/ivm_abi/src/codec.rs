@@ -142,12 +142,13 @@ mod tests {
     #[test]
     fn canonical_readers_retain_original_enclosing_owner_and_retry_same_bytes() {
         use norito::core::{DecodeLocalRefusalKind, with_decode_limits_scope};
+        type CanonicalReader = fn(&[u8]) -> Result<Vec<String>, VMError>;
+
         let value = vec!["original canonical read".to_owned()];
         let bytes = norito::encode_canonical(&value).unwrap();
-        let readers: [fn(&[u8]) -> Result<Vec<String>, VMError>; 2] =
-            [decode_canonical_norito, |bytes| {
-                decode_canonical_norito_with_limits(bytes, allocation_limit(usize::MAX))
-            }];
+        let readers: [CanonicalReader; 2] = [decode_canonical_norito, |bytes| {
+            decode_canonical_norito_with_limits(bytes, allocation_limit(usize::MAX))
+        }];
         for reader in readers {
             for limit in [
                 allocation_limit(0),

@@ -134,7 +134,72 @@ fn staged_state_snapshot_preserves_nonempty_current_and_predecessor_append_order
 #[test]
 fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor() {
     use crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map;
-    use crate::state::sccp_snapshot_state::{serialize_block_envelope, serialize_envelope};
+    use crate::state::sccp_snapshot_state::{
+        SnapshotSccpState, serialize_block_envelope, serialize_envelope,
+    };
+    use iroha_data_model::{
+        bridge::SccpNetworkV1,
+        sccp::{
+            inbound::SccpPendingReasonV1,
+            outbound::{
+                SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpVoidKindV1, SccpVoidStatusV1,
+            },
+        },
+    };
+
+    fn populate_added_fields(
+        world: &mut WorldBlock<'_>,
+        seed: u8,
+        budget: &iroha_allocation::AllocationBudget,
+    ) {
+        // Serialization DATA owns real admitted keys and both MV cuts. These records
+        // confer no authenticated offence, certificate, or execution authority.
+        let key = sccp_forgery_custody::OffenceKey::try_copy(
+            u64::from(seed),
+            LaneId::SINGLE,
+            &iroha_test_samples::ALICE_ID,
+            budget,
+        )
+        .unwrap();
+        assert!(key.belongs_to(budget));
+        world
+            .sccp_forgery_offences
+            .try_insert_admitted(key, [seed; 32])
+            .unwrap();
+        *world.sccp_forgery_max_generation.get_mut() = Some(u64::from(seed));
+        let network = SccpNetworkV1::EthereumMainnet;
+        let key = (network, 1);
+        let amount = u128::from(seed) * 10;
+        let pending = world
+            .sccp_pending_refund_amount
+            .get(&key)
+            .copied()
+            .unwrap_or(0);
+        world
+            .sccp_pending_refund_amount
+            .try_insert_admitted(key, pending.checked_add(amount).unwrap())
+            .unwrap();
+        world.sccp_outbound_messages.insert(
+            [seed | 0x80; 32],
+            SccpOutboundMessageRecordV1 {
+                network,
+                revision: 1,
+                nonce: u64::from(seed) + 100,
+                height: u64::from(seed),
+                commitment_index: 0,
+                deadline_ms: 1,
+                sender: iroha_test_samples::ALICE_ID.clone(),
+                amount,
+                payload: Vec::new(),
+                leaf: [seed | 0x80; 32],
+                status: SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+                    kind: SccpVoidKindV1::Expired,
+                    proven_at_height: u64::from(seed) + 1,
+                    refund_pending: Some(SccpPendingReasonV1::LiabilityShortfall),
+                }),
+            },
+        );
+    }
 
     let (state, _) = fixture();
     let budget = state.ivm_execution_budget();
@@ -142,6 +207,7 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
         // Exact SCCP component setup carries no certified chain authority.
         let mut world = state.world.block();
         populate_every_sccp_map(&mut world, 1, &budget);
+        populate_added_fields(&mut world, 1, &budget);
         world.commit();
     }
     let mut block = state.block(BlockHeader::new(
@@ -152,12 +218,13 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
         0,
     ));
     populate_every_sccp_map(&mut block.world, 2, &budget);
+    populate_added_fields(&mut block.world, 2, &budget);
     block.finalize_axt_asset_incarnations().unwrap();
     block.finalize_axt_policy_transition_ratchets().unwrap();
     let mut envelope = String::new();
     serialize_block_envelope(&block.world, &mut envelope);
     let envelope_value: json::Value = json::from_str(&envelope).unwrap();
-    assert_eq!(envelope_value.as_object().unwrap().len(), 31);
+    assert_eq!(envelope_value.as_object().unwrap().len(), 34);
     for (field, before, after) in [
         ("sccp_committee_current", 1_u64, 2_u64),
         ("sccp_liability_clock", 1_000, 2_000),
@@ -171,6 +238,62 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
         );
         assert_eq!(cell.get("blocks").unwrap().as_u64(), Some(after));
     }
+    // Decode these serialization claims into the same original finite pool. This is
+    // field-custody coverage; full authenticated restoration has its own signed tests.
+    let decoded: SnapshotSccpState = json::from_str(&envelope).unwrap();
+    let offences = decoded
+        .sccp_forgery_offences
+        .decode_forgery_offences(&budget)
+        .unwrap();
+    assert!(offences.allocation_budget().same_pool(&budget));
+    assert_eq!(offences.view().len(), 2);
+    for seed in [1_u8, 2] {
+        let key = sccp_forgery_custody::OffenceKey::try_copy(
+            u64::from(seed),
+            LaneId::SINGLE,
+            &iroha_test_samples::ALICE_ID,
+            &budget,
+        )
+        .unwrap();
+        assert_eq!(offences.view().get(&key), Some(&[seed; 32]));
+    }
+    budget.with_deferred_refund_notifications(|scope| {
+        let mut slot = offences.try_block_acquisition_admitted(scope).unwrap();
+        slot.try_initialize(mv::BlockMode::Replace).unwrap();
+        let predecessor = slot.into_block();
+        for seed in [1_u8, 2] {
+            let key = sccp_forgery_custody::OffenceKey::try_copy(
+                u64::from(seed),
+                LaneId::SINGLE,
+                &iroha_test_samples::ALICE_ID,
+                &budget,
+            )
+            .unwrap();
+            assert_eq!(predecessor.get(&key), (seed == 1).then_some(&[seed; 32]));
+        }
+    });
+    assert_eq!(*decoded.sccp_forgery_max_generation.view().get(), Some(2));
+    assert_eq!(
+        *decoded.sccp_forgery_max_generation.predecessor_view().get(),
+        Some(Some(1))
+    );
+    let refunds = decoded
+        .sccp_pending_refund_amount
+        .decode_reconciliation_fixed::<(SccpNetworkV1, u32), u128>(
+            "sccp_pending_refund_amount",
+            &budget,
+            |_, _| true,
+        )
+        .unwrap();
+    assert!(refunds.allocation_budget().same_pool(&budget));
+    let refund_key = (SccpNetworkV1::EthereumMainnet, 1);
+    assert_eq!(refunds.view().get(&refund_key), Some(&30));
+    budget.with_deferred_refund_notifications(|scope| {
+        let mut slot = refunds.try_block_acquisition_admitted(scope).unwrap();
+        slot.try_initialize(mv::BlockMode::Replace).unwrap();
+        let predecessor = slot.into_block();
+        assert_eq!(predecessor.get(&refund_key), Some(&10));
+    });
     let staged_bytes = crate::snapshot::canonical_staged_state_snapshot_bytes(&block);
     let staged_hash = crate::snapshot::canonical_staged_state_snapshot_hash(&block);
     let staged: json::Value = json::from_slice(&staged_bytes).unwrap();
@@ -181,6 +304,9 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
         "sccp_degraded_run",
         "sccp_anchor_open",
         "sccp_anchor_chunks",
+        "sccp_forgery_offences",
+        "sccp_forgery_max_generation",
+        "sccp_pending_refund_amount",
     ] {
         assert!(
             staged.get("world").unwrap().get(field).is_none(),
@@ -204,12 +330,18 @@ fn staged_sccp_snapshot_preserves_single_envelope_with_current_and_predecessor()
     serialize_envelope(&state.world, &mut committed_envelope);
     assert_eq!(
         committed_envelope, envelope,
-        "all 31 current/undo owners survive publication exactly"
+        "all 34 current/undo owners survive publication exactly"
     );
     let predecessor = state.world.block_and_revert();
     assert_eq!(*predecessor.sccp_committee_current.get(), 1);
     assert_eq!(*predecessor.sccp_liability_clock.get(), 1_000);
     assert_eq!(*predecessor.sccp_degraded_run.get(), 1);
+    assert_eq!(*predecessor.sccp_forgery_max_generation.get(), Some(1));
+    assert_eq!(predecessor.sccp_forgery_offences.len(), 1);
+    assert_eq!(
+        predecessor.sccp_pending_refund_amount.get(&refund_key),
+        Some(&10)
+    );
     assert_eq!(predecessor.sccp_committee_generations.len(), 1);
     assert_eq!(predecessor.sccp_anchor_chunks.len(), 1);
     assert_eq!(

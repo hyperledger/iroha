@@ -29,7 +29,7 @@ pub enum AtomicPaymentProjectionError {
     /// The expected intent contains invalid movement or owner semantics.
     #[error("invalid expected payment intent: {0}")]
     InvalidIntent(&'static str),
-    /// PipelineGas lacks a supported typed authenticated outcome.
+    /// `PipelineGas` lacks a supported typed authenticated outcome.
     #[error("payment projection does not support PipelineGas charges")]
     UnsupportedFeeOutcome,
     /// The Nexus charge does not bind the original signed source and height.

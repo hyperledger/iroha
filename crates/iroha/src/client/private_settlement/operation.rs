@@ -101,10 +101,7 @@ impl PrivateSettlementRequest {
             {
                 return Err(PrivateSettlementError::Binding);
             }
-            bindings.push((
-                material.payload_digest()?,
-                material.availability_body.clone(),
-            ));
+            bindings.push((material.payload_digest()?, material.availability_body));
         }
         let bytes =
             norito::encode_canonical(&(first.manifest.clone(), bindings, max_carrier_bytes))?;
@@ -238,8 +235,8 @@ pub enum PrivateSettlementError {
     #[error("private settlement local worker unavailable")]
     Worker,
 }
-fn failure(error: PrivateSettlementError) -> StepFailure {
-    let code = match &error {
+fn failure(error: &PrivateSettlementError) -> StepFailure {
+    let code = match error {
         PrivateSettlementError::Binding | PrivateSettlementError::Receipt(_) => {
             WorkflowErrorCode::BindingMismatch
         }
@@ -343,9 +340,10 @@ impl AccountClient {
             state: state.clone(),
             ledger: ledger.clone(),
         });
+        let plan = request.plan();
         let account = Arc::new(SettlementAccount {
             account: context,
-            request: request.clone(),
+            request,
             state,
         });
         let engine = WorkflowEngine::new(
@@ -355,7 +353,7 @@ impl AccountClient {
             Arc::new(SystemWorkflowClock::new()),
         );
         Ok(PrivateSettlementOperation {
-            handle: engine.workflow(request.plan())?,
+            handle: engine.workflow(plan)?,
             driver,
             ledger,
             call: tokio::sync::Mutex::new(()),
@@ -385,13 +383,13 @@ impl PrivateSettlementOperation {
         let _call = self.call.lock().await;
         self.ledger
             .begin_call(options.max_finality_proof_reads.get() as usize)?;
-        if let Some(journal) = self.load()? {
-            if let Some(receipt) = self.ledger.recover_business(&journal).await? {
-                return Ok(PrivateSettlementResult {
-                    receipt,
-                    progress: journal.progress(),
-                });
-            }
+        if let Some(journal) = self.load()?
+            && let Some(receipt) = self.ledger.recover_business(&journal).await?
+        {
+            return Ok(PrivateSettlementResult {
+                receipt,
+                progress: journal.progress(),
+            });
         }
         let result = self
             .handle
@@ -502,12 +500,13 @@ impl SettlementDriver {
         context: RoundContext<'_>,
         read_only: bool,
     ) -> std::result::Result<RoundReport, StepFailure> {
-        self.load(context.journal).map_err(failure)?;
+        self.load(context.journal)
+            .map_err(|error| failure(&error))?;
         if context.step_index as usize == COMMIT {
             self.ledger
                 .verify_registration(context.journal)
                 .await
-                .map_err(failure)?;
+                .map_err(|error| failure(&error))?;
         }
         let transcript = self
             .phases
@@ -517,7 +516,7 @@ impl SettlementDriver {
                 read_only,
             )
             .await
-            .map_err(failure)?;
+            .map_err(|error| failure(&error))?;
         let status = RoundStatusReport {
             round_id: context.round_id,
             context_digest: self.request.0.digest,
@@ -564,27 +563,31 @@ impl WorkflowDriver for SettlementDriver {
         context: StepContext<'a>,
     ) -> WorkflowFuture<'a, std::result::Result<BuiltStepPayload, StepFailure>> {
         Box::pin(async move {
-            self.load(context.journal).map_err(failure)?;
-            let barrier = self.request.barrier(context.journal).map_err(failure)?;
+            self.load(context.journal)
+                .map_err(|error| failure(&error))?;
+            let barrier = self
+                .request
+                .barrier(context.journal)
+                .map_err(|error| failure(&error))?;
             let instruction: InstructionBox = match context.step_index as usize {
                 REGISTER => RegisterAtomicPrivateSettlementPrepareV1::new(barrier.clone()).into(),
                 FINALIZE => {
                     self.ledger
                         .verify_registration(context.journal)
                         .await
-                        .map_err(failure)?;
+                        .map_err(|error| failure(&error))?;
                     let commits = transcript::<Vec<PrivateSettlementPhaseCertificateV1>>(
                         context.journal,
                         COMMIT,
                     )
-                    .map_err(failure)?;
+                    .map_err(|error| failure(&error))?;
                     FinalizeAtomicPrivateSettlementV1::new(
                         build_private_settlement_commit_bundle_v1(&barrier, &commits)
-                            .map_err(|error| failure(PrivateSettlementError::Protocol(error)))?,
+                            .map_err(|error| failure(&PrivateSettlementError::Protocol(error)))?,
                     )
                     .into()
                 }
-                _ => return Err(failure(PrivateSettlementError::Binding)),
+                _ => return Err(failure(&PrivateSettlementError::Binding)),
             };
             let payload = self
                 .account
@@ -596,13 +599,13 @@ impl WorkflowDriver for SettlementDriver {
                 .map_err(|error| super::super::workflow_ledger::signing_failure(&error))?;
             check_payload(
                 &self.request,
-                &*lock(&self.state).map_err(failure)?,
+                lock(&self.state).map_err(|error| failure(&error))?.as_ref(),
                 &payload,
                 true,
             )
-            .map_err(failure)?;
+            .map_err(|error| failure(&error))?;
             let unsigned_payload =
-                norito::encode_canonical(&payload).map_err(|e| failure(e.into()))?;
+                norito::encode_canonical(&payload).map_err(|e| failure(&e.into()))?;
             Ok(BuiltStepPayload {
                 intent_digest: self.request.0.digest,
                 unsigned_payload,
@@ -613,11 +616,11 @@ impl WorkflowDriver for SettlementDriver {
 
 fn check_payload(
     request: &PrivateSettlementRequest,
-    context: &Option<PublicContext>,
+    context: Option<&PublicContext>,
     payload: &TransactionPayload,
     signing: bool,
 ) -> std::result::Result<usize, PrivateSettlementError> {
-    let context = context.as_ref().ok_or(PrivateSettlementError::Binding)?;
+    let context = context.ok_or(PrivateSettlementError::Binding)?;
     verified::check_carrier_context(payload, &context.barrier.manifest)?;
     let Executable::Instructions(instructions) = payload.instructions() else {
         return Err(PrivateSettlementError::Binding);
@@ -680,11 +683,11 @@ impl WorkflowAccount for SettlementAccount {
             let payload = super::super::workflow_ledger::decode_unsigned(bytes)?;
             check_payload(
                 &self.request,
-                &*lock(&self.state).map_err(failure)?,
+                lock(&self.state).map_err(|error| failure(&error))?.as_ref(),
                 &payload,
                 true,
             )
-            .map_err(failure)?;
+            .map_err(|error| failure(&error))?;
             let signed = self.account.sign(bytes).await?;
             let transaction =
                 super::super::workflow_ledger::decode_signed(&signed.signed_transaction)?;
@@ -692,7 +695,7 @@ impl WorkflowAccount for SettlementAccount {
                 || signed.signed_transaction.len() as u64 > self.request.0.max_carrier_bytes
                 || self.identify(&signed.signed_transaction)? != signed.identity
             {
-                return Err(failure(PrivateSettlementError::Binding));
+                return Err(failure(&PrivateSettlementError::Binding));
             }
             Ok(signed)
         })
@@ -703,13 +706,13 @@ impl WorkflowAccount for SettlementAccount {
         // been loaded. It grants no authority to sign or dispatch: those boundaries
         // independently require the fully verified exact request and current phase.
         verified::check_carrier_context(transaction.payload(), self.request.manifest())
-            .map_err(|error| failure(error.into()))?;
+            .map_err(|error| failure(&error.into()))?;
         if bytes.len() as u64 > self.request.0.max_carrier_bytes {
-            return Err(failure(PrivateSettlementError::Binding));
+            return Err(failure(&PrivateSettlementError::Binding));
         }
         transaction
             .verify_signature()
-            .map_err(|_| failure(PrivateSettlementError::Binding))?;
+            .map_err(|_| failure(&PrivateSettlementError::Binding))?;
         Ok(identity(&transaction))
     }
 }

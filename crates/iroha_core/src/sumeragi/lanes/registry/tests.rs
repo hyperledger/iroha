@@ -1522,3 +1522,347 @@ fn original_runtime_retirement_refunds_after_registry_and_runner_unlock() {
     budget.set_limit_bytes(original_limit);
     drop((runner, stores, body, qc, source, authorities, dir));
 }
+
+// Actual State reader release observations, independent of allocation refunds.
+struct NativeReaderProbe {
+    provider: std::sync::Weak<crate::sumeragi::runtime_availability::NativeLaneStoreAuthorities>,
+    stores: Option<std::sync::Weak<LaneStores>>,
+    lane: LaneId,
+    incarnation: [u8; 32],
+    instance: Hash32,
+    calls: AtomicUsize,
+    scan_free: AtomicBool,
+    registry_free: AtomicBool,
+    state_free: AtomicBool,
+    reentered: AtomicBool,
+    ready: Mutex<Option<Arc<FileLaneBlockStore>>>,
+    acquired: Option<std::sync::mpsc::Sender<()>>,
+}
+impl std::task::Wake for NativeReaderProbe {
+    fn wake(self: Arc<Self>) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let provider = self.provider.upgrade().unwrap();
+        let scan_free = provider.scan_unlocked_for_reader_test();
+        self.scan_free.store(scan_free, Ordering::SeqCst);
+        let stores = self.stores.as_ref().map(|stores| stores.upgrade().unwrap());
+        let registry_free = stores.as_ref().is_none_or(|stores| {
+            let guard = stores.stores.try_lock();
+            guard.is_some()
+        });
+        self.registry_free.store(registry_free, Ordering::SeqCst);
+        if let Some(acquired) = &self.acquired {
+            // The independently held manifest writer is deliberately still busy.
+            // Tell its owner to release it; never block this callback on that writer.
+            acquired.send(()).unwrap();
+        } else if scan_free && registry_free {
+            provider.assert_original_state_readers_available_for_test();
+            self.state_free.store(true, Ordering::SeqCst);
+            if let Some(stores) = stores {
+                let ready = stores.runtime_store(self.lane, &self.incarnation).unwrap();
+                *self.ready.lock() = Some(ready);
+            } else {
+                let _ = provider.authority(self.lane, &self.incarnation, self.instance);
+            }
+            self.reentered.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum NativeReaderCase {
+    Present,
+    Absent,
+    ArchiveError,
+    RegistryReentry,
+}
+
+fn original_native_reader_control(case: NativeReaderCase) {
+    use crate::sumeragi::runtime_availability::NativeLaneStoreAuthorities;
+    use iroha_allocation::release::ReleaseRegistration;
+    use std::task::{Context, Poll, Waker};
+
+    let (chain, record, _epoch) =
+        crate::sumeragi::runtime_availability::tests::npos_fixed_lane_chain_at(4);
+    let state = chain.state();
+    let budget = state.ivm_execution_budget();
+    let ceiling = budget.limit_bytes();
+    let crypto = Arc::new(crate::sumeragi::crypto::BlsCrypto::new());
+    let provider = Arc::new(NativeLaneStoreAuthorities::new(
+        Arc::clone(state),
+        Arc::clone(&crypto),
+    ));
+    let stores = Arc::new(LaneStores::new(
+        chain.kura().store_root().join("lanes"),
+        *state.network_id_ref(),
+        state.chain_id_ref().to_string(),
+        crypto,
+        budget.clone(),
+        provider.clone(),
+    ));
+    let (lane, incarnation) = if matches!(case, NativeReaderCase::Absent) {
+        (LaneId::new(99), [99; 32])
+    } else {
+        (record.lane, record.incarnation)
+    };
+    let archive = chain.kura().store_root().join("native-contexts");
+    let retained = chain
+        .kura()
+        .store_root()
+        .join("reader-held-native-contexts");
+    if matches!(case, NativeReaderCase::ArchiveError) {
+        fs::rename(&archive, &retained).unwrap();
+    }
+    let probe = Arc::new(NativeReaderProbe {
+        provider: Arc::downgrade(&provider),
+        stores: matches!(case, NativeReaderCase::RegistryReentry).then(|| Arc::downgrade(&stores)),
+        lane,
+        incarnation,
+        instance: stores.instance(lane, &incarnation),
+        calls: AtomicUsize::new(0),
+        scan_free: AtomicBool::new(false),
+        registry_free: AtomicBool::new(false),
+        state_free: AtomicBool::new(false),
+        reentered: AtomicBool::new(false),
+        ready: Mutex::new(None),
+        acquired: None,
+    });
+    let mut registration = ReleaseRegistration::from_reservation(
+        &mut budget
+            .try_reserve(ReleaseRegistration::allocation_layout())
+            .unwrap(),
+    )
+    .unwrap();
+    let release = state.lane_manifests.observe_release();
+    let waker = Waker::from(Arc::clone(&probe));
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Pending
+    );
+    drop(state.da_pin_intents.read());
+    assert_eq!(
+        probe.calls.load(Ordering::SeqCst),
+        0,
+        "another original State source cannot wake this reader"
+    );
+    if matches!(case, NativeReaderCase::RegistryReentry) {
+        let outer = stores.runtime_store(lane, &incarnation).unwrap();
+        assert!(
+            probe.scan_free.load(Ordering::SeqCst) && probe.registry_free.load(Ordering::SeqCst),
+            "original State reader notices must follow scan and registry unlock"
+        );
+        assert!(
+            probe
+                .ready
+                .lock()
+                .as_ref()
+                .is_some_and(|inner| Arc::ptr_eq(inner, &outer)),
+            "authority lookup must retain a reentrant original Ready owner"
+        );
+    } else {
+        let result = provider.authority(lane, &incarnation, probe.instance);
+        match case {
+            NativeReaderCase::Present => assert!(result.unwrap().is_some()),
+            NativeReaderCase::Absent => assert!(result.unwrap().is_none()),
+            NativeReaderCase::ArchiveError => {
+                assert_ne!(result.err().unwrap().io_kind(), io::ErrorKind::WouldBlock);
+                fs::rename(&retained, &archive).unwrap();
+            }
+            NativeReaderCase::RegistryReentry => unreachable!(),
+        }
+    }
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        probe.scan_free.load(Ordering::SeqCst) && probe.registry_free.load(Ordering::SeqCst),
+        "original State reader notices must follow scan and registry unlock"
+    );
+    assert!(probe.state_free.load(Ordering::SeqCst));
+    assert!(probe.reentered.load(Ordering::SeqCst));
+    assert_eq!(
+        registration.poll_wait(&release, &mut Context::from_waker(&waker)),
+        Poll::Ready(())
+    );
+    assert_eq!(budget.limit_bytes(), ceiling);
+}
+
+#[test]
+fn original_native_history_reader_success_reenters_after_scan_unlock() {
+    original_native_reader_control(NativeReaderCase::Present);
+}
+#[test]
+fn original_native_history_reader_absence_reenters_after_scan_unlock() {
+    original_native_reader_control(NativeReaderCase::Absent);
+}
+#[test]
+fn original_native_history_reader_error_reenters_after_scan_unlock() {
+    original_native_reader_control(NativeReaderCase::ArchiveError);
+}
+#[test]
+fn original_native_history_reader_reentry_preserves_concurrent_ready_owner() {
+    original_native_reader_control(NativeReaderCase::RegistryReentry);
+}
+
+#[test]
+fn original_native_history_partial_reader_refusal_retains_exact_source_after_unlock() {
+    use crate::sumeragi::runtime_availability::NativeLaneStoreAuthorities;
+    use std::task::{Context, Waker};
+    let (chain, record, _epoch) =
+        crate::sumeragi::runtime_availability::tests::npos_fixed_lane_chain_at(4);
+    let state = chain.state();
+    let budget = state.ivm_execution_budget();
+    let crypto = Arc::new(crate::sumeragi::crypto::BlsCrypto::new());
+    let provider = Arc::new(NativeLaneStoreAuthorities::new(
+        Arc::clone(state),
+        crypto.clone(),
+    ));
+    let instance = incarnation_instance(
+        &*crypto,
+        state.network_id_ref(),
+        state.chain_id_ref().as_ref(),
+        record.lane,
+        &record.incarnation,
+    );
+    let (acquired, read_acquired) = std::sync::mpsc::channel();
+    let probe = Arc::new(NativeReaderProbe {
+        provider: Arc::downgrade(&provider),
+        stores: None,
+        lane: record.lane,
+        incarnation: record.incarnation,
+        instance,
+        calls: AtomicUsize::new(0),
+        scan_free: AtomicBool::new(false),
+        registry_free: AtomicBool::new(false),
+        state_free: AtomicBool::new(false),
+        reentered: AtomicBool::new(false),
+        ready: Mutex::new(None),
+        acquired: Some(acquired),
+    });
+    let mut registration = crate::unit_test_support::release_registration(&budget);
+    let release = state.world.accounts.observe_reader_release();
+    let waker = Waker::from(probe.clone());
+    assert!(
+        registration
+            .poll_wait(&release, &mut Context::from_waker(&waker))
+            .is_pending()
+    );
+    let held = state.lane_manifests.write();
+    let original_wait = state.lane_manifests.observe_release();
+    let result = std::thread::scope(|scope| {
+        let worker = scope.spawn(|| provider.authority(record.lane, &record.incarnation, instance));
+        let notified = read_acquired.recv_timeout(std::time::Duration::from_secs(30));
+        drop(held);
+        notified.expect("actual earlier World reader completes before the later manifest writer");
+        worker.join().unwrap()
+    });
+    assert!(
+        probe.scan_free.load(Ordering::SeqCst),
+        "original State reader notices must follow scan and registry unlock"
+    );
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    let error = result
+        .err()
+        .expect("partial reader acquisition preserves its original refusal");
+    let Attempt::Rejected(error) = error else {
+        panic!("physical reader refusal keeps its typed IO source")
+    };
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    let crate::state::StateViewError::Busy(retained) = error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<crate::state::StateViewError>()
+        .unwrap()
+    else {
+        panic!("original State reader wait")
+    };
+    assert_eq!(*retained, original_wait);
+    assert!(
+        registration
+            .poll_wait(&release, &mut Context::from_waker(&waker))
+            .is_ready()
+    );
+    assert!(
+        provider
+            .authority(record.lane, &record.incarnation, instance)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn original_authority_recheck_retains_reentrant_opening_and_historical_interest() {
+    struct ReentrantAuthority {
+        original: Arc<Authorities>,
+        fixture: std::sync::OnceLock<std::sync::Weak<Fixture>>,
+        entered: AtomicBool,
+        unlocked: AtomicBool,
+    }
+    impl LaneStoreAuthorities for ReentrantAuthority {
+        fn authority(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            instance: Hash32,
+        ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>> {
+            if !self.entered.swap(true, Ordering::SeqCst) {
+                let fixture = self.fixture.get().unwrap().upgrade().unwrap();
+                let unlocked = fixture.stores.stores.try_lock().is_some();
+                self.unlocked.store(unlocked, Ordering::SeqCst);
+                if unlocked {
+                    let error = fixture.stores.runtime_store(lane, incarnation).unwrap_err();
+                    assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
+                    assert!(matches!(
+                        fixture.stores.stores.lock().get(&(lane, *incarnation)),
+                        Some(StoreSlot::Opening(_, false))
+                    ));
+                }
+            }
+            self.original.authority(lane, incarnation, instance)
+        }
+    }
+    let mut fixture = Fixture::new(true);
+    fixture.publish();
+    let bytes = fs::read(fixture.path()).unwrap();
+    fixture.stores.release(LANE, &INCARNATION);
+    let authority = Arc::new(ReentrantAuthority {
+        original: Arc::clone(&fixture.authorities),
+        fixture: std::sync::OnceLock::new(),
+        entered: AtomicBool::new(false),
+        unlocked: AtomicBool::new(false),
+    });
+    fixture.stores.authorities = authority.clone();
+    let fixture = Arc::new(fixture);
+    assert!(authority.fixture.set(Arc::downgrade(&fixture)).is_ok());
+    let budget = &fixture.stores.budget;
+    let ceiling = budget.limit_bytes();
+    let baseline = budget.reserved_bytes();
+    budget.set_limit_bytes(baseline + bytes.len());
+    let error = fixture.stores.store(LANE, &INCARNATION).unwrap_err();
+    assert!(
+        authority.unlocked.load(Ordering::SeqCst),
+        "original State reader notices must follow scan and registry unlock"
+    );
+    assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
+    assert!(
+        matches!(
+            fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
+            Some(StoreSlot::Opening(_, true))
+        ),
+        "historical interest must join the exact reentrant opening"
+    );
+    assert_eq!(budget.reserved_bytes(), baseline + bytes.len());
+    fixture.stores.release(LANE, &INCARNATION);
+    assert!(matches!(
+        fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
+        Some(StoreSlot::Opening(_, true))
+    ));
+    budget.set_limit_bytes(ceiling);
+    let original = fixture.stores.store(LANE, &INCARNATION).unwrap();
+    assert_eq!(original.height(), 1);
+    assert!(Arc::ptr_eq(
+        &original,
+        &fixture.stores.runtime_store(LANE, &INCARNATION).unwrap()
+    ));
+    drop(original);
+    fixture.stores.release(LANE, &INCARNATION);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(fs::read(fixture.path()).unwrap(), bytes);
+}
