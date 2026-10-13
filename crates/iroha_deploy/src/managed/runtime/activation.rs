@@ -102,8 +102,8 @@ impl Budget {
                 .filter(|value| !value.is_zero())
                 .ok_or_else(|| invalid("aggregate service interval expired"))?;
             timeout = timeout.min(remaining);
-            utc_ceiling =
-                Some(utc_ceiling.map_or(expiry.utc_ceiling(), |old| old.min(expiry.utc_ceiling())));
+            let ceiling = expiry.utc_ceiling();
+            utc_ceiling = Some(utc_ceiling.map_or(ceiling, |old| old.min(ceiling)));
         }
         let end = self
             .started
@@ -149,8 +149,8 @@ pub(super) struct Restart {
     retained: Option<RetainedContinuations>,
 }
 pub(super) enum Outcome {
-    Restart(Restart),
-    Complete(Option<maintenance::Observation>),
+    Restart(Box<Restart>),
+    Complete(Option<Box<maintenance::Observation>>),
 }
 
 /// One non-cloneable startup handoff. Only the initial background task receives its finite
@@ -177,8 +177,9 @@ pub(super) fn prepare(
         let mut parent = ManagedServiceBootstrap::open(prepared)?;
         let authorization =
             parent.authorize_generated_startup(deadline, Arc::clone(&budget.cancelled))?;
-        drop(parent);
-        let owner = Arc::new(GeneratedServiceRuntime::open(prepared)?);
+        // The consuming handoff releases Bootstrap before the catalog reopens its purpose.
+        // Authorization remains the original separately issued finite startup capability.
+        let owner = Arc::new(parent.into_generated_runtime()?);
         let revision = owner.prepare_catalog(deadline)?;
         if revision.stage() != GeneratedRuntimeStage::Catalog
             || !revision.required_transactions().is_empty()
@@ -277,14 +278,16 @@ pub(super) fn initial(
     let parallel = budget.call(|_| owner.fresh_catalog_round())?;
     let catalogs = catalog::promote(prepared, &mut live, budget, parallel)?;
     validate_gateways(prepared, &mut live, budget)?;
-    Ok(Outcome::Restart(Restart {
+    // The outgoing launch cannot reuse this startup-only dispatch capability.
+    drop(authorization);
+    Ok(Outcome::Restart(Box::new(Restart {
         receipt,
         owner,
         revision,
         required,
         catalogs,
         retained: None,
-    }))
+    })))
 }
 
 struct RetainedContinuations {
@@ -458,7 +461,7 @@ impl Recheck {
         })?;
         validate_gateways(prepared, &mut live, budget)?;
         budget.check()?;
-        Ok(Outcome::Complete(Some(observation)))
+        Ok(Outcome::Complete(Some(Box::new(observation))))
     }
 }
 
@@ -776,10 +779,10 @@ fn join_carrier_peer_reads(
                     phase: CARRIER_PHASES[index],
                     cause: super::progress::Cause::Unconfirmed,
                 };
-                match handle {
-                    Ok(handle) => handle.join().unwrap_or_else(|_| Err(failed())),
-                    Err(_) => Err(failed()),
-                }
+                handle.map_or_else(
+                    |_| Err(failed()),
+                    |handle| handle.join().unwrap_or_else(|_| Err(failed())),
+                )
             })
             .collect::<Vec<_>>();
         // Collecting consumes every handle even after an ordinary error, panic or spawn error.

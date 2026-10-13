@@ -84,7 +84,7 @@ impl NativeCustodyFixture {
         let state = Arc::clone(chain.state());
         let pins = StreamTokenSignerPinsV1::from_config(
             &storage_config(1),
-            &state.view().chain_id().to_string(),
+            state.view().chain_id().as_ref(),
             *state.network_id_ref().as_bytes(),
         )
         .expect("independent public fixture pins")

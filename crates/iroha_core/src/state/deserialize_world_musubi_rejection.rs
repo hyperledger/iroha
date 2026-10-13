@@ -8,7 +8,7 @@ use norito::json;
 
 /// Canonical projection source table; names cannot come from untrusted input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProjectionTable {
+pub enum ProjectionTable {
     Archives,
     ArchiveLocations,
     ProviderBundleAttestations,
@@ -33,7 +33,7 @@ impl ProjectionTable {
 
 /// Existing diagnostic context for the exact borrowed World being checked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ProjectionCut {
+pub enum ProjectionCut {
     Current,
     Predecessor,
     Capture,
@@ -56,7 +56,7 @@ impl ProjectionCut {
 /// Local resource refusal remains `ExecutionAttemptError::Deferred`; there is
 /// deliberately no conversion from an allocation error into this descriptor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProjectionRejection {
+pub struct ProjectionRejection {
     table: ProjectionTable,
     reason: &'static str,
     cut: Option<ProjectionCut>,

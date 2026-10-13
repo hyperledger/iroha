@@ -67,7 +67,7 @@ fn config() -> TestChainConfig {
             por_recorder_authority: authority.clone(),
             dispute_recorder_authority: authority.clone(),
             token_recorder_authority: authority.clone(),
-            stream_token_delivery: Default::default(),
+            stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
             max_source_age_ms: REPUTATION_JOURNAL_MAX_SOURCE_AGE_MS_V1,
         })
         .into(),
@@ -186,6 +186,7 @@ fn context(
         .unwrap();
     (
         ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Clone::clone(chain.state()),
             native_context_archive: Arc::new(
                 NativeContextArchive::open(
@@ -212,7 +213,13 @@ fn context(
 
 fn worker(context: &ExecutorContext, archives: FinalizedArchives) -> Worker<'_> {
     Worker {
+        prepare_clock: crate::sumeragi::crypto::prepare_clock::PrepareClock::new(
+            &context.state.ivm_execution_budget(),
+            context.time_source.clone(),
+        )
+        .expect("original worker clock admission"),
         payload_build: None,
+        assembly_parent_service: None,
         signature_decode: None,
         context,
         state: &context.state,
@@ -328,7 +335,12 @@ fn assert_pending_archive_owner(
     assert_eq!(worker.applied.0, 1);
     assert!(events.try_recv().is_err());
     assert!(worker.live.as_ref().unwrap().overlay.is_none());
-    assert!(worker.execute(block, qc.block_hash).unwrap().is_none());
+    assert!(
+        worker
+            .execute(block, qc.block_hash, false)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(worker.prepare(block, qc).unwrap(), Some(qc.result));
     event_count
 }
@@ -646,7 +658,12 @@ fn partial_archive_failure_retains_exact_decision_and_retries_without_reexecutio
         "archive failure cannot clean committed queue work"
     );
     assert!(events.try_recv().is_err());
-    assert!(worker.execute(&block, qc.block_hash).unwrap().is_none());
+    assert!(
+        worker
+            .execute(&block, qc.block_hash, false)
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(worker.build(3, 0, 1 << 20, 100).unwrap(), None);
     assert_eq!(worker.prepare(&block, &qc).unwrap(), Some(qc.result));
     assert!(

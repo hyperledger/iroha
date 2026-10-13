@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 ///
 /// The returned allocation is zeroized on every exit path. Callers decode it immediately
 /// into secret-owning types whose `Drop` implementation also scrubs private fields.
-pub(crate) fn load_bounded_runtime_credential_v1(
+pub fn load_bounded_runtime_credential_v1(
     path: &Path,
     minimum_bytes: usize,
     maximum_bytes: usize,
@@ -37,7 +37,7 @@ pub(crate) fn load_bounded_runtime_credential_v1(
 }
 /// Decode the sole canonical newline-terminated software key and require its exact public key.
 /// This grants key custody only; every consumer retains its native role/permission checks.
-pub(crate) fn load_bound_software_key_v1(
+pub fn load_bound_software_key_v1(
     path: &Path,
     expected: &iroha_crypto::PublicKey,
 ) -> Result<iroha_crypto::KeyPair, RuntimeCredentialErrorV1> {

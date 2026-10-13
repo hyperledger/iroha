@@ -245,7 +245,7 @@ fn original_preparation() -> (CertifiedTestChain, KeyPair, ValidatorCommitteeOpe
             .take(3)
             .enumerate()
             .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
-                signer_index: index as u16,
+                signer_index: u16::try_from(index).expect("fixture value fits u16"),
                 signature: iroha_crypto::Signature::try_new(key.private_key(), &preimage).unwrap(),
             })
             .collect();
@@ -303,8 +303,10 @@ fn original_preparation() -> (CertifiedTestChain, KeyPair, ValidatorCommitteeOpe
                         )
                         .unwrap();
                 }
-                crate::sumeragi::epoch_beacon::control::encode(Some(pulse.finalize().unwrap()))
-                    .unwrap()
+                crate::sumeragi::epoch_beacon::control::encode(
+                    Some(pulse.finalize().unwrap()).as_ref(),
+                )
+                .unwrap()
             } else {
                 iroha_sumeragi::types::ControlWitness::empty()
             };
@@ -1152,9 +1154,9 @@ fn original_npos_reserve_validation_refuses_without_changing_current_or_undo() {
     let current = state.world.view();
     assert_custody(&current);
     crate::state::validate_public_lane_stake_reserves(&current).unwrap();
-    for error in [
-        no_allocation(|| crate::state::validate_public_lane_stake_reserves(&current)).unwrap_err(),
-    ] {
+    {
+        let error = no_allocation(|| crate::state::validate_public_lane_stake_reserves(&current))
+            .unwrap_err();
         assert!(matches!(error, Attempt::Deferred(_)), "{error:?}");
     }
     drop(current);
@@ -1162,12 +1164,10 @@ fn original_npos_reserve_validation_refuses_without_changing_current_or_undo() {
         let previous = state.world.block_and_revert();
         assert_custody(&previous);
         crate::state::validate_public_lane_stake_reserves(&previous).unwrap();
-        for error in
-            [
-                no_allocation(|| crate::state::validate_public_lane_stake_reserves(&previous))
-                    .unwrap_err(),
-            ]
         {
+            let error =
+                no_allocation(|| crate::state::validate_public_lane_stake_reserves(&previous))
+                    .unwrap_err();
             assert!(matches!(error, Attempt::Deferred(_)), "{error:?}");
         }
         crate::state::validate_public_lane_stake_reserves(&previous).unwrap();

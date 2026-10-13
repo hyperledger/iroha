@@ -269,12 +269,13 @@ impl CallbackJournal {
 }
 
 impl super::StateTransaction<'_, '_> {
-    /// Transfer the exact callback journal to direct transaction/lane replay.
+    /// Consume an isolated transaction fixture's actual callback journal once.
     ///
-    /// Ordinary output producers retain their own complete row reservation. This
-    /// corridor returns the actual callback sequence used by certified lane result
-    /// hashes; it does not authorize an ordinary execution-output row. Completions
-    /// and nested by-call steps come only from the transaction's original journal.
+    /// Production Network and internal output owners drain the journal directly
+    /// into their reserved complete rows. This fixture adapter retains the same
+    /// call ownership, deferrals, limits and completion ordering; it cannot
+    /// authorize an ordinary execution-output row.
+    #[cfg(test)]
     pub(crate) fn complete_direct_callbacks(
         &mut self,
         call: Hash,

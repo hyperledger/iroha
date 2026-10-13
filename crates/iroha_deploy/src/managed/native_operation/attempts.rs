@@ -8,7 +8,7 @@ use crate::managed::stream_token_custody::body_history::{
     finish_timing, graph_original_tests, operation_scope_tests,
 };
 
-use super::{Terms, encode, invalid, read_optional, require_empty};
+use super::{Terms, encode, invalid, read_optional};
 use crate::managed::{ManagedBootstrapFailure, Result};
 use iroha_crypto::Hash;
 use iroha_data_model::sorafs::capacity::ProviderId;
@@ -18,9 +18,14 @@ use iroha_wallet::operations::{
 };
 use std::ffi::OsStr;
 
+#[path = "attempts/generated_read_phase.rs"]
+mod generated_read_phase;
 #[path = "attempts/selection.rs"]
 mod selection;
-pub(in crate::managed) use selection::{generated, initial};
+pub(in crate::managed) use selection::{
+    FirstReservation, GeneratedPrerequisite, GeneratedSelection, generated, generated_native,
+    initial,
+};
 #[path = "attempts/closure.rs"]
 mod closure;
 #[path = "attempts/parser_pass.rs"]
@@ -32,9 +37,7 @@ pub(in crate::managed) use retained_graph::GraphRootReadPass;
 #[path = "attempts/scope.rs"]
 mod scope;
 use closure::{ClosurePlan, ClosureRecord};
-pub(in crate::managed) use closure::{
-    PendingUnsignedClosure, UnsignedClosureVerification, VerifiedUnsignedClosure,
-};
+pub(in crate::managed) use closure::{UnsignedClosureVerification, VerifiedUnsignedClosure};
 pub(in crate::managed) use scope::{
     BodyDispatchScope, BodyReplacementTarget, EnrollmentScopeBinding, EnrollmentScopeEvidence,
     HistoryScope, SemanticSuccessor,
@@ -289,18 +292,48 @@ impl Attempt {
 
 /// Read-only bounded metadata. No arbitrary filename can select a native head or grant signing.
 pub(in crate::managed) struct History {
+    records: HistoryRecordsOwner,
+    scope: HistoryScope,
+}
+
+// The sole parser creates Owned records. Only a successfully verified terminal closure can
+// promote them to shared ownership; fresh scope evidence is never part of that allocation.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Parsed records stay inline until verified closure explicitly promotes shared ownership; eager boxing would add an allocation to bounded admission"
+)]
+enum HistoryRecordsOwner {
+    Owned(HistoryRecords),
+    Retained(std::sync::Arc<HistoryRecords>),
+}
+
+/// Immutable parsed local records and their original native owners, without head authority.
+pub(in crate::managed) struct HistoryRecords {
     operation: PrivateDirectory,
     dispatch: Option<Dispatch>,
     root: Option<PrivateDirectory>,
     attempts: Vec<Attempt>,
     empty_tail: bool,
-    scope: HistoryScope,
     closing: Option<ClosurePlan>,
     closed: Option<ClosureRecord>,
     cumulative_reserved: usize,
     purpose: Purpose,
     semantic: [u8; 32],
 }
+
+impl std::ops::Deref for History {
+    type Target = HistoryRecords;
+
+    fn deref(&self) -> &Self::Target {
+        match &self.records {
+            HistoryRecordsOwner::Owned(records) => records,
+            HistoryRecordsOwner::Retained(records) => records,
+        }
+    }
+}
+
+#[path = "attempts/published_records.rs"]
+mod published_records;
 
 /// Typed native intent plus its one selected paid attempt. This is an in-memory view, not a
 /// second serialized layout or a constructor for authenticated transaction history.
@@ -513,10 +546,10 @@ impl History {
     }
 
     fn revalidate_parser_handles(&self, pass: Option<&EnrollmentReadPass<'_>>) -> Result<()> {
-        match pass {
-            Some(pass) => pass.revalidate_handles(self),
-            None => self.revalidate_retained_handles(),
-        }
+        pass.map_or_else(
+            || self.revalidate_retained_handles(),
+            |pass| pass.revalidate_handles(self),
+        )
     }
 
     // Directory custody only: old metadata can legitimately differ after the canonical writer.
@@ -620,6 +653,18 @@ impl History {
         retained: Option<&History>,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<Self> {
+        fn row_digest(attempt: &Attempt, cached: &mut Option<[u8; 32]>) -> Result<[u8; 32]> {
+            #[cfg(test)]
+            tests::parse_digest_tests::digest_requested();
+            if let Some(value) = *cached {
+                return Ok(value);
+            }
+            let value = attempt.digest()?;
+            #[cfg(test)]
+            tests::parse_digest_tests::digest_computed(attempt.ordinal());
+            *cached = Some(value);
+            Ok(value)
+        }
         #[cfg(test)]
         closure::record_history_parse_for_test();
         scope.validate(operation, purpose, semantic, pass)?;
@@ -672,10 +717,10 @@ impl History {
             let closed: Option<ClosureRecord> = read_record_in_scope(reader, "closed.nrt")?;
             Ok::<_, crate::managed::Error>((dispatch, cumulative_reserved, closing, closed))
         })?;
-        let root = match retained.and_then(|prior| prior.root.as_ref()) {
-            Some(root) => root.retain().map(Some),
-            None => operation.open_child_optional("attempts"),
-        };
+        let root = retained.and_then(|prior| prior.root.as_ref()).map_or_else(
+            || operation.open_child_optional("attempts"),
+            |root| root.retain().map(Some),
+        );
         let root = match root {
             Ok(Some(value)) => value,
             Ok(None) => {
@@ -686,17 +731,19 @@ impl History {
                 }
                 let empty_tail = dispatch.is_some();
                 let value = Self {
-                    operation: retained_operation,
-                    dispatch,
-                    root: None,
-                    attempts: Vec::new(),
-                    empty_tail,
+                    records: HistoryRecordsOwner::Owned(HistoryRecords {
+                        operation: retained_operation,
+                        dispatch,
+                        root: None,
+                        attempts: Vec::new(),
+                        empty_tail,
+                        closing,
+                        closed,
+                        cumulative_reserved,
+                        purpose,
+                        semantic,
+                    }),
                     scope: scope.retained_copy(),
-                    closing,
-                    closed,
-                    cumulative_reserved,
-                    purpose,
-                    semantic,
                 };
                 value.validate_closure_records()?;
                 return Ok(value);
@@ -709,18 +756,7 @@ impl History {
         }
         // These scratch hashes belong only to this parse. Each owned Authorization is
         // immutable after its fresh decode; no source, scope or wallet verdict is retained.
-        fn row_digest(attempt: &Attempt, cached: &mut Option<[u8; 32]>) -> Result<[u8; 32]> {
-            #[cfg(test)]
-            tests::parse_digest_tests::digest_requested();
-            if let Some(value) = *cached {
-                return Ok(value);
-            }
-            let value = attempt.digest()?;
-            #[cfg(test)]
-            tests::parse_digest_tests::digest_computed(attempt.ordinal());
-            *cached = Some(value);
-            Ok(value)
-        }
+
         let mut first_digest = None;
         let mut last_digest = None;
         let mut attempts: Vec<Attempt> = Vec::with_capacity(names.len());
@@ -836,16 +872,15 @@ impl History {
                         return Err(invalid("dispatch commit differs from original custody"));
                     }
                 }
-                if let Some(retirement) = &attempt.retirement {
-                    if retirement.authorization != row_digest(&attempt, &mut current_digest)?
+                if let Some(retirement) = &attempt.retirement
+                    && (retirement.authorization != row_digest(&attempt, &mut current_digest)?
                         || retirement.successor == [0; 32]
-                        || matches!(&retirement.kind, RetirementKind::Request { request_sha256 } if !valid_sha256(request_sha256))
+                        || matches!(&retirement.kind, RetirementKind::Request { request_sha256 } if !valid_sha256(request_sha256)))
                     {
                         return Err(invalid(
                             "retired dispatch contains changed or execution material",
                         ));
                     }
-                }
                 if let Some(prior) = attempts.last() {
                     if let Some(retirement) = &prior.retirement {
                         if retirement.successor != row_digest(&attempt, &mut current_digest)? {
@@ -865,16 +900,15 @@ impl History {
             }
             Ok::<_, crate::managed::Error>(())
         })?;
-        if let Some(last) = attempts.last() {
-            if let Some(retirement) = &last.retirement {
-                if !dispatch.as_ref().is_some_and(|value| {
-                    value.state == ReservationState::Reserved
-                        && value.highest.previous == row_digest(last, &mut last_digest).ok()
-                        && digest(&value.highest).ok() == Some(retirement.successor)
-                }) {
-                    return Err(invalid("unsigned retirement lost its reserved successor"));
-                }
-            }
+        if let Some(last) = attempts.last()
+            && let Some(retirement) = &last.retirement
+            && !dispatch.as_ref().is_some_and(|value| {
+                value.state == ReservationState::Reserved
+                    && value.highest.previous == row_digest(last, &mut last_digest).ok()
+                    && digest(&value.highest).ok() == Some(retirement.successor)
+            })
+        {
+            return Err(invalid("unsigned retirement lost its reserved successor"));
         }
         if measured_inventory!(AttemptInventory, root.entries(MAX_ATTEMPTS))? != names {
             return Err(invalid("dispatch inventory changed during inspection"));
@@ -927,17 +961,19 @@ impl History {
         }
         operation.revalidate()?;
         let value = Self {
-            operation: retained_operation,
-            dispatch,
-            root: Some(root),
-            attempts,
-            empty_tail,
+            records: HistoryRecordsOwner::Owned(HistoryRecords {
+                operation: retained_operation,
+                dispatch,
+                root: Some(root),
+                attempts,
+                empty_tail,
+                closing,
+                closed,
+                cumulative_reserved,
+                purpose,
+                semantic,
+            }),
             scope: scope.retained_copy(),
-            closing,
-            closed,
-            cumulative_reserved,
-            purpose,
-            semantic,
         };
         value.validate_closure_records()?;
         Ok(value)
@@ -970,11 +1006,22 @@ impl History {
     }
     fn verify_wallets_inner(
         &self,
-        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
         closing: Option<&ClosurePlan>,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
-        self.require_current_with_pass(pass)?;
+        self.verify_wallets_inner_after_current(inspect, closing, pass, None)
+    }
+    fn verify_wallets_inner_after_current(
+        &self,
+        mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        closing: Option<&ClosurePlan>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+        current: Option<parser_pass::CurrentReadAdmission<'_, '_, '_>>,
+    ) -> Result<()> {
+        if !current.is_some_and(|current| current.covers(self, pass)) {
+            self.require_current_with_pass(pass)?;
+        }
         if closing != self.closing.as_ref() {
             return Err(invalid("wallet verifier has another unsigned closing plan"));
         }
@@ -988,10 +1035,10 @@ impl History {
                         "dispatch wallet exists without a selected observation",
                     ));
                 }
-                if let Some(retirement) = &attempt.retirement {
-                    if retirement.kind != RetirementKind::Missing {
-                        return Err(invalid("unobserved dispatch has a request retirement"));
-                    }
+                if let Some(retirement) = &attempt.retirement
+                    && retirement.kind != RetirementKind::Missing
+                {
+                    return Err(invalid("unobserved dispatch has a request retirement"));
                 }
                 continue;
             }
@@ -1021,10 +1068,10 @@ impl History {
                     "uncommitted dispatch contains a paid payload or signature",
                 ));
             }
-            if index + 1 == self.attempts.len() {
-                if let Some(plan) = closing {
-                    plan.validate_tail_wallet(attempt, &preparation)?;
-                }
+            if index + 1 == self.attempts.len()
+                && let Some(plan) = closing
+            {
+                plan.validate_tail_wallet(attempt, &preparation)?;
             }
             match (&attempt.retirement, preparation.phase()) {
                 (
@@ -1083,13 +1130,16 @@ impl History {
         retained_graph::validate(self)
     }
     fn require_current_with_pass(&self, pass: Option<&EnrollmentReadPass<'_>>) -> Result<()> {
-        match pass {
-            Some(pass) => pass.validate(self),
-            None => self.require_current(),
-        }
+        pass.map_or_else(|| self.require_current(), |pass| pass.validate(self))
     }
-    pub(in crate::managed) fn close_parser_read(&self) -> Result<()> {
-        self.require_current()
+    pub(in crate::managed) fn close_parser_read(
+        &self,
+        pass: &EnrollmentReadPass<'_>,
+    ) -> Result<()> {
+        pass.snapshot().map_or_else(
+            || self.require_current(),
+            |snapshot| retained_graph::validate_in_snapshot(self, snapshot),
+        )
     }
 
     // The parser already owns predecessor coverage and its separate full-graph exit. This
@@ -1327,14 +1377,17 @@ impl History {
     ) -> Result<()> {
         #[cfg(test)]
         operation_scope_tests::bracket();
-        match tree {
-            Some(tree) => tree.read_scope(&self.operation, |reader| {
-                self.require_metadata_in_scope(reader)
-            }),
-            None => self
-                .operation
-                .read_scope(|reader| self.require_metadata_in_scope(reader)),
-        }
+        tree.map_or_else(
+            || {
+                self.operation
+                    .read_scope(|reader| self.require_metadata_in_scope(reader))
+            },
+            |tree| {
+                tree.read_scope(&self.operation, |reader| {
+                    self.require_metadata_in_scope(reader)
+                })
+            },
+        )
     }
 
     #[cfg(test)]
@@ -1541,8 +1594,7 @@ impl History {
             first: self
                 .dispatch
                 .as_ref()
-                .map(|value| value.first)
-                .unwrap_or(digest(&authorization)?),
+                .map_or(digest(&authorization)?, |value| value.first),
             scope: self.scope.commitment()?,
             highest: authorization,
             state: ReservationState::Reserved,
@@ -1652,16 +1704,16 @@ fn operation_inventory_in_tree(
     purpose: Purpose,
     tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
 ) -> Result<Vec<std::ffi::OsString>> {
-    match tree {
-        Some(tree) => {
+    tree.map_or_else(
+        || operation_inventory(operation, purpose),
+        |tree| {
             #[cfg(test)]
             operation_scope_tests::bracket();
             tree.read_scope(operation, |reader| {
                 operation_inventory_in_scope(reader, purpose)
             })
-        }
-        None => operation_inventory(operation, purpose),
-    }
+        },
+    )
 }
 
 fn require_semantic_original_in_scope(
@@ -1701,10 +1753,6 @@ fn require_semantic_original_in_tree(
     tree.read_scope(operation, |reader| {
         require_semantic_original_in_scope(reader, semantic)
     })
-}
-
-fn attempt_inventory(directory: &PrivateDirectory) -> Result<Vec<std::ffi::OsString>> {
-    checked_attempt_inventory(measured_inventory!(AttemptInventory, directory.entries(7))?)
 }
 
 fn checked_attempt_inventory(names: Vec<std::ffi::OsString>) -> Result<Vec<std::ffi::OsString>> {
@@ -1807,7 +1855,7 @@ pub(in crate::managed) fn retire_missing(previous: &Attempt, successor: &Attempt
     write_retirement(previous, successor, RetirementKind::Missing)
 }
 
-/// Consume only the canonical purpose owner's opaque exact RequestOnly retirement receipt.
+/// Consume only the canonical purpose owner's opaque exact `RequestOnly` retirement receipt.
 pub(in crate::managed) fn retire_request(
     previous: &Attempt,
     successor: &Attempt,
@@ -1830,10 +1878,10 @@ pub(in crate::managed) fn retire_request(
 fn write_retirement(previous: &Attempt, successor: &Attempt, kind: RetirementKind) -> Result<()> {
     previous.verify_authorization()?;
     successor.verify_authorization()?;
-    if let (Some(commit), RetirementKind::Request { request_sha256 }) = (&previous.commit, &kind) {
-        if commit.request_sha256 != *request_sha256 {
-            return Err(invalid("retirement changed the committed wallet request"));
-        }
+    if let (Some(commit), RetirementKind::Request { request_sha256 }) = (&previous.commit, &kind)
+        && commit.request_sha256 != *request_sha256
+    {
+        return Err(invalid("retirement changed the committed wallet request"));
     }
     if successor.authorization.previous != Some(previous.digest()?)
         || successor.authorization.purpose != previous.authorization.purpose
@@ -1870,7 +1918,7 @@ fn write_retirement(previous: &Attempt, successor: &Attempt, kind: RetirementKin
 }
 
 /// The caller has just authenticated the concrete native prerequisite. Commit its exact selected
-/// observation, canonical RequestOnly commitment and predecessor retirement before payload
+/// observation, canonical `RequestOnly` commitment and predecessor retirement before payload
 /// preparation or signing can begin.
 pub(in crate::managed) fn commit(
     attempt: &Attempt,
@@ -1944,16 +1992,14 @@ fn validate_origin(origin: &Origin) -> Result<()> {
         epoch,
         parent_intent,
     } = origin
-    {
-        if *ordinal == 0
+        && (*ordinal == 0
             || usize::from(*ordinal) > MAX_ATTEMPTS
             || *epoch == [0; 32]
-            || *parent_intent == [0; 32]
-        {
-            return Err(invalid(
-                "dispatch refers to an invalid generated authorization epoch",
-            ));
-        }
+            || *parent_intent == [0; 32])
+    {
+        return Err(invalid(
+            "dispatch refers to an invalid generated authorization epoch",
+        ));
     }
     Ok(())
 }
@@ -1976,12 +2022,11 @@ fn validate_successor(previous: &Authorization, successor: &Authorization) -> Re
             ..
         },
     ) = (&previous.origin, &successor.origin)
+        && (after <= before || original != current)
     {
-        if after <= before || original != current {
-            return Err(invalid(
-                "unsigned successor did not advance the same parent authorization history",
-            ));
-        }
+        return Err(invalid(
+            "unsigned successor did not advance the same parent authorization history",
+        ));
     }
     Ok(())
 }

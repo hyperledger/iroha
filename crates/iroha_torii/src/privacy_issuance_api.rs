@@ -291,6 +291,11 @@ pub enum BootleLanternIssuanceAuthenticationErrorV1 {
 /// Runtime-only action- and body-bound authentication authority.
 pub trait BootleLanternIssuanceAuthenticatorV1: Send + Sync {
     /// Authenticate opaque bearer bytes for one exact request binding.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Denied` when the credential does not authorize the exact action and
+    /// request binding, or `Unavailable` when the authentication authority cannot respond.
     fn authenticate(
         &self,
         opaque_credential: &[u8],
@@ -340,6 +345,11 @@ pub trait BootleLanternIssuerCryptoProviderV1: Send + Sync {
     /// Exact stable policy identity served by this provider.
     fn policy_id(&self) -> PrivacyPolicyIdV1;
     /// Generate one native `ILA1` candidate without replay-state mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid authorization request, a mismatch between
+    /// the issuer key and governed policy, or unavailable issuer randomness or key service.
     fn prepare_authorization(
         &self,
         context: &PrivacyStatementContextV1,
@@ -350,6 +360,11 @@ pub trait BootleLanternIssuerCryptoProviderV1: Send + Sync {
         expires_at_height: u64,
     ) -> Result<BootleLanternIssuanceAuthorizationV1, BootleLanternIssuerCryptoProviderErrorV1>;
     /// Verify the exact request and issuer-key binding without randomness.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request or authorization is invalid, the issuer key
+    /// does not match the governed policy, or the key service is unavailable.
     fn validate_request(
         &self,
         context: &PrivacyStatementContextV1,
@@ -360,6 +375,11 @@ pub trait BootleLanternIssuerCryptoProviderV1: Send + Sync {
         current_height: u64,
     ) -> Result<[u8; 32], BootleLanternIssuerCryptoProviderErrorV1>;
     /// Independently revalidate and issue one `ILR1` after Torii's exact claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if revalidation rejects the request or issuer-policy binding,
+    /// or if issuer randomness or the key service is unavailable.
     fn issue_validated(
         &self,
         context: &PrivacyStatementContextV1,
@@ -387,6 +407,11 @@ pub trait BootleLanternIssuanceRuntimeProviderRegistryV1: Send + Sync + fmt::Deb
     /// Exact stable non-secret registry handle.
     fn handle(&self) -> &str;
     /// Current independently administered public qualification.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider control plane is unavailable or its policy
+    /// is stale or revoked.
     fn qualification(
         &self,
     ) -> Result<
@@ -394,6 +419,11 @@ pub trait BootleLanternIssuanceRuntimeProviderRegistryV1: Send + Sync + fmt::Deb
         BootleLanternIssuanceRuntimeProviderRegistryErrorV1,
     >;
     /// Resolve one coherent secret set for exact public bindings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the control plane is unavailable, its policy is stale
+    /// or revoked, or it rejects the exact public bindings.
     fn resolve(
         &self,
         bindings: &BootleLanternIssuanceRuntimeProviderBindingsV1,
@@ -726,7 +756,7 @@ impl fmt::Debug for BootleLanternIssuanceToriiRuntimeV1 {
             .field("state_dir", &self.config.state_dir)
             .field("max_inflight", &self.config.max_inflight)
             .field("private_providers", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl BootleLanternIssuanceToriiRuntimeV1 {
@@ -982,7 +1012,7 @@ fn prepare_and_register_authorization_v1(
                 )?;
                 return Ok(bytes);
             }
-            Err(BootleLanternIssuanceStoreErrorV1::AuthorizationExists) => continue,
+            Err(BootleLanternIssuanceStoreErrorV1::AuthorizationExists) => {}
             Err(_) => return Err(BootleLanternIssuanceApiErrorV1::DurableStateUnavailable),
         }
     }
@@ -2325,7 +2355,7 @@ mod tests {
                 .debug_struct("StartupRegistry")
                 .field("handle", &self.handle)
                 .field("private_providers", &"[REDACTED]")
-                .finish()
+                .finish_non_exhaustive()
         }
     }
     impl StartupRegistry {
@@ -2889,16 +2919,19 @@ mod tests {
                 .get("code")
                 .and_then(norito::json::Value::as_str)
                 .expect("fixture error code");
-            let expected_body =
-                if let Some(encoded) = row.get("body_hex").and_then(norito::json::Value::as_str) {
-                    hex::decode(encoded).expect("fixture error body hex")
-                } else {
-                    row.get("body_utf8")
-                        .and_then(norito::json::Value::as_str)
-                        .expect("fixture JSON error body")
-                        .as_bytes()
-                        .to_vec()
-                };
+            let expected_body = row
+                .get("body_hex")
+                .and_then(norito::json::Value::as_str)
+                .map_or_else(
+                    || {
+                        row.get("body_utf8")
+                            .and_then(norito::json::Value::as_str)
+                            .expect("fixture JSON error body")
+                            .as_bytes()
+                            .to_vec()
+                    },
+                    |value| hex::decode(value).expect("fixture error body hex"),
+                );
             let error = match status {
                 400 => BootleLanternIssuanceApiErrorV1::InvalidRequest,
                 401 => BootleLanternIssuanceApiErrorV1::Unauthorized,

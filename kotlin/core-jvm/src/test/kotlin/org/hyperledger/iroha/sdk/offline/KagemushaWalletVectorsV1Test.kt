@@ -35,7 +35,7 @@ import org.junit.jupiter.api.Test
 
 /**
  * Consumes the Rust-written `fixtures/kagemusha/wallet_v1_vectors.json` (wire record
- * `specs/kagemusha_wallet_wire_v1.md` section 5): recomputes every SHA-256 role digest (the 18
+ * `specs/kagemusha_wallet_wire_v1.md` section 5): recomputes every SHA-256 role digest (the 21
  * roles, with every retired role rejected); checks every signature verdict over its 32-byte
  * Poseidon signing message with the raw low-S check before JCA; validates every envelope header,
  * scheme field and per-kind bound against the Kotlin constants and round-trips the strict `kgm1:`
@@ -268,7 +268,7 @@ class KagemushaWalletVectorsV1Test {
             assertNull(KagemushaWalletDigestRoleV1.fromLabel(label), label)
             assertTrue(vectors.array("digests").none { it.jsonObject.text("role") == label }, label)
         }
-        assertEquals(20, KagemushaWalletDigestRoleV1.entries.size)
+        assertEquals(21, KagemushaWalletDigestRoleV1.entries.size)
         assertEquals(
             KagemushaWalletDigestRoleV1.entries.size,
             KagemushaWalletDigestRoleV1.entries.map { it.label }.toSet().size,
@@ -1079,8 +1079,8 @@ class KagemushaWalletVectorsV1Test {
             assertEquals(NoritoHeader.COMPRESSION_NONE, decoded.header.compression, label)
             val padding = frame.size - NoritoHeader.HEADER_LENGTH - decoded.payload.size
             assertTrue(padding in listOf(0, KagemushaWalletWireV1.ENVELOPE_PADDING_BYTES), "$label padding $padding")
-            // The first field of every wallet object is its version or a record that starts
-            // with one, so the payload splits into complete compact-length fields.
+            // Every object payload splits into complete compact-length fields, including
+            // the private capsule wrapper's exact body-frame bytes and opening.
             assertTrue(recordFields(decoded.payload).isNotEmpty(), label)
             assertContentEquals(frame, frameOf(schemaHash, decoded.payload, padding), label)
 
@@ -1095,6 +1095,7 @@ class KagemushaWalletVectorsV1Test {
         // Local custody records are digested over their complete canonical frames.
         val frameRoles = mapOf(
             "marker" to "KagemushaWalletMarkerV1",
+            "capsule-body" to "KagemushaWalletRecoveryBodyV1",
             "capsule" to "KagemushaWalletRecoveryCapsuleV1",
             "completion" to "KagemushaWalletCompletionRecordV1",
             "fold" to "KagemushaWalletFoldRecordV1",
@@ -1145,13 +1146,57 @@ class KagemushaWalletVectorsV1Test {
         }
         assertTrue(capsule.bool("stand_in_proof"), "structural custody sample is not proof acceptance")
         val capsuleFields = recordFields(objectPayload(capsule.text("type"), capsule.text("variant")))
-        assertEquals(14, capsuleFields.size, "capsule field layout is unchanged")
-        val retained = vecElements(capsuleFields[12]).map(::recordFields)
+        assertEquals(2, capsuleFields.size, "selected wrapper retains body and opening")
+        assertCanonicalField(capsuleFields[1], nonzero = false)
+        assertEquals((capsuleFields[0].size - 8).toLong(), readLongLe(capsuleFields[0], 0))
+        val bodyBytes = capsuleFields[0].copyOfRange(8, capsuleFields[0].size)
+        val bodyIdentity = vectors.array("frames").map { it.jsonObject }.single {
+            it.text("type") == "KagemushaWalletRecoveryBodyV1"
+        }
+        assertTrue(bodyBytes.size <= bodyIdentity.int("max_bytes"))
+        val body = NoritoHeader.decode(bodyBytes, SchemaHash.hash16(bodyIdentity.text("frame_name")))
+        body.header.validateChecksum(body.payload)
+        assertEquals(NoritoHeader.COMPACT_LEN, body.header.flags)
+        assertEquals(NoritoHeader.COMPRESSION_NONE, body.header.compression)
+        assertEquals(8, bodyBytes.size - NoritoHeader.HEADER_LENGTH - body.payload.size)
+        val bodyFields = recordFields(body.payload)
+        assertEquals(14, bodyFields.size, "all original recovery body fields are retained")
+        val retained = vecElements(bodyFields[12]).map(::recordFields)
         assertEquals(3, retained.size)
         val input = retained.single { readIntLe(it[0], 0) == 10 }
         assertEquals(2, input.size)
         assertEquals(original.size.toLong(), readLongLe(input[1], 0))
         assertContentEquals(original, input[1].copyOfRange(8, input[1].size))
+    }
+
+    @Test fun `capsule commitment separates public receipt from private custody`() {
+        val commitment = vectors.obj("capsule_commitment")
+        assertEquals("KagemushaWalletRecoveryBodyV1", commitment.text("body_type"))
+        assertEquals("KagemushaWalletRecoveryCapsuleV1", commitment.text("wrapper_type"))
+        val wrapperBytes = objectVector("KagemushaWalletRecoveryCapsuleV1", "Receive")
+        val fields = recordFields(objectPayload("KagemushaWalletRecoveryCapsuleV1", "Receive"))
+        assertEquals(2, fields.size)
+        assertEquals((fields[0].size - 8).toLong(), readLongLe(fields[0], 0))
+        val body = fields[0].copyOfRange(8, fields[0].size)
+        assertContentEquals(objectVector("KagemushaWalletRecoveryBodyV1", "Receive"), body)
+        assertContentEquals(commitment.hex("opening_le32_hex"), fields[1])
+        assertCanonicalField(fields[1], nonzero = false)
+        assertContentEquals(commitment.hex("body_digest_hex"),
+            KagemushaWalletWireV1.digest(KagemushaWalletDigestRoleV1.CAPSULE_BODY, body))
+        val privateDigest = commitment.hex("private_custody_digest_hex")
+        val publicCommitment = commitment.hex("public_receipt_commitment_hex")
+        assertContentEquals(privateDigest,
+            KagemushaWalletWireV1.digest(KagemushaWalletDigestRoleV1.CAPSULE, wrapperBytes))
+        assertCanonicalField(publicCommitment, nonzero = true)
+        assertFalse(privateDigest.contentEquals(publicCommitment))
+        val record = recordFields(objectPayload("KagemushaWalletCompletionRecordV1", "Receive"))
+        assertEquals(6, record.size)
+        assertContentEquals(privateDigest, record[3])
+        val receipt = recordFields(record[4])
+        assertEquals(5, receipt.size)
+        assertContentEquals(publicCommitment, receipt[2])
+        assertContentEquals(publicCommitment,
+            receiptField(receiptBody("Receive receipt binding the Payment digest"), 274))
     }
 
     @Test fun `σ-field element vectors follow the element rule`() {
@@ -2102,7 +2147,7 @@ class KagemushaWalletVectorsV1Test {
             BigInteger("40000000000000000000000000000000224698fc094cf91b992d30ed00000001", 16)
 
         /**
-         * The 59 Poseidon domain labels, in canonical declaration order: 33 state and protocol
+         * The 60 Poseidon domain labels, in canonical declaration order: 34 state and protocol
          * domains, 16 signing domains and 10 signed-object domains.
          */
         val POSEIDON_DOMAINS: Map<String, String> = linkedMapOf(
@@ -2139,6 +2184,7 @@ class KagemushaWalletVectorsV1Test {
             "credit_status_digest" to "kgwcsts1",
             "credited_digest" to "kgwcrdd1",
             "operation_id" to "kgwopid1",
+            "capsule_commitment" to "kgwcapc1",
             "signing_certificate" to "kgwcert1",
             "signing_credential" to "kgwcred1",
             "signing_renewal_challenge" to "kgwrnch1",

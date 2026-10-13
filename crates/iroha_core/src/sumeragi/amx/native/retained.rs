@@ -284,6 +284,7 @@ impl RetainedNativeAmx {
         if let Some(previous) = &global.previous {
             demand.context(previous)?;
         }
+        demand.array::<ValidatorEpochContextV1>(0)?;
         demand.array::<AmxPreparedEntryV1>(0)?;
         demand.array::<AmxHeldDecisionV1>(0)?;
         demand.array::<AmxTransferEscrowV1>(0)?;
@@ -304,6 +305,8 @@ impl RetainedNativeAmx {
             current,
             previous,
         };
+        let decision_contexts = construction.buffer::<ValidatorEpochContextV1>(0)?;
+        let decision_contexts = construction.vector(decision_contexts)?;
         let prepared = construction.buffer::<AmxPreparedEntryV1>(0)?;
         let prepared = construction.vector(prepared)?;
         let held = construction.buffer::<AmxHeldDecisionV1>(0)?;
@@ -317,6 +320,7 @@ impl RetainedNativeAmx {
                 dataspace: source.dataspace,
                 global,
                 global_height: 0,
+                decision_contexts,
                 prepared,
                 held,
             },
@@ -786,10 +790,36 @@ impl Candidate {
         } else {
             source.participant.global.previous.as_ref()
         };
+        // A handoff may evict the only authenticated verifier of a withheld decision.
+        // Copy its complete original credentials into the same prepaid graph while
+        // an unsettled Yes obligation still needs that epoch, never from relay input.
+        let evicted_context = source
+            .participant
+            .global
+            .previous
+            .as_ref()
+            .filter(|context| {
+                next_context.is_some() && source.participant.needs_decision_context(context)
+            });
+        let decision_context_count = source
+            .participant
+            .decision_contexts
+            .len()
+            .checked_add(usize::from(evicted_context.is_some()))
+            .ok_or(AllocationRefusal::DemandOverflow)?;
         demand.account(&source.custody)?;
         demand.context(current_source)?;
         if let Some(previous) = previous_source {
             demand.context(previous)?;
+        }
+        demand.array::<ValidatorEpochContextV1>(decision_context_count)?;
+        for context in source
+            .participant
+            .decision_contexts
+            .iter()
+            .chain(evicted_context)
+        {
+            demand.context(context)?;
         }
         demand.array::<AmxPreparedEntryV1>(prepared_count)?;
         demand.array::<AmxHeldDecisionV1>(held_count)?;
@@ -809,6 +839,16 @@ impl Candidate {
         let previous = previous_source
             .map(|previous| construction.context(previous, budget))
             .transpose()?;
+        let mut decision_contexts = construction.buffer(decision_context_count)?;
+        for context in source
+            .participant
+            .decision_contexts
+            .iter()
+            .chain(evicted_context)
+        {
+            decision_contexts.push_reserved(construction.context(context, budget)?);
+        }
+        let decision_contexts = construction.vector(decision_contexts)?;
         let mut prepared = construction.buffer(prepared_count)?;
         for entry in &source.participant.prepared {
             prepared.push_reserved(*entry);
@@ -828,6 +868,7 @@ impl Candidate {
                 previous,
             },
             global_height: source.participant.global_height,
+            decision_contexts,
             prepared,
             held,
         };

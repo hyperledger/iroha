@@ -136,7 +136,7 @@ fn purpose_parity<T>(
     let expected = seed().unwrap();
     let directory = expected.directory.retain().unwrap();
     let identity = directory.identity().unwrap();
-    let lock_identity = FileIdentity::of(&expected._lock).unwrap();
+    let lock_identity = FileIdentity::of(&expected.lock).unwrap();
     let names = directory.entries(2).unwrap();
     let lock_bytes = directory.read("operation.lock", 4096).unwrap();
     let (refused, parses) = parsed(&borrowed);
@@ -394,7 +394,7 @@ fn graph_original_profile_constructors_refuse_fresh_profile_lock_and_native_pare
     let runtime = generation.open_child("runtime").unwrap();
     let authorities = runtime.open_child("stream-token-authorities").unwrap();
     let parent_identity = parent.directory.identity().unwrap();
-    let parent_lock_identity = FileIdentity::of(&parent._lock).unwrap();
+    let parent_lock_identity = FileIdentity::of(&parent.lock).unwrap();
     for (directory, name, maximum) in [
         (&generation, "peer3.toml", 1024 * 1024),
         (
@@ -457,7 +457,7 @@ fn graph_original_profile_constructors_refuse_fresh_profile_lock_and_native_pare
     require_empty_recoveries(&fixture);
     assert_eq!(parent.directory.identity().unwrap(), parent_identity);
     assert_eq!(
-        FileIdentity::of(&parent._lock).unwrap(),
+        FileIdentity::of(&parent.lock).unwrap(),
         parent_lock_identity
     );
     parent.validate_profile().unwrap();

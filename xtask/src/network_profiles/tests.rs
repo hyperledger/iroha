@@ -12,7 +12,7 @@ fn image(name: &str) -> Vec<u8> {
                 .public_key()
                 .clone(),
             7,
-            "https://fixture.invalid/checkpoint.nrt".into(),
+            "https://fixture.invalid/checkpoint.nrt",
         )
         .unwrap(),
     ])

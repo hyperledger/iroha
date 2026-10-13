@@ -122,7 +122,9 @@ impl From<super::epoch_election::BoundaryCaptureError> for ScheduleError {
 /// window only in the genesis block; after genesis, a chain parameter change must leave chain
 /// parameters that pass [`ChainParamsRecord::validate`]. (In genesis the parameters are checked
 /// together when the genesis schedule is installed, so their order does not matter.) The change
-/// takes effect at `h + 2` through the schedule. While SCCP exists, an epoch-length
+/// takes effect at `h + 2` through the schedule, except `MaxClockDriftMs`: this application
+/// State parameter is read from the committed parent, so a change at `h` first governs
+/// height `h + 1`. Its independent CT4 bound is also checked during genesis. While SCCP exists, an epoch-length
 /// change must also preserve its one-hour floor, including after genesis initialization.
 ///
 /// # Errors
@@ -134,6 +136,10 @@ pub fn validate_parameter_change(
     is_genesis: bool,
     sccp_exists: bool,
 ) -> Result<(), ScheduleError> {
+    if let SumeragiParameter::MaxClockDriftMs(value) = change {
+        iroha_data_model::parameter::system::validate_max_clock_drift_ms(*value)
+            .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    }
     if sccp_exists && let SumeragiParameter::EpochLengthBlocks(blocks) = change {
         crate::smartcontracts::isi::sccp::params::validate_epoch(
             blocks.get(),

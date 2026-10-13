@@ -166,9 +166,9 @@ implement_role!(
 
 /// Install explicit local custody, preserving qualified facade checks and external-role isolation.
 /// Keys are never inferred from the validator, account identity or another role.
-pub(crate) fn install_native_software_signers(
+pub fn install_native_software_signers(
     configured: &SorafsNativeTransactionSignerBindings,
-    state: Arc<State>,
+    state: &Arc<State>,
     validator_key: &PublicKey,
     dependencies: &mut IrohaRuntimeDeps,
 ) -> Result<(), &'static str> {
@@ -206,7 +206,7 @@ pub(crate) fn install_native_software_signers(
                         "native SoraFS software custody conflicts with an external adapter",
                     );
                 }
-                let signer = NativeSoftwareSigner::load(config, Role::$role, Arc::clone(&state))?;
+                let signer = NativeSoftwareSigner::load(config, Role::$role, Arc::clone(state))?;
                 let binding = signer.binding.clone();
                 dependencies.$dependency = Some(
                     iroha_torii::$qualify(*state.network_id_ref(), binding, Arc::new(signer))

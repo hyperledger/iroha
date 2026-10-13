@@ -199,7 +199,8 @@ async fn lifecycle_get_returns_exact_present_runtime_root_in_both_formats() {
     world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(runtime.into_custom_parameter().unwrap()));
+        .set_parameter(Parameter::Custom(runtime.into_custom_parameter().unwrap()))
+        .expect("install the committed runtime catalog fixture");
     world.commit();
     for accept in ["application/json", "application/x-norito"] {
         let response = fixtures::request(

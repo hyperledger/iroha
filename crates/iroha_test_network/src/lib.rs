@@ -3241,6 +3241,7 @@ set {NETWORK_PERMIT_WAIT_TIMEOUT_ENV}=0 to disable timeout or provide an isolate
 #[derive(Clone)]
 struct PreparedPeerGenesis {
     bytes: Arc<[u8]>,
+    #[cfg(test)]
     network_id: NetworkId,
 }
 impl PreparedPeerGenesis {
@@ -3264,9 +3265,11 @@ impl PreparedPeerGenesis {
     ) -> Result<Self> {
         spawn_blocking(move || {
             init_instruction_registry();
+            #[cfg(test)]
             let network_id = NetworkId::from_genesis_hash(block.0.hash());
             encode(&block).map(|bytes| Self {
                 bytes: bytes.into(),
+                #[cfg(test)]
                 network_id,
             })
         })
@@ -5852,6 +5855,7 @@ pub struct NetworkBuilder {
     private_settlement_route_control: bool,
     parliament_test_signers: Option<ParliamentTestSignerSelection>,
     topology_genesis_isi: Vec<Arc<TopologyGenesisIsi>>,
+    genesis_post_bootstrap_isi: Vec<Vec<InstructionBox>>,
 }
 /// Post-topology genesis instructions derived from the signed voting topology (peer ids and
 /// proofs of possession, in topology order).
@@ -6736,6 +6740,7 @@ impl NetworkBuilder {
             private_settlement_route_control: false,
             parliament_test_signers: None,
             topology_genesis_isi: Vec::new(),
+            genesis_post_bootstrap_isi: Vec::new(),
         };
         let mut default_layer = Table::new();
         let mut writer = TomlWriter::new(&mut default_layer);
@@ -7261,6 +7266,22 @@ impl NetworkBuilder {
         }
         self
     }
+    /// Append ordinary genesis instructions after generated validator bootstrap.
+    ///
+    /// Use this for instructions which capture the active, funded validator registrations,
+    /// such as SCCP initialization. Parameters belong in the earlier genesis carrier; custom
+    /// genesis builders own their complete instruction order and cannot use this hook.
+    pub fn with_genesis_post_bootstrap_isi(mut self, isi: Vec<InstructionBox>) -> Self {
+        assert!(
+            isi.iter()
+                .all(|instruction| !instruction.as_any().is::<SetParameter>()),
+            "post-bootstrap genesis accepts ordinary instructions, not parameters"
+        );
+        if !isi.is_empty() {
+            self.genesis_post_bootstrap_isi.push(isi);
+        }
+        self
+    }
     /// Append a post-topology genesis transaction whose instructions `build` derives from the
     /// signed voting topology (each peer's id and proof of possession, in topology order), e.g.
     /// a lane policy whose committee is the validators.
@@ -7417,6 +7438,7 @@ impl NetworkBuilder {
             private_settlement_route_control,
             parliament_test_signers,
             topology_genesis_isi,
+            genesis_post_bootstrap_isi,
         } = self;
         let chain_discriminant = materialize_profile_account_defaults(&mut config_layers)
             .unwrap_or_else(|error| panic!("invalid test-network profile defaults: {error:#}"));
@@ -7951,6 +7973,11 @@ impl NetworkBuilder {
                 genesis_post_topology_isi.push(soracloud_validator_bootstrap);
             }
         }
+        assert!(
+            custom_genesis.is_none() || genesis_post_bootstrap_isi.is_empty(),
+            "custom genesis owns its post-bootstrap instruction order"
+        );
+        genesis_post_topology_isi.extend(genesis_post_bootstrap_isi);
         let gossip_ms = i64::try_from(block_sync_gossip_period.as_millis())
             .expect("block gossip period fits in i64 milliseconds");
         let participant_fanout = i64::try_from(participant_count)
@@ -14948,6 +14975,54 @@ mod tests {
             has_domain,
             "post-topology instructions should be present in genesis"
         );
+    }
+    #[test]
+    fn post_bootstrap_instructions_follow_every_active_validator_registration() {
+        let domain = DomainId::try_new("post_bootstrap_test", "universal").unwrap();
+        let network = build_with_isolated_permit(
+            NetworkBuilder::new()
+                .with_peers(4)
+                .with_npos_genesis_bootstrap(1_000_u64.into())
+                .with_genesis_post_bootstrap_isi(vec![
+                    Register::domain(Domain::new(domain.clone())).into(),
+                ]),
+        );
+        let instructions = genesis_instructions(&network);
+        let capture = instructions
+            .iter()
+            .position(|instruction| {
+                instruction.as_any().downcast_ref::<RegisterBox>().is_some_and(|register| {
+                matches!(register, RegisterBox::Domain(value) if value.object.id == domain)
+            })
+            })
+            .expect("post-bootstrap instruction must be retained");
+        let activations = instructions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, instruction)| {
+                instruction
+                    .as_any()
+                    .is::<ActivatePublicLaneValidator>()
+                    .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(activations.len(), 4);
+        assert!(activations.into_iter().all(|index| index < capture));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "post-bootstrap genesis accepts ordinary instructions, not parameters"
+    )]
+    fn post_bootstrap_rejects_parameters_that_would_bypass_earlier_capacity_derivation() {
+        let _ = NetworkBuilder::new().with_genesis_post_bootstrap_isi(vec![
+            SetParameter::new(Parameter::Sumeragi(
+                iroha_data_model::parameter::SumeragiParameter::EpochLengthBlocks(
+                    NonZero::new(3_600_u64).unwrap(),
+                ),
+            ))
+            .into(),
+        ]);
     }
     #[test]
     fn npos_bootstrap_clamps_to_min_self_bond() {

@@ -1426,8 +1426,7 @@ fn moderation_membership_proof_decoder_rejects_alternate_norito_layout() {
     decode_from_bytes_with_limits::<PopMembershipProofV1>(&alternate, PROOF_LIMITS)
         .expect("ordinary bounded Norito accepts the advertised alternate layout");
     let error = decode_membership_proof(&alternate)
-        .err()
-        .expect("alternate-layout moderation membership proof must fail");
+        .expect_err("alternate-layout moderation membership proof must fail");
     assert!(
         parameter_error_message(&error).contains("membership proof is not exact canonical Norito"),
         "unexpected alternate-layout proof rejection: {error:?}"
@@ -1645,7 +1644,7 @@ fn seed_activated_case(
         appeal_finance_config_version: spec.context.appeal_finance_config_version.clone(),
         policy_reference: spec.context.policy_reference.clone(),
         evidence_uri: spec.context.evidence_uri.clone(),
-        panel_size: spec.jurors.len() as u16,
+        panel_size: u16::try_from(spec.jurors.len()).expect("fixture value fits u16"),
         waitlist_size: 0,
         quorum: spec.quorum,
         exclusions: vec![manager.clone()],

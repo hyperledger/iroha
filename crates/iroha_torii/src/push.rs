@@ -191,7 +191,7 @@ pub enum PushError {
 }
 /// Original-pool refusal before a push worker acquires any startup effects.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PushWorkerStartError {
+pub enum PushWorkerStartError {
     /// The original State pool could not admit the exact retry control.
     #[error("push retry control admission: {0}")]
     Admission(#[source] AllocationRefusal),
@@ -997,10 +997,15 @@ impl PushBridge {
             self.remove_job(&job.dedupe_key);
             return;
         };
-        if device.account_id != job.account_id
-            || device.token_fingerprint != job.token_fingerprint
-            || device.platform != job.target_platform
-        {
+        if (
+            &device.account_id,
+            &device.token_fingerprint,
+            &device.platform,
+        ) != (
+            &job.account_id,
+            &job.token_fingerprint,
+            &job.target_platform,
+        ) {
             // A token can be re-registered between enqueue and dispatch. Never deliver an old
             // account's activity through the replacement registration.
             self.remove_job(&job.dedupe_key);
@@ -1871,7 +1876,7 @@ fn state_block_at_height(
             work,
             iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work),
         )
-        .map(|carrier| carrier.into_block())
+        .map(iroha_core::smartcontracts::tx::FinalizedExecutionCarrier::into_block)
         .map_err(|error| error.map_rejection(|error| PushError::Storage(error.to_string())))
 }
 fn invalid_data(message: impl Into<String>) -> io::Error {
@@ -2872,7 +2877,7 @@ mod tests {
     impl RestartedPushGenesis {
         fn new(source: &iroha_core::sumeragi::test_chain::CertifiedTestChain) -> Self {
             use iroha_core::{
-                state::{StateReadOnly as _, WorldReadOnly as _},
+                state::WorldReadOnly as _,
                 sumeragi::{
                     block_store::{KuraBlockStore, Staging},
                     crypto::BlsCrypto,
@@ -2894,11 +2899,9 @@ mod tests {
             kura.store_block(original.block().clone()).unwrap();
             let (genesis, certificate, stored_tip) =
                 startup::stored_genesis(&state).unwrap().unwrap();
-            let instance = iroha_core::sumeragi::node::root_instance(
-                &genesis,
-                &state.chain_id_ref().to_string(),
-            )
-            .unwrap();
+            let instance =
+                iroha_core::sumeragi::node::root_instance(&genesis, state.chain_id_ref().as_ref())
+                    .unwrap();
             assert_eq!(instance, source.instance());
             let genesis_account = AccountId::new(prepared.genesis.public_key().clone());
             let consensus_mode = prepared.genesis.consensus_metadata().mode.into();
@@ -2948,6 +2951,7 @@ mod tests {
             );
             let (events, _) = tokio::sync::broadcast::channel(16);
             let executor = StateExecutor::spawn(ExecutorContext {
+                time_source: iroha_primitives::time::TimeSource::new_system(),
                 state: Arc::clone(&state),
                 root_scope: source.root_scope(),
                 native_context_archive: Arc::new(
@@ -3006,7 +3010,7 @@ mod tests {
                 let state = Arc::clone(
                     replayed
                         .as_ref()
-                        .map_or(chain.state(), |owner| &owner.state),
+                        .map_or_else(|| chain.state(), |owner| &owner.state),
                 );
                 assert_eq!(state.committed_height(), 1);
                 assert_eq!(state.exact_durable_block_count().unwrap(), 1);
@@ -4162,13 +4166,16 @@ mod tests {
             .reconcile(&bridge, PushReplayTarget::Height(1))
             .unwrap();
         // Replace only fixture State history under its real publication owner.
+        // Retain the successor height so the genesis-only guard cannot reject
+        // before the operation's original cursor binding is checked.
         // The unchanged durable cursor still matches this operation's receipt,
         // so the mandatory current-State binding check is the rejecting control.
         state.block_hashes.block_and_revert().commit_for_tests();
         let mut replacement = state.block_hashes.block_and_revert();
         replacement.push_for_tests(replacement_hash);
+        replacement.push_for_tests(replacement_hash);
         replacement.commit_for_tests();
-        assert_eq!(state.committed_height(), 1);
+        assert_eq!(state.committed_height(), 2);
         assert!(matches!(
             rebound.reconcile(&bridge, PushReplayTarget::Height(1)),
             Err(PushReplayError::Fatal(PushError::Storage(reason)))
@@ -4309,12 +4316,14 @@ mod tests {
         bridge
             .register_device(register_request("activity-token"))
             .expect("register push activity target");
-        let stale = test_job(91);
-        let stale_key = stale.dedupe_key.clone();
+        let outdated_job = test_job(91);
+        let stale_key = outdated_job.dedupe_key.clone();
         bridge
-            .persist_job(&stale)
+            .persist_job(&outdated_job)
             .expect("persist full queue fixture");
-        bridge.queue.insert(stale.dedupe_key.clone(), stale);
+        bridge
+            .queue
+            .insert(outdated_job.dedupe_key.clone(), outdated_job);
 
         assert!(matches!(
             bridge.reconcile_to_authoritative_height(&state),

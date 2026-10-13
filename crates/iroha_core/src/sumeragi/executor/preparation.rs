@@ -99,6 +99,10 @@ pub(super) fn payload_failure(
         PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
             PublicationError::Deferred(original.into())
         }
+        PayloadError::SccpForgeryPreparation(original) => {
+            validation_failure(BlockValidationError::StateStorageAdmission(original))
+                .expect("SCCP forgery preparation always has a local classification")
+        }
         PayloadError::StakingPreparation(original) => {
             validation_failure(BlockValidationError::EvidencePreparation(original))
                 .expect("evidence preparation always has a local classification")
@@ -162,7 +166,13 @@ pub(super) fn validation_failure(
         StateStorageAdmissionError, StateViewError,
     };
     use mv::storage::AdmittedStorageError;
+    if let BlockValidationError::GovernanceDueUnavailable(original) = error {
+        return Ok(PublicationError::Retryable(original.to_string()));
+    }
     let source = match error {
+        BlockValidationError::NativeHistory(original) => {
+            return Ok(super::parent_native_source_error(original));
+        }
         BlockValidationError::NativeSourceChanged { .. } => {
             return Ok(if cfg!(all(test, sumeragi_core_mutation = "HC98")) {
                 PublicationError::RecoveryRequired(error.to_string())
@@ -204,10 +214,24 @@ pub(super) fn validation_failure(
                 | AdmittedStorageError::PolicyIdentity
                 | AdmittedStorageError::PolicyDemand { .. },
             )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Poisoned { .. }
+                    | AdmittedStorageError::Planning(_)
+                    | AdmittedStorageError::ScopeIdentity
+                    | AdmittedStorageError::PolicyIdentity
+                    | AdmittedStorageError::PolicyDemand { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(EvidencePreparationError::Invariant)
             | StateStorageAdmissionError::NativeAmx(
                 super::super::amx::NativeAmxAdmissionError::Invalid(_),
+            ) => return Ok(PublicationError::RecoveryRequired(original.to_string())),
+            StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::OriginalHistoryPending,
             ) => {
-                return Ok(PublicationError::RecoveryRequired(original.to_string()));
+                return Ok(PublicationError::Retryable(original.to_string()));
             }
             StateStorageAdmissionError::World(
                 AdmittedStorageError::Busy { .. }
@@ -219,6 +243,21 @@ pub(super) fn validation_failure(
                 super::super::amx::NativeAmxAdmissionError::Admission(_)
                 | super::super::amx::NativeAmxAdmissionError::Allocator { .. }
                 | super::super::amx::NativeAmxAdmissionError::Codec(_),
+            )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Codec(_)
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Busy { .. }
+                    | AdmittedStorageError::Changed
+                    | AdmittedStorageError::Allocation(_)
+                    | AdmittedStorageError::Allocator { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::Admission(_)
+                | EvidencePreparationError::Allocator { .. }
+                | EvidencePreparationError::DecodeScope { .. }
+                | EvidencePreparationError::DecodeResource(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
             | StateStorageAdmissionError::RootScopeDecode(_) => {

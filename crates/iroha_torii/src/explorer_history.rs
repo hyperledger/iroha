@@ -29,7 +29,7 @@ use crate::{
 
 /// UTC date text written into the final JSON sink with fixed native formatter scratch.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct HistoryTime(pub(crate) Duration);
+pub struct HistoryTime(pub(crate) Duration);
 impl FastJsonWrite for HistoryTime {
     fn write_json(&self, out: &mut String) {
         json::write_json_unbounded(self, out);
@@ -77,7 +77,7 @@ impl FastJsonWrite for HexBytes<'_> {
 
 /// Compact selector over one authenticated native Network entrypoint.
 #[derive(Clone, Debug)]
-pub(crate) struct HistoryTransactionRow {
+pub struct HistoryTransactionRow {
     pub(crate) block: SharedSignedBlock,
     pub(crate) entrypoint_index: usize,
     pub(crate) entrypoint_hash: HashOf<TransactionEntrypoint>,
@@ -135,7 +135,7 @@ impl FastJsonWrite for HistoryTransactionRow {
 
 /// A detail view borrows large metadata, invocation arguments and rejection evidence.
 #[derive(Debug)]
-pub(crate) struct HistoryTransactionDetail(pub(crate) HistoryTransactionRow);
+pub struct HistoryTransactionDetail(pub(crate) HistoryTransactionRow);
 #[derive(DeriveJsonSerialize)]
 struct TransactionDetailProjection<'a> {
     authority: &'a AccountId,
@@ -268,6 +268,10 @@ impl FastJsonWrite for ExecutableProjection<'_> {
             gas_policy_commitment: &'a Hash,
         }
         #[derive(DeriveJsonSerialize)]
+        #[expect(
+            clippy::struct_field_names,
+            reason = "Count suffixes distinguish aggregate cardinalities in the public JSON projection."
+        )]
         struct Batch {
             item_count: usize,
             instruction_count: usize,
@@ -329,7 +333,7 @@ fn status(result: &TransactionResult) -> &'static str {
 
 /// Compact native instruction selector; only its final response contains the encoded frame.
 #[derive(Clone, Debug)]
-pub(crate) struct HistoryInstructionRow {
+pub struct HistoryInstructionRow {
     pub(crate) transaction: HistoryTransactionRow,
     pub(crate) instruction_index: u32,
 }
@@ -417,13 +421,13 @@ impl FastJsonWrite for HistoryInstructionRow {
 
 /// A selected page holds compact source selectors and one bounded continuation.
 #[derive(DeriveJsonSerialize)]
-pub(crate) struct HistoryPage<T> {
+pub struct HistoryPage<T> {
     pub(crate) pagination: ExplorerHistoryCursorMeta,
     pub(crate) items: Vec<T>,
 }
 /// Latest reads add one fixed UTC sample without copying the selected native sources.
 #[derive(DeriveJsonSerialize)]
-pub(crate) struct LatestHistoryPage<T> {
+pub struct LatestHistoryPage<T> {
     pub(crate) sampled_at: HistoryTime,
     pub(crate) pagination: ExplorerHistoryCursorMeta,
     pub(crate) items: Vec<T>,
@@ -431,7 +435,7 @@ pub(crate) struct LatestHistoryPage<T> {
 
 /// Block summaries own only fixed identity/count values, never an entrypoint-index vector.
 #[derive(Debug, DeriveJsonSerialize)]
-pub(crate) struct HistoryBlockRow {
+pub struct HistoryBlockRow {
     pub(crate) hash: HashOf<BlockHeader>,
     pub(crate) height: u64,
     pub(crate) created_at: HistoryBlockTime,
@@ -444,6 +448,7 @@ pub(crate) struct HistoryBlockRow {
 
 impl HistoryBlockRow {
     /// Report only authenticated committed-journal identity when its body is absent.
+    #[cfg(test)]
     pub(crate) fn from_hash_only(
         height: u64,
         hash: HashOf<BlockHeader>,
@@ -493,7 +498,7 @@ impl HistoryBlockRow {
 
 /// Canonical summary time keeps unavailable journal-only timestamps explicit as empty text.
 #[derive(Debug)]
-pub(crate) struct HistoryBlockTime(pub(crate) Option<Duration>);
+pub struct HistoryBlockTime(pub(crate) Option<Duration>);
 impl FastJsonWrite for HistoryBlockTime {
     fn write_json(&self, out: &mut String) {
         json::write_json_unbounded(self, out);

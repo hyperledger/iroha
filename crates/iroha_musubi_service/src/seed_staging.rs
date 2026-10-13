@@ -247,7 +247,7 @@ impl MusubiSeedStagingBackendV1 {
             .visit_private_files(MAX_STAGE_RECORDS as usize + 1, |name, metadata| {
                 let result = (|| {
                     if name == OWNER_LOCK_FILE {
-                        if metadata.len() != 0 || metadata.is_read_only() {
+                        if !metadata.is_empty() || metadata.is_read_only() {
                             return Err(MusubiSeedStagingErrorV1::Invalid);
                         }
                         return Ok(());
@@ -308,7 +308,8 @@ impl MusubiSeedStagingBackendV1 {
             .map_err(|_| MusubiSeedStagingErrorV1::Invalid)?;
         let length = file.len().map_err(|_| MusubiSeedStagingErrorV1::Invalid)?;
         let mut header = [0u8; STAGE_HEADER_BYTES];
-        file.read_exact(&mut header).map_err(read_error)?;
+        file.read_exact(&mut header)
+            .map_err(|error| read_error(&error))?;
         if header[..16] != STAGE_MAGIC {
             return Err(MusubiSeedStagingErrorV1::Invalid);
         }
@@ -334,9 +335,11 @@ impl MusubiSeedStagingBackendV1 {
         file.read_exact(&mut metadata_bytes)
             .and_then(|()| file.read_exact(&mut plan_bytes))
             .and_then(|()| file.read_exact(&mut car))
-            .map_err(read_error)?;
+            .map_err(|error| read_error(&error))?;
         let mut tail = [0u8; 1];
-        if file.read(&mut tail).map_err(read_error)? != 0 || file.snapshot().ok() != Some(before) {
+        if file.read(&mut tail).map_err(|error| read_error(&error))? != 0
+            || file.snapshot().ok() != Some(before)
+        {
             return Err(MusubiSeedStagingErrorV1::Invalid);
         }
         self.verify_custody()?;
@@ -588,7 +591,7 @@ fn bounded_buffer(length: usize) -> Result<Vec<u8>, MusubiSeedStagingErrorV1> {
     buffer.resize(length, 0);
     Ok(buffer)
 }
-fn read_error(error: std::io::Error) -> MusubiSeedStagingErrorV1 {
+fn read_error(error: &std::io::Error) -> MusubiSeedStagingErrorV1 {
     if error.kind() == std::io::ErrorKind::UnexpectedEof {
         MusubiSeedStagingErrorV1::Invalid
     } else {
@@ -601,7 +604,7 @@ mod tests {
     use crate::seed_test_support::fixture;
     struct PrivateTestRoot {
         directory: PrivateDirectory,
-        _parent: tempfile::TempDir,
+        parent: tempfile::TempDir,
     }
     impl PrivateTestRoot {
         fn path(&self) -> &Path {
@@ -612,10 +615,7 @@ mod tests {
         let parent = tempfile::tempdir().expect("seed test workspace");
         let directory = PrivateDirectory::open_or_create(parent.path().join("private"))
             .expect("native private seed root");
-        PrivateTestRoot {
-            directory,
-            _parent: parent,
-        }
+        PrivateTestRoot { directory, parent }
     }
 
     #[test]
@@ -852,7 +852,11 @@ mod tests {
             Err(MusubiSeedStagingErrorV1::Invalid),
         ));
         assert_eq!(
-            read_error(std::io::Error::other("temporary device fault")),
+            read_error(&std::io::Error::from(std::io::ErrorKind::UnexpectedEof)),
+            MusubiSeedStagingErrorV1::Invalid,
+        );
+        assert_eq!(
+            read_error(&std::io::Error::other("temporary device fault")),
             MusubiSeedStagingErrorV1::Unavailable,
         );
     }
@@ -950,7 +954,10 @@ mod tests {
         let name = record_name(&binding).unwrap();
         let before = temporary
             .directory
-            .open_borrowed_read_only(OsStr::new(&name), MAX_STAGE_RECORD_BYTES as usize)
+            .open_borrowed_read_only(
+                OsStr::new(&name),
+                usize::try_from(MAX_STAGE_RECORD_BYTES).expect("record cap fits usize"),
+            )
             .unwrap()
             .snapshot()
             .unwrap();
@@ -965,7 +972,10 @@ mod tests {
         assert_eq!(
             temporary
                 .directory
-                .open_borrowed_read_only(OsStr::new(&name), MAX_STAGE_RECORD_BYTES as usize)
+                .open_borrowed_read_only(
+                    OsStr::new(&name),
+                    usize::try_from(MAX_STAGE_RECORD_BYTES).expect("record cap fits usize")
+                )
                 .unwrap()
                 .snapshot()
                 .unwrap(),
@@ -1022,7 +1032,7 @@ mod tests {
             MAX_STAGE_RECORD_BYTES,
         )
         .unwrap();
-        let displaced = temporary._parent.path().join("displaced");
+        let displaced = temporary.parent.path().join("displaced");
         fs::rename(temporary.path(), &displaced).unwrap();
         let replacement = PrivateDirectory::open_or_create(temporary.path()).unwrap();
         assert_eq!(
@@ -1066,7 +1076,7 @@ mod tests {
             MAX_STAGE_RECORD_BYTES,
         )
         .unwrap();
-        assert!(fs::rename(temporary.path(), temporary._parent.path().join("displaced")).is_err());
+        assert!(fs::rename(temporary.path(), temporary.parent.path().join("displaced")).is_err());
         assert!(fs::remove_file(temporary.path().join(OWNER_LOCK_FILE)).is_err());
         backend
             .stage_exact_car([0x61; 32], &binding, &commitment, &plan, &car)

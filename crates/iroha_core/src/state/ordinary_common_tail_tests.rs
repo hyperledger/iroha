@@ -134,7 +134,12 @@ fn run_ordinary_tail_independent_batches(
         fixture.source.account().clone(),
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     );
-    transaction.set_creation_time(header.creation_time() - Duration::from_millis(1));
+    transaction.set_creation_time(
+        header
+            .creation_time()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap(),
+    );
     let signed = transaction
         .with_instructions([ordinary_tail_batch(&fixture)])
         .sign(key.private_key());
@@ -161,7 +166,12 @@ fn run_ordinary_tail_independent_batches(
             fixture.source.account().clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         );
-        extra.set_creation_time(header.creation_time() - Duration::from_millis(1));
+        extra.set_creation_time(
+            header
+                .creation_time()
+                .checked_sub(Duration::from_millis(1))
+                .unwrap(),
+        );
         let extra = extra
             .with_instructions([
                 InstructionBox::from(ordinary_tail_batch(&fixture)),

@@ -198,6 +198,7 @@ fn executor(chain: &CertifiedTestChain) -> StateExecutor {
 /// A separate cold worker over `chain`'s published State in the chain's own consensus mode.
 fn executor_in(chain: &CertifiedTestChain, consensus_mode: ConsensusMode) -> StateExecutor {
     StateExecutor::spawn(ExecutorContext {
+        time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(chain.state()),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -231,7 +232,7 @@ fn invalid(executor: &mut StateExecutor, chain: &CertifiedTestChain, candidate: 
         .header()
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(matches!(
-        executor.execute(candidate, &hash),
+        executor.execute(candidate, &hash, false),
         Ok(Some(ExecOutcome::Invalid))
     ));
     // The fixture chain's own tip never moves through this separate worker: a refusal leaves
@@ -240,6 +241,35 @@ fn invalid(executor: &mut StateExecutor, chain: &CertifiedTestChain, candidate: 
     assert_eq!(u64::try_from(view.height()).unwrap(), chain.height());
     assert!(view.world().global_beacon_pulses().is_empty());
     assert!(view.world().global_beacon_pulse_slots().is_empty());
+}
+
+#[test]
+fn sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height() {
+    let (mut fixture, witness) = completed();
+    let predecessor = same_predecessor(&fixture, true);
+    let pulse = control::decode(&witness).unwrap().unwrap();
+    fixture
+        .chain
+        .commit_with_control(Some(50_000), Vec::new(), Signers::Quorum, witness);
+    let stored = fixture.chain.committed(9);
+    let mut block = predecessor.state().block(stored.block().header());
+    assert!(block.sumeragi_schedule.original_native_pulse().is_none());
+    block
+        .request_sumeragi_schedule(1, stored.block(), Some(pulse), Some(pulse.context))
+        .unwrap();
+    assert!(
+        block.sumeragi_schedule.frozen_boundary().is_none(),
+        "the authenticated pulse is carried before the committee boundary"
+    );
+    assert_eq!(
+        block.sumeragi_schedule.original_native_pulse(),
+        Some(pulse),
+        "panel draws must receive the original verified pulse at its native carrying height"
+    );
+    // The exact original context was authenticated before this accessor. Dropping
+    // the overlay must release its unpublished pulse as well as its draw source.
+    drop(block);
+    assert_no_pulse(&predecessor);
 }
 
 #[test]
@@ -346,7 +376,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
             _ => wrong.context.parent_result[0] ^= 1,
         }
         let mut candidate_header = header.clone();
-        candidate_header.control_witness = control::encode(Some(wrong)).unwrap();
+        candidate_header.control_witness = control::encode(Some(wrong).as_ref()).unwrap();
         let candidate = predecessor.author_payload(candidate_header, proposal_bytes.clone());
         invalid(&mut worker, &predecessor, &candidate);
     }
@@ -381,7 +411,8 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
     .unwrap();
     let mut unrequested_header = ordinary_header.clone();
     unrequested_header.control_witness =
-        control::encode(Some(genuine_pulse_at_next_height(&fixture, &unrequested))).unwrap();
+        control::encode(Some(genuine_pulse_at_next_height(&fixture, &unrequested)).as_ref())
+            .unwrap();
     let unrequested_body = unrequested.author_payload(unrequested_header, ordinary_bytes.clone());
     invalid(&mut executor(&unrequested), &unrequested, &unrequested_body);
     let requested_nothing = unrequested.author_payload(ordinary_header, ordinary_bytes);
@@ -390,7 +421,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor(&unrequested).execute(&requested_nothing, &hash),
+            executor(&unrequested).execute(&requested_nothing, &hash, false),
             Ok(Some(ExecOutcome::Valid(_)))
         ),
         "without the unrequested witness the same ordinary body is valid"
@@ -660,7 +691,8 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
     .unwrap();
     let mut with_pulse = header.clone();
     with_pulse.control_witness =
-        control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain))).unwrap();
+        control::encode(Some(genuine_pulse_at_next_height(&custody, &custody.chain)).as_ref())
+            .unwrap();
     let unrequested = custody.chain.author_payload(with_pulse, bytes.clone());
     invalid(
         &mut executor_in(&custody.chain, ConsensusMode::Permissioned),
@@ -673,8 +705,11 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
         .hash(&crate::sumeragi::crypto::BlsCrypto::new());
     assert!(
         matches!(
-            executor_in(&custody.chain, ConsensusMode::Permissioned)
-                .execute(&requested_nothing, &hash),
+            executor_in(&custody.chain, ConsensusMode::Permissioned).execute(
+                &requested_nothing,
+                &hash,
+                false
+            ),
             Ok(Some(ExecOutcome::Valid(_)))
         ),
         "without the unrequested witness the same body is valid at the governance slot"
@@ -812,6 +847,7 @@ fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots(
     }
 
     // Parliament state absent.
+    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     let (plain, _) = mandatory_at_nine(fixture());
     assert!(slot_index(&plain.chain).is_empty());
 
@@ -859,7 +895,6 @@ fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots(
     assert_sortition_awaits(&present.chain, attempt_id, 9);
     assert_eq!(slot_index(&present.chain), index);
     // The governance-local wait is now served by exactly that consensus-native pulse.
-    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     let view = present.chain.state().view();
     let network_id = present.chain.network_id();
     assert_eq!(

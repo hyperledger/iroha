@@ -2310,14 +2310,18 @@ const count = await torii.getSumeragiEvidenceCount();
 console.log(`Committed evidence count: ${count.count}`);
 ```
 
-The first-release JSON contract is closed: each item is a
-`NativeSumeragiEvidence` record with the original instance, epoch context, signing
-generation, ordered historical offenders, original frame digest, and
-a non-null consensus admission height and
-a `pending`, `applied`, or `cancelled` penalty status. Unknown response fields
-and retired evidence kinds are rejected. Unsigned 64-bit values above
-`Number.MAX_SAFE_INTEGER` are returned as `bigint` without rounding. Count
-responses are capped at 1 KiB and JSON list responses at 1 MiB.
+The first-release JSON contract is the closed `{ kind, value }` envelope.
+`NativeSumeragiEvidence` values retain the root or lane scope, original instance,
+epoch context, signing generation, ordered historical offenders and frame digest.
+`SccpForgeryEvidence` values retain the exact submitted certificate bytes, optional
+anchor, recorded generation liability and attribution. Both carry a non-null
+consensus admission height and a closed `pending` or `applied` penalty status.
+Read the variant payload through `item.value`; parsing these observations does not
+verify signatures or establish historical-state authority. Unknown fields,
+retired flat layouts and response kinds that differ from the requested filter
+are rejected. Unsigned 64-bit values above `Number.MAX_SAFE_INTEGER` are returned
+as `bigint` without rounding. Count responses are capped at 1 KiB and JSON list
+responses at 1 MiB.
 
 ## SoraFS Storage Helpers
 

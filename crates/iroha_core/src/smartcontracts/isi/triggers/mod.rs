@@ -1481,21 +1481,6 @@ pub mod query {
         }
         best
     }
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn trigger_candidate_ids_are_intersected() {
-            let rose_id: TriggerId = "intersect_rose".parse().unwrap();
-            let tulip_id: TriggerId = "intersect_tulip".parse().unwrap();
-            let iris_id: TriggerId = "intersect_iris".parse().unwrap();
-            let mut candidates = None;
-            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), tulip_id]));
-            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), iris_id]));
-            assert_eq!(candidates, Some(BTreeSet::from([rose_id])));
-        }
-    }
     fn trigger_alias_values(trigger: &Trigger, field: &str) -> Vec<String> {
         match field {
             "id" => vec![trigger.id().to_string()],
@@ -1605,6 +1590,21 @@ pub mod query {
                 .trigger_by_id_bounded(self.trigger_id())?
                 .ok_or_else(|| Error::Find(FindError::Trigger(self.trigger_id().clone())))?;
             Ok(trigger)
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn trigger_candidate_ids_are_intersected() {
+            let rose_id: TriggerId = "intersect_rose".parse().unwrap();
+            let tulip_id: TriggerId = "intersect_tulip".parse().unwrap();
+            let iris_id: TriggerId = "intersect_iris".parse().unwrap();
+            let mut candidates = None;
+            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), tulip_id]));
+            intersect_candidate_ids(&mut candidates, BTreeSet::from([rose_id.clone(), iris_id]));
+            assert_eq!(candidates, Some(BTreeSet::from([rose_id])));
         }
     }
 }

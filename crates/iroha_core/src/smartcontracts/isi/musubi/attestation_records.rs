@@ -17,7 +17,7 @@ use iroha_model_base::error::ParseError;
 /// Records admitted by the complete-set checks, in canonical provider order.
 /// The record references retain the same World borrow used for every check.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct LocationProviderAttestations<'world> {
+pub struct LocationProviderAttestations<'world> {
     records:
         [Option<&'world MusubiProviderBundleAttestationRecordV1>; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
     len: usize,
@@ -38,7 +38,7 @@ impl<'world> LocationProviderAttestations<'world> {
 }
 
 /// Verify the exact complete set before exposing any borrowed records to callers.
-pub(super) fn load_location_provider_attestations<'world>(
+pub fn load_location_provider_attestations<'world>(
     archive: &MusubiArchiveRecordV1,
     location: &MusubiArchiveLocationV1,
     world: &'world impl MusubiSourceReadOnly,

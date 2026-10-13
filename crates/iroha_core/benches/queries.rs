@@ -83,7 +83,7 @@ fn build_state_with_accounts(n: usize) -> State {
         accounts.push(account);
     }
     State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::with([domain], accounts, []),
@@ -300,7 +300,7 @@ fn build_state_for_typed_core_query_pages() -> (State, AccountId, [u64; 5]) {
         nfts.push(Nft::new(nft_id, Metadata::default()).build(&authority));
     }
     let state = State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::with_assets(domains, accounts, asset_definitions, assets, nfts),
@@ -775,7 +775,7 @@ fn bench_snapshot_sorted_asset_defs_first_batch(c: &mut Criterion) {
     }
     let world = World::with([domain], [Account::new(auth.clone()).build(&auth)], defs);
     let state = State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         world,
@@ -945,7 +945,7 @@ fn build_state_with_assets(n_accounts: usize, assets_per_account: usize) -> Stat
         accounts.push(account);
     }
     State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::with_assets([domain], accounts, definitions, assets, []),
@@ -1050,7 +1050,7 @@ fn build_state_with_domains(n: usize) -> State {
         domains.push(Domain::new(id).build(&authority_id));
     }
     State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::with(domains, [], []),
@@ -1111,7 +1111,7 @@ fn build_state_with_asset_definitions(n: usize) -> State {
         );
     }
     State::try_new(
-        crate::state::AllocationBudget::new(
+        iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
         World::with_assets([domain], [owner], defs, [], []),
@@ -1163,7 +1163,10 @@ fn build_state_with_triggers(n_time: usize, n_by_call: usize) -> State {
         AcceptedTransaction::new_unchecked(Cow::Owned(tx))
     }
     // Create a header for a block to stage registrations
-    let latest = state.view().latest_block();
+    let latest = state
+        .view()
+        .latest_block()
+        .expect("benchmark canonical block read");
     let priv_key = iroha_crypto::KeyPair::random().private_key().clone();
     let header = BlockBuilder::new(vec![dummy_accepted_transaction(*state.network_id_ref())])
         .chain(0, latest.as_deref())

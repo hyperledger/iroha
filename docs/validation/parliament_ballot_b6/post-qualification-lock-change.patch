@@ -1,0 +1,10 @@
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -5795,6 +5795,7 @@
+  "blstrs",
+  "group",
+  "halo2curves",
++ "iroha_allocation",
+  "iroha_crypto",
+  "iroha_data_model",
+  "iroha_model_base",

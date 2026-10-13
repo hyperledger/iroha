@@ -1604,7 +1604,7 @@ plan = SettlementPlan(
 )
 
 draft.settlement_dvp(
-    settlement_id="trade_dvp",
+    settlement_id=f"trade_dvp${delivery_leg.from_account}",
     delivery_leg=delivery_leg,
     payment_leg=payment_leg,
     plan=plan,
@@ -1618,14 +1618,18 @@ counter_leg = SettlementLeg(
     to_account="sorauﾛ1NcMBm2dﾌBokヱDﾑﾅekAbｶﾍﾜﾇﾐMFｽヱﾋZﾘ2u4WGUMMS63EY6",
 )
 draft.settlement_pvp(
-    settlement_id="trade_pvp",
+    settlement_id=f"trade_pvp${payment_leg.from_account}",
     primary_leg=payment_leg,
     counter_leg=counter_leg,
 )
 ```
 
-The first release supports only the `all_or_nothing` atomicity policy. The host
-rejects every other mode.
+Settlement IDs use `reference$canonical_owner`: the owner is an actual debited
+account, and the reference is unique within that account. Bare references are
+rejected. Native JSON and Norito retain the owner and reference as separate fields.
+
+`all_or_nothing` is the sole native settlement atomicity policy. Other names
+and wire tags are invalid.
 
 See `specs/finance/repo_runbook.md` for operator-facing CLI flows, determinism notes, and automation guidance covering both repo and settlement helpers.
 
@@ -2690,11 +2694,15 @@ no environment variables need to be exported.
 - Surface pipeline recovery sidecars (`/v1/pipeline/recovery/{height}`) and Sumeragi evidence
   listing/counting so Python operators can monitor ledger history without reimplementing
   the Rust toolchain.
-  Evidence reads use the closed first-release `NativeSumeragiEvidence` shape,
-  retain exact instance/context/generation attribution and ordered historical offenders,
-  require a non-null consensus admission height and an exact penalty lifecycle,
-  reject missing, extra, or retired response fields, and stream responses under
-  a 1 KiB count ceiling and 1 MiB JSON-list ceiling.
+  Evidence reads use the canonical closed `{kind, value}` envelope for
+  `NativeSumeragiEvidence` and `SccpForgeryEvidence`; the SDK re-exports the shared
+  model types and decodes through the Torii client's single current parser.
+  Read typed payloads through `item.value`. They retain native root/lane scope or
+  SCCP certificate bytes and generation attribution, a non-null admission height,
+  and the `pending` or `applied` penalty lifecycle. Decoding offers DATA without
+  authenticating signatures or historical authority. Missing, extra, retired flat
+  fields and responses outside the requested kind filter are rejected. The
+  authenticated reads retain the 1 KiB count and 1 MiB JSON-list ceilings.
 - Extend the Torii client with transaction submission/status helpers so signed
   envelopes can be delivered directly to `/v1/pipeline/transactions`.
 - Provide a `submit_transaction_envelope_and_wait` helper that submits a signed

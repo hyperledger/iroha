@@ -90,7 +90,7 @@ pub(super) fn select(
         if peer.config_path != root.path().join(format!("peer{index}.toml")) {
             return Err(invalid());
         }
-        let bytes = root.read(&format!("peer{index}.toml"), 1024 * 1024)?;
+        let bytes = root.read(format!("peer{index}.toml"), 1024 * 1024)?;
         let text = std::str::from_utf8(&bytes).map_err(|_| invalid())?;
         // Generated originals are flattened. Reject indirection before the shared parser
         // could read an `extends` source; the original private handles own these inputs.

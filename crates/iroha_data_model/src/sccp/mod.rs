@@ -28,8 +28,10 @@ pub mod generation;
 pub mod governance;
 pub mod inbound;
 pub mod light_client;
+pub mod native;
 pub mod outbound;
 pub mod params;
+pub mod reconciliation;
 pub mod registry;
 
 #[cfg(test)]

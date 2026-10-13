@@ -48,7 +48,7 @@ use transactions::NativeTransactions;
 /// pending-prefix Checks are performed by `prepare_capture` after consensus starts. Construction
 /// alone neither changes governed policy nor claims its current eligibility.
 #[derive(Debug)]
-pub(crate) struct NativeGatewayRuntime {
+pub struct NativeGatewayRuntime {
     /// Shared native quota, Check and lifecycle owner.
     pub(crate) provider: Arc<dyn StreamTokenGatewayAdmissionProviderV1>,
     /// Exact source-owned finalized reputation delivery on the same local custody.
@@ -56,7 +56,7 @@ pub(crate) struct NativeGatewayRuntime {
 }
 
 /// Construct the shared native gateway and exact reputation delivery owners.
-pub(crate) fn build_native_runtime(
+pub fn build_native_runtime(
     tokens: &SorafsTokenConfig,
     compliance_gateway_id: Option<&str>,
     state: Arc<State>,
@@ -270,10 +270,10 @@ impl StreamTokenGatewayAdmissionProviderV1 for NativeGateway {
             None => Err(Error::SubstitutedOutcome),
         }
     }
-    fn acknowledge(&self, record: Record, deadline: Instant) -> Result<Ack, Error> {
-        let submitted = self.mutate(Action::Acknowledge(record), deadline)?;
-        let proof = self.checked(Selector::Acknowledged(record), deadline)?;
-        if !matches!(proof.readback(), VerifiedReadback::Acknowledged(value) if *value == record) {
+    fn acknowledge(&self, record: &Record, deadline: Instant) -> Result<Ack, Error> {
+        let submitted = self.mutate(Action::Acknowledge(*record), deadline)?;
+        let proof = self.checked(Selector::Acknowledged(*record), deadline)?;
+        if !matches!(proof.readback(), VerifiedReadback::Acknowledged(value) if value == record) {
             return Err(Error::SubstitutedOutcome);
         }
         let original = proof
@@ -285,10 +285,10 @@ impl StreamTokenGatewayAdmissionProviderV1 for NativeGateway {
             false,
         ))
     }
-    fn release_lease(&self, record: Record, deadline: Instant) -> Result<Ack, Error> {
-        let submitted = self.mutate(Action::ReleaseLease(record), deadline)?;
-        let proof = self.checked(Selector::Released(record), deadline)?;
-        if !matches!(proof.readback(), VerifiedReadback::Released(value) if *value == record) {
+    fn release_lease(&self, record: &Record, deadline: Instant) -> Result<Ack, Error> {
+        let submitted = self.mutate(Action::ReleaseLease(*record), deadline)?;
+        let proof = self.checked(Selector::Released(*record), deadline)?;
+        if !matches!(proof.readback(), VerifiedReadback::Released(value) if value == record) {
             return Err(Error::SubstitutedOutcome);
         }
         let (original, expired) = proof
@@ -303,14 +303,14 @@ impl StreamTokenGatewayAdmissionProviderV1 for NativeGateway {
     fn confirm_serving(
         &self,
         request: &Request,
-        record: Record,
+        record: &Record,
         deadline: Instant,
     ) -> Result<Record, Error> {
         let proof = self.checked(Selector::Serving(request.clone()), deadline)?;
         // Every freshly verified retry must retain the caller's exact accepted record.
         // The inner service result is completed; only Core's outer source refusal may retry.
         let consume = |proof: Verified| {
-            if !matches!(proof.readback(), VerifiedReadback::Serving(value) if value.record == record)
+            if !matches!(proof.readback(), VerifiedReadback::Serving(value) if &value.record == record)
             {
                 return Ok(Err(Error::SubstitutedOutcome));
             }

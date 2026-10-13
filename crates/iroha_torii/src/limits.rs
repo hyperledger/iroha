@@ -342,8 +342,7 @@ impl ShardedLimiter {
         } else {
             max_buckets
                 .div_ceil(MIN_BUCKETS_PER_SHARD)
-                .min(DEFAULT_RATE_LIMITER_SHARDS)
-                .max(1)
+                .clamp(1, DEFAULT_RATE_LIMITER_SHARDS)
         };
         let rate_per_sec = rate_per_sec.unwrap_or(0.0);
         let base_capacity = max_buckets / shard_count;
@@ -381,8 +380,7 @@ impl FixedKeyShardedLimiter {
             .len()
             .max(1)
             .div_ceil(MIN_BUCKETS_PER_SHARD)
-            .min(DEFAULT_RATE_LIMITER_SHARDS)
-            .max(1);
+            .clamp(1, DEFAULT_RATE_LIMITER_SHARDS);
         let mut shard_sizes = vec![0_usize; shard_count];
         let assignments = keys
             .into_iter()
@@ -766,9 +764,7 @@ impl RateLimiter {
                 continue;
             }
             let entry = combined.entry(key.as_ref().to_owned()).or_default();
-            let Some(updated) = entry.checked_add(count) else {
-                return None;
-            };
+            let updated = entry.checked_add(count)?;
             *entry = updated;
         }
         if combined.is_empty() {

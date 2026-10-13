@@ -633,7 +633,7 @@ fn zero_retention_and_zero_capacity_do_not_allocate_runtime_row_slots() {
         });
         for route in 0..3 {
             let budget = AllocationBudget::new(LIMIT);
-            let cache_capacity = if capacity == 0 { 0 } else { 1 };
+            let cache_capacity = usize::from(capacity != 0);
             if route == 0 {
                 let cache =
                     PreparedContractCache::with_execution_budget(cache_capacity, budget.clone());

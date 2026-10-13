@@ -1,0 +1,49 @@
+--- b7d64-norito-lib
++++ current-norito-lib
+@@ -9513,10 +9513,10 @@
+ /// No decoder budget controls or payload storage are allocated.
+ ///
+ /// # Errors
+-/// Rejects an invalid envelope or any layout other than the canonical encoder's fixed flags.
+-pub fn canonical_frame_payload<T: NoritoSerialize>(bytes: &[u8]) -> Result<&[u8], Error> {
++/// Rejects an invalid envelope or flags different from the caller's closed payload layout.
++pub fn canonical_frame_payload<T: NoritoSerialize>(bytes: &[u8], expected_flags: u8) -> Result<&[u8], Error> {
+     let header = checked_canonical_header(bytes)?;
+-    if header.flags != core::default_encode_flags() {
++    if header.flags != expected_flags {
+         return Err(Error::NonCanonicalEncoding);
+     }
+     checked_uncompressed_payload::<T>(bytes, &header)
+@@ -9530,26 +9530,26 @@
+     fn borrowed_envelope_preserves_source_and_checks_exact_schema_padding_and_flags() {
+         let value = 0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10_u128;
+         let bytes = encode_canonical(&value).unwrap();
+-        let payload = canonical_frame_payload::<u128>(&bytes).unwrap();
++        let payload = canonical_frame_payload::<u128>(&bytes, 0).unwrap();
+         let offset = bytes.len() - payload.len();
+         assert_eq!(payload, value.to_le_bytes());
+         assert_eq!(payload.as_ptr(), bytes[offset..].as_ptr());
+-        assert!(canonical_frame_payload::<u64>(&bytes).is_err());
++        assert!(canonical_frame_payload::<u64>(&bytes, 0).is_err());
+         for index in core::Header::SIZE..offset {
+             let mut changed = bytes.clone();
+             changed[index] = 1;
+-            assert!(canonical_frame_payload::<u128>(&changed).is_err());
++            assert!(canonical_frame_payload::<u128>(&changed, 0).is_err());
+         }
+         for index in 0..core::Header::SIZE {
+             let mut changed = bytes.clone();
+             changed[index] ^= 0x80;
+-            assert!(canonical_frame_payload::<u128>(&changed).is_err());
++            assert!(canonical_frame_payload::<u128>(&changed, 0).is_err());
+         }
+         let mut suffix = bytes.clone();
+         suffix.push(0);
+-        assert!(canonical_frame_payload::<u128>(&suffix).is_err());
++        assert!(canonical_frame_payload::<u128>(&suffix, 0).is_err());
+         for end in 0..bytes.len() {
+-            assert!(canonical_frame_payload::<u128>(&bytes[..end]).is_err());
++            assert!(canonical_frame_payload::<u128>(&bytes[..end], 0).is_err());
+         }
+     }
+ }

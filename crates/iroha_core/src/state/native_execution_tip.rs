@@ -94,6 +94,10 @@ pub(in crate::state) fn empty_cell(
     initialize(budget, None, None).map_err(Into::into)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+)]
 fn initialize(
     budget: &AllocationBudget,
     current: Option<NativeExecutionTip>,
@@ -150,6 +154,10 @@ impl From<&str> for TipRestoreError {
 
 impl NativeExecutionTipSnapshot {
     /// Capture the exact original current and undo values without losing nested absence.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn from_original(
         current: Option<NativeExecutionTip>,
         previous: Option<Option<NativeExecutionTip>>,
@@ -164,6 +172,10 @@ impl NativeExecutionTipSnapshot {
 
     /// Compare serialized claims with the exact originals captured alongside the World.
     /// This grants no restore authority and never constructs an execution owner.
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) fn matches_original(
         &self,
         current: Option<NativeExecutionTip>,
@@ -204,22 +216,13 @@ impl NativeExecutionTipSnapshot {
         // predecessor and records history checkpoints for off-chain readers.
         let checkpoints = kura.history_checkpoints();
         let mut previous = if height == 2 {
-            Some(record(
-                chain
-                    .authenticated_execution(1)
-                    .map_err(TipRestoreError::from)?
-                    .committed(),
-            ))
+            Some(restored_genesis_record(&chain)?)
         } else {
             None
         };
         let mut current = None;
-        for certified in chain.walk(2, height) {
-            let block = certified
-                .map_err(TipRestoreError::from)?
-                .into_authenticated_execution()
-                .map_err(|error| error.to_string())?;
-            let block = record(block.committed());
+        let mut walk = chain.walk(2, height);
+        while let Some(block) = next_restored_record(&mut walk)? {
             checkpoints.record_sparse(block.height, checkpoint_of(block));
             previous = current.replace(block).or(previous);
         }
@@ -240,6 +243,40 @@ impl NativeExecutionTipSnapshot {
         )
         .map_err(TipRestoreError::Admission)
     }
+}
+
+// Keep the complete H1 receipt outside the restore frame. It retires before the
+// successor walk starts, leaving only the authenticated fixed-size identity.
+#[inline(never)]
+fn restored_genesis_record(
+    chain: &CertifiedChain<'_, StateView<'_>>,
+) -> Result<NativeExecutionTipRecord, TipRestoreError> {
+    let genesis = chain
+        .authenticated_execution(1)
+        .map_err(TipRestoreError::from)?;
+    Ok(record(genesis.committed()))
+}
+
+// The iterator owns the same source-bound prefix and advances in the same order.
+// Complete certificate/result return temporaries belong to one step, rather than
+// remaining reserved in restore's frame while its next native decode runs.
+#[inline(never)]
+fn next_restored_record(
+    walk: &mut impl Iterator<
+        Item = Result<
+            crate::sumeragi::certified_chain::CertifiedBlock,
+            ExecutionAttemptError<ChainReadError>,
+        >,
+    >,
+) -> Result<Option<NativeExecutionTipRecord>, TipRestoreError> {
+    let Some(certified) = walk.next() else {
+        return Ok(None);
+    };
+    let block = certified
+        .map_err(TipRestoreError::from)?
+        .into_authenticated_execution()
+        .map_err(|error| error.to_string())?;
+    Ok(Some(record(block.committed())))
 }
 
 /// The history checkpoint of an authenticated native execution identity.

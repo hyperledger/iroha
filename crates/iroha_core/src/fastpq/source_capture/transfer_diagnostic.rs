@@ -113,8 +113,10 @@ pub(crate) fn prepare_transfer_archive_diagnostic(
         leaves.push(TransferEntryDiagnostic {
             source,
             // Every count was checked against u32 before materializing any leaf.
-            statement_index: leaves.len() as u32,
-            entry_index: entry_index as u32,
+            statement_index: u32::try_from(leaves.len())
+                .map_err(|_| "FASTPQ statement index exceeds u32".to_owned())?,
+            entry_index: u32::try_from(entry_index)
+                .map_err(|_| "FASTPQ entry index exceeds u32".to_owned())?,
             entry_transcript_count,
             entry_hash: entry.entry_hash,
             execution_kind: entry.execution_kind,

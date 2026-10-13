@@ -490,10 +490,10 @@ mod tests {
             .set_execution_outputs(
                 rows,
                 0,
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 vec![],
-                Default::default(),
-                Default::default(),
+                iroha_data_model::nexus::AxtPolicySnapshot::default(),
+                std::collections::BTreeSet::default(),
                 &iroha_data_model::parameter::ExecutionOutputPolicyV1::bootstrap().limits(),
             )
             .unwrap();
@@ -563,7 +563,7 @@ mod tests {
             } else {
                 let result = encoded.result.as_mut().unwrap();
                 match mutation {
-                    1 => result.output_merkle = Default::default(),
+                    1 => result.output_merkle = iroha_crypto::MerkleTree::default(),
                     2 => {
                         result.outputs.remove(0);
                     }

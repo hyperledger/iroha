@@ -16,7 +16,7 @@ use iroha_torii::sorafs::{
     StreamTokenGatewayReconciliationReadV1, StreamTokenReconciliationOutcomeV1,
 };
 use std::{fmt, sync::Arc, time::Duration};
-pub(crate) mod native;
+pub mod native;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 /// Fail-closed launcher error without runtime credentials or evidence payloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,14 +291,14 @@ mod tests {
         }
         fn acknowledge(
             &self,
-            _record: StreamTokenGatewayAdmissionRecordV1,
+            _record: &StreamTokenGatewayAdmissionRecordV1,
             _deadline: std::time::Instant,
         ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
             Err(StreamTokenGatewayAdmissionErrorV1::Rejected)
         }
         fn release_lease(
             &self,
-            _record: StreamTokenGatewayAdmissionRecordV1,
+            _record: &StreamTokenGatewayAdmissionRecordV1,
             _deadline: std::time::Instant,
         ) -> Result<StreamTokenGatewayAdmissionAckV1, StreamTokenGatewayAdmissionErrorV1> {
             Err(StreamTokenGatewayAdmissionErrorV1::Rejected)
@@ -306,7 +306,7 @@ mod tests {
         fn confirm_serving(
             &self,
             _request: &StreamTokenGatewayAdmissionRequestV1,
-            _record: StreamTokenGatewayAdmissionRecordV1,
+            _record: &StreamTokenGatewayAdmissionRecordV1,
             _deadline: std::time::Instant,
         ) -> Result<StreamTokenGatewayAdmissionRecordV1, StreamTokenGatewayAdmissionErrorV1>
         {
@@ -321,7 +321,7 @@ mod tests {
         }
         fn deliver(
             &self,
-            _record: StreamTokenGatewayAdmissionRecordV1,
+            _record: &StreamTokenGatewayAdmissionRecordV1,
             _deadline: std::time::Instant,
         ) -> Result<(), StreamTokenGatewayAdmissionErrorV1> {
             Err(StreamTokenGatewayAdmissionErrorV1::ReputationCallback)

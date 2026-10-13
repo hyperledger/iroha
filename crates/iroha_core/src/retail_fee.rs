@@ -121,10 +121,10 @@ pub(crate) fn prepare_rekey(
 ) -> Result<(), InstructionExecutionError> {
     ensure_not_rekeyed(&stx.world, new)?;
     if account_state(&stx.world, new)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
         || receipt_head(&stx.world, new)
-            .map_err(|error| world_read_error(&mut stx.world, error))?
+            .map_err(|error| world_read_error(&stx.world, error))?
             .is_some()
     {
         return Err(invalid(
@@ -132,11 +132,11 @@ pub(crate) fn prepare_rekey(
         ));
     }
     if account_state(&stx.world, old)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
     {
         let policy = registry(&stx.world)
-            .map_err(|error| world_read_error(&mut stx.world, error))?
+            .map_err(|error| world_read_error(&stx.world, error))?
             .and_then(|r| r.head().map(|e| e.policy.clone()))
             .ok_or_else(|| invalid("retail recovery requires its protected policy"))?;
         settle_balance(
@@ -153,16 +153,16 @@ pub(crate) fn finish_rekey(
     new: &AccountId,
 ) -> Result<(), InstructionExecutionError> {
     let record =
-        account_state(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        account_state(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     let head =
-        receipt_head(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        receipt_head(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     if record.is_none() && head.is_none() {
         return Ok(());
     }
-    let wallet = receipt_wallet_id(&stx.world, old)
-        .map_err(|error| world_read_error(&mut stx.world, error))?;
+    let wallet =
+        receipt_wallet_id(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     let mut lineage =
-        predecessors(&stx.world, old).map_err(|error| world_read_error(&mut stx.world, error))?;
+        predecessors(&stx.world, old).map_err(|error| world_read_error(&stx.world, error))?;
     lineage.push(old.clone());
     if let Some(mut record) = record {
         reward_history::update(&mut stx.world, Some(&record), None)?;
@@ -197,6 +197,11 @@ pub(crate) fn finish_rekey(
 }
 
 /// Read authoritative retail enrollment; no metadata-supplied counters are consulted.
+///
+/// # Errors
+///
+/// Returns the rejection or resource deferral from decoding protected
+/// retail enrollment state.
 pub fn account_state(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -259,6 +264,11 @@ fn registry(
     Ok(Some(registry))
 }
 /// Get the authenticated first-release policy at a ledger time and height.
+///
+/// # Errors
+///
+/// Returns a rejection for malformed registry identity or invalid policy
+/// state, and preserves resource deferrals from registry decoding.
 pub fn policy_at(
     world: &impl WorldReadOnly,
     height: u64,
@@ -557,6 +567,12 @@ fn project(
     Ok((record, receipts))
 }
 /// Logical retail balance used by reads and transfer prechecks before materialization.
+///
+/// # Errors
+///
+/// Returns an error for malformed enrollment or policy state, an enrolled
+/// wallet without a policy, or failed period/fee projection. Decoder resource
+/// refusals remain deferrals.
 pub fn projected_balance(
     world: &impl WorldReadOnly,
     id: &AssetId,
@@ -803,7 +819,7 @@ pub(crate) fn enroll(
 ) -> Result<(), InstructionExecutionError> {
     ensure_not_rekeyed(&stx.world, account)?;
     let permitted = is_account_issuer_for_primary_alias(&stx.world, authority, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?;
+        .map_err(|error| world_read_error(&stx.world, error))?;
     if authority == account || !permitted {
         return Err(invalid(
             "retail enrollment requires an authorized account issuer",
@@ -811,7 +827,7 @@ pub(crate) fn enroll(
     }
     stx.world.account(account)?;
     if account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_some()
     {
         return Ok(());
@@ -821,7 +837,7 @@ pub(crate) fn enroll(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     .ok_or_else(|| invalid("retail enrollment requires active Parliament fee policy"))?;
     if account == &policy.treasury_account_id {
         return Err(invalid("fee treasury cannot be retail enrolled"));
@@ -837,6 +853,12 @@ pub(crate) fn enroll(
     initialize_receipt_head(&mut stx.world, account)
 }
 /// Return authoritative status, including logical deductions of all expired periods.
+///
+/// # Errors
+///
+/// Returns an error for malformed enrollment or registry state, a missing
+/// or empty enrolled-wallet registry, or failed period/fee projection.
+/// Decoder resource refusals remain deferrals.
 pub fn status(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -861,6 +883,12 @@ pub fn status(
     project(world, record, now_ms, available).map(|(record, _)| Some(record))
 }
 /// Produce an exact quote from finalized ledger facts, including institutional sending accounts.
+///
+/// # Errors
+///
+/// Returns an error for an unknown account, unavailable or mismatched fee
+/// policy, invalid payment legs, failed balance projection, invalid time or
+/// commitment data, or arithmetic overflow. Decoder refusals remain deferrals.
 pub fn quote(
     world: &impl WorldReadOnly,
     height: u64,
@@ -1401,6 +1429,11 @@ fn receipt_prefix(account: &AccountId) -> String {
     )
 }
 /// Resolve the original canonical wallet identity through protected native recovery state.
+///
+/// # Errors
+///
+/// Returns the rejection or resource deferral from decoding the protected
+/// wallet-recovery binding.
 pub fn receipt_wallet_id(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1416,6 +1449,11 @@ pub fn receipt_wallet_id(
         .map(|id| id.unwrap_or_else(|| account.clone()))
 }
 /// Read a wallet receipt head; absence means no head has yet been committed.
+///
+/// # Errors
+///
+/// Returns an error if the wallet binding, derived state key, or receipt
+/// head is invalid; decoder resource refusals remain deferrals.
 pub fn receipt_head(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1521,6 +1559,12 @@ pub(crate) fn store_receipt(
     write_receipt_head(world, &head)
 }
 /// Read a contiguous bounded receipt sequence for one stable canonical wallet.
+///
+/// # Errors
+///
+/// Returns an error for a limit outside `1..=100`, sequence overflow, a
+/// missing indexed receipt, or an identity mismatch. Decoding failures
+/// preserve rejection or resource-deferral classification.
 pub fn receipt_sequence(
     world: &impl WorldReadOnly,
     wallet: &AccountId,
@@ -1562,6 +1606,12 @@ pub fn receipt_sequence(
     Ok(rows)
 }
 /// Read a bounded, canonical page of immutable native receipts for an authenticated account.
+///
+/// # Errors
+///
+/// Returns an error for a limit outside `1..=100`, invalid recovery lineage
+/// or state keys, or malformed receipt records. Decoder resource refusals
+/// remain deferrals.
 pub fn receipts(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1614,7 +1664,7 @@ pub(crate) fn close_account(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Ok(());
     };
@@ -1622,8 +1672,8 @@ pub(crate) fn close_account(
         &mut stx.world,
         &AssetId::new(policy.ds_asset_id, account.clone()),
     )?;
-    let Some(mut record) = account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+    let Some(mut record) =
+        account_state(&stx.world, account).map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Ok(());
     };
@@ -1642,7 +1692,7 @@ pub(crate) fn reopen_account(
     account: &AccountId,
 ) -> Result<(), InstructionExecutionError> {
     if account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .is_none()
     {
         return Ok(());
@@ -1652,14 +1702,14 @@ pub(crate) fn reopen_account(
         stx.block_height(),
         stx.block_unix_timestamp_ms(),
     )
-    .map_err(|error| world_read_error(&mut stx.world, error))?
+    .map_err(|error| world_read_error(&stx.world, error))?
     else {
         return Err(invalid("retail reopening requires active policy"));
     };
     let asset = AssetId::new(policy.ds_asset_id, account.clone());
     settle_balance(&mut stx.world, &asset)?;
     let mut record = account_state(&stx.world, account)
-        .map_err(|error| world_read_error(&mut stx.world, error))?
+        .map_err(|error| world_read_error(&stx.world, error))?
         .ok_or_else(|| invalid("retained retail state disappeared"))?;
     let balance = stored_balance(&stx.world, &asset)?;
     record
@@ -1669,6 +1719,12 @@ pub(crate) fn reopen_account(
 }
 
 /// Read immutable receipts backwards from a previously authenticated wallet frontier.
+///
+/// # Errors
+///
+/// Returns an error for a limit outside `1..=100`, missing indexed receipts,
+/// malformed records, or a page that fails the authenticated cursor checks.
+/// Decoder resource refusals remain deferrals.
 pub fn receipt_page(
     world: &impl WorldReadOnly,
     cursor: &iroha_data_model::fee_evidence::RetailFeeReceiptCursorV1,

@@ -17,13 +17,12 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     let availability = certificate.availability().to_vec();
     let native_header: CoreHeader = norito::decode_canonical(&header).unwrap();
     let mut qc: Qc = norito::decode_canonical(certificate.commit_qc()).unwrap();
-    let mut value = CertifiedResultV1::decode(
+    let (original_x, mut value) = CertifiedResultV1::decode(
         certificate.result_preimage(),
         CertifiedResultScope::TairaGlobal,
     )
     .unwrap()
-    .into_parts()
-    .1;
+    .into_parts();
     let (_, signature) = fixture.keys[0].public_key().try_to_bytes().unwrap();
     let mut pulse = FinalizedGlobalThresholdBeaconPulseV1 {
         version: GLOBAL_THRESHOLD_BEACON_VERSION_V1,
@@ -51,12 +50,13 @@ fn proof_with_certified_beacon(fixture: &Fixture) -> SumeragiFinalityProof {
     pulse.pulse_id = global_threshold_beacon_pulse_id_v1(&pulse, pulse.seed);
     value.beacon = Some(pulse);
     value.validate().unwrap();
-    qc.result = tests::full_result(&block, &value).result().unwrap();
+    let value = CertifiedResultV1::from_parts_unvalidated(original_x, value);
+    qc.result = value.result().unwrap();
     super::tests::sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
     block.set_commit_certificate(Some(crate::block::CommitCertificate::from_untrusted_parts(
         header,
         norito::encode_canonical(&qc).unwrap(),
-        tests::full_result(&block, &value).preimage().unwrap(),
+        value.preimage().unwrap(),
         availability,
     )));
     proof.block_wire = block.encode_wire().unwrap();

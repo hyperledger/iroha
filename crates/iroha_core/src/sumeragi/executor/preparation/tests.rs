@@ -26,6 +26,8 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -49,6 +51,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
                 _ => panic!("retain original executed phase"),
             };
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("prepare same original commit");
@@ -216,6 +219,7 @@ fn certificate_capacity_refusal_reaches_scheduler_with_original_release_and_exec
 
 #[test]
 fn preparation_classification_preserves_real_limit_and_does_not_invent_release_for_allocator() {
+    use iroha_sumeragi::message::ByteAdmissionError;
     let budget = AllocationBudget::new(1);
     let original = budget.try_reserve_bytes(2).unwrap_err();
     let error = ResultPreimageError::Allocation(ChargedBufferError::Admission(original.clone()));
@@ -245,7 +249,6 @@ fn preparation_classification_preserves_real_limit_and_does_not_invent_release_f
         panic!("retain original shared control admission source");
     };
     assert_eq!(source.allocation_refusal(), Some(&original));
-    use iroha_sumeragi::message::ByteAdmissionError;
     for error in [
         ByteAdmissionError::Buffer(ChargedBufferError::Admission(original.clone())),
         ByteAdmissionError::ControlAdmission(original.clone()),
@@ -439,6 +442,8 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             let mut registration = crate::unit_test_support::release_registration(
                 &chain.state().ivm_execution_budget(),
             );
+            let original_thread = std::thread::current();
+            registration.bind_thread(original_thread.clone());
             let scheduler_registration =
                 crate::sumeragi::driver::exec::ExecutionRegistrations::admit(
                     &chain.state().ivm_execution_budget(),
@@ -449,20 +454,21 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             assert!(worker.live.is_none());
             let budget = worker.state.ivm_execution_budget();
             let mut occupied = None;
-            let initial = worker.run_execution_with_finisher(&body, qc.block_hash, |worker| {
-                if phase >= 1 {
-                    worker.prepare_original_result().unwrap();
-                }
-                if phase >= 2 {
-                    worker.prepare_original_context_archive().unwrap();
-                }
-                occupied = Some(
-                    budget
-                        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
-                        .expect("occupy the actual original execution pool"),
-                );
-                worker.finish_execution_with_encoder(encode_result_preimage)
-            });
+            let initial =
+                worker.run_execution_with_finisher(&body, qc.block_hash, false, |worker| {
+                    if phase >= 1 {
+                        worker.prepare_original_result().unwrap();
+                    }
+                    if phase >= 2 {
+                        worker.prepare_original_context_archive().unwrap();
+                    }
+                    occupied = Some(
+                        budget
+                            .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+                            .expect("occupy the actual original execution pool"),
+                    );
+                    worker.finish_execution_with_encoder(false, encode_result_preimage)
+                });
             assert!(matches!(initial, Err(PublicationError::Deferred(_))));
             let pending = worker
                 .finishing
@@ -479,6 +485,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
             }));
             let retained = budget.reserved_bytes();
             let mut scheduler = ExecSched::new(1, Backoff::default(), scheduler_registration);
+            scheduler.bind_release_thread(original_thread);
             scheduler.commit(body.clone(), qc.clone());
             let Some(ExecOp::Prepare(original)) = scheduler.next(0) else {
                 panic!("cold prepare retains the original queued decision");
@@ -501,7 +508,7 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                                 .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                                 .unwrap(),
                         );
-                        worker.run_execution(block, hash)
+                        worker.run_execution(block, hash, true)
                     },
                 )
                 .unwrap_err();
@@ -670,27 +677,25 @@ fn cold_prepare_validation_refusals_retain_original_storage_owners() {
                     panic!("storage source erased: {failure:?}")
                 };
                 assert!(
-                    match (owner, source) {
+                    matches!(
+                        (owner, source),
                         (
                             0,
                             PublicationDeferral::StateStorage(StateStorageAdmissionError::World(
                                 mv::storage::AdmittedStorageError::Busy { .. },
                             )),
-                        )
-                        | (
+                        ) | (
                             1,
                             PublicationDeferral::BlockHashAdmission(BlockHashAdmissionError::Busy(
                                 _,
                             )),
-                        )
-                        | (
+                        ) | (
                             2,
                             PublicationDeferral::MembershipAdmission(
                                 MembershipAdmissionError::Busy(_),
                             ),
-                        ) => true,
-                        _ => false,
-                    },
+                        )
+                    ),
                     "the actual refusing owner is retained: {source:?}"
                 );
                 assert!(
@@ -998,7 +1003,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         let cache = worker.state.view().prepared_contract_cache();
         let reason = ivm::error::ExecutionDeferral::LocalInvariantViolation;
         cache.set_checkout_refusal_for_test(Some(reason));
-        let outcome = worker.execute(&body, hash);
+        let outcome = worker.execute(&body, hash, false);
         cache.set_checkout_refusal_for_test(None);
         let Err(PublicationError::RecoveryRefusal(original)) = outcome else {
             panic!("an original local custody invariant cannot become a validity verdict")
@@ -1008,7 +1013,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         assert!(original.verification_refusal().is_none());
         assert_eq!(worker.recovery.as_deref(), Some(recovery_reason.as_str()));
         assert!(worker.quarantine_context.is_none());
-        assert!(worker.results.get(&hash).is_none());
+        assert!(!worker.results.contains_key(&hash));
         assert!(worker.live.is_none() && worker.finishing.is_none());
         assert!(worker.pending_commit.is_none());
         assert!(worker.context.staging.get(&hash).is_none());
@@ -1016,7 +1021,7 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
         assert_eq!(worker.state.view().height(), original_height);
         assert_eq!(body.payload().as_slice().as_ptr(), original_payload);
         assert!(
-            matches!(worker.execute(&body, hash), Err(PublicationError::RecoveryRequired(again)) if again == recovery_reason)
+            matches!(worker.execute(&body, hash, false), Err(PublicationError::RecoveryRequired(again)) if again == recovery_reason)
         );
         assert!(
             worker.live.is_none() && worker.finishing.is_none(),
@@ -1036,6 +1041,74 @@ fn original_local_custody_invariant_halts_worker_without_fee_result_or_quarantin
                 crate::sumeragi::lanes::step::LaneStepError::Deferred(reason.into())
             ),
             Err(PublicationError::RecoveryRefusal(original)) if original.reason() == reason
+        ));
+    });
+}
+
+#[test]
+fn cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery() {
+    use crate::{state::StateReadOnly as _, sumeragi::test_chain::Signers};
+    use iroha_data_model::transaction::{
+        Executable, FeePaymentIntent, IvmBytecode, TransactionBuilder,
+    };
+    use std::{num::NonZeroU64, time::Duration};
+
+    publication_tests::with_worker(|chain, worker, _blocks, events| {
+        let body =
+            publication_tests::proposal_with_transaction(chain, worker, |chain, created_ms| {
+                let key = iroha_crypto::KeyPair::from_seed(
+                    vec![0xCE; 32],
+                    iroha_crypto::Algorithm::Ed25519,
+                );
+                let mut program = ivm::ProgramMetadata {
+                    max_cycles: 100,
+                    ..Default::default()
+                }
+                .encode();
+                program.extend_from_slice(&ivm::encoding::wide::encode_halt().to_le_bytes());
+                let mut builder = TransactionBuilder::new(
+                    chain.network_id(),
+                    chain.genesis_account().clone(),
+                    FeePaymentIntent::authority(Vec::new(), NonZeroU64::new(1_000_000)),
+                );
+                builder.set_creation_time(Duration::from_millis(created_ms));
+                builder
+                    .with_executable(Executable::Ivm(IvmBytecode::from_compiled(program)))
+                    .sign(key.private_key())
+            });
+        let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+        let Ok(Some(iroha_sumeragi::api::ExecOutcome::Valid(result))) =
+            worker.execute(&body, hash, false)
+        else {
+            panic!("the genuine original execution must produce the certified result")
+        };
+        let qc = chain.commit_qc(body.header().height, hash, result, Signers::Quorum);
+        worker.discard(body.header().height, &[]);
+        assert!(worker.live.is_none());
+        let original_height = worker.state.view().height();
+        let original_payload = body.payload().as_slice().as_ptr();
+        let cache = worker.state.view().prepared_contract_cache();
+        let reason = ivm::error::ExecutionDeferral::LocalInvariantViolation;
+        cache.set_checkout_refusal_for_test(Some(reason));
+        let outcome = worker.prepare(&body, &qc);
+        cache.set_checkout_refusal_for_test(None);
+
+        let Err(PublicationError::RecoveryRefusal(original)) = outcome else {
+            panic!("cold preparation must move the original refusal past the recovery latch")
+        };
+        assert_eq!(original.reason(), reason);
+        let diagnostic = original.to_string();
+        assert_eq!(worker.recovery.as_deref(), Some(diagnostic.as_str()));
+        assert!(!worker.results.contains_key(&hash));
+        assert!(worker.live.is_none() && worker.finishing.is_none());
+        assert!(worker.pending_commit.is_none());
+        assert!(worker.quarantine_context.is_none());
+        assert_eq!(worker.state.view().height(), original_height);
+        assert_eq!(body.payload().as_slice().as_ptr(), original_payload);
+        assert!(events.try_recv().is_err());
+        assert!(matches!(
+            worker.prepare(&body, &qc),
+            Err(PublicationError::RecoveryRequired(returned)) if returned == diagnostic
         ));
     });
 }
@@ -1103,6 +1176,11 @@ fn producer_payload_errors_keep_original_release_and_terminal_classification() {
         PayloadError::RoutingDeferred(original.clone().into()),
         PayloadError::DecodeResource(original.clone().into()),
         PayloadError::StakingPreparation(EvidencePreparationError::Admission(original.clone())),
+        PayloadError::SccpForgeryPreparation(StateStorageAdmissionError::SccpForgery(
+            crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                mv::storage::AdmittedStorageError::Allocation(original.clone()),
+            ),
+        )),
         PayloadError::StakingAdmission(StateAdmissionError::Storage(
             StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
                 original.clone(),
@@ -1128,6 +1206,9 @@ fn producer_payload_errors_keep_original_release_and_terminal_classification() {
         PayloadError::DecodeResource(ExecutionDeferral::LocalInvariantViolation.into()),
         PayloadError::StakingPreparation(EvidencePreparationError::Invariant),
         PayloadError::SignatureCustodyInvariant("original signature owner lost".into()),
+        PayloadError::SccpForgeryPreparation(StateStorageAdmissionError::SccpForgery(
+            crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid,
+        )),
     ] {
         assert!(matches!(
             super::payload_failure(error),
@@ -1178,4 +1259,138 @@ fn native_initializer_invariant_keeps_original_across_validation_and_producer_re
         assert!(original.allocation_refusal().is_none());
         assert!(original.decode_refusal().is_none());
     }
+}
+
+#[test]
+fn sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories() {
+    use crate::state::{StateStorageAdmissionError, sccp_forgery_custody::ForgeryStorageError};
+    use iroha_allocation::{AllocationBudget, AllocationRefusal};
+    use mv::storage::AdmittedStorageError;
+    let budget = AllocationBudget::new(1);
+    let held = budget.try_reserve_bytes(1).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let error =
+        BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
+            ForgeryStorageError::Storage(AdmittedStorageError::Allocation(original.clone())),
+        ));
+    let Ok(PublicationError::Deferred(source)) = validation_failure(error) else {
+        panic!("capacity is original unfinished local work")
+    };
+    assert_eq!(source.allocation_refusal(), Some(&original));
+    let AllocationRefusal::Capacity { release, .. } = &original else {
+        panic!("held pool capacity")
+    };
+    assert_eq!(source.release_wait(), Some(release));
+    for original in [
+        ForgeryStorageError::Storage(AdmittedStorageError::Busy {
+            role: mv::storage::StorageRole::Undo,
+            release: release.clone(),
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Changed),
+        ForgeryStorageError::Storage(AdmittedStorageError::Allocator {
+            layout: std::alloc::Layout::new::<u64>(),
+        }),
+        ForgeryStorageError::Codec(norito::core::DecodeResourceError::AllocationFailed {
+            bytes: 8,
+        }),
+    ] {
+        let original = StateStorageAdmissionError::SccpForgery(original);
+        let Ok(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) =
+            validation_failure(BlockValidationError::StateStorageAdmission(
+                original.clone(),
+            ))
+        else {
+            panic!("local refusal retains the original category")
+        };
+        assert_eq!(retained, original);
+        assert_eq!(retained.release_wait(), original.release_wait());
+    }
+    drop(held);
+    for original in [
+        ForgeryStorageError::Invalid,
+        ForgeryStorageError::Storage(AdmittedStorageError::PolicyIdentity),
+        ForgeryStorageError::Storage(AdmittedStorageError::Planning(
+            concread::bptree::PlanningError::UnsupportedPayload,
+        )),
+        ForgeryStorageError::Storage(AdmittedStorageError::ScopeIdentity),
+        ForgeryStorageError::Storage(AdmittedStorageError::PolicyDemand {
+            expected_bytes: 8,
+            remaining_bytes: 7,
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Poisoned {
+            role: mv::storage::StorageRole::Undo,
+        }),
+        ForgeryStorageError::Storage(AdmittedStorageError::Allocation(
+            AllocationRefusal::DemandOverflow,
+        )),
+    ] {
+        assert!(matches!(
+            validation_failure(BlockValidationError::StateStorageAdmission(original.into())),
+            Ok(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    let error = ForgeryStorageError::Codec(norito::core::DecodeResourceError::AllocationFailed {
+        bytes: 8,
+    });
+    let Ok(PublicationError::Deferred(source)) =
+        validation_failure(BlockValidationError::StateStorageAdmission(error.into()))
+    else {
+        panic!("allocator refusal is unfinished local work")
+    };
+    assert!(source.release_wait().is_none());
+    assert!(source.allocation_refusal().is_none());
+}
+
+#[test]
+fn sccp_evidence_publication_preserves_all_original_preparation_categories() {
+    use crate::state::{EvidencePreparationError as E, StateStorageAdmissionError as S};
+    let pool = AllocationBudget::new(1);
+    let occupied = pool.try_reserve_bytes(1).unwrap();
+    let capacity = pool.try_reserve_bytes(1).unwrap_err();
+    for original in [
+        E::Admission(capacity.clone()),
+        E::Allocator {
+            requested_bytes: 17,
+        },
+        E::DecodeScope {
+            attempted_bytes: 23,
+            limit_bytes: 19,
+        },
+        E::DecodeResource(norito::core::DecodeResourceError::AllocationFailed { bytes: 29 }),
+    ] {
+        let storage = S::SccpEvidence(original.clone());
+        let result =
+            validation_failure(BlockValidationError::StateStorageAdmission(storage.clone()));
+        let Ok(PublicationError::Deferred(PublicationDeferral::StateStorage(retained))) = result
+        else {
+            panic!("exact local refusal must remain deferred: {original:?}")
+        };
+        assert_eq!(retained, storage);
+        let deferred = PublicationDeferral::StateStorage(retained);
+        if let E::Admission(refusal) = &original {
+            assert_eq!(deferred.allocation_refusal(), Some(refusal));
+            assert_eq!(deferred.release_wait(), storage.release_wait());
+        } else {
+            assert!(deferred.allocation_refusal().is_none());
+            assert!(deferred.release_wait().is_none());
+        }
+    }
+    for original in [
+        E::Invariant,
+        E::Admission(AllocationRefusal::DemandOverflow),
+    ] {
+        assert!(matches!(
+            validation_failure(BlockValidationError::StateStorageAdmission(
+                S::SccpEvidence(original)
+            )),
+            Ok(PublicationError::RecoveryRequired(_))
+        ));
+    }
+    assert!(matches!(
+        validation_failure(BlockValidationError::StateStorageAdmission(
+            S::SccpEvidence(E::OriginalHistoryPending)
+        )),
+        Ok(PublicationError::Retryable(_))
+    ));
+    drop(occupied);
 }

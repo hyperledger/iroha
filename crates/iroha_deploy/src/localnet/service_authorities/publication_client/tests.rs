@@ -137,6 +137,7 @@ fn native_publication_projection_requires_exact_staged_bound_genesis_manifest() 
 
 #[test]
 fn generated_client_uses_native_original_namespace_policy_and_exact_three_origins() {
+    use iroha_data_model::transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent};
     let _resources = crate::managed::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let prepared = prepare(
@@ -218,7 +219,7 @@ fn generated_client_uses_native_original_namespace_policy_and_exact_three_origin
     assert!(config.namespace_delegation_file.is_none());
     let installation = original.service_plan().installation_config();
     let selected = installation.installation.as_ref().unwrap();
-    use iroha_data_model::transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent};
+
     assert_eq!(
         original.namespace_fee_payment(),
         FeePaymentIntent::authority(

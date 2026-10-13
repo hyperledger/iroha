@@ -52,73 +52,71 @@ fun SccpConsumedBucket.deploy(self, from: address, config: SendParams = {}): Sen
     return net.send(from, genericMsg);
 }
 
-fun SccpConsumedBucket.sendSccpActivateBucket(
+fun SccpConsumedBucket.sendSccpRecoveryDispatch(
     self,
     from: address,
-    queryId: uint64,
-    index: uint64,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpActivateBucket { queryId, index },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpConsumedBucket.sendSccpConsume(
-    self,
-    from: address,
-    queryId: uint64,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
     nonce: uint64,
+    count: uint16,
     amount: uint96,
-    tail: ConsumeTail,
+    queryId: uint64,
+    response: address,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpConsume {
-            queryId,
+        body: SccpRecoveryDispatch {
+            operationId,
+            stage,
+            attempt,
             nonce,
+            count,
             amount,
-            tail: tail.toCell(),
+            queryId,
+            response,
         },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpConsumedBucket.sendSccpConsumeRange(
+fun SccpConsumedBucket.sendSccpRecoveryConfirm(
     self,
     from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
     queryId: uint64,
-    first: uint64,
-    count: uint16,
+    response: address,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpConsumeRange { queryId, first, count },
+        body: SccpRecoveryConfirm { operationId, stage, attempt, queryId, response },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpConsumedBucket.sendSccpUnconsume(
+fun SccpConsumedBucket.sendSccpRecoveryDrop(
     self,
     from: address,
-    nonce: uint64,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    queryId: uint64,
+    response: address,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpUnconsume { nonce },
+        body: SccpRecoveryDrop { operationId, stage, attempt, queryId, response },
     });
     return net.send(from, genericMsg);
 }

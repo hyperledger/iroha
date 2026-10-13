@@ -24,25 +24,25 @@ pub(super) enum CalibrationFailure {
 /// geometry; no signature, key, state byte, or witness value enters selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MetalBatchWork {
-    AesEnc,
-    AesDec,
-    AesEncRounds(usize),
-    AesDecRounds(usize),
+    Encrypt,
+    Decrypt,
+    EncryptRounds(usize),
+    DecryptRounds(usize),
 }
 
 impl MetalBatchWork {
     pub(super) const fn decrypt(self) -> bool {
-        matches!(self, Self::AesDec | Self::AesDecRounds(_))
+        matches!(self, Self::Decrypt | Self::DecryptRounds(_))
     }
 
     pub(super) const fn fused(self) -> bool {
-        matches!(self, Self::AesEncRounds(_) | Self::AesDecRounds(_))
+        matches!(self, Self::EncryptRounds(_) | Self::DecryptRounds(_))
     }
 
     pub(super) const fn rounds(self) -> usize {
         match self {
-            Self::AesEnc | Self::AesDec => 1,
-            Self::AesEncRounds(rounds) | Self::AesDecRounds(rounds) => rounds,
+            Self::Encrypt | Self::Decrypt => 1,
+            Self::EncryptRounds(rounds) | Self::DecryptRounds(rounds) => rounds,
         }
     }
 
@@ -56,10 +56,10 @@ impl MetalBatchWork {
 
     pub(super) const fn family_index(self) -> usize {
         match self {
-            Self::AesEnc => 0,
-            Self::AesDec => 1,
-            Self::AesEncRounds(_) => 2,
-            Self::AesDecRounds(_) => 3,
+            Self::Encrypt => 0,
+            Self::Decrypt => 1,
+            Self::EncryptRounds(_) => 2,
+            Self::DecryptRounds(_) => 3,
         }
     }
 

@@ -344,16 +344,18 @@ fn appeal_finance_runtime_policy_digest_is_deterministic_and_config_bound() {
         first.settlement_policy_digest,
         changed.settlement_policy_digest
     );
-    let mut wrong_asset =
-        iroha_config::parameters::actual::SorafsAppealFinanceSettlement::default();
-    wrong_asset.asset_definition_id = AssetDefinitionId::derive_from_components(
-        DomainId::try_new("xor", "universal").expect("domain id"),
-        "other".parse().expect("asset definition name"),
-    );
+    let wrong_asset = iroha_config::parameters::actual::SorafsAppealFinanceSettlement {
+        asset_definition_id: AssetDefinitionId::derive_from_components(
+            DomainId::try_new("xor", "universal").expect("domain id"),
+            "other".parse().expect("asset definition name"),
+        ),
+        ..Default::default()
+    };
     assert!(AppealFinanceRuntimePolicy::from_config(&wrong_asset).is_err());
-    let mut wrong_scale =
-        iroha_config::parameters::actual::SorafsAppealFinanceSettlement::default();
-    wrong_scale.asset_scale = 8;
+    let wrong_scale = iroha_config::parameters::actual::SorafsAppealFinanceSettlement {
+        asset_scale: 8,
+        ..Default::default()
+    };
     assert!(AppealFinanceRuntimePolicy::from_config(&wrong_scale).is_err());
     let mut mismatched_panel =
         iroha_config::parameters::actual::SorafsAppealFinanceSettlement::default();
@@ -572,7 +574,7 @@ fn appeal_finance_asset_readiness_requires_exact_ledger_scale() {
         mk_app_state_for_tests_with_world(appeal_finance_asset_lock_world_with_scale(
             &auth,
             &policy.asset_definition_id,
-            policy.asset_scale.saturating_sub(1).into(),
+            policy.asset_scale.saturating_sub(1),
         ));
     let mismatch_readiness = appeal_finance_asset_readiness(
         &scale_mismatch,

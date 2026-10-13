@@ -26,7 +26,7 @@ use iroha_primitives::numeric::Quantity;
 use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) struct Fixture {
-    pub(super) _temporary: tempfile::TempDir,
+    pub(super) temporary: tempfile::TempDir,
     pub(super) prepared: PreparedLocalnet,
     pub(super) owner: ManagedStreamTokenCustody,
     pub(super) native: NativeFixture,
@@ -127,7 +127,7 @@ impl Fixture {
         assert_eq!(initial.deadline_unix_ms, initial.expires_at_unix_ms);
         assert_eq!(enrolled.finalized.unwrap().height, 4);
         Self {
-            _temporary: temporary,
+            temporary,
             prepared,
             owner,
             native,
@@ -296,13 +296,16 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
     let selected_initial = fixture
         .owner
         .select_retained_current_enrollment(
-            &fixture.policy,
-            fixture.initial,
-            initial.finalized().height,
-            *initial.finalized().block_hash.as_ref(),
-            &old_current,
-            observed_at,
-            fixture.options.deadline,
+&fixture.policy,
+fixture.initial,
+            EnrollmentFloor {
+                height: initial.finalized().height,
+                block_hash: *initial.finalized().block_hash.as_ref(),
+            },
+&old_current,
+observed_at,
+fixture.options.deadline,
+
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -467,8 +470,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
         .verify_enrollment_at(
             &renewed_for_runtime,
             &fixture.policy,
-            finalized.height,
-            *finalized.block_hash.as_ref(),
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: finalized.height,
+                block_hash: *finalized.block_hash.as_ref(),
+            },
             &current,
             now_ms().unwrap(),
             fixture.options.deadline,
@@ -479,15 +484,17 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
         .owner
         .authority
         .directory
-        .ensure_child(&renewal::directory_name(64).unwrap())
+        .ensure_child(renewal::directory_name(64).unwrap())
         .unwrap();
     let selected = fixture
         .owner
         .select_retained_current_enrollment(
             &fixture.policy,
             fixture.initial,
-            initial.finalized().height,
-            *initial.finalized().block_hash.as_ref(),
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: initial.finalized().height,
+                block_hash: *initial.finalized().block_hash.as_ref(),
+            },
             &current,
             now_ms().unwrap(),
             fixture.options.deadline,
@@ -510,8 +517,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .select_retained_current_enrollment(
                 &fixture.policy,
                 fixture.initial,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -531,8 +540,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .select_retained_current_enrollment(
                 &fixture.policy,
                 fixture.initial,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &old_current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -546,8 +557,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
                 .select_retained_current_enrollment(
                     &fixture.policy,
                     fixture.initial,
-                    height,
-                    hash,
+                    crate::managed::stream_token_custody::EnrollmentFloor {
+                        height,
+                        block_hash: hash
+                    },
                     &current,
                     now_ms().unwrap(),
                     fixture.options.deadline,
@@ -562,8 +575,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .verify_enrollment_at(
                 &renewed_for_runtime,
                 &fixture.policy,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &old_current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -577,8 +592,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .verify_enrollment_at(
                 &initial,
                 &fixture.policy,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -595,8 +612,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
                 .verify_enrollment_at(
                     &renewed_for_runtime,
                     &fixture.policy,
-                    height,
-                    hash,
+                    crate::managed::stream_token_custody::EnrollmentFloor {
+                        height,
+                        block_hash: hash
+                    },
                     &current,
                     now_ms().unwrap(),
                     fixture.options.deadline,
@@ -657,8 +676,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .verify_enrollment_at(
                 &renewed_for_runtime,
                 &fixture.policy,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &revoked_for_runtime,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -671,8 +692,10 @@ fn generated_renewal_changes_native_head_and_preserves_initial_and_renewed_histo
             .select_retained_current_enrollment(
                 &fixture.policy,
                 fixture.initial,
-                finalized.height,
-                *finalized.block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: finalized.height,
+                    block_hash: *finalized.block_hash.as_ref()
+                },
                 &revoked_for_runtime,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -783,8 +806,10 @@ fn expired_unrevoked_head_can_renew_but_real_revocation_invalidates_the_original
             .select_retained_current_enrollment(
                 &fixture.policy,
                 fixture.initial,
-                retained.finalized().height,
-                *retained.finalized().block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: retained.finalized().height,
+                    block_hash: *retained.finalized().block_hash.as_ref()
+                },
                 &expired_current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -798,8 +823,10 @@ fn expired_unrevoked_head_can_renew_but_real_revocation_invalidates_the_original
             .verify_enrollment_at(
                 &retained,
                 &fixture.policy,
-                retained.finalized().height,
-                *retained.finalized().block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: retained.finalized().height,
+                    block_hash: *retained.finalized().block_hash.as_ref()
+                },
                 &expired_current,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -834,8 +861,10 @@ fn expired_unrevoked_head_can_renew_but_real_revocation_invalidates_the_original
             .verify_enrollment_at(
                 &retained,
                 &fixture.policy,
-                retained.finalized().height,
-                *retained.finalized().block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: retained.finalized().height,
+                    block_hash: *retained.finalized().block_hash.as_ref()
+                },
                 &revoked,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -904,7 +933,7 @@ fn expired_unrevoked_head_can_renew_but_real_revocation_invalidates_the_original
     let other_ports = crate::managed::LocalnetPorts::reserve().unwrap();
     let other = crate::localnet::prepare_localnet_at(
         "other-custody-renewal",
-        &fixture._temporary.path().join("other"),
+        &fixture.temporary.path().join("other"),
         &other_ports,
         crate::localnet::LocalnetServiceProfile::StreamTokenAuthorities,
         None,
@@ -924,8 +953,10 @@ fn expired_unrevoked_head_can_renew_but_real_revocation_invalidates_the_original
             .verify_enrollment_at(
                 &retained,
                 &fixture.policy,
-                retained.finalized().height,
-                *retained.finalized().block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: retained.finalized().height,
+                    block_hash: *retained.finalized().block_hash.as_ref()
+                },
                 &revoked,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -1109,14 +1140,18 @@ impl Fixture {
         let Action::Enroll { validity, .. } = &original.action else {
             unreachable!()
         };
-        let retained = attempts::generated(
-            directory,
-            original.dispatch_purpose()?,
-            original.digest()?,
-            scope,
-            authorization,
-            deadline,
-            Some(validity.expires_at_unix_ms),
+        let inspection = body_history::NativeClosureInspector::new(original, &account, deadline);
+        let retained = attempts::generated_native(
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: directory,
+                purpose: original.dispatch_purpose()?,
+                semantic: original.digest()?,
+                scope,
+                authorization,
+                deadline,
+                body_expiry: Some(validity.expires_at_unix_ms),
+            },
+            &inspection,
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
@@ -1240,18 +1275,19 @@ impl crate::verify::finality::FinalitySource for NativeRenewalSource<'_> {
         let mut results = Vec::with_capacity(peers.len());
         for batch in peers.chunks(8) {
             results.extend(std::thread::scope(|scope| {
-                let handles = batch
-                    .iter()
-                    .map(|peer| {
+                // Spawn the complete bounded batch before joining any worker.
+                let mut handles = Vec::with_capacity(batch.len());
+                for peer in batch {
+                    handles.push(
                         std::thread::Builder::new()
                             .name("native-renewal-read".into())
                             .spawn_scoped(scope, move || {
                                 crate::verify::finality::FinalitySource::latest_attestation(
                                     native, peer, &challenge,
                                 )
-                            })
-                    })
-                    .collect::<Vec<_>>();
+                            }),
+                    );
+                }
                 handles
                     .into_iter()
                     .map(|handle| match handle {
@@ -1290,20 +1326,17 @@ impl renewal::RenewalReads for FixtureReads<'_> {
         &self,
         authority: &ServiceAuthority,
         directory: &PrivateDirectory,
-        checkpoint: &[u8],
-        transaction: &SignedTransaction,
-        height: u64,
-        observed_height: u64,
+        carrier: renewal::CarrierReplay<'_>,
         deadline: Instant,
     ) -> Result<()> {
         require_deadline(deadline)?;
-        assert!(height <= observed_height);
-        let mut replay = authority.decode_checkpoint(checkpoint)?;
+        assert!(carrier.height <= carrier.observed_height);
+        let mut replay = authority.decode_checkpoint(carrier.checkpoint)?;
         crate::managed::native_operation::retain_carrier_progress(
             directory,
-            transaction,
+            carrier.transaction,
             &mut replay,
-            height,
+            carrier.height,
             self.native,
         )?;
         Ok(())
@@ -1329,8 +1362,10 @@ fn expired_unsigned_renewal_uses_new_closed_epoch_same_body_and_recovers_exact_n
             .select_retained_current_enrollment(
                 &fixture.policy,
                 fixture.initial,
-                initial.finalized().height,
-                *initial.finalized().block_hash.as_ref(),
+                crate::managed::stream_token_custody::EnrollmentFloor {
+                    height: initial.finalized().height,
+                    block_hash: *initial.finalized().block_hash.as_ref()
+                },
                 &historical,
                 now_ms().unwrap(),
                 fixture.options.deadline,
@@ -1530,8 +1565,10 @@ fn expired_unsigned_renewal_uses_new_closed_epoch_same_body_and_recovers_exact_n
         .verify_enrollment_at(
             &retained,
             &fixture.policy,
-            finalized.height,
-            *finalized.block_hash.as_ref(),
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: finalized.height,
+                block_hash: *finalized.block_hash.as_ref(),
+            },
             &renewed,
             now_ms().unwrap(),
             fixture.options.deadline,
@@ -1596,11 +1633,10 @@ fn renewal_selection_commitment_refuses_lost_body_and_uncertain_epoch_cannot_rei
             .unwrap()
             .unwrap()
             .original()
-            .unwrap()
             .is_some()
     );
     assert!(!directory.path().join("attempts").exists());
-    let held = fixture._temporary.path().join("held-renewal-original.nrt");
+    let held = fixture.temporary.path().join("held-renewal-original.nrt");
     std::fs::rename(directory.path().join("original.nrt"), &held).unwrap();
     assert!(matches!(
         fixture.owner.original_renewal_if_present(2),
@@ -1611,7 +1647,7 @@ fn renewal_selection_commitment_refuses_lost_body_and_uncertain_epoch_cannot_rei
     assert!(!directory.path().join("original.nrt").exists());
     std::fs::rename(&held, directory.path().join("original.nrt")).unwrap();
     let name = renewal::directory_name(2).unwrap();
-    let moved = fixture._temporary.path().join("held-renewal-directory");
+    let moved = fixture.temporary.path().join("held-renewal-directory");
     std::fs::rename(history.root().path(), &moved).unwrap();
     assert!(matches!(
         fixture.owner.original_renewal_if_present(2),

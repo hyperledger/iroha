@@ -70,7 +70,7 @@ impl Fixture {
             NOW,
             None,
             None,
-            Default::default(),
+            iroha_model_base::metadata::Metadata::default(),
         );
         pin.approve(NOW, None);
         let report = RepairReportV1 {

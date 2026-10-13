@@ -1,0 +1,32 @@
+{
+  "schema": "parliament-allocation-trace-preparation-v1",
+  "source_files": {
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs": "1c4a2faceaee40bfd74dd7b956c62fa2a906eaee3edc7e0ab69bce88c164eaa8",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs": "13a9440c02f6feff17dd336b6d49f90f2b95483e4fc646d3477a70726935246f",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs": "8cd6365e2df3bcf644ebb647b3fee3be31a57f3c4250137f6b96447e496d7b25",
+    "crates/iroha_parliament_ballot_proof/examples/resource_contract/workspace.rs": "875e767119f2f462bf0608c57dcadfd3838cbea1e8c7585c1bdb5605cbaa0dca",
+    "crates/iroha_parliament_ballot_proof/examples/allocation_trace/driver.rs": "c956e71a9c40ed8458338e76f4861a8dd9a276a589cfcd46c4d36f9a68452aa6",
+    "crates/iroha_parliament_ballot_proof/examples/allocation_trace/trace.rs": "34a4c46cd623c6e8179d66bb9a5d238c8b931657b0bffefaa592f4123429eb30",
+    "crates/iroha_parliament_ballot_proof/examples/allocation_trace/controls.rs": "660cdb71c6ef0ede9faa78c063294f98b1951fabead29dd6c16c565902378952",
+    "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+    "Cargo.lock": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "rust-toolchain.toml": "b1de581368035db80c693eda64567b0e59252e3584d3749361d837c757b809e7",
+    "scripts/prepare_parliament_ballot_allocation_trace.py": "5c43ed16bbe9fc2c80978ebdb55d45dd7c0cbffd6df9fc58ede4d1cd92007a63"
+  },
+  "source_changes": {},
+  "generated_files": {
+    "Cargo.lock": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "Cargo.toml": "c7e1deef25c16a359deb36f4c86ced1608e6eadde6e0a6dc86b377816011c52d",
+    "controls.rs": "660cdb71c6ef0ede9faa78c063294f98b1951fabead29dd6c16c565902378952",
+    "driver.rs": "fff750b219491ff9b197fbc7185aac6d481f6fb2c656f1565604c5025d509dbc",
+    "generated_workspace.rs": "059b7f8a318034d2de0ac1a4a233e28c7650a8ed8b661aacfde73e81253f450e",
+    "root-Cargo.lock.template": "ccb1fc7bde3abf9d6b4ad91dfc99ad5f570947ee844fa3d6b7bd26e23d356620",
+    "trace.rs": "34a4c46cd623c6e8179d66bb9a5d238c8b931657b0bffefaa592f4123429eb30",
+    "workspace.diff": "6222738c0a052c4a22ef443f6dc4fe67ade5a05de8d36c72e0a419079a5c3f0c"
+  },
+  "root": "/Users/mtakemiya/dev/iroha",
+  "output": "/private/tmp/parliament-allocation-trace/worker-src-3",
+  "root_lock_modified": false,
+  "profile_qualified": false,
+  "complete_workspace_certificate": false
+}

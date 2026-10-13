@@ -41,12 +41,38 @@ enum RecordState {
 pub(in crate::sumeragi) struct ReadRecord {
     state: RecordState,
     budget: AllocationBudget,
+    custody: Option<super::LaneReadCustody>,
 }
 impl ReadRecord {
     pub(in crate::sumeragi) fn open(path: &Path, budget: AllocationBudget) -> io::Result<Self> {
         let state = ArtifactRead::open(path, MAX_FRAME_FILE_BYTES)?
             .map_or(RecordState::Absent, RecordState::Reading);
-        Ok(Self { state, budget })
+        Ok(Self {
+            state,
+            budget,
+            custody: None,
+        })
+    }
+    fn open_in(
+        custody: super::LaneReadCustody,
+        name: &str,
+        budget: AllocationBudget,
+    ) -> io::Result<Self> {
+        custody.revalidate()?;
+        let state = ArtifactRead::open_in(&custody.directory, name, MAX_FRAME_FILE_BYTES)?
+            .map_or(RecordState::Absent, RecordState::Reading);
+        custody.revalidate()?;
+        Ok(Self {
+            state,
+            budget,
+            custody: Some(custody),
+        })
+    }
+    fn revalidate_custody(&self) -> io::Result<()> {
+        if let Some(custody) = &self.custody {
+            custody.revalidate()?;
+        }
+        Ok(())
     }
     pub(in crate::sumeragi) fn poll(
         &mut self,
@@ -55,6 +81,7 @@ impl ReadRecord {
         if !self.budget.same_pool(budget) {
             return Err(BodyReadError::ForeignBudget);
         }
+        self.revalidate_custody().map_err(BodyReadError::Io)?;
         loop {
             match std::mem::replace(&mut self.state, RecordState::Consumed) {
                 RecordState::Absent => {
@@ -107,15 +134,16 @@ pub(super) struct LaneBodyRead {
     crypto: SharedCrypto,
 }
 impl LaneBodyRead {
-    pub(super) fn open(
+    pub(super) fn open_in(
         source: AvailabilitySource,
-        path: &Path,
+        custody: super::LaneReadCustody,
+        name: &str,
         budget: AllocationBudget,
         crypto: SharedCrypto,
     ) -> io::Result<Self> {
         Ok(Self {
             source,
-            read: ReadRecord::open(path, budget.clone())?,
+            read: ReadRecord::open_in(custody, name, budget.clone())?,
             record: None,
             budget,
             crypto,
@@ -130,9 +158,13 @@ impl BodyReadJob for LaneBodyRead {
         if !self.budget.same_pool(budget) {
             return Err(BodyReadError::ForeignBudget);
         }
+        self.read.revalidate_custody().map_err(BodyReadError::Io)?;
         if self.record.is_none() {
             match self.read.poll(budget)? {
-                RecordPoll::Absent => return Ok(BodyReadPoll::Absent),
+                RecordPoll::Absent => {
+                    self.read.revalidate_custody().map_err(BodyReadError::Io)?;
+                    return Ok(BodyReadPoll::Absent);
+                }
                 RecordPoll::Pending(e) => return Ok(BodyReadPoll::Pending(e)),
                 RecordPoll::Ready(record) => self.record = Some(record),
             }
@@ -142,6 +174,7 @@ impl BodyReadJob for LaneBodyRead {
             .expect("retained decoded owners")
             .check_context(&self.source, &*self.crypto)
             .map_err(|e| BodyReadError::from_attempt(record_error(e)))?;
+        self.read.revalidate_custody().map_err(BodyReadError::Io)?;
         let (restoration, _qc) = self
             .record
             .take()
@@ -155,6 +188,7 @@ enum RestoreState {
     Reading(ReadRecord),
     Decoded(LaneRecord),
     Restoring(BodyRestoration, Qc),
+    Ready(PreparedLaneWrite),
     Consumed,
 }
 /// One lane height retained during startup, metadata reads and already-durable append checks.
@@ -162,6 +196,7 @@ enum RestoreState {
 /// using its authenticated hash to reconstruct available custody.
 pub(super) struct RestoreFrame {
     height: u64,
+    custody: Option<super::LaneReadCustody>,
     state: RestoreState,
     schedule: Arc<dyn AvailabilitySchedule>,
     crypto: SharedCrypto,
@@ -176,7 +211,32 @@ impl RestoreFrame {
     ) -> io::Result<Self> {
         Ok(Self {
             height,
+            custody: None,
             state: RestoreState::Reading(ReadRecord::open(path, budget)?),
+            schedule,
+            crypto,
+        })
+    }
+    pub(super) fn open_in(
+        custody: super::LaneReadCustody,
+        name: &str,
+        height: u64,
+        budget: AllocationBudget,
+        schedule: Arc<dyn AvailabilitySchedule>,
+        crypto: SharedCrypto,
+    ) -> io::Result<Self> {
+        custody.revalidate()?;
+        let state = ArtifactRead::open_in(&custody.directory, name, MAX_FRAME_FILE_BYTES)?
+            .map_or(RecordState::Absent, RecordState::Reading);
+        custody.revalidate()?;
+        Ok(Self {
+            height,
+            state: RestoreState::Reading(ReadRecord {
+                state,
+                budget,
+                custody: None,
+            }),
+            custody: Some(custody),
             schedule,
             crypto,
         })
@@ -186,6 +246,11 @@ impl RestoreFrame {
         budget: &AllocationBudget,
     ) -> Result<PreparedLaneWrite, Attempt<io::Error>> {
         loop {
+            // A completed restoration stays owned here until the original namespace joins.
+            // Refusal after cryptographic work cannot drop it or restart from another file.
+            if let Some(custody) = &self.custody {
+                custody.revalidate()?;
+            }
             match std::mem::replace(&mut self.state, RestoreState::Consumed) {
                 RestoreState::Reading(mut read) => match read.poll(budget) {
                     Ok(RecordPoll::Ready(record)) => self.state = RestoreState::Decoded(record),
@@ -230,13 +295,16 @@ impl RestoreFrame {
                 }
                 RestoreState::Restoring(restoration, qc) => {
                     match restoration.complete(budget, &*self.crypto) {
-                        Ok(body) => return Ok(PreparedLaneWrite::new(body, qc)),
+                        Ok(body) => {
+                            self.state = RestoreState::Ready(PreparedLaneWrite::new(body, qc))
+                        }
                         Err((restoration, error)) => {
                             self.state = RestoreState::Restoring(restoration, qc);
                             return Err(crate::sumeragi::storage_attempt::restoration(error));
                         }
                     }
                 }
+                RestoreState::Ready(prepared) => return Ok(prepared),
                 RestoreState::Consumed => {
                     return Err(invalid("lane restoration already consumed").into());
                 }
@@ -272,3 +340,7 @@ pub(super) fn certified_source(
     AvailabilitySource::new(instance, height, qc.block_hash, config)
         .map_err(|error| invalid(format!("lane recovery source: {error:?}")).into())
 }
+
+#[cfg(all(test, unix))]
+#[path = "read_custody_tests.rs"]
+mod custody_tests;

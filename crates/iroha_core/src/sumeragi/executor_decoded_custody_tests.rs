@@ -17,6 +17,7 @@ fn original_attempt(worker: &Worker<'_>, block: &AvailableBody) -> SignatureDeco
         decoded: None,
         returned_refusal: None,
         amx_legs: None,
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
     }
 }
 
@@ -225,7 +226,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
             );
             let routed_budget = norito::core::DecodeBudgetContext::new(limits);
             let failure = routed_budget
-                .with(|| worker.run_execution(&block, hash))
+                .with(|| worker.run_execution(&block, hash, false))
                 .unwrap_err();
             assert_eq!(
                 routed_budget.consumed_allocated_bytes(),
@@ -269,7 +270,7 @@ fn original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry
             assert!(events.try_recv().is_err());
             assert_eq!(worker.state.view().height(), 1);
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Ok(Some(ExecOutcome::Valid(_)))
             ));
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase

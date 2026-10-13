@@ -38,11 +38,8 @@ fn static_authority_is_the_complete_catalog_projection_with_exact_effects() {
             let methods = item.as_object().expect("static OpenAPI path item");
             ["get", "post", "put", "patch", "delete"]
                 .into_iter()
-                .filter_map(move |method| {
-                    methods
-                        .contains_key(method)
-                        .then(|| (path.clone(), method.to_owned()))
-                })
+                .filter(|&method| methods.contains_key(method))
+                .map(|method| (path.clone(), method.to_owned()))
         })
         .collect();
     assert_eq!(
@@ -208,7 +205,6 @@ fn sccp_governance_openapi_tracks_the_v1_parliament_proposal() {
             "install_trusted_checkpoint",
             "freeze_light_client",
             "set_parameters",
-            "clear_bridge_key_fault",
             "activate_light_client_profile",
         ]
     );
@@ -500,10 +496,10 @@ fn openapi_operations_equal_the_enabled_catalog_projection() {
         .iter()
         .flat_map(|(path, item)| {
             let item = item.as_object().expect("OpenAPI path item");
-            operation_methods.into_iter().filter_map(move |method| {
-                item.contains_key(method)
-                    .then(|| (path.clone(), method.to_owned()))
-            })
+            operation_methods
+                .into_iter()
+                .filter(|&method| item.contains_key(method))
+                .map(|method| (path.clone(), method.to_owned()))
         })
         .collect();
     let missing: Vec<_> = expected.difference(&actual).cloned().collect();
@@ -2058,7 +2054,10 @@ fn sumeragi_evidence_audit_contract_is_closed_and_bounded() {
             .expect("evidence-list kind schema");
         assert_eq!(
             kind.get("enum").and_then(Value::as_array),
-            Some(&vec![Value::from("NativeSumeragiEvidence")])
+            Some(&vec![
+                Value::from("NativeSumeragiEvidence"),
+                Value::from("SccpForgeryEvidence")
+            ])
         );
         let count = openapi_operation(document, COUNT_PATH, "get");
         let count_description = count
@@ -2109,9 +2108,9 @@ fn sumeragi_evidence_audit_contract_is_closed_and_bounded() {
     let schemas = component_schemas(&canonical);
     assert_strict_object_schema(
         schemas,
-        "SumeragiEvidenceAuditRecord",
+        "SumeragiNativeEvidenceAuditRecord",
         &[
-            "kind",
+            "scope",
             "class",
             "instance",
             "height",
@@ -2142,8 +2141,92 @@ fn sumeragi_evidence_audit_contract_is_closed_and_bounded() {
         &["signer", "peer_id"],
         &[],
     );
+    let variants = schemas["SumeragiEvidenceAuditRecord"]["oneOf"]
+        .as_array()
+        .expect("closed audit variants");
+    assert_eq!(variants.len(), 2);
+    for (variant, kind, payload) in [
+        (
+            &variants[0],
+            "NativeSumeragiEvidence",
+            "SumeragiNativeEvidenceAuditRecord",
+        ),
+        (
+            &variants[1],
+            "SccpForgeryEvidence",
+            "SccpForgeryEvidenceAuditRecord",
+        ),
+    ] {
+        assert_eq!(variant["additionalProperties"].as_bool(), Some(false));
+        assert_eq!(variant["required"], norito::json!(["kind", "value"]));
+        assert_eq!(variant["properties"]["kind"]["const"].as_str(), Some(kind));
+        assert_eq!(
+            variant["properties"]["value"]["$ref"].as_str(),
+            Some(format!("#/components/schemas/{payload}").as_str())
+        );
+    }
+    assert_strict_object_schema(
+        schemas,
+        "SccpForgeryEvidenceAuditRecord",
+        &[
+            "record",
+            "attribution",
+            "recorded_height",
+            "recorded_view",
+            "recorded_ms",
+            "consensus_admitted_height",
+            "penalty_status",
+        ],
+        &[],
+    );
+    assert_strict_object_schema(
+        schemas,
+        "SccpForgeryRecordV1",
+        &[
+            "evidence",
+            "rule",
+            "generation",
+            "start_height",
+            "offenders",
+        ],
+        &[],
+    );
+    assert_strict_object_schema(
+        schemas,
+        "SubmitSccpForgeryEvidenceV1",
+        &["qc", "header", "aggregate_signature", "anchor"],
+        &[],
+    );
+    for (field, length) in [("qc", 116), ("header", 221), ("aggregate_signature", 96)] {
+        let shape = &schemas["SubmitSccpForgeryEvidenceV1"]["properties"][field];
+        assert_eq!(shape["type"].as_str(), Some("string"));
+        assert_eq!(shape["minLength"].as_u64(), Some(2 * length));
+        assert_eq!(shape["maxLength"].as_u64(), Some(2 * length));
+        assert_eq!(
+            shape["pattern"].as_str(),
+            Some(format!("^[0-9A-Fa-f]{{{}}}$", 2 * length).as_str())
+        );
+    }
+    assert_eq!(
+        schemas["SccpAnchorWitnessV1"]["properties"]["path"]["minItems"].as_u64(),
+        Some(12)
+    );
+    assert_eq!(
+        schemas["SccpAnchorWitnessV1"]["properties"]["path"]["maxItems"].as_u64(),
+        Some(12)
+    );
+    for shape in [
+        &schemas["SccpAnchorWitnessV1"]["properties"]["core_hash"],
+        &schemas["SccpAnchorWitnessV1"]["properties"]["result"],
+        &schemas["SccpAnchorWitnessV1"]["properties"]["path"]["items"],
+    ] {
+        assert_eq!(shape["type"].as_str(), Some("string"));
+        assert_eq!(shape["minLength"].as_u64(), Some(64));
+        assert_eq!(shape["maxLength"].as_u64(), Some(64));
+        assert_eq!(shape["pattern"].as_str(), Some("^[0-9A-Fa-f]{64}$"));
+    }
     let record = schemas
-        .get("SumeragiEvidenceAuditRecord")
+        .get("SumeragiNativeEvidenceAuditRecord")
         .and_then(Value::as_object)
         .expect("Sumeragi evidence audit schema");
     let properties = record
@@ -2159,12 +2242,8 @@ fn sumeragi_evidence_audit_contract_is_closed_and_bounded() {
         Some("#/components/schemas/SumeragiEvidencePenaltyStatus")
     );
     assert_eq!(
-        properties
-            .get("kind")
-            .and_then(Value::as_object)
-            .and_then(|schema| schema.get("const"))
-            .and_then(Value::as_str),
-        Some("NativeSumeragiEvidence")
+        properties["scope"]["$ref"].as_str(),
+        Some("#/components/schemas/EvidenceScope")
     );
     let classes = properties
         .get("class")
@@ -2883,5 +2962,172 @@ fn scoped_native_original_reads_match_canonical_media_and_resource_bounds() {
             Some(u64::try_from(response_bound).expect("native output frame ceiling"))
         );
         assert!(!responses.contains_key("202"));
+    }
+}
+
+#[test]
+fn sccp_forgery_openapi_hex_fields_match_model_json() {
+    use iroha_data_model::{
+        isi::sccp::SubmitSccpForgeryEvidenceV1, sccp::native::SccpAnchorWitnessV1,
+    };
+
+    // Offered syntax-only DATA: this does not authenticate a forgery or its anchor.
+    let evidence = SubmitSccpForgeryEvidenceV1 {
+        qc: [0xa1; 116],
+        header: [0xb2; 221],
+        aggregate_signature: [0xc3; 96],
+        anchor: Some(SccpAnchorWitnessV1 {
+            core_hash: [0xd4; 32],
+            result: [0xe5; 32],
+            path: [[0xf6; 32]; 12],
+        }),
+    };
+    let document = canonical_document();
+    let schemas = component_schemas(&document);
+    let json = norito::json::to_value(&evidence).expect("model JSON");
+    assert_eq!(
+        norito::json::from_value::<SubmitSccpForgeryEvidenceV1>(json.clone())
+            .expect("model JSON roundtrip"),
+        evidence
+    );
+    for (field, expected) in [
+        ("qc", "A1".repeat(116)),
+        ("header", "B2".repeat(221)),
+        ("aggregate_signature", "C3".repeat(96)),
+    ] {
+        let shape = &schemas["SubmitSccpForgeryEvidenceV1"]["properties"][field];
+        let encoded = json[field].as_str().expect("fixed array emits hex");
+        assert_eq!(encoded, expected);
+        assert_eq!(shape["minLength"].as_u64(), Some(encoded.len() as u64));
+        assert_eq!(shape["maxLength"].as_u64(), Some(encoded.len() as u64));
+        assert_eq!(shape["type"].as_str(), Some("string"));
+        assert_eq!(
+            shape["pattern"].as_str(),
+            Some(format!("^[0-9A-Fa-f]{{{}}}$", encoded.len()).as_str())
+        );
+        for malformed in [
+            encoded[..encoded.len() - 1].to_owned(),
+            format!("{encoded}0"),
+            "G".repeat(encoded.len()),
+        ] {
+            let mut changed = json.clone();
+            changed
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_owned(), Value::String(malformed));
+            assert!(norito::json::from_value::<SubmitSccpForgeryEvidenceV1>(changed).is_err());
+        }
+        let mut changed = json.clone();
+        changed
+            .as_object_mut()
+            .unwrap()
+            .insert(field.to_owned(), norito::json!([0]));
+        assert!(norito::json::from_value::<SubmitSccpForgeryEvidenceV1>(changed).is_err());
+    }
+    let anchor = &json["anchor"];
+    assert_eq!(anchor["core_hash"].as_str(), Some("D4".repeat(32).as_str()));
+    assert_eq!(anchor["result"].as_str(), Some("E5".repeat(32).as_str()));
+    let siblings = anchor["path"].as_array().expect("path array");
+    assert_eq!(siblings.len(), 12);
+    for sibling in siblings {
+        assert_eq!(sibling.as_str(), Some("F6".repeat(32).as_str()));
+    }
+}
+
+#[test]
+fn sumeragi_evidence_model_hex_fields_match_json_codec() {
+    use iroha_data_model::block::{
+        BlockHeader,
+        consensus::{EvidenceAttribution, EvidenceScope, LaneEvidenceScope},
+    };
+    let lane = LaneEvidenceScope {
+        lane: iroha_model_base::topology::LaneId::new(3),
+        incarnation: [0xab; 32],
+        created_at: 2,
+        admission_parent_height: 3,
+        admission_parent_hash: iroha_crypto::HashOf::<BlockHeader>::from_untyped_unchecked(
+            iroha_crypto::Hash::prehashed([0xcd; 32]),
+        ),
+        admission_parent_core_hash: [0xab; 32],
+        admission_parent_result: [0xab; 32],
+    };
+    // Transport DATA only: serialization does not authenticate this attribution.
+    let attribution = EvidenceAttribution {
+        scope: EvidenceScope::Lane(lane),
+        instance: [0xab; 32],
+        height: 4,
+        epoch: 1,
+        context_id: [0xab; 32],
+        authority_generation: [0xab; 32],
+        offenders: Vec::new(),
+        safety_violation: false,
+    };
+    let original = norito::json::to_json(&attribution).unwrap();
+    assert_eq!(
+        norito::json::from_json::<EvidenceAttribution>(&original).unwrap(),
+        attribution,
+    );
+    let data: Value = norito::json::from_str(&original).unwrap();
+    let canonical = canonical_document();
+    let compiled = generate_spec();
+    for document in [&canonical, &compiled] {
+        let schemas = component_schemas(document);
+        for (name, fields, actual) in [
+            (
+                "EvidenceAttribution",
+                ["instance", "context_id", "authority_generation"],
+                &data,
+            ),
+            (
+                "LaneEvidenceScope",
+                [
+                    "incarnation",
+                    "admission_parent_core_hash",
+                    "admission_parent_result",
+                ],
+                &data["scope"]["value"],
+            ),
+        ] {
+            for field in fields {
+                assert_eq!(actual[field].as_str(), Some("AB".repeat(32).as_str()));
+                let shape = &schemas[name]["properties"][field];
+                assert_eq!(shape["type"].as_str(), Some("string"), "{name}.{field}");
+                assert_eq!(shape["minLength"].as_u64(), Some(64));
+                assert_eq!(shape["maxLength"].as_u64(), Some(64));
+                assert_eq!(shape["pattern"].as_str(), Some("^[0-9A-Fa-f]{64}$"));
+                assert!(shape.get("items").is_none());
+            }
+        }
+    }
+    // HashOf uses the tagged, checksummed Norito JSON literal. Its Display
+    // projection is raw lowercase hex and is not a JSON wire representation.
+    let hash_literal = format!("hash:{}#2A02", "CD".repeat(32));
+    assert_eq!(
+        data["scope"]["value"]["admission_parent_hash"].as_str(),
+        Some(hash_literal.as_str())
+    );
+    for document in [&canonical, &compiled] {
+        let schemas = component_schemas(document);
+        assert_eq!(
+            schemas["LaneEvidenceScope"]["properties"]["admission_parent_hash"]["$ref"].as_str(),
+            Some("#/components/schemas/Hash")
+        );
+        assert_eq!(
+            schemas["Hash"]["pattern"].as_str(),
+            Some("^hash:[0-9A-F]{64}#[0-9A-F]{4}$")
+        );
+    }
+    for malformed in [
+        "CD".repeat(32),
+        "cd".repeat(32),
+        norito::literal::format("hash", &"cd".repeat(32)),
+        format!("hash:{}#0000", "CD".repeat(32)),
+    ] {
+        let mut scope = data["scope"]["value"].clone();
+        scope
+            .as_object_mut()
+            .unwrap()
+            .insert("admission_parent_hash".to_owned(), Value::String(malformed));
+        assert!(norito::json::from_value::<LaneEvidenceScope>(scope).is_err());
     }
 }

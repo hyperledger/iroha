@@ -247,7 +247,7 @@ fn exact_key_renewal_new_policy_and_new_key_activate_only_after_old_key_terminal
             )
             .expect("old-key terminal audit");
         let completed = operation
-            .finish_custody_activation(fixture.source.as_ref(), prepared, commitment().audit)
+            .finish_custody_activation(fixture.source.as_ref(), &prepared, commitment().audit)
             .expect("activate exact successor");
         assert_eq!(completed.action(), SignerOperationActionV1::ActivateCustody);
         assert_eq!(completed.audit(), commitment().audit);
@@ -584,7 +584,7 @@ fn completed_response_cannot_be_relabelled_after_same_key_custody_renewal() {
         )
         .expect("terminal audit");
     let activated = renewal
-        .finish_custody_activation(fixture.source.as_ref(), prepared, audit)
+        .finish_custody_activation(fixture.source.as_ref(), &prepared, audit)
         .expect("activate renewal");
     let new_custody =
         SignerOperationCustodyV1::from_verified(activated.activation().expect("new custody"));
@@ -646,9 +646,10 @@ fn terminal_final_observation_rejects_post_commit_custody_drift_without_old_key_
             } else {
                 None
             };
-            let digest = prepared
-                .as_ref()
-                .map_or([0x91; 32], |prepared| prepared.record_digest());
+            let digest = prepared.as_ref().map_or(
+                [0x91; 32],
+                super::super::control::PreparedSignerCustodyActivationV1::record_digest,
+            );
             let mut operation = fixture
                 .coordinator
                 .begin(terminal_intent(&fixture, action, digest))
@@ -668,7 +669,7 @@ fn terminal_final_observation_rejects_post_commit_custody_drift_without_old_key_
             let result = match prepared {
                 Some(prepared) => operation.finish_custody_activation(
                     fixture.source.as_ref(),
-                    prepared,
+                    &prepared,
                     commitment().audit,
                 ),
                 None => operation.finish_custody_revocation(

@@ -504,7 +504,7 @@ impl<W: crate::state::WorldReadOnly> ParliamentPlanWorldV1 for WorldPlanInputsV1
         let seed = crate::beacon::verified_persisted_global_threshold_beacon_governance_seed_v1(
             self.world,
             self.network_id,
-            pulse,
+            &pulse,
             height,
         )
         .ok()?;

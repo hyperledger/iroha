@@ -1,7 +1,8 @@
 //! SCCP snapshot envelope current/undo conservation and malformed-state rejection.
 
 use super::*;
-use crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map;
+use crate::smartcontracts::isi::sccp::test_support::{populate_every_sccp_map, sample_anchor};
+use crate::state::deserialize::StateRestoreError;
 
 fn encoded(world: &World) -> String {
     let mut out = String::new();
@@ -9,9 +10,30 @@ fn encoded(world: &World) -> String {
     out
 }
 
-fn restore(text: &str, world: &mut World) -> Result<(), SccpRestoreError> {
+fn restore(text: &str, world: &mut World) -> Result<(), StateRestoreError> {
     let budget = world.sccp_committee_generations.allocation_budget().clone();
     json::from_json::<SnapshotSccpState>(text)?.restore(world, &budget)
+}
+
+// Every constructor keeps the original finite-pool refusal. The first refusing owner
+// can be a direct generation map, its decoded graph, or the remaining aggregate graph.
+fn original_allocation_refusal(error: &StateRestoreError) -> &AllocationRefusal {
+    match error {
+        StateRestoreError::Admission(StateAdmissionError::Storage(
+            StateStorageAdmissionError::World(mv::storage::AdmittedStorageError::Allocation(
+                original,
+            )),
+        ))
+        | StateRestoreError::Sccp(
+            SccpRestoreError::Storage(mv::storage::AdmittedStorageError::Allocation(original))
+            | SccpRestoreError::Admission(original)
+            | SccpRestoreError::Generation(GenerationRecordError::Admission(original))
+            | SccpRestoreError::LightClient(
+                iroha_sccp::light_client::prepared::SccpLcAttemptErrorV1::Admission(original),
+            ),
+        ) => original,
+        _ => panic!("original local allocation refusal must retain its type: {error:?}"),
+    }
 }
 
 /// Return a World whose every SCCP map and cell holds a current value and an undo record.
@@ -38,10 +60,260 @@ fn every_sccp_member_is_serialized_in_field_order() {
     let json::Value::Object(members) = &value else {
         panic!("the envelope is an object");
     };
-    assert_eq!(members.len(), 29, "one member per SCCP world field");
+    assert_eq!(
+        members.len(),
+        34,
+        "one member per canonical SCCP world field"
+    );
     let mut restored = World::default();
     restore(&text, &mut restored).expect("an empty envelope restores");
     assert_eq!(encoded(&restored), text);
+}
+
+fn refund_record(
+    amount: u128,
+    pending: bool,
+) -> iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1 {
+    use iroha_data_model::sccp::{
+        inbound::SccpPendingReasonV1,
+        outbound::{
+            SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpVoidKindV1, SccpVoidStatusV1,
+        },
+    };
+    SccpOutboundMessageRecordV1 {
+        network: SccpNetworkV1::EthereumMainnet,
+        revision: 1,
+        nonce: 0,
+        height: 1,
+        commitment_index: 0,
+        deadline_ms: 1,
+        sender: crate::smartcontracts::isi::sccp::test_support::authority(4),
+        amount,
+        payload: Vec::new(),
+        leaf: [0; 32],
+        status: SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
+            kind: SccpVoidKindV1::Expired,
+            proven_at_height: 2,
+            refund_pending: pending.then_some(SccpPendingReasonV1::LiabilityShortfall),
+        }),
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_refuses_inexact_refund_counters_in_either_cut() {
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    for corrupt_undo in [false, true] {
+        let world = World::default();
+        {
+            let mut block = world.block();
+            block
+                .sccp_outbound_messages
+                .insert([1; 32], refund_record(2, true));
+            block
+                .sccp_outbound_messages
+                .insert([2; 32], refund_record(3, true));
+            block
+                .sccp_pending_refund_amount
+                .try_insert_admitted(key, 4)
+                .unwrap();
+            block.commit();
+        }
+        if corrupt_undo {
+            // The current cut is repaired, while the exact predecessor still understates it.
+            let mut block = world.block();
+            block
+                .sccp_pending_refund_amount
+                .try_insert_admitted(key, 5)
+                .unwrap();
+            block.commit();
+        }
+        let mut restored = World::default();
+        let before = encoded(&restored);
+        let error = restore(&encoded(&world), &mut restored)
+            .expect_err("refund reserve must match both cuts");
+        assert!(
+            error.to_string().contains("sccp_pending_refund_amount"),
+            "{error}"
+        );
+        assert_eq!(
+            encoded(&restored),
+            before,
+            "failed restoration must not publish any field"
+        );
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_refuses_refund_sum_overflow() {
+    let world = World::default();
+    let mut block = world.block();
+    block
+        .sccp_outbound_messages
+        .insert([1; 32], refund_record(u128::MAX, true));
+    block
+        .sccp_outbound_messages
+        .insert([2; 32], refund_record(1, true));
+    block
+        .sccp_pending_refund_amount
+        .try_insert_admitted((SccpNetworkV1::EthereumMainnet, 1), u128::MAX)
+        .unwrap();
+    block.commit();
+    let mut restored = World::default();
+    let error = restore(&encoded(&world), &mut restored)
+        .expect_err("overflow cannot produce a refund reserve");
+    assert!(
+        error.to_string().contains("sccp_pending_refund_amount"),
+        "{error}"
+    );
+}
+
+#[test]
+fn reconciliation_snapshot_requires_quarantine_and_open_supply_bound_in_both_cuts() {
+    use iroha_data_model::sccp::{
+        native::SccpQuarantineV1, reconciliation::SccpReconciliationStateV1,
+    };
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    for (corrupt_undo, missing, overflowing) in [
+        (false, true, false),
+        (false, false, false),
+        (true, false, false),
+        (false, false, true),
+        (true, false, true),
+    ] {
+        let world = World::default();
+        let route = |valid| {
+            let mut route = crate::smartcontracts::isi::sccp::test_support::sample_route(key.0);
+            let revision = route.revisions.get_mut(&key.1).unwrap();
+            revision.quarantine = (valid || overflowing).then_some(SccpQuarantineV1 {
+                certificate_id: [8; 32],
+                since_height: 1,
+            });
+            revision.liability = if overflowing && !valid { u128::MAX } else { 8 };
+            route
+        };
+        {
+            let mut block = world.block();
+            block
+                .sccp_reconciliations
+                .try_insert_admitted(
+                    key,
+                    SccpReconciliationStateV1 {
+                        opened_at_ms: 1,
+                        closes_at_ms: 10,
+                        forged_supply: 7,
+                        rho: None,
+                        settled_face: 0,
+                    },
+                )
+                .unwrap();
+            block
+                .sccp_reconciliation_proven
+                .try_insert_admitted((key.0, key.1, [1; 32]), 7)
+                .unwrap();
+            if !missing {
+                block.sccp_routes.insert(key.0, route(false));
+            }
+            block.commit();
+        }
+        if corrupt_undo {
+            let mut block = world.block();
+            block.sccp_routes.insert(key.0, route(true));
+            block.commit();
+        }
+        let mut restored = World::default();
+        let before = encoded(&restored);
+        let error = restore(&encoded(&world), &mut restored)
+            .expect_err("reconciliation must keep its exact quarantined source in both cuts");
+        assert!(
+            error.to_string().contains("sccp_reconciliations"),
+            "{error}"
+        );
+        assert_eq!(encoded(&restored), before);
+    }
+}
+
+#[test]
+fn reconciliation_snapshot_preserves_original_current_undo_and_rebuilds_due_order() {
+    use crate::smartcontracts::isi::sccp::reconciliation_store as records;
+    use iroha_data_model::sccp::reconciliation::{
+        SccpReconciliationRatioV1, SccpReconciliationStateV1,
+    };
+    let world = World::default();
+    let key = (SccpNetworkV1::EthereumMainnet, 1);
+    let first = SccpReconciliationStateV1 {
+        opened_at_ms: 1,
+        closes_at_ms: 10,
+        forged_supply: 7,
+        rho: None,
+        settled_face: 0,
+    };
+    {
+        let mut block = world.block();
+        let mut route = crate::smartcontracts::isi::sccp::test_support::sample_route(key.0);
+        let revision = route.revisions.get_mut(&key.1).unwrap();
+        revision.quarantine = Some(iroha_data_model::sccp::native::SccpQuarantineV1 {
+            certificate_id: [8; 32],
+            since_height: 1,
+        });
+        revision.liability = 8;
+        block.sccp_routes.insert(key.0, route);
+        block
+            .sccp_reconciliations
+            .try_insert_admitted(key, first)
+            .unwrap();
+        block
+            .sccp_reconciliation_proven
+            .try_insert_admitted((key.0, key.1, [1; 32]), 7)
+            .unwrap();
+        block
+            .sccp_pending_refund_amount
+            .try_insert_admitted(key, 5)
+            .unwrap();
+        block
+            .sccp_outbound_messages
+            .insert([2; 32], refund_record(5, true));
+        block.commit();
+    }
+    {
+        let mut block = world.block();
+        let mut route = block.sccp_routes.get(&key.0).unwrap().clone();
+        route.revisions.get_mut(&key.1).unwrap().liability = 0;
+        block.sccp_routes.insert(key.0, route);
+        block
+            .sccp_reconciliations
+            .try_insert_admitted(
+                key,
+                SccpReconciliationStateV1 {
+                    rho: Some(SccpReconciliationRatioV1 {
+                        backing: 3,
+                        denominator: 10,
+                    }),
+                    ..first
+                },
+            )
+            .unwrap();
+        block
+            .sccp_pending_refund_amount
+            .try_remove_admitted(key)
+            .unwrap();
+        block
+            .sccp_outbound_messages
+            .insert([2; 32], refund_record(5, false));
+        block.commit();
+    }
+    let expected = encoded(&world);
+    let mut restored = World::default();
+    restore(&expected, &mut restored).unwrap();
+    assert_eq!(encoded(&restored), expected);
+    assert!(records::proven(&restored.view(), key, &[1; 32]));
+    assert_eq!(records::earliest_due(&restored.view(), u64::MAX), None);
+    let replacement = restored.block_and_revert();
+    assert_eq!(records::get(&replacement, &key), Some(&first));
+    assert_eq!(records::pending_refunds(&replacement, &key), 5);
+    assert_eq!(
+        records::earliest_due(&replacement, 10),
+        Some((10, key.0, key.1))
+    );
 }
 
 #[test]
@@ -141,11 +413,13 @@ fn sccp_snapshot_requires_every_member_and_rejects_invalid_values() {
         peaks: vec![[1; 32]],
     })
     .expect("JSON");
+    let bad_anchors = json::to_value(&vec![sample_anchor(1); 4097]).expect("JSON");
     let bad_nonce = json::to_value(&Some([0_u8; 32])).expect("JSON");
     for (field, bad) in [
         ("sccp_parameters", bad_parameters),
         ("sccp_history", bad_history),
         ("sccp_reset_nonce", bad_nonce),
+        ("sccp_anchor_open", bad_anchors),
     ] {
         for member in ["revert", "blocks"] {
             let mut malformed = value.clone();
@@ -379,17 +653,47 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
         ),
     ];
-    // Each invalid key differs from the current valid neighbour in exactly one field.
-    // Keep the leaf-index refusal above independent of the retired zero-nonce fixture.
-    for key in [
-        (SccpNetworkV1::SoraTaira, 1, SCCP_FIRST_CONTROL_NONCE_V1),
-        (network, 0, SCCP_FIRST_CONTROL_NONCE_V1),
-        (network, 1, 0),
+    // Native cause and key constraints apply equally to current and undo entries.
+    for (key, record) in [
+        ((network, 0, SCCP_FIRST_CONTROL_NONCE_V1), control(0)),
+        ((network, 1, 0), control(0)),
+        (
+            (SccpNetworkV1::SoraTaira, 1, SCCP_FIRST_CONTROL_NONCE_V1),
+            control(0),
+        ),
+        (
+            control_key,
+            SccpControlRecordV1 {
+                track: 0,
+                ..control(0)
+            },
+        ),
+        (
+            control_key,
+            SccpControlRecordV1 {
+                track: 2,
+                ..control(0)
+            },
+        ),
+        (
+            control_key,
+            SccpControlRecordV1 {
+                certificate_id: [0; 32],
+                ..control(0)
+            },
+        ),
+        (
+            control_key,
+            SccpControlRecordV1 {
+                effect_hash: [0; 32],
+                ..control(0)
+            },
+        ),
     ] {
         cases.push((
             "sccp_control_messages",
             world_with(|block| {
-                block.sccp_control_messages.insert(key, control(0));
+                block.sccp_control_messages.insert(key, record);
             }),
             world_with(|block| {
                 block.sccp_control_messages.insert(control_key, control(0));
@@ -407,6 +711,24 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             before,
             "restore is atomic on {field} failure"
         );
+        let mut malformed_undo: json::Value = json::from_json(&encoded(&valid)).expect("JSON");
+        let invalid_value: json::Value = json::from_json(&encoded(&invalid)).expect("JSON");
+        let bad_entries = invalid_value.as_object().expect("object")[field]
+            .as_object()
+            .expect("map envelope")["blocks"]
+            .clone();
+        malformed_undo
+            .as_object_mut()
+            .expect("object")
+            .get_mut(field)
+            .expect("field")
+            .as_object_mut()
+            .expect("map envelope")
+            .insert("revert".into(), bad_entries);
+        let error = restore(&json::to_json(&malformed_undo).expect("JSON"), &mut target)
+            .expect_err("invalid undo entries never restore behind valid current entries");
+        assert!(error.to_string().contains(field), "{field}: {error}");
+        assert_eq!(encoded(&target), before, "undo failure is atomic: {field}");
         let text = encoded(&valid);
         restore(&text, &mut target).unwrap_or_else(|error| panic!("{field}: {error}"));
         assert_eq!(
@@ -434,6 +756,12 @@ fn generation_and_anchor_snapshot_refusals_preserve_distinct_destination_state()
     let mut bad_generation = sample_generation(1);
     bad_generation.deadline_ms += 1;
     let bad_record = json::Value::Array(vec![record(1_u64, &bad_generation)]);
+    let mut bad_members = sample_generation(1);
+    bad_members.members.pop();
+    let bad_members = json::Value::Array(vec![record(1_u64, &bad_members)]);
+    let mut bad_root = sample_generation(1);
+    bad_root.committee_root[0] ^= 1;
+    let bad_root = json::Value::Array(vec![record(1_u64, &bad_root)]);
     let bad_key = json::Value::Array(vec![record(2_u64, &sample_generation(1))]);
     let bad_chunk = json::Value::Array(vec![record(u64::MAX, &[3_u8; 32])]);
     let bad_open = json::to_value(&vec![
@@ -446,6 +774,8 @@ fn generation_and_anchor_snapshot_refusals_preserve_distinct_destination_state()
     .unwrap();
     for (field, bad) in [
         ("sccp_committee_generations", bad_record),
+        ("sccp_committee_generations", bad_members),
+        ("sccp_committee_generations", bad_root),
         ("sccp_committee_generations", bad_key),
         ("sccp_anchor_chunks", bad_chunk),
         ("sccp_anchor_open", bad_open),
@@ -493,12 +823,12 @@ fn snapshot_original_pool_refusal_preserves_destination_and_retries_exact_envelo
         .unwrap()
         .restore(&mut target, &budget)
         .unwrap_err();
-    let SccpRestoreError::Admission(iroha_allocation::AllocationRefusal::Capacity {
+    let iroha_allocation::AllocationRefusal::Capacity {
         requested_bytes,
         reserved_bytes,
         limit_bytes,
         ..
-    }) = error
+    } = original_allocation_refusal(&error).clone()
     else {
         panic!("original complete graph refusal: {error:?}");
     };
@@ -625,47 +955,48 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
     drop(retirement_pin);
     collect_until(&measured, 0);
     assert_eq!(measured.reserved_bytes(), 0);
-    // The one aggregate request covers retained payload graphs. Original outer map and
-    // Cell owners are additionally admitted before publication and remain separately charged.
+    // Generation records restore directly under the pool before the remaining aggregate
+    // graph is admitted. Any local failure must retire all private owners and publish nothing.
     let mut target = World::default();
     let before = encoded(&target);
     let probe = AllocationBudget::new(0);
-    let SccpRestoreError::Admission(AllocationRefusal::ExceedsLimit {
-        requested_bytes: graph_bytes,
-        limit_bytes: 0,
-    }) = json::from_json::<SnapshotSccpState>(&source)
+    let error = json::from_json::<SnapshotSccpState>(&source)
         .unwrap()
         .restore(&mut target, &probe)
-        .unwrap_err()
+        .unwrap_err();
+    let AllocationRefusal::ExceedsLimit {
+        requested_bytes: first_bytes,
+        limit_bytes: 0,
+    } = original_allocation_refusal(&error).clone()
     else {
-        panic!("the complete payload graph is admitted before any outer owner");
+        panic!("first original owner must refuse before allocating: {error:?}");
     };
-    assert!(graph_bytes > 0 && graph_bytes < bytes);
+    assert!(first_bytes > 0 && first_bytes < bytes);
     assert_eq!(probe.reserved_bytes(), 0);
     assert_eq!(encoded(&target), before);
-    let refused_budget = AllocationBudget::new(graph_bytes);
+    let refused_budget = AllocationBudget::new(first_bytes);
     let blocker = refused_budget.try_reserve_bytes(1).unwrap();
     let error = json::from_json::<SnapshotSccpState>(&source)
         .unwrap()
         .restore(&mut target, &refused_budget)
         .unwrap_err();
-    let SccpRestoreError::Admission(AllocationRefusal::Capacity {
+    let AllocationRefusal::Capacity {
         requested_bytes,
         reserved_bytes,
         limit_bytes,
         ..
-    }) = error
+    } = original_allocation_refusal(&error).clone()
     else {
-        panic!("complete graph refusal: {error:?}");
+        panic!("original owner capacity refusal: {error:?}");
     };
     assert_eq!(
         (requested_bytes, reserved_bytes, limit_bytes),
-        (graph_bytes, 1, graph_bytes)
+        (first_bytes, 1, first_bytes)
     );
     assert_eq!(
         refused_budget.reserved_bytes(),
         1,
-        "no retained prefix was admitted and refunded"
+        "refused restoration retains no private prefix"
     );
     assert_eq!(encoded(&target), before);
     drop(blocker);
@@ -674,16 +1005,14 @@ fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_re
         .restore(&mut target, &refused_budget)
         .unwrap_err();
     assert!(matches!(
-        error,
-        SccpRestoreError::Storage(mv::storage::AdmittedStorageError::Allocation(
-            AllocationRefusal::Capacity { .. }
-        ))
+        original_allocation_refusal(&error),
+        AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. }
     ));
     collect_until(&refused_budget, 0);
     assert_eq!(
         encoded(&target),
         before,
-        "outer admission publishes no prefix"
+        "later original admission publishes no prefix"
     );
     // Restore must fund the measured overlap of old/new private map generations;
     // retained bytes alone exclude those transient original owners.

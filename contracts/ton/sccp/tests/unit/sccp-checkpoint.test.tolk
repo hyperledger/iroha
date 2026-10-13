@@ -59,157 +59,164 @@ const PINNED_INVALID_HEADERS = 33
 
 /// Runs one generated scenario replay and expects it to have compared the
 /// state after its deployment and after each of its `steps` steps.
-fun expectScenario(replay: () -> void, steps: int) {
+fun expectScenario(replay: () -> void, steps: int, pinnedSteps: int) {
+    expect(steps).toEqual(pinnedSteps);
     val before = replayedStates();
     replay();
     expect(replayedStates() - before).toEqual(steps + 1);
 }
 
-/// Steps of each TON scenario, in the order of the fixture.
-const STEPS_TON_ROTATION_NEXT_KEYS = 4
-const STEPS_TON_CHECKPOINT_EVICTION = 9
-const STEPS_TON_CHEAP_PATH_IDENTITY_SIGNATURE = 4
-const STEPS_TON_CHECKPOINT_USE_AFTER_ROTATION = 9
-const STEPS_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN = 5
-const STEPS_TON_FINALIZE_TWO_FAULTS = 5
-const STEPS_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY = 9
-const STEPS_TON_INLINE_CALLS_AFTER_EXPIRY = 6
-/// Steps of each EVM scenario marked `ton_replayable`, in the order of the fixture.
-const STEPS_INITIAL_PIN = 1
-const STEPS_CHECKPOINT_RAISES_HIGH = 3
-const STEPS_ROTATION_KEY_CHANGE = 2
-const STEPS_HEARTBEAT_ROTATION = 1
-const STEPS_ROTATION_LOWERED_VALIDITY = 3
-const STEPS_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY = 2
-const STEPS_V2_BELOW_START = 1
-const STEPS_V2_NEIGHBOUR_AT_START = 1
-const STEPS_V3_ROTATION_BELOW_HIGH = 2
-const STEPS_FUTURE_DATED_ROTATION_T_EFF = 1
-const STEPS_ROTATION_SUB_SECOND_DEADLINE = 3
-const STEPS_CHEAP_PATH_IDENTITY_SIGNATURE = 4
-
 get fun `test scenario ton_rotation_next_keys`() {
-    expectScenario(vecScenarioTonRotationNextKeys, STEPS_TON_ROTATION_NEXT_KEYS);
+    expectScenario(vecScenarioTonRotationNextKeys, VEC_SCENARIO_TON_ROTATION_NEXT_KEYS_STEPS, 4);
 }
 
 get fun `test scenario ton_checkpoint_eviction`() {
-    expectScenario(vecScenarioTonCheckpointEviction, STEPS_TON_CHECKPOINT_EVICTION);
+    expectScenario(vecScenarioTonCheckpointEviction, VEC_SCENARIO_TON_CHECKPOINT_EVICTION_STEPS, 9);
 }
 
 get fun `test scenario ton_cheap_path_identity_signature`() {
     expectScenario(
         vecScenarioTonCheapPathIdentitySignature,
-        STEPS_TON_CHEAP_PATH_IDENTITY_SIGNATURE,
+        VEC_SCENARIO_TON_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS,
+        4,
     );
 }
 
 get fun `test scenario ton_checkpoint_use_after_rotation`() {
     expectScenario(
         vecScenarioTonCheckpointUseAfterRotation,
-        STEPS_TON_CHECKPOINT_USE_AFTER_ROTATION,
+        VEC_SCENARIO_TON_CHECKPOINT_USE_AFTER_ROTATION_STEPS,
+        9,
     );
 }
 
 get fun `test scenario ton_void_frozen_range_before_frozen`() {
     expectScenario(
         vecScenarioTonVoidFrozenRangeBeforeFrozen,
-        STEPS_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN,
+        VEC_SCENARIO_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN_STEPS,
+        5,
     );
 }
 
 get fun `test scenario ton_finalize_two_faults`() {
-    expectScenario(vecScenarioTonFinalizeTwoFaults, STEPS_TON_FINALIZE_TWO_FAULTS);
+    expectScenario(vecScenarioTonFinalizeTwoFaults, VEC_SCENARIO_TON_FINALIZE_TWO_FAULTS_STEPS, 5);
 }
 
 get fun `test scenario ton_same_height_block_ref_with_history`() {
     expectScenario(
         vecScenarioTonSameHeightBlockRefWithHistory,
-        STEPS_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY,
+        VEC_SCENARIO_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY_STEPS,
+        9,
     );
 }
 
 get fun `test scenario ton_inline_calls_after_expiry`() {
-    expectScenario(vecScenarioTonInlineCallsAfterExpiry, STEPS_TON_INLINE_CALLS_AFTER_EXPIRY);
+    expectScenario(
+        vecScenarioTonInlineCallsAfterExpiry,
+        VEC_SCENARIO_TON_INLINE_CALLS_AFTER_EXPIRY_STEPS,
+        6,
+    );
 }
 
 get fun `test scenario initial_pin`() {
-    expectScenario(vecScenarioInitialPin, STEPS_INITIAL_PIN);
+    expectScenario(vecScenarioInitialPin, VEC_SCENARIO_INITIAL_PIN_STEPS, 1);
 }
 
 get fun `test scenario checkpoint_raises_high`() {
-    expectScenario(vecScenarioCheckpointRaisesHigh, STEPS_CHECKPOINT_RAISES_HIGH);
+    expectScenario(vecScenarioCheckpointRaisesHigh, VEC_SCENARIO_CHECKPOINT_RAISES_HIGH_STEPS, 3);
 }
 
 get fun `test scenario rotation_key_change`() {
-    expectScenario(vecScenarioRotationKeyChange, STEPS_ROTATION_KEY_CHANGE);
+    expectScenario(vecScenarioRotationKeyChange, VEC_SCENARIO_ROTATION_KEY_CHANGE_STEPS, 2);
 }
 
 get fun `test scenario heartbeat_rotation`() {
-    expectScenario(vecScenarioHeartbeatRotation, STEPS_HEARTBEAT_ROTATION);
+    expectScenario(vecScenarioHeartbeatRotation, VEC_SCENARIO_HEARTBEAT_ROTATION_STEPS, 1);
 }
 
 get fun `test scenario rotation_lowered_validity`() {
-    expectScenario(vecScenarioRotationLoweredValidity, STEPS_ROTATION_LOWERED_VALIDITY);
+    expectScenario(
+        vecScenarioRotationLoweredValidity,
+        VEC_SCENARIO_ROTATION_LOWERED_VALIDITY_STEPS,
+        3,
+    );
 }
 
 get fun `test scenario v1_neighbour_same_x_other_result_body`() {
     expectScenario(
         vecScenarioV1NeighbourSameXOtherResultBody,
-        STEPS_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY,
+        VEC_SCENARIO_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY_STEPS,
+        2,
     );
 }
 
 get fun `test scenario v2_below_start`() {
-    expectScenario(vecScenarioV2BelowStart, STEPS_V2_BELOW_START);
+    expectScenario(vecScenarioV2BelowStart, VEC_SCENARIO_V2_BELOW_START_STEPS, 1);
 }
 
 get fun `test scenario v2_neighbour_at_start`() {
-    expectScenario(vecScenarioV2NeighbourAtStart, STEPS_V2_NEIGHBOUR_AT_START);
+    expectScenario(vecScenarioV2NeighbourAtStart, VEC_SCENARIO_V2_NEIGHBOUR_AT_START_STEPS, 1);
 }
 
 get fun `test scenario v3_rotation_below_high`() {
-    expectScenario(vecScenarioV3RotationBelowHigh, STEPS_V3_ROTATION_BELOW_HIGH);
+    expectScenario(vecScenarioV3RotationBelowHigh, VEC_SCENARIO_V3_ROTATION_BELOW_HIGH_STEPS, 2);
 }
 
 get fun `test scenario future_dated_rotation_t_eff`() {
-    expectScenario(vecScenarioFutureDatedRotationTEff, STEPS_FUTURE_DATED_ROTATION_T_EFF);
+    expectScenario(
+        vecScenarioFutureDatedRotationTEff,
+        VEC_SCENARIO_FUTURE_DATED_ROTATION_T_EFF_STEPS,
+        1,
+    );
 }
 
 get fun `test scenario rotation_sub_second_deadline`() {
-    expectScenario(vecScenarioRotationSubSecondDeadline, STEPS_ROTATION_SUB_SECOND_DEADLINE);
+    expectScenario(
+        vecScenarioRotationSubSecondDeadline,
+        VEC_SCENARIO_ROTATION_SUB_SECOND_DEADLINE_STEPS,
+        3,
+    );
 }
 
 get fun `test scenario cheap_path_identity_signature`() {
-    expectScenario(vecScenarioCheapPathIdentitySignature, STEPS_CHEAP_PATH_IDENTITY_SIGNATURE);
+    expectScenario(
+        vecScenarioCheapPathIdentitySignature,
+        VEC_SCENARIO_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS,
+        4,
+    );
 }
 
 get fun `test the scenario replays cover the pinned rows of the fixture`() {
     // The tests above run one generated replay each, and a replay runs every
     // step of its fixture row. A scenario that leaves the fixture no longer
     // compiles, and one that loses a step fails its own test.
+    expect(VEC_TON_SCENARIO_COUNT).toEqual(PINNED_TON_SCENARIOS);
+    expect(VEC_TON_SCENARIO_STEPS).toEqual(PINNED_TON_SCENARIO_STEPS);
+    expect(VEC_REPLAYABLE_SCENARIO_COUNT).toEqual(PINNED_REPLAYABLE_SCENARIOS);
+    expect(VEC_REPLAYABLE_SCENARIO_STEPS).toEqual(PINNED_REPLAYABLE_SCENARIO_STEPS);
     val tonSteps: array<int> = [
-        STEPS_TON_ROTATION_NEXT_KEYS,
-        STEPS_TON_CHECKPOINT_EVICTION,
-        STEPS_TON_CHEAP_PATH_IDENTITY_SIGNATURE,
-        STEPS_TON_CHECKPOINT_USE_AFTER_ROTATION,
-        STEPS_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN,
-        STEPS_TON_FINALIZE_TWO_FAULTS,
-        STEPS_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY,
-        STEPS_TON_INLINE_CALLS_AFTER_EXPIRY,
+        VEC_SCENARIO_TON_ROTATION_NEXT_KEYS_STEPS,
+        VEC_SCENARIO_TON_CHECKPOINT_EVICTION_STEPS,
+        VEC_SCENARIO_TON_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS,
+        VEC_SCENARIO_TON_CHECKPOINT_USE_AFTER_ROTATION_STEPS,
+        VEC_SCENARIO_TON_VOID_FROZEN_RANGE_BEFORE_FROZEN_STEPS,
+        VEC_SCENARIO_TON_FINALIZE_TWO_FAULTS_STEPS,
+        VEC_SCENARIO_TON_SAME_HEIGHT_BLOCK_REF_WITH_HISTORY_STEPS,
+        VEC_SCENARIO_TON_INLINE_CALLS_AFTER_EXPIRY_STEPS,
     ];
     val replayableSteps: array<int> = [
-        STEPS_INITIAL_PIN,
-        STEPS_CHECKPOINT_RAISES_HIGH,
-        STEPS_ROTATION_KEY_CHANGE,
-        STEPS_HEARTBEAT_ROTATION,
-        STEPS_ROTATION_LOWERED_VALIDITY,
-        STEPS_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY,
-        STEPS_V2_BELOW_START,
-        STEPS_V2_NEIGHBOUR_AT_START,
-        STEPS_V3_ROTATION_BELOW_HIGH,
-        STEPS_FUTURE_DATED_ROTATION_T_EFF,
-        STEPS_ROTATION_SUB_SECOND_DEADLINE,
-        STEPS_CHEAP_PATH_IDENTITY_SIGNATURE,
+        VEC_SCENARIO_INITIAL_PIN_STEPS,
+        VEC_SCENARIO_CHECKPOINT_RAISES_HIGH_STEPS,
+        VEC_SCENARIO_ROTATION_KEY_CHANGE_STEPS,
+        VEC_SCENARIO_HEARTBEAT_ROTATION_STEPS,
+        VEC_SCENARIO_ROTATION_LOWERED_VALIDITY_STEPS,
+        VEC_SCENARIO_V1_NEIGHBOUR_SAME_X_OTHER_RESULT_BODY_STEPS,
+        VEC_SCENARIO_V2_BELOW_START_STEPS,
+        VEC_SCENARIO_V2_NEIGHBOUR_AT_START_STEPS,
+        VEC_SCENARIO_V3_ROTATION_BELOW_HIGH_STEPS,
+        VEC_SCENARIO_FUTURE_DATED_ROTATION_T_EFF_STEPS,
+        VEC_SCENARIO_ROTATION_SUB_SECOND_DEADLINE_STEPS,
+        VEC_SCENARIO_CHEAP_PATH_IDENTITY_SIGNATURE_STEPS,
     ];
     expect(tonSteps.size()).toEqual(PINNED_TON_SCENARIOS);
     expect(replayableSteps.size()).toEqual(PINNED_REPLAYABLE_SCENARIOS);
@@ -486,7 +493,7 @@ get fun `test a rotation whose successor is already expired is applied and freez
     // voids drain it
     val voided = sendVoidFrozen(env, 0, 3, env.minter.voidFrozenRequiredValue(0));
     expect(voided).toHaveSuccessfulTx<SccpVoidFrozen>({ to: env.minter.address });
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     expect(isConsumedAt(env, 2)).toBeTrue();
 }
 
@@ -642,7 +649,7 @@ get fun `test a future-dated certificate never extends trust`() {
     );
     expect(env.minter.getSccpState().untilMs).toEqual(PIN_UNTIL_MS);
     val voided = sendVoidFrozen(env, 7, 1, env.minter.voidFrozenRequiredValue(7));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test a future-dated handoff grants its validity from the minter's clock and no replay extends it`() {
@@ -753,7 +760,7 @@ get fun `test forged heights above the genuine end are accepted and the genuine 
 
     // the latch opens the frozen void and closes the checkpoint entry
     val voided = sendVoidFrozen(env, 0, 2, env.minter.voidFrozenRequiredValue(0));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val another = emptyX(env.networkId, env.generation, root, TEST_START_HEIGHT + 700);
     val refused = checkpointBy(env, env.committee, another, null);
     expectOutcome(refused, SccpErrors.Equivocated);
@@ -1169,8 +1176,8 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
         1,
         alice,
     );
-    calls.push(sendFinalize(env, env.deployer, d, grams("5")));
-    calls.push(sendVoidExpired(env, env.deployer, 1, d, grams("5")));
+    calls.push(sendFinalize(env, env.deployer, d, REPLAY_VALUE));
+    calls.push(sendVoidExpired(env, env.deployer, 1, d, REPLAY_VALUE));
     calls.push(
         sendApplyControl(
             env,
@@ -1182,8 +1189,8 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
             ),
         ),
     );
-    calls.push(sendFinalizeCheckpoint(env, env.deployer, probe.d, grams("5")));
-    calls.push(sendVoidExpiredCheckpoint(env, env.deployer, 0, probe.d, grams("5")));
+    calls.push(sendFinalizeCheckpoint(env, env.deployer, probe.d, REPLAY_VALUE));
+    calls.push(sendVoidExpiredCheckpoint(env, env.deployer, 0, probe.d, REPLAY_VALUE));
     calls.push(sendApplyControlCheckpoint(env, probe.c));
     var i = 0;
     repeat (calls.size()) {
@@ -1205,7 +1212,7 @@ fun expectEveryLiveEntryPoint(env: Env, probe: LiveProbe, exitCode: int) {
         certOf(foreignSignature(), 7, defaultQc(d.x.height), d.x),
         null,
         d.proof,
-        grams("5"),
+        REPLAY_VALUE,
     );
     expectOutcome(inline, SccpErrors.BadSignature);
     expectEvents(inline, []);
@@ -1236,9 +1243,9 @@ get fun `test the minter is Live at untilMs and answers CommitteeNotAccepted one
 
     // the frozen void opens; a second void of the same nonces is rejected by the bucket
     val voided = sendVoidFrozen(env, 0, 2, env.minter.voidFrozenRequiredValue(0));
-    expect(voided).toHaveSuccessfulTx<SccpRangeConsumed>({ to: env.minter.address });
+    expect(voided).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
     val again = sendVoidFrozen(env, 1, 1, env.minter.voidFrozenRequiredValue(1));
-    expect(again).toHaveSuccessfulTx<SccpRangeRejected>({ to: env.minter.address });
+    expect(again).toHaveSuccessfulTx<SccpRecoveryAck>({ to: env.minter.address });
 }
 
 get fun `test a latched minter answers Equivocated at every Live check`() {
@@ -2557,9 +2564,8 @@ get fun `test the checkpoint use check runs in the order of the specification`()
 // ---------------------------------------------------------------------------
 // Messages and events of the certificate entry points (§5.3.3).
 //
-// TODO: WP-TON-RUST (map step T8, suite T7m): replay the golden bodies of
-// `fixtures/sccp/ton_boc_v1.json` once the Rust body encoders write that
-// file. Until then the test below pins the tags and the data-bit layouts.
+// `sccp-boc.test.tolk` imports and replays the actual Rust wallet bodies of
+// `fixtures/sccp/ton_boc_v1.json`. This test also pins tags and data-bit layouts.
 
 /// The 32-bit tag and the data bits of a serialized body.
 fun tagAndBits(body: cell): (int, int) {

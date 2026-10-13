@@ -194,11 +194,11 @@ mod argument_refusal_tests {
         let signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku DeferredArguments { permission Admin;
   kotoage fn run(quantity val) authorize(Admin) { let _val = val; }
 }
-"#,
+",
             )
             .unwrap();
         let prepared = ivm::prepare_contract(Arc::<[u8]>::from(program.clone())).unwrap();

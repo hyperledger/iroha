@@ -8,10 +8,10 @@ use crate::queue::RoutingDecision;
 /// Block validation supplies the actual fragment count before attachment.
 /// Rows, sources, receipts, transcripts and applying policy remain State-owned.
 pub(crate) struct ExecutionOutputSealMetadata {
+    /// Exact fixed-width X produced by the same post-execution finalizer.
+    pub(crate) sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
     /// Actual fragment count after the finalizer's deterministic State changes.
     pub(crate) committed_fragment_count: u64,
-    /// Fixed X produced from this exact completed execution cut.
-    pub(crate) sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
 }
 
 /// Keep source-specific validation errors intact across State's consuming seal.
@@ -530,17 +530,6 @@ impl StateBlock<'_> {
                 state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
                 Err(error)
             }
-        }
-    }
-
-    /// Borrow the fixed finality header retained by the original completed output owner.
-    /// No new World view or reconstructed metadata can substitute for this value.
-    pub(crate) fn sccp_finality_header(
-        &self,
-    ) -> Result<iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1, String> {
-        match self.execution_output_plan.as_ref() {
-            Some(ExecutionOutputPlanState::Sealed(sealed)) => Ok(sealed.sccp_finality_header),
-            _ => Err("SCCP header requires the original completed execution seal".into()),
         }
     }
 

@@ -3,7 +3,6 @@
 use super::*;
 use crate::managed::native_operation::MAX_CHECKPOINT_BYTES;
 use crate::managed::native_operation::attempts::{self, History, Observation, Purpose, Selected};
-use iroha_fs::PublishMode;
 use iroha_wallet::operations::InitialReservePolicyRequest;
 
 pub(super) const MAX_POLICY_BYTES: usize = 32 * 1024;
@@ -66,6 +65,7 @@ impl Original {
     }
 }
 impl Selected<Original> {
+    #[cfg(test)]
     pub fn matches(
         &self,
         policy: &ReserveAuthorityPolicyV1,
@@ -125,17 +125,18 @@ pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selec
 pub(super) fn required_original(directory: &PrivateDirectory) -> Result<Selected<Original>> {
     read_original(directory)?.ok_or_else(|| invalid("original reserve intent is absent"))
 }
-pub(super) fn publish_intent(directory: &PrivateDirectory, original: &Original) -> Result<()> {
+pub(super) fn publish_intent<'a>(
+    directory: &'a PrivateDirectory,
+    original: &Original,
+) -> Result<Option<super::initial_admission::PublishedInitialIntent<'a>>> {
     original.validate()?;
     let bytes = encode(original, MAX_ORIGINAL_BYTES)?;
-    if let Some(retained) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? {
-        if retained != bytes {
-            return Err(invalid("original reserve semantic selection changed"));
-        }
-        return Ok(());
-    }
-    directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
-    Ok(())
+    super::initial_admission::PublishedInitialIntent::publish(
+        directory,
+        bytes,
+        MAX_ORIGINAL_BYTES,
+        "original reserve semantic selection changed",
+    )
 }
 pub(super) fn explicit(
     directory: &PrivateDirectory,

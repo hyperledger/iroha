@@ -3,6 +3,15 @@
 //! complete HTTP bootstrap, native per-use eligibility, catalog admission or Serving readiness.
 
 use super::*;
+
+type EnrollmentRootSnapshot = (
+    PrivateDirectory,
+    PrivateDirectory,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+);
+
 use crate::{
     managed::{
         native_operation::{
@@ -162,7 +171,7 @@ impl NativeFixture {
         self.account_proof(&operator.account, authority.provider_id().unwrap())
             .verify(
                 &ReserveAccountProofExpectedV1 {
-                    chain: &authority.config.chain.to_string(),
+                    chain: authority.config.chain.as_ref(),
                     network_id: authority.config.network_id,
                     operator: &operator.account,
                     provider_id: authority.provider_id().unwrap(),
@@ -191,12 +200,13 @@ fn bounded_native_snapshot<T>(
                 require_deadline(deadline)?;
                 return Ok(value);
             }
-            Err(WorldStateSnapshotError::Acquisition(
-                mv::storage::AdmittedStorageError::Busy { release, .. },
-            ))
-            | Err(WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(
-                release,
-            ))) => wait_native_snapshot_release(budget, release, deadline)?,
+            Err(
+                WorldStateSnapshotError::Acquisition(mv::storage::AdmittedStorageError::Busy {
+                    release,
+                    ..
+                })
+                | WorldStateSnapshotError::View(iroha_core::state::StateViewError::Busy(release)),
+            ) => wait_native_snapshot_release(budget, release, deadline)?,
             Err(error) => return Err(crate::managed::Error::Invalid(error.to_string())),
         }
     }
@@ -583,13 +593,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         requested_utc: u64,
         previous_terms: &crate::managed::native_operation::Terms,
         expected: &[ManagedTransactionFinality],
-        enrollment_roots: &[(
-            PrivateDirectory,
-            PrivateDirectory,
-            Vec<u8>,
-            Vec<u8>,
-            Vec<u8>,
-        )],
+        enrollment_roots: &[EnrollmentRootSnapshot],
         retained: &[(PrivateDirectory, Vec<u8>, Vec<u8>)],
         temporary: &tempfile::TempDir,
         peers: &mut UnavailablePeers,
@@ -622,7 +626,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
                     .as_millis(),
             );
             let advance_started = Instant::now();
-            let (_, passes) = phases::test_passes::count(|| {
+            let ((), passes) = phases::test_passes::count(|| {
                 assert_eq!(
                     finalities(owner.advance(authorization, fresh.deadline).unwrap()),
                     expected
@@ -997,7 +1001,7 @@ fn original_parent_recovers_all_native_children_offline_and_rejects_foreign_late
         let scope = runtime
             .open_child("providers")
             .unwrap()
-            .open_child(&slot.to_string())
+            .open_child(slot.to_string())
             .unwrap();
         for (owner, purpose) in [
             ("stream-token-custody", "configure"),

@@ -1,0 +1,21 @@
+{
+  "observed_at_utc": "2026-10-13T04:31:33.494830+00:00",
+  "file_mtime_utc": "2026-10-13T04:18:41.246292+00:00",
+  "change": "iroha_sccp dependency list gained iroha_allocation; no change to standalone ballot/backend dependency records",
+  "frozen_lock_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+  "live_lock_sha256": "6d8e3d424264d8c934fc1683111659e246d71960cc4b247efa512502235b435c",
+  "recovery": "Removed exactly the one added iroha_sccp dependency line in memory and verified the frozen hash; saved qualification-root-Cargo.lock.template. Live lock untouched.",
+  "affected_evidence": {
+    "malformed-source.sha256": {
+      "only_live_drift": "Cargo.lock",
+      "reconstructed_source_files": 225
+    },
+    "nonminimal-counter-source.sha256": {
+      "only_live_drift": "Cargo.lock",
+      "reconstructed_source_files": 92
+    }
+  },
+  "prior_snapshot": "Earlier 223-file device snapshot uses measured-root-Cargo.lock.template instead; its separate ecfb->dc55 provenance remains unchanged.",
+  "qualification": false,
+  "effect": "The long-running upstream campaign completed its checks but its final live-source guard rejected publication. Other completed evidence remains bound to its recorded snapshot. Frozen accounting source guards correctly reject the changed live lock."
+}

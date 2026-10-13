@@ -19,7 +19,7 @@
 //! - The network directory is the lowercase hex of the Taira `NetworkId`, so records of a reset
 //!   Taira (a new `NetworkId`, §4.18) never mix with the old ones.
 //! - A flow is identified by its kind and a 32-byte id (the message id of a transfer, or a
-//!   caller-chosen digest for roster sync and control relays).
+//!   caller-chosen digest for committee sync and control relays).
 //! - Steps are dense and append-only. `operation.json` is the [`SccpJournalRecordV1`]: the exact
 //!   bytes about to be submitted and the raw evidence they were built from. `submission.json`
 //!   is the pre-dispatch marker ([`SccpJournalStep::begin_submission`] returns `true` to exactly
@@ -29,7 +29,8 @@
 //!
 //! A step that is prepared or submitted but has no outcome is the resume point
 //! ([`SccpFlowJournal::resume_point`]): a submitted step is reconciled against the chain, never
-//! resubmitted.
+//! replaced. The typed driver defaults to observation-only recovery; an explicit chain
+//! adapter may rebroadcast identical retained bytes under the original nonce/seqno protection.
 //!
 //! Appending a step creates its directory (and lock) before it installs `operation.json`, so a
 //! crash or I/O error in between leaves an empty step ([`SccpStepStateV1::Empty`]). Nothing was
@@ -37,7 +38,7 @@
 //! directory. It is reopened under its lock when the lock exists; otherwise the directory is
 //! removed and created afresh, and `rmdir` refuses to delete anything it holds.
 //!
-//! TODO(ws51): add the typed per-flow state machines of §7.1–§7.3 on top of these records.
+//! [`crate::flow`] validates the typed transfer history and drives exact-byte recovery.
 
 use core::fmt;
 use std::{
@@ -87,22 +88,34 @@ pub enum SccpFlowKindV1 {
     /// Void and refund of an outbound transfer (§7.3).
     #[norito(rename = "refund")]
     Refund,
-    /// Destination roster rotation (§7.4).
-    #[norito(rename = "roster_sync")]
-    RosterSync,
+    /// Destination native committee synchronization (§7.4).
+    #[norito(rename = "committee_sync")]
+    CommitteeSync,
     /// Destination control relay (§7.4).
     #[norito(rename = "control_apply")]
     ControlApply,
+    /// Submit original verified forgery evidence to Taira.
+    #[norito(rename = "evidence_submission")]
+    EvidenceSubmission,
+    /// Deterministic destination deployment with its original committee pin.
+    #[norito(rename = "deployment")]
+    Deployment,
+    /// Fund one retained TON recovery operation without repeating the original transfer.
+    #[norito(rename = "ton_recovery")]
+    TonRecovery,
 }
 
 impl SccpFlowKindV1 {
     /// Every kind.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::Outbound,
         Self::Inbound,
         Self::Refund,
-        Self::RosterSync,
+        Self::CommitteeSync,
         Self::ControlApply,
+        Self::EvidenceSubmission,
+        Self::Deployment,
+        Self::TonRecovery,
     ];
 
     /// Directory-name label of the kind.
@@ -112,8 +125,11 @@ impl SccpFlowKindV1 {
             Self::Outbound => "outbound",
             Self::Inbound => "inbound",
             Self::Refund => "refund",
-            Self::RosterSync => "roster_sync",
+            Self::CommitteeSync => "committee_sync",
             Self::ControlApply => "control_apply",
+            Self::EvidenceSubmission => "evidence_submission",
+            Self::Deployment => "deployment",
+            Self::TonRecovery => "ton_recovery",
         }
     }
 
@@ -179,7 +195,7 @@ impl SccpFlowIdV1 {
 #[norito(no_fast_from_json)]
 #[norito(deny_unknown_fields)]
 pub struct SccpEvidenceItemV1 {
-    /// What the bytes are, e.g. `torii.message_proof` or `evm.roster_state`.
+    /// What the bytes are, e.g. `torii.message_proof` or `evm.committee_state`.
     pub label: String,
     /// The exact bytes as received.
     #[norito(json = "iroha_sccp::api::base64_json")]
@@ -207,8 +223,8 @@ pub struct SccpJournalRecordV1 {
     pub step: u32,
     /// Chain the step is submitted to.
     pub chain: SccpNetworkV1,
-    /// Stable action label, e.g. `evm.finalize`, `evm.rotate_rosters`, `taira.record`.
-    pub action: String,
+    /// Closed action of the typed transfer or destination-maintenance state machine.
+    pub action: crate::flow::SccpFlowActionV1,
     /// The exact bytes to submit (a signed transaction), or empty for a read-only step.
     #[norito(json = "iroha_sccp::api::base64_json")]
     pub submission: Vec<u8>,
@@ -756,7 +772,84 @@ pub struct SccpJournalStep {
     record: SccpJournalRecordV1,
 }
 
+#[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct DiscoveryHint {
+    original: [u8; 32],
+    value: Vec<u8>,
+}
+
 impl SccpJournalStep {
+    /// Read the retained final outcome, if one was durably published.
+    ///
+    /// # Errors
+    /// Refuses unsafe, noncanonical or unreadable stored evidence.
+    pub fn outcome(&self) -> Result<Option<SccpJournalOutcomeV1>, JournalError> {
+        let original: SccpJournalRecordV1 = self.journal.read_operation().map_err(storage)?;
+        if original != self.record {
+            return Err(JournalError::Inconsistent(
+                "the retained original operation changed".to_owned(),
+            ));
+        }
+        let outcome = self.journal.read_applied_evidence().map_err(storage)?;
+        let after: SccpJournalRecordV1 = self.journal.read_operation().map_err(storage)?;
+        if after != original {
+            return Err(JournalError::Inconsistent(
+                "the retained original operation changed".to_owned(),
+            ));
+        }
+        Ok(outcome)
+    }
+
+    /// Read a resumable, non-authoritative discovery cursor for this exact original step.
+    /// Corrupt content or a hint copied from another operation safely restarts discovery.
+    ///
+    /// # Errors
+    /// Refuses unsafe original storage custody or changed prepared bytes.
+    pub fn discovery<T: json::JsonDeserialize + json::JsonSerialize>(
+        &self,
+    ) -> Result<Option<T>, JournalError> {
+        let original: SccpJournalRecordV1 = self.journal.read_operation().map_err(storage)?;
+        if original != self.record {
+            return Err(JournalError::Inconsistent("original changed".to_owned()));
+        }
+        let Some(hint) = self
+            .journal
+            .read_discovery_hint::<DiscoveryHint>()
+            .map_err(storage)?
+        else {
+            return Ok(None);
+        };
+        let bytes = json::to_vec(&original)
+            .map_err(|_| JournalError::Malformed(self.journal.path().to_owned()))?;
+        if hint.original != iroha_sccp::v1::hashes::keccak256(&[&bytes]) {
+            return Ok(None);
+        }
+        Ok(json::from_slice::<T>(&hint.value)
+            .ok()
+            .filter(|value| json::to_vec(value).ok().as_deref() == Some(hint.value.as_slice())))
+    }
+
+    /// Persist a bounded hint for discovery only; it cannot replace original bytes or outcomes.
+    ///
+    /// # Errors
+    /// Refuses unsafe custody, oversized hints, serialization or durability failure.
+    pub fn save_discovery<T: json::JsonSerialize>(&self, value: &T) -> Result<(), JournalError> {
+        let original: SccpJournalRecordV1 = self.journal.read_operation().map_err(storage)?;
+        if original != self.record {
+            return Err(JournalError::Inconsistent("original changed".to_owned()));
+        }
+        let bytes = json::to_vec(&original)
+            .map_err(|_| JournalError::Malformed(self.journal.path().to_owned()))?;
+        let value = json::to_vec(value)
+            .map_err(|_| JournalError::Malformed(self.journal.path().to_owned()))?;
+        self.journal
+            .write_discovery_hint(&DiscoveryHint {
+                original: iroha_sccp::v1::hashes::keccak256(&[&bytes]),
+                value,
+            })
+            .map_err(storage)
+    }
     /// Install `record` as the prepared record of the locked step `journal`.
     fn install(journal: Journal, record: &SccpJournalRecordV1) -> Result<Self, JournalError> {
         journal.write_operation(record).map_err(storage)?;
@@ -832,7 +925,7 @@ mod tests {
             flow: flow(),
             step,
             chain: SccpNetworkV1::EthereumMainnet,
-            action: "evm.finalize".to_owned(),
+            action: crate::flow::SccpFlowActionV1::Finalize,
             submission: vec![0x02, 0xf8, 0x01],
             evidence: vec![SccpEvidenceItemV1 {
                 label: "torii.message_proof".to_owned(),
@@ -873,6 +966,109 @@ mod tests {
         assert_eq!(
             SccpFlowIdV1::from_dir_name(&format!("outbound-{}", "AB".repeat(32))),
             None
+        );
+    }
+
+    #[test]
+    fn committee_sync_kind_roundtrips_and_rejects_retired_roster_kind() {
+        let kind = SccpFlowKindV1::CommitteeSync;
+        assert_eq!(kind.as_str(), "committee_sync");
+        assert_eq!(SccpFlowKindV1::from_label("committee_sync"), Some(kind));
+        let bytes = json::to_vec(&kind).expect("current kind encodes");
+        assert_eq!(
+            json::from_slice::<SccpFlowKindV1>(&bytes).expect("current kind decodes"),
+            kind
+        );
+        let text = String::from_utf8(bytes).expect("UTF-8 JSON");
+        assert!(text.contains("committee_sync"), "{text}");
+        let retired = text.replace("committee_sync", "roster_sync");
+        assert!(json::from_str::<SccpFlowKindV1>(&retired).is_err());
+        assert_eq!(SccpFlowKindV1::from_label("roster_sync"), None);
+        assert_eq!(
+            SccpFlowIdV1::from_dir_name(&format!("roster_sync-{}", "ab".repeat(32))),
+            None
+        );
+    }
+
+    #[test]
+    fn committee_sync_step_reopens_with_current_identity_without_resubmission() {
+        let (_dir, root) = root();
+        let network = root.network(&network_id(0x11)).expect("network");
+        let mut record = record(&network, 0);
+        record.flow.kind = SccpFlowKindV1::CommitteeSync;
+        record.action = crate::flow::SccpFlowActionV1::Checkpoint;
+        record.evidence[0].label = "evm.committee_state".to_owned();
+        let bytes = json::to_vec(&record).expect("current record encodes");
+        assert_eq!(
+            decode_canonical::<SccpJournalRecordV1>(Path::new("operation.json"), &bytes)
+                .expect("current record decodes"),
+            record
+        );
+        let text = String::from_utf8(bytes).expect("UTF-8 JSON");
+        let retired = text.replace("committee_sync", "roster_sync");
+        assert!(json::from_str::<SccpJournalRecordV1>(&retired).is_err());
+        assert_eq!(
+            record.flow.dir_name(),
+            format!("committee_sync-{}", "ab".repeat(32))
+        );
+        let journal = network.flow(&record.flow).expect("committee flow");
+        let step = journal.append(&record).expect("prepared checkpoint step");
+        assert!(step.begin_submission().expect("one original submission"));
+        drop(step);
+        drop(journal);
+
+        let reopened = network.flow(&record.flow).expect("reopened committee flow");
+        let resumed = reopened.resume_point().expect("resume").expect("pending");
+        assert_eq!(resumed.state, SccpStepStateV1::Submitted);
+        let step = reopened.open_step(0).expect("original checkpoint step");
+        assert_eq!(step.record(), &record);
+        assert!(!step.begin_submission().expect("no duplicate submission"));
+        step.complete(&outcome()).expect("original outcome");
+        drop(step);
+        assert_eq!(reopened.resume_point().expect("completed"), None);
+        assert_eq!(network.flows().expect("current flows"), vec![record.flow]);
+    }
+
+    #[test]
+    fn discovery_hint_resumes_bounded_pages_but_corruption_never_changes_original_custody() {
+        let (_dir, root) = root();
+        let network = root.network(&network_id(0x11)).unwrap();
+        let original = record(&network, 0);
+        let flow = network.flow(&original.flow).unwrap();
+        let step = flow.append(&original).unwrap();
+        assert_eq!(step.discovery::<u64>().unwrap(), None);
+        step.save_discovery(&91_u64).unwrap();
+        step.save_discovery(&75_u64).unwrap();
+        assert!(step.begin_submission().unwrap());
+        let path = step.journal.path().join("discovery.json");
+        let original_bytes = fs::read(step.journal.path().join(OPERATION_FILE)).unwrap();
+        drop(step);
+        let step = flow.open_step(0).unwrap();
+        assert_eq!(step.discovery::<u64>().unwrap(), Some(75));
+        assert!(!step.begin_submission().unwrap());
+        assert!(step.outcome().unwrap().is_none());
+        fs::write(&path, b"incomplete hint").unwrap();
+        assert_eq!(step.discovery::<u64>().unwrap(), None);
+        step.save_discovery(&64_u64).unwrap();
+        let foreign = DiscoveryHint {
+            original: [9; 32],
+            value: json::to_vec(&63_u64).unwrap(),
+        };
+        fs::write(&path, json::to_vec(&foreign).unwrap()).unwrap();
+        assert_eq!(step.discovery::<u64>().unwrap(), None);
+        assert!(step.save_discovery(&"x".repeat(4096)).is_err());
+        assert_eq!(
+            fs::read(step.journal.path().join(OPERATION_FILE)).unwrap(),
+            original_bytes
+        );
+        assert_eq!(step.record(), &original);
+        assert!(step.outcome().unwrap().is_none());
+        assert!(!step.begin_submission().unwrap());
+        fs::remove_file(&path).unwrap();
+        symlink("operation.json", &path).unwrap();
+        assert!(
+            step.discovery::<u64>().is_err(),
+            "unsafe custody is never absent discovery"
         );
     }
 

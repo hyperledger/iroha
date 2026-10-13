@@ -146,6 +146,8 @@ pub struct AuthenticatedLoad {
     pub predecessor_vesta: AccumulatorT<Eq>,
     /// Exact funded successor state.
     pub state: StateWitness,
+    /// Original native-authorized Load receipt consumed by this proof chain.
+    pub receipt: [u8; 282],
 }
 
 /// Import the required originals, prove all four A/three W stages and replay every
@@ -191,6 +193,7 @@ pub fn authenticated_load(
         );
     }
     let state = source.inputs.state.successor;
+    let receipt = source.inputs.receipt;
     let prover = Prover::from_artifacts(
         source.plan,
         core::array::from_fn(|i| source.a[i].metadata()),
@@ -211,7 +214,6 @@ pub fn authenticated_load(
     let mut a = session
         .first(&active, Fp::from(201), &fold, common::recovery(201), config)
         .unwrap();
-    drop(active_seal);
     a = session
         .restore_first(a.proof().to_vec(), &a.pallas_bytes(), MemoryBudget::DEFAULT)
         .unwrap();
@@ -235,7 +237,6 @@ pub fn authenticated_load(
                 config,
             )
             .unwrap();
-        drop(active_seal);
         let w = session
             .restore_wrapper(
                 &a,
@@ -262,7 +263,6 @@ pub fn authenticated_load(
                 config,
             )
             .unwrap();
-        drop(active_seal);
         let mut changed = a.proof().to_vec();
         changed[0] ^= 1;
         assert!(
@@ -290,5 +290,6 @@ pub fn authenticated_load(
         vesta_part: terminal.vesta_part,
         predecessor_vesta: terminal.predecessor_vesta,
         state,
+        receipt,
     }
 }

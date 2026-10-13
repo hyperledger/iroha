@@ -94,14 +94,14 @@ fn maximum(http: &NativeReadHttp) -> Quantity {
             sum.checked_add(&component.max_amount).unwrap()
         })
 }
-fn unprepared(report: ProviderFundingProgress, expected: FundingStep, status: OperationStatus) {
+fn unprepared(report: &ProviderFundingProgress, expected: FundingStep, status: OperationStatus) {
     match report {
         ProviderFundingProgress::Unprepared {
             step,
             status: actual,
         } => {
-            assert_eq!(step, expected);
-            assert_eq!(actual, status)
+            assert_eq!(*step, expected);
+            assert_eq!(*actual, status)
         }
         _ => panic!("expected original unprepared stage"),
     }
@@ -156,7 +156,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     let bytes = std::fs::read(directory.path().join("economic-original.nrt")).unwrap();
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Request,
         OperationStatus::Absent,
     );
@@ -197,7 +197,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     drop(request);
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Approval,
         OperationStatus::Absent,
     );
@@ -238,7 +238,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     let approval_bytes = std::fs::read(directory.path().join("approval-selection.nrt")).unwrap();
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Approval,
         OperationStatus::Absent,
     );
@@ -279,7 +279,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     drop(approval);
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Credit,
         OperationStatus::Absent,
     );
@@ -315,7 +315,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     );
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Credit,
         OperationStatus::Absent,
     );
@@ -351,7 +351,7 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     drop(credit);
     let mut peers = UnavailablePeers::start(&prepared);
     unprepared(
-        owner.run(opts.deadline, Mode::Recover, None).unwrap(),
+        &owner.run(opts.deadline, Mode::Recover, None).unwrap(),
         FundingStep::Capacity,
         OperationStatus::Absent,
     );
@@ -386,9 +386,11 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
         let error = capacity
             .funding_retain_selected(
                 &policy,
-                &selected_partition,
-                &selected_credit,
-                floor,
+                crate::managed::provider_capacity::FundingSelection {
+                    partition: &selected_partition,
+                    credit: &selected_credit,
+                    minimum_height: floor,
+                },
                 utc,
                 &opts,
                 &at7,
@@ -408,9 +410,11 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     let signed_capacity = capacity
         .funding_prepare(
             &policy,
-            &credit_stage.partition,
-            &credit_intent.record,
-            7,
+            crate::managed::provider_capacity::FundingSelection {
+                partition: &credit_stage.partition,
+                credit: &credit_intent.record,
+                minimum_height: 7,
+            },
             utc,
             &opts,
             &at7,
@@ -444,9 +448,11 @@ fn automatic_original_amounts_drive_exact_paid_children_and_recover_each_crash_b
     let error = capacity
         .funding_retain_selected(
             &policy,
-            &credit_stage.partition,
-            &credit_intent.record,
-            7,
+            crate::managed::provider_capacity::FundingSelection {
+                partition: &credit_stage.partition,
+                credit: &credit_intent.record,
+                minimum_height: 7,
+            },
             utc,
             &opts,
             &at8,
@@ -610,7 +616,7 @@ fn genuine_economic_intent_never_authorizes_first_child_under_fresh_io_deadlines
     )
     .unwrap();
     unprepared(
-        owner
+        &owner
             .run(
                 Instant::now() + Duration::from_secs(15),
                 Mode::Recover,
@@ -630,7 +636,7 @@ fn genuine_economic_intent_never_authorizes_first_child_under_fresh_io_deadlines
             .is_err()
     );
     unprepared(
-        owner
+        &owner
             .recover_local_selected_if_present(
                 &policy,
                 &original.fees,
@@ -734,7 +740,7 @@ fn approval_tail_keeps_original_request_custody_and_restores_after_held_approval
         .unwrap()
         .unwrap();
     unprepared(
-        absent.into_progress(),
+        &absent.into_progress(),
         FundingStep::Approval,
         OperationStatus::Absent,
     );
@@ -773,7 +779,7 @@ fn approval_tail_keeps_original_request_custody_and_restores_after_held_approval
         .unwrap()
         .unwrap();
     unprepared(
-        restored.into_progress(),
+        &restored.into_progress(),
         FundingStep::Approval,
         OperationStatus::Absent,
     );
@@ -799,7 +805,7 @@ fn approval_tail_keeps_original_request_custody_and_restores_after_held_approval
         .unwrap()
         .unwrap();
     unprepared(
-        incomplete.into_progress(),
+        &incomplete.into_progress(),
         FundingStep::Approval,
         OperationStatus::Absent,
     );

@@ -75,7 +75,7 @@ fn stake_index_demand_counts_canonical_groups_and_fixed_layouts() {
     let first = stake_index_demand_account(0x11);
     let second = stake_index_demand_account(0x22);
     let delegator = stake_index_demand_account(0x33);
-    let mut rows = vec![
+    let mut rows = [
         stake_index_demand_row(LaneId::new(2), &first, &first),
         stake_index_demand_row(LaneId::new(1), &second, &second),
         stake_index_demand_row(LaneId::new(2), &first, &delegator),
@@ -217,7 +217,7 @@ fn stake_index_multisig_key_clone_refusal_refunds_prepaid_owner_after_partial_al
 fn stake_index_demand_refuses_noncanonical_and_over_capacity_rows() {
     let validator = stake_index_demand_account(0x44);
     let staker = stake_index_demand_account(0x55);
-    let mut rows = vec![
+    let mut rows = [
         stake_index_demand_row(LaneId::new(1), &validator, &validator),
         stake_index_demand_row(LaneId::new(1), &validator, &staker),
     ];
@@ -469,7 +469,7 @@ fn stake_index_partial_second_backing_refusal_refunds_original_pool() {
     let share_backing =
         match ChargedBuffer::<PublicLaneStakeShareKey>::try_from_charge(1, share_charge) {
             Ok(backing) => backing,
-            Err(_) => panic!("first prepaid backing must allocate"),
+            Err((_, error)) => panic!("first prepaid backing must allocate: {error:?}"),
         };
     let refused_group =
         match ChargedBuffer::<IndexedValidatorStake>::try_from_charge(2, group_charge) {

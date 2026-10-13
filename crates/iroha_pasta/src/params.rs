@@ -1,5 +1,9 @@
-//! Inner-product-argument commitment parameters compatible with the vendored
-//! `halo2_proofs::poly::ipa::commitment::ParamsIPA`.
+//! Native inner-product-argument commitment parameters.
+//!
+//! The pinned derivation and byte format were captured from the historical
+//! `halo2_proofs::poly::ipa::commitment::ParamsIPA` before prover retirement.
+//! `tests/params_parity.rs` retains the captured digests; this module's tests
+//! independently compare the Lagrange basis with a naive group DFT.
 //!
 //! # Derivation (transparent setup)
 //!
@@ -19,10 +23,10 @@
 //!
 //! # Byte format
 //!
-//! Identical to the vendored `ParamsIPA::write`:
+//! The pinned format captured from the historical `ParamsIPA::write` is:
 //! `k (u32 little-endian) || g[0..n] || g_lagrange[0..n] || w || u`, every
 //! point a 32-byte compressed encoding. [`ParamsIpa::from_bytes`] is stricter
-//! than the vendored reader: it rejects trailing bytes, identity points and
+//! than that historical reader: it rejects trailing bytes, identity points and
 //! `k > MAX_K`. [`ParamsIpa::new`] enforces the same rule on the points it
 //! derives (an identity generator would make commitments non-binding), so
 //! every value it returns round-trips through the codec. Both report the first
@@ -45,7 +49,7 @@ use std::sync::Arc;
 use crate::curve::PastaCurve;
 use crate::fft::FftDomain;
 
-/// Hash-to-curve domain prefix of the vendored parameter generation.
+/// Pinned hash-to-curve domain prefix retained from the historical derivation.
 pub const PARAMS_DOMAIN: &str = "Halo2-Parameters";
 
 /// Largest supported `k` (2^28 generators, about 16 GiB of affine points).
@@ -318,7 +322,7 @@ impl<C: PastaCurve> ParamsIpa<C> {
         self.u
     }
 
-    /// Writes the vendored byte format to `writer`.
+    /// Writes the pinned parameter byte format to `writer`.
     ///
     /// # Errors
     ///
@@ -332,7 +336,7 @@ impl<C: PastaCurve> ParamsIpa<C> {
         writer.write_all(&self.u.to_bytes())
     }
 
-    /// Returns the vendored byte format.
+    /// Returns the pinned parameter byte format.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(encoded_len(self.k).unwrap_or(0));
         // Writing to a Vec cannot fail.
@@ -416,8 +420,8 @@ mod tests {
     use ff::PrimeField;
     use group::{Curve, Group};
 
-    /// Returns the vendored-compatible omega for `k` (the generator of the
-    /// order-`2^k` subgroup used by the group IFFT).
+    /// Returns the pinned omega for `k` (the generator of the order-`2^k`
+    /// subgroup used by the group IFFT).
     fn omega_for<C: PastaCurve>(k: u32) -> Option<C::ScalarExt> {
         if k > <C::ScalarExt as PrimeField>::S {
             return None;

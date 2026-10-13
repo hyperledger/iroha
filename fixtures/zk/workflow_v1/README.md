@@ -1,9 +1,9 @@
 # Durable workflow fixtures (v1)
 
 Shared fixtures of the durable workflow contract,
-[`specs/zk_durable_workflow.md`](../../../specs/zk_durable_workflow.md). Every
-SDK family runs them unchanged against its own engine with a fake ledger and a
-fake clock. Nothing here needs a network.
+[`specs/zk_durable_workflow.md`](../../../specs/zk_durable_workflow.md). The Rust
+engine runs them with a fake ledger and clock; other SDK-family workflow ports
+are not implemented yet. Nothing here needs a network.
 
 | File | Content | Source |
 |---|---|---|

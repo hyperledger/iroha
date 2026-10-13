@@ -209,11 +209,11 @@ fn core_queries_return_typed_handles_and_specialists_remain_norito() {
     let contract_address = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku DedicatedQueryContract {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
     let code_hash = *state
@@ -774,7 +774,11 @@ fn core_query_page_is_bounded_ordered_and_validates_arguments() {
     assert_eq!(read_option_int(&vm, vm.register(11)), None);
     for (tag, offset_bits, limit) in [
         (0, 0, 1),
-        (CoreQueryEntityTagV1::Account.as_u64(), (-1_i64) as u64, 1),
+        (
+            CoreQueryEntityTagV1::Account.as_u64(),
+            u64::try_from(-1_i64).expect("fixture value fits u64"),
+            1,
+        ),
         (
             CoreQueryEntityTagV1::Account.as_u64(),
             (i64::MAX - 1) as u64,
@@ -931,7 +935,8 @@ fn account_asset_pages_filter_before_pagination_and_enforce_account_access() {
         assert_eq!(&id, expected_id);
         assert_eq!(
             read_option_int(&vm, vm.register(11)),
-            (offset + 1 < expected.len()).then_some((offset + 1) as i64)
+            (offset + 1 < expected.len())
+                .then_some(i64::try_from(offset + 1).expect("fixture value fits i64"))
         );
     }
     for owner in [0, bob_pointer] {

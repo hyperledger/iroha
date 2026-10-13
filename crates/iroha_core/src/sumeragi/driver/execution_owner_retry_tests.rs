@@ -15,61 +15,65 @@ fn scheduler(budget: &AllocationBudget) -> ExecSched {
 
 #[test]
 fn execution_pool_refusal_retains_same_job_without_event_then_retries_on_original_release() {
-    let bytes = ExecutionRegistrations::admission_bytes();
-    let budget = AllocationBudget::new(bytes + 1);
-    let mut scheduler = scheduler(&budget);
-    let held = budget.try_reserve_bytes(1).unwrap();
-    let original = budget.try_reserve_bytes(1).unwrap_err();
-    let body = block(1, Hash32::ZERO, Hash32::ZERO, vec![1]);
-    let hash = Hash32([7; 32]);
-    scheduler.execute(9, hash, body, false);
-    let Some(ExecOp::Execute { block: before, .. }) = scheduler.next(0) else {
-        panic!("initial execution")
-    };
-    let cause = PublicationError::Deferred(PublicationDeferral::Execution(original.clone().into()));
-    let allocations = crate::test_allocations::allocations_during(|| {
-        scheduler.done(0, ExecDone::Executed(Err(cause)));
-    });
-    assert_eq!(
-        allocations, 0,
-        "refusal storage was admitted before the operation"
-    );
-    assert_eq!(scheduler.outstanding(), 1);
-    assert!(scheduler.take_events().is_empty());
-    let Some(PublicationError::Deferred(retained)) = &scheduler.execution_retry.error else {
-        panic!("original refusal")
-    };
-    assert_eq!(retained.allocation_refusal(), Some(&original));
-    assert!(Arc::ptr_eq(
-        &before,
-        &scheduler.deferred_execution.as_ref().unwrap().block
-    ));
-    assert_eq!(scheduler.wakeup(), Millis::MAX);
-    assert!(scheduler.next(Millis::MAX - 1).is_none());
-    let unrelated = AllocationBudget::new(1);
-    drop(unrelated.try_reserve_bytes(1).unwrap());
-    assert!(scheduler.next(Millis::MAX - 1).is_none());
-    drop(held);
-    let Some(ExecOp::Execute {
-        block: retry,
-        block_hash,
-        ..
-    }) = scheduler.next(0)
-    else {
-        panic!("original release retries same job")
-    };
-    assert!(Arc::ptr_eq(&before, &retry));
-    assert_eq!(block_hash, hash);
-    assert_eq!(scheduler.outstanding(), 1);
-    assert!(scheduler.take_events().is_empty());
-    let result = Hash32([8; 32]);
-    scheduler.done(0, ExecDone::Executed(Ok(Some(ExecOutcome::Valid(result)))));
-    assert_eq!(scheduler.outstanding(), 0);
-    assert!(scheduler.execution_retry.error.is_none());
-    let events = scheduler.take_events();
-    assert!(
-        matches!(events.as_slice(), [Event::Executed { req: 9, block_hash, outcome: ExecOutcome::Valid(actual) }] if *block_hash == hash && *actual == result)
-    );
+    for certified in [false, true] {
+        let bytes = ExecutionRegistrations::admission_bytes();
+        let budget = AllocationBudget::new(bytes + 1);
+        let mut scheduler = scheduler(&budget);
+        let held = budget.try_reserve_bytes(1).unwrap();
+        let original = budget.try_reserve_bytes(1).unwrap_err();
+        let body = block(1, Hash32::ZERO, Hash32::ZERO, vec![1]);
+        let hash = Hash32([7; 32]);
+        scheduler.execute(9, hash, body, certified);
+        let Some(ExecOp::Execute { block: before, .. }) = scheduler.next(0) else {
+            panic!("initial execution")
+        };
+        let cause =
+            PublicationError::Deferred(PublicationDeferral::Execution(original.clone().into()));
+        let allocations = crate::test_allocations::allocations_during(|| {
+            scheduler.done(0, ExecDone::Executed(Err(cause)));
+        });
+        assert_eq!(
+            allocations, 0,
+            "refusal storage was admitted before the operation"
+        );
+        assert_eq!(scheduler.outstanding(), 1);
+        assert!(scheduler.take_events().is_empty());
+        let Some(PublicationError::Deferred(retained)) = &scheduler.execution_retry.error else {
+            panic!("original refusal")
+        };
+        assert_eq!(retained.allocation_refusal(), Some(&original));
+        assert!(Arc::ptr_eq(
+            &before,
+            &scheduler.deferred_execution.as_ref().unwrap().block
+        ));
+        assert_eq!(scheduler.wakeup(), Millis::MAX);
+        assert!(scheduler.next(Millis::MAX - 1).is_none());
+        let unrelated = AllocationBudget::new(1);
+        drop(unrelated.try_reserve_bytes(1).unwrap());
+        assert!(scheduler.next(Millis::MAX - 1).is_none());
+        drop(held);
+        let Some(ExecOp::Execute {
+            block: retry,
+            block_hash,
+            certified: retry_certified,
+        }) = scheduler.next(0)
+        else {
+            panic!("original release retries same job")
+        };
+        assert!(Arc::ptr_eq(&before, &retry));
+        assert_eq!(block_hash, hash);
+        assert_eq!(retry_certified, certified);
+        assert_eq!(scheduler.outstanding(), 1);
+        assert!(scheduler.take_events().is_empty());
+        let result = Hash32([8; 32]);
+        scheduler.done(0, ExecDone::Executed(Ok(Some(ExecOutcome::Valid(result)))));
+        assert_eq!(scheduler.outstanding(), 0);
+        assert!(scheduler.execution_retry.error.is_none());
+        let events = scheduler.take_events();
+        assert!(
+            matches!(events.as_slice(), [Event::Executed { req: 9, block_hash, outcome: ExecOutcome::Valid(actual) }] if *block_hash == hash && *actual == result)
+        );
+    }
 }
 
 #[test]

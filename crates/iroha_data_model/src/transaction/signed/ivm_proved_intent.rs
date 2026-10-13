@@ -6,7 +6,7 @@
 //! self-referential, and requires the explicitly declared execution proof carrier.
 
 use super::{Executable, SignedTransaction, TransactionPayload};
-use crate::transaction::signed_attachments::ActionOperationV1;
+use crate::transaction::signed_attachments::{ActionOperationV1, SignedAttachmentsV1};
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use thiserror::Error;
@@ -74,7 +74,7 @@ fn normalized_proved_payload(
     let mut execution_carriers = payload
         .attachments
         .iter()
-        .flat_map(|attachments| attachments.actions())
+        .flat_map(SignedAttachmentsV1::actions)
         .filter(|action| action.operation == ActionOperationV1::IvmProvedExecution);
     if execution_carriers.next().is_none() || execution_carriers.next().is_some() {
         return Err(IvmProvedTransactionIntentErrorV1::MissingProofAttachment);

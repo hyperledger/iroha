@@ -330,9 +330,7 @@ fn live_entry_semantics_ignore_nonmember_bindings_and_preserve_universal_fallbac
     world.uaid_dataspaces.insert(first, binding(29, &bob));
     rebuild(&mut world).unwrap();
     let view = world.view();
-    let derived = derive_account_scope_directory_entry(&view, &alice)
-        .unwrap()
-        .unwrap();
+    let derived = derive_account_scope_directory_entry(&view, &alice).unwrap();
     assert_eq!(view.account_scope_directory.get(&alice), Some(&derived));
     assert!(
         !derived
@@ -354,7 +352,6 @@ fn live_entry_semantics_ignore_nonmember_bindings_and_preserve_universal_fallbac
                     .clone()
             )
         )
-        .unwrap()
         .is_none()
     );
 }

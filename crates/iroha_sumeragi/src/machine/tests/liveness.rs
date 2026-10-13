@@ -589,6 +589,9 @@ fn det_s51_execute_certified_flag() {
         r1b > r1 && !certified,
         "the retry of a fresh block stays uncertified"
     );
+    let (_, pending, _) = h.pending_exec.pop().expect("only the uncertified retry");
+    assert_eq!(pending, r1b);
+    assert!(h.pending_exec.is_empty());
     // (2) PQC(B, 0) is hidden from X; views 0 and 1 fail; TC(1) carries it.
     let pqc = h.qc(VoteKind::Prepare, 0, &b, &[w, y, z]);
     let deadline = h.core.view_deadline().unwrap();
@@ -614,6 +617,14 @@ fn det_s51_execute_certified_flag() {
         r2 > r1b && certified,
         "the re-proposal of a certified block"
     );
+    // A late Valid for the discarded uncertified retry cannot satisfy the new request.
+    let stale = h.fire(Event::Executed {
+        block_hash: bh,
+        req: r1b,
+        outcome: ExecOutcome::Valid(result_of(&b)),
+    });
+    assert!(votes(&stale).is_empty() && faults(&stale).is_empty());
+    assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
     h.pending_exec.clear();
     let out = h.fire(Event::Executed {
         block_hash: bh,
@@ -624,7 +635,12 @@ fn det_s51_execute_certified_flag() {
     h.run_until(h.now + exec_retry_delay(0, h.local.rebroadcast_interval));
     let (r3, certified) = latest(&h);
     assert!(r3 > r2 && certified, "re-evaluated at the RetryAt emission");
-    let out = h.exec_all();
+    assert_eq!(
+        h.pending_exec.len(),
+        1,
+        "only the certified retry is answered"
+    );
+    let out = h.exec(bh, ExecOutcome::Valid(result_of(&b)));
     let prepared = votes_of(&out, VoteKind::Prepare);
     assert_eq!(prepared.len(), 1);
     assert_eq!((prepared[0].view, prepared[0].result), (2, pqc.result));
@@ -642,8 +658,11 @@ fn det_s51_execute_certified_flag() {
         req: r1,
         outcome: ExecOutcome::Failed("ClockAhead".to_owned()),
     });
+    assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
+    assert!(votes_of(&h.all, VoteKind::Commit).is_empty());
     let lock = h.qc(VoteKind::Prepare, 0, &c, &others);
     qc_msg(&mut h, lock.clone());
+    let lock_at = h.now;
     assert_eq!(h.core.high_pqc, Some(lock.clone()), "X holds the lock");
     h.run_until(h.now + exec_retry_delay(0, h.local.rebroadcast_interval));
     let (r2, certified) = latest(&h);
@@ -651,7 +670,18 @@ fn det_s51_execute_certified_flag() {
         r2 > r1 && certified,
         "the node's own lock certifies the retry"
     );
-    let out = h.exec_all();
+    // CT1 withholds Prepare, not Commit: the others' PrepareQC is sufficient even while
+    // X's own certified execution is still unanswered. Set B joins on the usual timer.
+    h.run_until(lock_at + h.core.pm.t_retx(0));
+    assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
+    let commits = votes_of(&h.all, VoteKind::Commit);
+    assert!(!commits.is_empty(), "the others' PrepareQC enables Commit");
+    assert!(commits.iter().all(|vote| {
+        vote.view == lock.view && vote.block_hash == lock.block_hash && vote.result == lock.result
+    }));
+    assert_eq!(h.my_sigs(KIND_COMMIT, 1, 0).len(), 1);
+    assert_eq!(h.pending_exec.len(), 1);
+    let out = h.exec(ch, ExecOutcome::Valid(result_of(&c)));
     assert!(
         faults(&out).is_empty(),
         "the certified execution agrees with the lock: {out:?}"

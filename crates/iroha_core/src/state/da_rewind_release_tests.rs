@@ -3,12 +3,12 @@
 use super::*;
 use crate::state::{da_hydration, storage_transactions::TransactionsBlockError};
 use iroha_data_model::prelude::*;
-use std::{collections::HashSet, num::NonZeroUsize};
+use std::{collections::BTreeSet, num::NonZeroUsize};
 
-fn seed_committed_prefix(state: &State, header: BlockHeader) {
+fn seed_committed_prefix(state: &State, header: &BlockHeader) {
     // The rewind truncates to zero, so no Kura body is fabricated or needed.
     let mut membership = state.transactions.block();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(1).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(1).unwrap());
     membership.commit().unwrap();
     let mut hashes = state.block_hashes.block();
     hashes.push_for_tests(header.hash());
@@ -44,7 +44,7 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
         let state: Arc<State> = Arc::from(state);
         let mut registration =
             crate::unit_test_support::release_registration(&state.ivm_execution_budget());
-        seed_committed_prefix(&state, proposal.header());
+        seed_committed_prefix(&state, &proposal.header());
         let journal = membership_probe_before_stage(&state);
         let callback = membership_probe_callback(&state, journal);
         let (wait, original_release) = observe_rewind_source(&state, state_write);
@@ -56,9 +56,7 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 state.block_and_revert_with_pristine_stage(proposal.header(), |_| {
                     assert_eq!(callback.observations(), [0; 5]);
-                    if exit == 5 {
-                        panic!("original replacement pristine-stage unwind");
-                    }
+                    assert!(exit != 5, "original replacement pristine-stage unwind");
                     Err::<(), _>("original replacement pristine-stage refusal")
                 })
             }));
@@ -89,7 +87,7 @@ fn replacement_rewind_retains_notifications_through_acquisition_execution_and_re
             }
         } else {
             let mut acquired = state.acquire_canonical_runtime_block(true).unwrap();
-            let result = acquired.rewind_da_indexes_to_height(if exit == 3 { 1 } else { 0 });
+            let result = acquired.rewind_da_indexes_to_height(u64::from(exit == 3));
             if exit == 3 {
                 assert!(matches!(
                     result,

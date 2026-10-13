@@ -366,14 +366,14 @@ fn genuine_root_scope_closes_original_identity_and_errors_with_explicit_interior
     let (fixture, history) = shared_snapshot_tests::history();
     let head = &history.bodies.last().unwrap().snapshots;
     let path = history.root.path().to_owned();
-    let held = fixture._temporary.path().join("displaced-snapshot-root");
+    let displaced_root = fixture.temporary.path().join("displaced-snapshot-root");
     for original in [true, false] {
-        fs::rename(&path, &held).unwrap();
+        fs::rename(&path, &displaced_root).unwrap();
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let (result, counts) = observe(original, &history.root, None, || head.revalidate());
         fs::remove_dir(&path).unwrap();
-        fs::rename(&held, &path).unwrap();
+        fs::rename(&displaced_root, &path).unwrap();
         assert!(result.is_err());
         assert!(counts.order.is_empty());
         head.revalidate().unwrap();
@@ -402,7 +402,7 @@ fn genuine_root_scope_closes_original_identity_and_errors_with_explicit_interior
     }
     for original in [true, false] {
         let changed = path.clone();
-        let displaced = held.clone();
+        let displaced = displaced_root.clone();
         let hook = Box::new(move |point| {
             if point == Point::Anchor {
                 fs::rename(&changed, &displaced)?;
@@ -416,7 +416,7 @@ fn genuine_root_scope_closes_original_identity_and_errors_with_explicit_interior
             outcome(head.revalidate())
         });
         fs::remove_dir(&path).unwrap();
-        fs::rename(&held, &path).unwrap();
+        fs::rename(&displaced_root, &path).unwrap();
         assert!(result.is_err());
         assert!(
             !result

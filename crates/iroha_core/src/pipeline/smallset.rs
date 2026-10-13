@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn simd_sort_matches_scalar_variants() {
         use super::scalar;
-        let mut cases = vec![
+        let mut cases = [
             vec![5, 4, 3, 2, 1, 0, 0, 1],
             vec![1, 1, 1, 1, 1],
             vec![7, 2, 7, 3],

@@ -469,12 +469,12 @@ fn loaded_executor_stack_limit_tracks_gas_limit() {
 }
 #[test]
 fn loaded_executor_runtime_tracks_governed_heap_limit() {
-    if executor_cache_test_in_child("loaded_executor_runtime_tracks_governed_heap_limit") {
-        return;
-    }
     const GAS_LIMIT: u64 = 10_000;
     const SMALL_HEAP_LIMIT: u64 = 64;
     const LARGE_HEAP_LIMIT: u64 = 128;
+    if executor_cache_test_in_child("loaded_executor_runtime_tracks_governed_heap_limit") {
+        return;
+    }
     let raw = data_model_executor::Executor::new(IvmBytecode::from_compiled(generate_ok_program()));
     let loaded = super::LoadedExecutor::load(raw).expect("load");
     // Static admission creates no eager default VM; both governed variants are funded below.
@@ -505,18 +505,7 @@ fn loaded_executor_runtime_tracks_governed_heap_limit() {
 }
 #[test]
 fn loaded_executor_reuses_and_resets_runtime_after_error_return() {
-    if executor_cache_test_in_child("loaded_executor_reuses_and_resets_runtime_after_error_return")
-    {
-        return;
-    }
     const GAS_LIMIT: u64 = 10_000;
-    // Retention assertions own the default cache configuration for this scope;
-    // concurrent State fixtures may otherwise legitimately disable retention.
-    let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
-        capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
-        max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
-        max_decoded_ops: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
-    });
     fn dirty_then_fail(loaded: &super::LoadedExecutor) -> Result<(), *const u8> {
         let mut runtime = loaded
             .checkout_runtime_for_gas_limit(
@@ -537,6 +526,17 @@ fn loaded_executor_reuses_and_resets_runtime_after_error_return() {
             .expect("dirty input memory");
         Err(allocation)
     }
+    if executor_cache_test_in_child("loaded_executor_reuses_and_resets_runtime_after_error_return")
+    {
+        return;
+    }
+    // Retention assertions own the default cache configuration for this scope;
+    // concurrent State fixtures may otherwise legitimately disable retention.
+    let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
+        capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
+        max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
+        max_decoded_ops: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_DECODED_OPS,
+    });
     let raw = data_model_executor::Executor::new(IvmBytecode::from_compiled(generate_ok_program()));
     let loaded = super::LoadedExecutor::load(raw).expect("load");
     drop(
@@ -1100,7 +1100,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     let orderbook_error = executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &orderbook,
             &executor_test_budget(),
@@ -1113,7 +1113,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     let reserve_error = executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &reserve_events,
             &executor_test_budget(),
@@ -1126,7 +1126,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     let reputation_policy_error = executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &reputation_policy,
             &executor_test_budget(),
@@ -1139,7 +1139,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &reputation_event,
             &executor_test_budget(),
@@ -1148,7 +1148,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &own_eligibility,
             &executor_test_budget(),
@@ -1157,7 +1157,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     let eligibility_error = executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &foreign_eligibility,
             &executor_test_budget(),
@@ -1170,7 +1170,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     let snapshot_error = executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &moderation_snapshot,
             &executor_test_budget(),
@@ -1183,7 +1183,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &moderation_events,
             &executor_test_budget(),
@@ -1203,7 +1203,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &orderbook,
             &executor_test_budget(),
@@ -1212,7 +1212,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &reserve_events,
             &executor_test_budget(),
@@ -1221,7 +1221,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &reputation_policy,
             &executor_test_budget(),
@@ -1230,7 +1230,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block.clone()),
+            Some(&latest_block),
             &ALICE_ID,
             &foreign_eligibility,
             &executor_test_budget(),
@@ -1239,7 +1239,7 @@ fn initial_executor_mirrors_default_private_query_permissions() {
     executor
         .validate_query_with_world_parts(
             &state_transaction.world,
-            Some(latest_block),
+            Some(&latest_block),
             &ALICE_ID,
             &moderation_snapshot,
             &executor_test_budget(),
@@ -1679,7 +1679,7 @@ fn initial_executor_gates_every_authoritative_sorafs_query_variant() {
         ($query:expr) => {
             executor.validate_query_with_world_parts(
                 &state_transaction.world,
-                Some(latest_block.clone()),
+                Some(&latest_block),
                 &ALICE_ID,
                 $query,
                 &executor_test_budget(),
@@ -1842,8 +1842,7 @@ fn initial_executor_separates_sccp_proposal_authority_from_parameter_governance(
                 CustomParameter::new(id.parse().unwrap(), Json::new(())),
             ));
         let error = crate::sumeragi::test_chain::CertifiedTestChain::start(config)
-            .err()
-            .expect("reserved parameters must stay closed during authenticated genesis");
+            .expect_err("reserved parameters must stay closed during authenticated genesis");
         assert!(
             matches!(&error.error,
                 crate::sumeragi::test_chain::TestChainError::OriginalGenesisExecution(error)
@@ -1934,25 +1933,28 @@ fn initial_executor_separates_sccp_proposal_authority_from_parameter_governance(
             .count(),
         0
     );
-    super::Executor::Initial
+    validate_initial_native_instruction_authority(
+        &state_transaction,
+        &sccp_proposer,
+        &propose(),
+        false,
+    )
+    .expect("SCCP proposer permission passes the instruction authority check");
+    let events = state_transaction.world.internal_event_buf.len();
+    let error = super::Executor::Initial
         .execute_instruction(&mut state_transaction, &sccp_proposer, propose())
-        .expect("the SCCP proposer permission admits a canonical Parliament proposal");
+        .expect_err("SCCP proposer permission cannot open the unavailable binding-ballot gate");
+    assert!(
+        matches!(
+            &error,
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(reason))
+                if reason.as_ref() == "ParliamentBallotUnavailable"
+        ),
+        "{error:?}"
+    );
     let proposals = state_transaction.world.governance_proposals();
-    assert_eq!(proposals.iter().count(), 1);
-    let (_, record) = proposals.iter().next().expect("the admitted SCCP proposal");
-    assert_eq!(record.proposer, sccp_proposer);
-    assert_eq!(
-        record.status,
-        crate::state::GovernanceProposalStatus::Proposed
-    );
-    assert_eq!(
-        record
-            .as_sccp_route_governance()
-            .expect("the canonical SCCP proposal body")
-            .proposal
-            .as_ref(),
-        &proposal
-    );
+    assert_eq!(proposals.iter().count(), 0);
+    assert_eq!(state_transaction.world.internal_event_buf.len(), events);
     assert!(
         state_transaction.world.sccp_parameters().is_none(),
         "proposing SetParameters must not enact the SCCP parameter change"
@@ -2039,8 +2041,7 @@ fn initial_executor_rejects_malformed_dpn_payloads_even_at_genesis() {
                 .genesis_instructions
                 .push(Grant::account_permission(malformed.clone(), destination.clone()).into());
             let error = crate::sumeragi::test_chain::CertifiedTestChain::start(negative)
-                .err()
-                .expect("malformed DPN signed genesis rejects");
+                .expect_err("malformed DPN signed genesis rejects");
             assert!(
                 matches!(&error.error,
                     crate::sumeragi::test_chain::TestChainError::OriginalGenesisExecution(error)
@@ -2098,10 +2099,10 @@ fn executor_cache_test_in_child(name: &str) -> bool {
 
 #[test]
 fn loaded_executor_materializes_only_governed_runtime() {
+    const GAS_LIMIT: u64 = 10_000;
     if executor_cache_test_in_child("loaded_executor_materializes_only_governed_runtime") {
         return;
     }
-    const GAS_LIMIT: u64 = 10_000;
     let raw = data_model_executor::Executor::new(IvmBytecode::from_compiled(generate_ok_program()));
     let loaded = super::LoadedExecutor::load(raw).expect("validate executor without a runtime");
     assert_eq!(
@@ -2143,12 +2144,12 @@ fn loaded_executor_materializes_only_governed_runtime() {
 
 #[test]
 fn executor_idle_retention_reclamation_preserves_lru_identity_and_original_owners() {
+    const GAS: u64 = 10_000;
     if executor_cache_test_in_child(
         "executor_idle_retention_reclamation_preserves_lru_identity_and_original_owners",
     ) {
         return;
     }
-    const GAS: u64 = 10_000;
     let loaded = super::LoadedExecutor::load(data_model_executor::Executor::new(
         IvmBytecode::from_compiled(generate_ok_program()),
     ))
@@ -2247,12 +2248,12 @@ fn executor_idle_retention_reclamation_preserves_lru_identity_and_original_owner
 
 #[test]
 fn executor_idle_retention_reclamation_rejects_replaced_or_filled_returning_slot() {
+    const GAS: u64 = 10_000;
     if executor_cache_test_in_child(
         "executor_idle_retention_reclamation_rejects_replaced_or_filled_returning_slot",
     ) {
         return;
     }
-    const GAS: u64 = 10_000;
     let loaded = super::LoadedExecutor::load(data_model_executor::Executor::new(
         IvmBytecode::from_compiled(generate_ok_program()),
     ))

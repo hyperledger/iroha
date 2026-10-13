@@ -27,6 +27,11 @@ pub struct RetainedFinalizedGlobalThresholdBeaconSessionV1 {
 impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Authenticate and admit a canonical signed or restored lifecycle record.
     /// Every fallible graph/control operation completes before callers install the row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid session transcript, binding, or lifecycle,
+    /// or if the original pool cannot admit or allocate its retained graph.
     pub fn admit(
         source: &FinalizedGlobalThresholdBeaconKeySessionRecordV1,
         budget: &AllocationBudget,
@@ -48,6 +53,11 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         Ok(record)
     }
     /// Recheck only mutable lifecycle ordering; immutable transcript authenticity is sealed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if activation precedes DKG finalization, retirement lacks
+    /// activation, or retirement is not strictly after activation.
     pub fn validate(&self) -> Result<(), GlobalThresholdBeaconError> {
         validate_lifecycle(
             self.session.adaptive_dkg.finalized_at_height,
@@ -56,6 +66,11 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         )
     }
     /// Activate at the exact committed height without cloning or revalidating public proofs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid existing lifecycle, a retired key, a
+    /// height before finalization, or a conflicting prior activation height.
     pub fn activate(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         if self.retired_at_height.is_some()
@@ -75,6 +90,11 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
         }
     }
     /// Retire at a strictly later committed height while retaining the identical graph owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid or inactive lifecycle, a retirement at or
+    /// before activation, or a conflicting prior retirement height.
     pub fn retire(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         let activated = self

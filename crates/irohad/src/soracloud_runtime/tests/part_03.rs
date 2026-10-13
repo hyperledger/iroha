@@ -366,11 +366,13 @@ fn manager_config_rejects_unsafe_direct_actual_production_posture() {
     expected = "soracloud_runtime.hydration_concurrency exceeds the first-release worker limit"
 )]
 fn manager_config_rejects_direct_actual_hydration_workers_above_v1_limit() {
-    let mut runtime = iroha_config::parameters::actual::SoracloudRuntime::default();
-    runtime.hydration_concurrency = NonZeroUsize::new(
-        iroha_config::parameters::defaults::soracloud_runtime::HYDRATION_CONCURRENCY_MAX + 1,
-    )
-    .expect("V1 hydration limit plus one is nonzero");
+    let runtime = iroha_config::parameters::actual::SoracloudRuntime {
+        hydration_concurrency: NonZeroUsize::new(
+            iroha_config::parameters::defaults::soracloud_runtime::HYDRATION_CONCURRENCY_MAX + 1,
+        )
+        .expect("V1 hydration limit plus one is nonzero"),
+        ..Default::default()
+    };
     let _ = SoracloudRuntimeManagerConfig::from_runtime_config(&runtime);
 }
 #[test]
@@ -378,12 +380,11 @@ fn manager_config_rejects_direct_actual_hydration_workers_above_v1_limit() {
     expected = "soracloud_runtime.prepared_runtime_cache_capacity exceeds the first-release idle-runtime limit"
 )]
 fn manager_config_rejects_direct_actual_prepared_cache_above_v1_limit() {
-    let mut runtime = iroha_config::parameters::actual::SoracloudRuntime::default();
-    runtime.prepared_runtime_cache_capacity = NonZeroUsize::new(
+    let runtime = iroha_config::parameters::actual::SoracloudRuntime { prepared_runtime_cache_capacity: NonZeroUsize::new(
         iroha_config::parameters::defaults::soracloud_runtime::PREPARED_RUNTIME_CACHE_CAPACITY_MAX
             + 1,
     )
-    .expect("V1 prepared-runtime cache limit plus one is nonzero");
+    .expect("V1 prepared-runtime cache limit plus one is nonzero"), ..Default::default() };
     let _ = SoracloudRuntimeManagerConfig::from_runtime_config(&runtime);
 }
 #[test]
@@ -468,7 +469,7 @@ fn programmatic_manager_rejects_nonproduction_inrou_before_writes() {
         .expect_err("startup qualification must reject posture before live host effects");
     assert!(error.to_string().contains("production_mode = true"));
 
-    let manager = SoracloudRuntimeManager::new(config, test_state().expect("test state"));
+    let manager = SoracloudRuntimeManager::new(config, test_state());
     let error = manager
         .reconcile_once()
         .expect_err("reconcile must enforce PortableVM V1 posture before writes");
@@ -510,8 +511,10 @@ fn programmatic_manager_rejects_incomplete_production_posture() {
 #[test]
 #[should_panic(expected = "bundle_archive_max_compressed_bytes exceeds its hard ceiling")]
 fn manager_config_rejects_direct_actual_archive_limit_above_hard_ceiling() {
-    let mut runtime = iroha_config::parameters::actual::SoracloudRuntime::default();
-    runtime.production_mode = true;
+    let mut runtime = iroha_config::parameters::actual::SoracloudRuntime {
+        production_mode: true,
+        ..Default::default()
+    };
     runtime.inrou.bundle_archive_max_compressed_bytes = std::num::NonZeroU64::new(
         iroha_config::parameters::defaults::soracloud_runtime::INROU_BUNDLE_ARCHIVE_MAX_COMPRESSED_BYTES_LIMIT
             + 1,
@@ -523,9 +526,11 @@ fn manager_config_rejects_direct_actual_archive_limit_above_hard_ceiling() {
 fn programmatic_inrou_guest_image_limit_is_inclusive_at_its_hard_ceiling() {
     let hard_ceiling =
         iroha_config::parameters::defaults::soracloud_runtime::INROU_GUEST_IMAGE_MAX_BYTES_LIMIT;
-    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    config.guest_image_max_bytes =
-        NonZeroU64::new(hard_ceiling).expect("guest-image hard ceiling is nonzero");
+    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou {
+        guest_image_max_bytes: NonZeroU64::new(hard_ceiling)
+            .expect("guest-image hard ceiling is nonzero"),
+        ..Default::default()
+    };
     validate_inrou_portable_vm_v1_config(&config)
         .expect("the exact guest-image hard ceiling must remain admissible");
 
@@ -536,7 +541,7 @@ fn programmatic_inrou_guest_image_limit_is_inclusive_at_its_hard_ceiling() {
     )
     .expect("hard ceiling plus one is nonzero");
     assert_report_contains(
-        validate_inrou_portable_vm_v1_config(&config)
+        &validate_inrou_portable_vm_v1_config(&config)
             .expect_err("one byte above the guest-image hard ceiling must fail"),
         "guest_image_max_bytes exceeds its",
     );
@@ -729,9 +734,11 @@ fn inrou_launcher_normalizes_a_source_opened_on_closed_stdio() -> Result<()> {
 }
 #[test]
 fn inrou_startup_probe_uses_the_configured_ceiling_including_vmm_overhead() {
-    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    config.max_cpu_millis = std::num::NonZeroU32::new(1_000).unwrap();
-    config.max_memory_bytes = std::num::NonZeroU64::new(768 * 1024 * 1024).unwrap();
+    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou {
+        max_cpu_millis: std::num::NonZeroU32::new(1_000).unwrap(),
+        max_memory_bytes: std::num::NonZeroU64::new(768 * 1024 * 1024).unwrap(),
+        ..Default::default()
+    };
     let probe = inrou_startup_probe_shape(&config).unwrap();
     assert_eq!(
         probe.resources().checked_inrou_host_cpu_millis(),
@@ -785,11 +792,13 @@ fn inrou_qmp_kvm_attestation_requires_one_exact_enabled_record() -> Result<()> {
 }
 #[test]
 fn enabled_inrou_portable_vm_config_requires_one_canonical_identity_slot() -> Result<()> {
-    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    config.enabled = true;
-    config.portable_vm_uid = std::num::NonZeroU32::new(70_000);
-    config.portable_vm_gid = std::num::NonZeroU32::new(70_000);
-    config.trusted_guest_artifact = Some(sample_published_inrou_guest_image_artifact(0x41));
+    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou {
+        enabled: true,
+        portable_vm_uid: std::num::NonZeroU32::new(70_000),
+        portable_vm_gid: std::num::NonZeroU32::new(70_000),
+        trusted_guest_artifact: Some(sample_published_inrou_guest_image_artifact(0x41)),
+        ..Default::default()
+    };
 
     validate_inrou_portable_vm_v1_config(&config)?;
     config.portable_vm_gid = std::num::NonZeroU32::new(70_001);
@@ -799,8 +808,10 @@ fn enabled_inrou_portable_vm_config_requires_one_canonical_identity_slot() -> Re
 }
 #[test]
 fn disabled_inrou_config_rejects_stale_identity() {
-    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    config.portable_vm_uid = std::num::NonZeroU32::new(70_000);
+    let config = iroha_config::parameters::actual::SoracloudRuntimeInrou {
+        portable_vm_uid: std::num::NonZeroU32::new(70_000),
+        ..Default::default()
+    };
     let error = validate_inrou_portable_vm_v1_config(&config)
         .expect_err("disabled Inrou must not retain an identity");
     assert!(
@@ -811,9 +822,11 @@ fn disabled_inrou_config_rejects_stale_identity() {
 }
 #[test]
 fn inrou_archive_limits_use_the_tighter_bundle_cache_bound() {
-    let mut config = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    config.bundle_archive_max_compressed_bytes =
-        std::num::NonZeroU64::new(8_192).expect("nonzero archive bound");
+    let config = iroha_config::parameters::actual::SoracloudRuntimeInrou {
+        bundle_archive_max_compressed_bytes: std::num::NonZeroU64::new(8_192)
+            .expect("nonzero archive bound"),
+        ..Default::default()
+    };
     assert_eq!(
         inrou_bundle_archive_limits(&config, 4_096).max_compressed_bytes,
         4_096
@@ -826,7 +839,7 @@ fn inrou_archive_limits_use_the_tighter_bundle_cache_bound() {
 #[test]
 fn hosted_http_concurrency_limit_uses_single_portable_vm_budget() {
     let config = test_runtime_manager_config(PathBuf::from("/tmp/test-soracloud-runtime-limit"));
-    let manager = inrou_capability_unit_test_manager(config, test_state().expect("test state"));
+    let manager = inrou_capability_unit_test_manager(config, test_state());
     assert_eq!(manager.hosted_http_concurrency_limit(), 1);
 }
 #[test]
@@ -835,7 +848,7 @@ fn inrou_startup_qualification_rejects_configuration_drift() {
         test_runtime_manager_config(PathBuf::from("/tmp/test-soracloud-runtime-prequalified"));
     config.production_mode = false;
     config.inrou = iroha_config::parameters::actual::SoracloudRuntimeInrou::default();
-    let mut manager = SoracloudRuntimeManager::new(config.clone(), test_state().expect("state"))
+    let mut manager = SoracloudRuntimeManager::new(config.clone(), test_state())
         .preflight_startup()
         .expect("disabled Inrou needs no host launcher");
     manager
@@ -859,7 +872,7 @@ fn inrou_startup_qualification_failure_never_publishes_a_qualification() {
     ));
     config.production_mode = true;
     config.egress.default_allow = true;
-    let mut manager = SoracloudRuntimeManager::new(config, test_state().expect("state"));
+    let mut manager = SoracloudRuntimeManager::new(config, test_state());
     assert!(manager.qualify_inrou_startup_capability().is_err());
     assert!(manager.inrou_startup_qualified_config.is_none());
     assert!(manager.inrou_startup_capability.is_none());
@@ -870,7 +883,7 @@ fn inrou_capability_activates_only_after_exact_host_preflight() {
         "/tmp/test-soracloud-runtime-capability-preflight",
     ))
     .with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostPreflight");
-    let mut manager = SoracloudRuntimeManager::new(config, test_state().expect("test state"));
+    let mut manager = SoracloudRuntimeManager::new(config, test_state());
     assert!(manager.inrou_startup_capability.is_none());
     match manager.qualify_inrou_startup_capability() {
         Ok(()) => assert!(manager.inrou_startup_capability.is_some()),
@@ -887,7 +900,7 @@ fn inrou_host_advertises_canonical_v1_capacity() {
     config.inrou.max_storage_bytes =
         std::num::NonZeroU64::new(70 * 1024 * 1024 * 1024).expect("storage budget");
     config = config.with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostAdvertCapacity");
-    let manager = inrou_capability_unit_test_manager(config, test_state().expect("test state"));
+    let manager = inrou_capability_unit_test_manager(config, test_state());
     assert_eq!(manager.hosted_http_concurrency_limit(), 1);
     let capability = manager
         .build_local_inrou_host_capability_record(123)
@@ -906,7 +919,7 @@ fn disabled_inrou_host_does_not_advertise_or_host() {
     config.inrou.portable_vm_gid = None;
     config.inrou.trusted_guest_artifact = None;
     config = config.with_local_host_identity(ALICE_ID.clone(), "12D3KooWDisabledRuntimeHostAdvert");
-    let state = test_state().expect("test state");
+    let state = test_state();
     let manager = SoracloudRuntimeManager::new(config, Arc::clone(&state));
     assert_eq!(manager.hosted_http_concurrency_limit(), 0);
     assert!(
@@ -938,8 +951,7 @@ fn inrou_host_capability_refresh_waits_until_heartbeat_margin() {
         "/tmp/test-soracloud-runtime-inrou-refresh-margin",
     ))
     .with_local_host_identity(ALICE_ID.clone(), "12D3KooWInrouRefreshMarginHost");
-    let manager =
-        inrou_capability_unit_test_manager(config.clone(), test_state().expect("test state"));
+    let manager = inrou_capability_unit_test_manager(config.clone(), test_state());
     let now_ms = 1_000_000;
     let desired = manager
         .build_local_inrou_host_capability_record(now_ms)
@@ -974,8 +986,8 @@ fn inrou_host_capability_refresh_waits_until_heartbeat_margin() {
     ));
 }
 #[test]
-fn inrou_host_capability_refresh_candidate_respects_authoritative_state() -> Result<()> {
-    let mut state = test_state()?;
+fn inrou_host_capability_refresh_candidate_respects_authoritative_state() {
+    let mut state = test_state();
     let config = test_runtime_manager_config(PathBuf::from(
         "/tmp/test-soracloud-runtime-host-refresh-candidate",
     ))
@@ -1011,7 +1023,6 @@ fn inrou_host_capability_refresh_candidate_respects_authoritative_state() -> Res
             .lock()
             .is_none()
     );
-    Ok(())
 }
 #[test]
 fn refresh_local_inrou_host_capability_submits_candidate() {
@@ -1019,7 +1030,7 @@ fn refresh_local_inrou_host_capability_submits_candidate() {
         test_runtime_manager_config(PathBuf::from("/tmp/test-soracloud-runtime-host-refresh"));
     let config =
         config.with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostRefreshSubmit");
-    let state = test_state().expect("test state");
+    let state = test_state();
     let mutation_sink = Arc::new(RecordingRuntimeMutationSink::default());
     let manager = inrou_capability_unit_test_manager(config, Arc::clone(&state));
     let manager = manager.with_mutation_sink(mutation_sink.clone());
@@ -1039,7 +1050,7 @@ fn refresh_local_inrou_host_capability_suppresses_pending_duplicate() {
     ));
     let config =
         config.with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostRefreshPending");
-    let state = test_state().expect("test state");
+    let state = test_state();
     let mutation_sink = Arc::new(RecordingRuntimeMutationSink::default());
     let manager = inrou_capability_unit_test_manager(config, Arc::clone(&state));
     let manager = manager.with_mutation_sink(mutation_sink.clone());
@@ -1076,7 +1087,7 @@ fn refresh_local_inrou_host_capability_allows_pending_refresh_near_expiry() {
     ));
     let config =
         config.with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostRefreshExpiry");
-    let state = test_state().expect("test state");
+    let state = test_state();
     let mutation_sink = Arc::new(RecordingRuntimeMutationSink::default());
     let manager = inrou_capability_unit_test_manager(config.clone(), Arc::clone(&state));
     let manager = manager.with_mutation_sink(mutation_sink.clone());
@@ -1100,7 +1111,7 @@ fn inrou_placement_reconcile_request_obeys_needed_flag_and_cooldown() {
     let config = test_runtime_manager_config(PathBuf::from(
         "/tmp/test-soracloud-runtime-placement-reconcile",
     ));
-    let state = test_state().expect("test state");
+    let state = test_state();
     let mutation_sink = Arc::new(RecordingRuntimeMutationSink::default());
     let manager =
         SoracloudRuntimeManager::new(config, state).with_mutation_sink(mutation_sink.clone());
@@ -1111,8 +1122,8 @@ fn inrou_placement_reconcile_request_obeys_needed_flag_and_cooldown() {
     assert_eq!(mutation_sink.submitted_inrou_placement_reconciles(), 1);
 }
 #[test]
-fn unavailable_inrou_host_withdrawal_requests_placement_reconcile() -> Result<()> {
-    let mut state = test_state()?;
+fn unavailable_inrou_host_withdrawal_requests_placement_reconcile() {
+    let mut state = test_state();
     let config =
         test_runtime_manager_config(PathBuf::from("/tmp/test-soracloud-runtime-host-withdraw"))
             .with_local_host_identity(ALICE_ID.clone(), "12D3KooWRuntimeHostWithdraw");
@@ -1134,12 +1145,11 @@ fn unavailable_inrou_host_withdrawal_requests_placement_reconcile() -> Result<()
     manager.withdraw_local_inrou_host_if_needed(&view);
     assert_eq!(mutation_sink.submitted_inrou_host_withdrawals(), 1);
     assert_eq!(mutation_sink.submitted_inrou_placement_reconciles(), 1);
-    Ok(())
 }
 #[test]
 fn disabled_inrou_reconcile_withdraws_existing_local_host_advert() -> Result<()> {
     let temp_dir = canonical_runtime_fixture_tempdir()?;
-    let mut state = test_state()?;
+    let mut state = test_state();
     let state_dir = canonical_test_runtime_state_dir(&temp_dir)?;
     let enabled_config = test_runtime_manager_config(state_dir)
         .with_local_host_identity(ALICE_ID.clone(), "12D3KooWDisabledHostWithdraw");
@@ -1172,7 +1182,7 @@ fn disabled_inrou_reconcile_withdraws_existing_local_host_advert() -> Result<()>
 }
 #[test]
 fn reconcile_once_persists_active_service_and_apartment_materializations() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.container.required_config_names = vec!["ui/settings".to_string()];
     bundle.container.config_exports = vec![
@@ -1344,7 +1354,7 @@ fn reconcile_once_persists_active_service_and_apartment_materializations() -> Re
 }
 #[test]
 fn reconcile_once_prunes_stale_authoritative_service_materializations() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = simple_soracloud_contract_artifact(&["update", "ciphertext_update"]);
     let artifact_payloads =
@@ -1454,7 +1464,7 @@ fn reconcile_once_prunes_stale_authoritative_service_materializations() -> Resul
 }
 #[test]
 fn reconcile_once_prunes_stale_materializations_and_reports_missing_bundle_cache() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     let bundle_bytes = simple_soracloud_contract_artifact(&["update"]);
     let _artifact_payloads =
@@ -1497,7 +1507,7 @@ fn reconcile_once_prunes_stale_materializations_and_reports_missing_bundle_cache
 }
 #[test]
 fn reconcile_once_marks_hydrated_ivm_service_healthy_without_runtime_state() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.service.artifacts.clear();
     let bundle_bytes = simple_soracloud_contract_artifact(&["query"]);
@@ -1538,7 +1548,7 @@ fn reconcile_once_marks_hydrated_ivm_service_healthy_without_runtime_state() -> 
 }
 #[test]
 fn build_runtime_snapshot_projects_authoritative_inrou_placement() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     bundle.validate_for_admission()?;
     let deployment_state = sample_deployment_state(&bundle);
@@ -1573,8 +1583,7 @@ fn build_runtime_snapshot_projects_authoritative_inrou_placement() -> Result<()>
     let snapshot = build_runtime_snapshot(
         &view,
         &bundle_registry,
-        &config.state_dir,
-        config.state_dir.join("artifacts"),
+        (&config.state_dir, &config.state_dir.join("artifacts")),
         &config.cache_budgets,
         config.local_validator_account_id.as_ref(),
         config.local_peer_id.as_deref(),
@@ -1624,7 +1633,7 @@ fn materialize_inrou_replica_plan_rejects_stale_manifest_hash() -> Result<()> {
 }
 #[test]
 fn build_runtime_snapshot_rejects_corrupt_hosted_http_runtime_state() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     bundle.validate_for_admission()?;
     let deployment_state = sample_deployment_state(&bundle);
@@ -1662,8 +1671,7 @@ fn build_runtime_snapshot_rejects_corrupt_hosted_http_runtime_state() -> Result<
     let error = build_runtime_snapshot(
         &view,
         &bundle_registry,
-        &config.state_dir,
-        config.state_dir.join("artifacts"),
+        (&config.state_dir, &config.state_dir.join("artifacts")),
         &config.cache_budgets,
         config.local_validator_account_id.as_ref(),
         config.local_peer_id.as_deref(),
@@ -1680,7 +1688,7 @@ fn build_runtime_snapshot_rejects_corrupt_hosted_http_runtime_state() -> Result<
 }
 #[test]
 fn reconcile_once_stamps_snapshot_with_local_peer_identity() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = load_deployment_bundle_fixture()?;
     bundle.validate_for_admission()?;
     {
@@ -1705,7 +1713,7 @@ fn reconcile_once_stamps_snapshot_with_local_peer_identity() -> Result<()> {
 #[cfg(unix)]
 #[test]
 fn reconcile_error_quarantines_existing_inrou_worker_and_snapshot_plan() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     let deployment = sample_deployment_state(&bundle);
     let reporting_epoch = deployment
@@ -1730,8 +1738,7 @@ fn reconcile_error_quarantines_existing_inrou_worker_and_snapshot_plan() -> Resu
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -1832,7 +1839,7 @@ fn reconcile_error_quarantines_existing_inrou_worker_and_snapshot_plan() -> Resu
 
 #[test]
 fn build_runtime_snapshot_rejects_active_inrou_canary() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut active_bundle = sample_inrou_test_bundle()?;
     let mut canary_bundle = active_bundle.clone();
     canary_bundle.service.service_version = "2026.03.0".to_string();
@@ -1882,8 +1889,7 @@ fn build_runtime_snapshot_rejects_active_inrou_canary() -> Result<()> {
     let error = build_runtime_snapshot(
         &view,
         &bundle_registry,
-        &config.state_dir,
-        config.state_dir.join("artifacts"),
+        (&config.state_dir, &config.state_dir.join("artifacts")),
         &config.cache_budgets,
         config.local_validator_account_id.as_ref(),
         config.local_peer_id.as_deref(),
@@ -1901,7 +1907,7 @@ fn build_runtime_snapshot_rejects_active_inrou_canary() -> Result<()> {
 
 #[test]
 fn persisted_and_synthetic_inrou_snapshots_require_current_exact_revision() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     let mut ivm_bundle = load_deployment_bundle_fixture()?;
     ivm_bundle.service.service_name = "deterministic_sidecar".parse()?;
@@ -1924,8 +1930,7 @@ fn persisted_and_synthetic_inrou_snapshots_require_current_exact_revision() -> R
     let mut snapshot = build_runtime_snapshot(
         &view,
         &bundle_registry,
-        &config.state_dir,
-        config.state_dir.join("artifacts"),
+        (&config.state_dir, &config.state_dir.join("artifacts")),
         &config.cache_budgets,
         config.local_validator_account_id.as_ref(),
         config.local_peer_id.as_deref(),
@@ -2081,7 +2086,7 @@ fn persisted_and_synthetic_inrou_snapshots_require_current_exact_revision() -> R
 
 #[test]
 fn startup_rebuilds_snapshot_after_atomic_inrou_revision_switch() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let retired_bundle = sample_inrou_test_bundle()?;
     retired_bundle.validate_for_admission()?;
     let retired_deployment = sample_deployment_state(&retired_bundle);
@@ -2102,8 +2107,7 @@ fn startup_rebuilds_snapshot_after_atomic_inrou_revision_switch() -> Result<()> 
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -2247,7 +2251,7 @@ fn startup_rebuilds_snapshot_after_atomic_inrou_revision_switch() -> Result<()> 
 
 #[test]
 fn submit_http_service_runtime_state_retries_until_authoritative_state_catches_up() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     bundle.validate_for_admission()?;
     let deployment_state = sample_deployment_state(&bundle);
@@ -2317,8 +2321,7 @@ fn submit_http_service_runtime_state_retries_until_authoritative_state_catches_u
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -2408,8 +2411,7 @@ fn submit_http_service_runtime_state_retries_until_authoritative_state_catches_u
         let snapshot_after_catch_up = build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -2440,7 +2442,7 @@ fn submit_http_service_runtime_state_retries_until_authoritative_state_catches_u
 }
 #[test]
 fn submit_http_service_runtime_state_retries_stale_row_after_cooldown() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     bundle.validate_for_admission()?;
     let deployment_state = sample_deployment_state(&bundle);
@@ -2512,8 +2514,7 @@ fn submit_http_service_runtime_state_retries_stale_row_after_cooldown() -> Resul
         build_runtime_snapshot(
             &view,
             &bundle_registry,
-            &config.state_dir,
-            config.state_dir.join("artifacts"),
+            (&config.state_dir, &config.state_dir.join("artifacts")),
             &config.cache_budgets,
             config.local_validator_account_id.as_ref(),
             config.local_peer_id.as_deref(),
@@ -2598,7 +2599,7 @@ fn submit_http_service_runtime_state_retries_stale_row_after_cooldown() -> Resul
 }
 #[test]
 fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Result<()> {
-    let mut state = test_state()?;
+    let mut state = test_state();
     let mut bundle = load_deployment_bundle_fixture()?;
     bundle.container.runtime = SoraContainerRuntimeV1::Inrou;
     bundle.service.execution_plane =
@@ -2632,12 +2633,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
     let stale_lease_started_height = lease_started_height.saturating_add(1);
     manager.submit_http_service_lease_usage_update(
         &view,
-        bundle.service.service_name.as_ref(),
-        stale_lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (stale_lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );
@@ -2668,23 +2669,23 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
         );
     manager.submit_http_service_lease_usage_update(
         &view,
-        bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );
     manager.submit_http_service_lease_usage_update(
         &view,
-        bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );
@@ -2704,12 +2705,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
         .attempted_at_ms = 0;
     manager.submit_http_service_lease_usage_update(
         &view,
-        bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );
@@ -2731,13 +2732,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
         submitted_usage[0].replica_accounted_egress_bytes, 0,
         "a recovered nonzero durable counter must first open its reporter identity at zero"
     );
-    let mut opened_state = test_state()?;
+    let mut opened_state = test_state();
     let mut opened_deployment = deployment_state.clone();
     let opened_lease = opened_deployment.service_lease.as_mut().expect("lease");
     opened_lease.egress_reporter_checkpoints = vec![sample_lease_egress_checkpoint(
-        reporting_epoch,
+        (reporting_epoch, lease_started_height),
         bundle.service.service_version.clone(),
-        lease_started_height,
         1,
         placement_incarnation,
         ALICE_ID.clone(),
@@ -2762,12 +2762,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
     let opened_view = opened_state.view();
     opened_manager.submit_http_service_lease_usage_update(
         &opened_view,
-        bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );
@@ -2780,13 +2780,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
         "preserved usage must follow the authoritative zero opener"
     );
 
-    let mut caught_up_state = test_state()?;
+    let mut caught_up_state = test_state();
     let mut caught_up_deployment = deployment_state;
     let caught_up_lease = caught_up_deployment.service_lease.as_mut().expect("lease");
     caught_up_lease.egress_reporter_checkpoints = vec![sample_lease_egress_checkpoint(
-        reporting_epoch,
+        (reporting_epoch, lease_started_height),
         bundle.service.service_version.clone(),
-        lease_started_height,
         1,
         placement_incarnation,
         ALICE_ID.clone(),
@@ -2811,12 +2810,12 @@ fn submit_http_service_lease_usage_binds_lease_opens_zero_and_retries() -> Resul
     let caught_up_view = caught_up_state.view();
     caught_up_manager.submit_http_service_lease_usage_update(
         &caught_up_view,
-        bundle.service.service_name.as_ref(),
-        lease_started_height,
-        reporting_epoch,
-        &bundle.service.service_version,
-        1,
-        placement_incarnation,
+        (
+            bundle.service.service_name.as_ref(),
+            &bundle.service.service_version,
+        ),
+        (lease_started_height, reporting_epoch),
+        (1, placement_incarnation),
         8 * 1024 * 1024,
         false,
     );

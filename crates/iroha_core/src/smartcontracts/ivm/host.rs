@@ -1046,14 +1046,14 @@ fn execute_query_on_state_with_count_mode<R: StateReadOnly>(
     }
     .with_count_mode(count_mode);
     let validated = ValidQueryRequest::validate_for_ivm(request, &mut validator, limits)
-        .map_err(|err| map_query_validation_error(err))?;
-    let (response, stats) = validated
+        .map_err(map_query_validation_error)?;
+    let (response, execution_stats) = validated
         .execute_ephemeral_with_stats(state.query_handle(), state, authority, budget)
         .map_err(|err| map_query_execution_error(err))?;
     Ok(QueryExecutionResult {
         response,
-        processed_items: stats.processed_items(),
-        processed_bytes: stats.processed_bytes(),
+        processed_items: execution_stats.processed_items(),
+        processed_bytes: execution_stats.processed_bytes(),
     })
 }
 fn execute_query_on_state_with_budget<R: StateReadOnly>(
@@ -1099,7 +1099,9 @@ fn execute_optional_singular_query_on_state<R: StateReadOnly>(
         Err(error) => return Err(map_query_validation_error(error)),
     };
     match validated.execute_ephemeral_with_stats(state.query_handle(), state, authority, budget) {
-        Ok((QueryResponse::Singular(output), stats)) => Ok((Some(output), stats)),
+        Ok((QueryResponse::Singular(output), execution_stats)) => {
+            Ok((Some(output), execution_stats))
+        }
         Ok((QueryResponse::Iterable(_), _)) => Err(ivm::VMError::DecodeError),
         Err(crate::execution_attempt::ExecutionAttemptError::Rejected(error))
             if is_missing_query_error(&error) =>
@@ -1358,6 +1360,11 @@ pub trait QueryStateRefOps {
     ) -> Result<ContractInstance, ivm::VMError>;
     /// Resolve an authenticated contract identity, runtime subject, and artifact length without
     /// copying its manifest or bytecode.
+    ///
+    /// # Errors
+    ///
+    /// Returns a VM error if the deployed binding, manifest, runtime subject,
+    /// or code identity cannot be authenticated.
     fn bound_contract_dispatch_identity_by_address(
         &self,
         contract_address: &ContractAddress,
@@ -1370,6 +1377,11 @@ pub trait QueryStateRefOps {
         ivm::VMError,
     >;
     /// Prepare a content-addressed cache miss while borrowing deployed bytecode in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns a VM error if the artifact is absent, deployed-code validation
+    /// fails, or preparing the contract exceeds resources or rejects its bytecode.
     fn prepare_contract_cache_miss(
         &self,
         cache: &PreparedContractCache,
@@ -1575,7 +1587,6 @@ fn visit_merged_durable_state_keys(
         Ok(())
     };
     visit_live(&mut merge_live)?;
-    drop(merge_live);
     while let Some((key, present)) = local.next() {
         if !key.as_ref().starts_with(physical_prefix) {
             break;
@@ -1622,7 +1633,6 @@ fn visit_bounded_durable_state_positions(
         Ok(ControlFlow::Continue(()))
     };
     let flow = visit_live(&mut merge_live)?;
-    drop(merge_live);
     if flow.is_break() {
         return Ok(());
     }
@@ -2541,9 +2551,14 @@ impl PartialEq<InstructionBox> for QueuedEffect {
     }
 }
 #[derive(Clone)]
+enum OriginalMapEntry<T> {
+    Absent,
+    Present(T),
+}
+#[derive(Clone)]
 struct DurableStateOriginal {
-    overlay: Option<Option<Vec<u8>>>,
-    authorization: Option<Option<ContractEntrypointAuthorizationSnapshot>>,
+    overlay: OriginalMapEntry<Option<Vec<u8>>>,
+    authorization: OriginalMapEntry<Option<ContractEntrypointAuthorizationSnapshot>>,
 }
 #[derive(Default)]
 struct NestedContractCallJournal {
@@ -4169,7 +4184,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     cfg.allowed_signing.sort();
                     cfg.allowed_signing.dedup();
                     if !cfg.default_hash.eq_ignore_ascii_case("sm3-256") {
-                        cfg.default_hash = "sm3-256".to_owned();
+                        "sm3-256".clone_into(&mut cfg.default_hash);
                     }
                     if cfg.sm2_distid_default.trim().is_empty() {
                         cfg.sm2_distid_default = defaults::sm2_distid_default();
@@ -4479,6 +4494,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// epoch boundary are projected, after full public-session/signature and
     /// canonical block-anchor verification. Missing or conflicting evidence
     /// leaves that epoch absent so the syscall fails closed with `found=false`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the rejection or resource deferral from reading the committed
+    /// NPoS parameters. Unverifiable pulse evidence leaves its epoch absent.
     pub fn set_vrf_epoch_seeds_from_state(
         &mut self,
         state: &impl StateReadOnly,
@@ -4520,7 +4540,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             let Ok(pulse) = crate::beacon::verified_persisted_global_threshold_beacon_pulse_v1(
                 state.world(),
                 state.network_id(),
-                *candidate,
+                candidate,
             ) else {
                 continue;
             };
@@ -5076,10 +5096,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         let items = u64::try_from(items).unwrap_or(u64::MAX);
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
-        let attempted_items = self
-            .instruction_queue_count
-            .checked_add(items)
-            .unwrap_or(u64::MAX);
+        let attempted_items = self.instruction_queue_count.saturating_add(items);
         if attempted_items > limits.max_items {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::ItemCount {
                 attempted: attempted_items,
@@ -5087,10 +5104,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             });
             return false;
         }
-        let attempted_bytes = self
-            .instruction_queue_encoded_bytes
-            .checked_add(bytes)
-            .unwrap_or(u64::MAX);
+        let attempted_bytes = self.instruction_queue_encoded_bytes.saturating_add(bytes);
         if attempted_bytes > limits.max_bytes {
             self.instruction_queue_violation = Some(HostOutputBudgetViolation::EncodedBytes {
                 attempted: attempted_bytes,
@@ -5187,15 +5201,19 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .into_iter()
             .map(|mut queued| {
                 if queued.contract_runtime_context.is_none() {
-                    queued.contract_runtime_context = fallback.clone();
+                    queued.contract_runtime_context.clone_from(&fallback);
                 }
                 if queued.entrypoint_authorization.is_none() {
-                    queued.entrypoint_authorization = authorization_fallback.clone();
+                    queued
+                        .entrypoint_authorization
+                        .clone_from(&authorization_fallback);
                 }
                 queued
             })
             .collect()
     }
+    /// Extract queued effects for the test overlay builders, retaining their context.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_queued_effects_with_contract_runtime_context(
         &mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
@@ -5207,7 +5225,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.durable_state_authorizations.clear();
         mem::take(&mut self.durable_state_overlay)
     }
-    /// Drain durable writes together with the immutable authorization for each write.
+    /// Extract test overlay writes with the immutable authorization for each write.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_durable_state_overlay_with_authorizations(
         &mut self,
     ) -> (
@@ -5219,8 +5238,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             mem::take(&mut self.durable_state_authorizations),
         )
     }
-    /// Drain completed AXT states so deterministic proof replay can persist them after
-    /// verification using the same lane/height materialization as raw execution.
+    /// Extract completed AXT states for test overlays that compare proof replay with
+    /// raw execution using the same lane and height materialization.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_completed_axt_states(&mut self) -> Vec<axt::HostAxtState> {
         mem::take(&mut self.completed_axt)
     }
@@ -5470,8 +5490,16 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             return;
         }
         let original = DurableStateOriginal {
-            overlay: self.durable_state_overlay.get(key).cloned(),
-            authorization: self.durable_state_authorizations.get(key).cloned(),
+            overlay: self
+                .durable_state_overlay
+                .get(key)
+                .cloned()
+                .map_or(OriginalMapEntry::Absent, OriginalMapEntry::Present),
+            authorization: self
+                .durable_state_authorizations
+                .get(key)
+                .cloned()
+                .map_or(OriginalMapEntry::Absent, OriginalMapEntry::Present),
         };
         for journal in &mut self.nested_contract_call_journals {
             journal
@@ -5526,14 +5554,16 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .durable_read_paths
             .contains(&physical_path);
         let items = usize::from(new_logical_key).saturating_add(usize::from(new_physical_path));
-        let bytes = new_logical_key
-            .then_some(key.len().saturating_add(64))
-            .unwrap_or(0)
-            .saturating_add(
-                new_physical_path
-                    .then_some(physical_path.len().saturating_add(64))
-                    .unwrap_or(0),
-            );
+        let bytes = if new_logical_key {
+            key.len().saturating_add(64)
+        } else {
+            0
+        }
+        .saturating_add(if new_physical_path {
+            physical_path.len().saturating_add(64)
+        } else {
+            0
+        });
         if !self.try_reserve_output(items, bytes) {
             self.state_access_log.durable_read_paths_complete = false;
             return;
@@ -5547,11 +5577,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         let unique_key = !self.state_access_log.write_keys.contains(key);
         let items = 1_usize.saturating_add(usize::from(unique_key));
-        let bytes = key.len().saturating_add(64).saturating_add(
-            unique_key
-                .then_some(key.len().saturating_add(32))
-                .unwrap_or(0),
-        );
+        let bytes = key.len().saturating_add(64).saturating_add(if unique_key {
+            key.len().saturating_add(32)
+        } else {
+            0
+        });
         if !self.try_reserve_output(items, bytes) {
             return;
         }
@@ -5928,7 +5958,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             },
             &mut emit,
         )?;
-        drop(emit);
         Ok((total, scan_work_gas))
     }
     fn decode_name_payload(payload: &[u8]) -> Result<Name, ivm::VMError> {
@@ -6001,11 +6030,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// # Errors
     /// Returns an error if the pointer type does not match, the type is not allowed
     /// by the current syscall policy, or the Norito payload cannot be decoded.
-    fn decode_pointer_tlv<'a>(
-        vm: &'a IVM,
+    fn decode_pointer_tlv(
+        vm: &IVM,
         ptr: u64,
         expected: PointerType,
-    ) -> Result<pointer_abi::Tlv<'a>, ivm::VMError> {
+    ) -> Result<pointer_abi::Tlv<'_>, ivm::VMError> {
         let tlv = vm.validate_tlv(ptr)?;
         if tlv.type_id != expected {
             return Err(ivm::VMError::NoritoInvalid);
@@ -6938,18 +6967,18 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.queued.truncate(queued_len);
         for (key, original) in durable_state_originals {
             match original.overlay {
-                Some(value) => {
+                OriginalMapEntry::Present(value) => {
                     self.durable_state_overlay.insert(key.clone(), value);
                 }
-                None => {
+                OriginalMapEntry::Absent => {
                     self.durable_state_overlay.remove(&key);
                 }
             }
             match original.authorization {
-                Some(authorization) => {
+                OriginalMapEntry::Present(authorization) => {
                     self.durable_state_authorizations.insert(key, authorization);
                 }
-                None => {
+                OriginalMapEntry::Absent => {
                     self.durable_state_authorizations.remove(&key);
                 }
             }
@@ -8067,7 +8096,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             fetch_size: FetchSize::new(Some(fetch_size)),
         };
         macro_rules! request_for {
-            ($item:ty, $query:expr, $kind:ident) => {{
+            ($item:ty, $query:expr, $kind:ident, $params:ident) => {{
                 QueryRequest::Start(QueryWithParams {
                     query: (),
                     query_payload: norito::codec::Encode::encode(&$query),
@@ -8078,7 +8107,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                     selector_bytes: norito::codec::Encode::encode(
                         &SelectorTuple::<$item>::default(),
                     ),
-                    params,
+                    params: $params,
                 })
             }};
         }
@@ -8086,32 +8115,42 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             CoreQueryEntityTagV1::Account => request_for!(
                 Account,
                 iroha_data_model::query::account::prelude::FindAccounts,
-                Account
+                Account,
+                params
             ),
             CoreQueryEntityTagV1::Asset if account.is_some() => request_for!(
                 Asset,
                 iroha_data_model::query::asset::prelude::FindAssetsByAccountId::new(
                     account.ok_or(ivm::VMError::DecodeError)?
                 ),
-                Asset
+                Asset,
+                params
             ),
             CoreQueryEntityTagV1::Asset => request_for!(
                 Asset,
                 iroha_data_model::query::asset::prelude::FindAssets,
-                Asset
+                Asset,
+                params
             ),
             CoreQueryEntityTagV1::AssetDefinition => request_for!(
                 AssetDefinition,
                 iroha_data_model::query::asset::prelude::FindAssetDefinitions,
-                AssetDefinition
+                AssetDefinition,
+                params
             ),
             CoreQueryEntityTagV1::Domain => request_for!(
                 Domain,
                 iroha_data_model::query::domain::prelude::FindDomains,
-                Domain
+                Domain,
+                params
             ),
             CoreQueryEntityTagV1::Nft => {
-                request_for!(Nft, iroha_data_model::query::nft::prelude::FindNfts, Nft)
+                request_for!(
+                    Nft,
+                    iroha_data_model::query::nft::prelude::FindNfts,
+                    Nft,
+                    params
+                )
             }
         })
     }
@@ -8162,7 +8201,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         if let Some(metrics) = &mut self.core_query_page_metrics {
             metrics.host_queries = metrics.host_queries.saturating_add(1);
         }
-        let (output, stats) =
+        let (output, execution_stats) =
             state_ref.execute_optional_singular_query(&self.authority, request, Some(budget))?;
         let projected = output.map(project).transpose()?;
         let payload = Self::encode_norito_payload(&projected)?;
@@ -8170,8 +8209,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             vm,
             gas_remaining,
             &gas_ctx,
-            stats.processed_items(),
-            stats.processed_bytes(),
+            execution_stats.processed_items(),
+            execution_stats.processed_bytes(),
             &payload,
             payload_words,
             prepare,
@@ -8916,6 +8955,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         Ok(gas)
     }
     fn handle_axt_stage_anchored_spend(&mut self, vm: &IVM) -> Result<u64, ivm::VMError> {
+        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
         self.clear_axt_reject();
         let Some(state_view) = self.axt_state.as_ref() else {
             self.record_axt_reject(
@@ -8929,7 +8969,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let tlv = Self::expect_tlv(vm, vm.register(10), PointerType::AxtAnchoredSpendV1)?;
         // The canonical proof is capped at 2 MiB; this larger envelope ceiling
         // leaves room for signed source metadata while bounding decode work.
-        const MAX_SPEND_FRAME_BYTES_V1: usize = 4 * 1024 * 1024;
         if tlv.payload.len() > MAX_SPEND_FRAME_BYTES_V1 {
             return Err(ivm::VMError::NoritoInvalid);
         }
@@ -9098,7 +9137,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             commit_height,
         }
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     fn flush_durable_state(
         &mut self,
         tx: &mut StateTransaction<'_, '_>,
@@ -10400,10 +10439,9 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                                     .map_err(ivm::VMError::VerificationDeferred)?;
                             ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
                             if pending_hash.is_some() {
-                                debug_assert_eq!(
-                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front(),
-                                    pending_hash
-                                );
+                                let consumed_hash =
+                                    Arc::make_mut(&mut self.zk_last_env_hash_ballot).pop_front();
+                                debug_assert_eq!(consumed_hash, pending_hash);
                             }
                             self.enqueue_priced_instruction(instruction);
                             Ok(gas)
@@ -11341,7 +11379,7 @@ mod pointer_abi_tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 7;
@@ -11351,7 +11389,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
     return 8;
   }
 }
-"#,
+",
             43,
         );
         grant_named_permission_to_account(
@@ -11450,7 +11488,7 @@ seiyaku StateBackedBinding { permission CanExecuteContract; permission CanInspec
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ReadOnlyBinding { permission CanInspectContract;
   state int missing;
 
@@ -11462,7 +11500,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
     return 8;
   }
 }
-"#,
+",
             46,
         );
         grant_named_permission_to_account(
@@ -11889,7 +11927,7 @@ seiyaku ReadOnlyBinding { permission CanInspectContract;
         let legitimate_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspectContract;
   kotoage fn execute() authorize(CanExecuteContract) -> int {
     return 1;
@@ -11899,19 +11937,19 @@ seiyaku LegitimateBinding { permission CanExecuteContract; permission CanInspect
     return 2;
   }
 }
-"#,
+",
             44,
         );
         let privileged_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku PrivilegedBinding { permission CanAdministerContract;
   kotoage fn administer() authorize(CanAdministerContract) -> int {
     return 3;
   }
 }
-"#,
+",
             45,
         );
         grant_named_permission_to_account(
@@ -14865,10 +14903,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
     }
     #[test]
     fn unknown_syscall_is_rejected_by_policy() {
+        const UNKNOWN_SYSCALL: u32 = u32::MAX;
         let mut vm = ivm::IVM::new(10_000);
         let mut host = CoreHost::new(fixture_account("alice"));
         // Pick a syscall number outside allowed/known ranges.
-        const UNKNOWN_SYSCALL: u32 = u32::MAX;
         let res = host.syscall(UNKNOWN_SYSCALL, &mut vm);
         assert!(matches!(
             res,
@@ -15111,22 +15149,22 @@ mod tests {
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku RuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
   view fn inspect() authorize(anyone) -> int { return 1; }
 }
-"#,
+",
             0,
         );
         let stale_contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku StaleRuntimeBinding { permission CanUpdateContract;
   kotoage fn update() authorize(CanUpdateContract) {}
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -15853,7 +15891,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             .unwrap();
         let binding = ivm_abi::contract_call::ContractCallBindingV1 {
             code_hash,
-            entrypoint: entrypoint as u32,
+            entrypoint: u32::try_from(entrypoint).expect("fixture value fits u32"),
         };
         target.as_ref().len() + binding.to_bytes().unwrap().len()
     }
@@ -15872,7 +15910,7 @@ seiyaku AliasPayout {{ permission AssetOps;
                 .sum::<u64>()
             + ivm::gas::cost_of(wide::encode_sys(
                 system::SCALL,
-                ivm_sys::SYSCALL_CALL_CONTRACT as u8,
+                u8::try_from(ivm_sys::SYSCALL_CALL_CONTRACT).expect("fixture value fits u8"),
             ))
             .unwrap()
     }
@@ -15885,7 +15923,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             vm,
             schema,
             vm.register(14),
-            vm.register(15) as usize,
+            usize::try_from(vm.register(15)).expect("fixture value fits usize"),
         )
         .expect("canonical typed A9 result table")
     }
@@ -15904,7 +15942,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
     ) -> (
@@ -15916,7 +15954,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             state,
             outer_authority,
             caller_contract,
-            callee_contract,
+            nested_contract,
             entrypoint,
             payload,
             PreparedContractCache::default(),
@@ -15926,7 +15964,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         prepared_cache: PreparedContractCache,
@@ -15943,7 +15981,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let mut vm = IVM::new(1_000_000);
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
         let registers =
-            store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+            store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         let result = host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm);
         assert_eq!(
             (10..16).map(|index| vm.register(index)).collect::<Vec<_>>(),
@@ -15957,7 +15995,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
     ) -> (Result<u64, ivm::VMError>, ivm::host::AccessLog) {
@@ -15969,7 +16007,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             .unwrap();
         let mut vm = IVM::new(1_000_000);
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
-        store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+        store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         let result = host.syscall(ivm_sys::SYSCALL_CALL_CONTRACT, &mut vm);
         let access_log = host.finish_tx().expect("finish nested access log");
         (result, access_log)
@@ -15978,7 +16016,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         gas_limit: u64,
@@ -15992,7 +16030,7 @@ seiyaku AliasPayout {{ permission AssetOps;
             state,
             outer_authority,
             caller_contract,
-            callee_contract,
+            nested_contract,
             entrypoint,
             payload,
             gas_limit,
@@ -16016,7 +16054,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         code.extend_from_slice(
             &wide::encode_sys(
                 ivm::instruction::wide::system::SCALL,
-                ivm_sys::SYSCALL_CALL_CONTRACT as u8,
+                u8::try_from(ivm_sys::SYSCALL_CALL_CONTRACT).expect("fixture value fits u8"),
             )
             .to_le_bytes(),
         );
@@ -16071,7 +16109,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         state: &State,
         outer_authority: &AccountId,
         caller_contract: &ContractAddress,
-        callee_contract: &ContractAddress,
+        nested_contract: &ContractAddress,
         entrypoint: &str,
         payload: Json,
         gas_limit: u64,
@@ -16090,7 +16128,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let mut vm = IVM::new(gas_limit.max(1_000_000));
         bind_nested_caller(&mut host, &mut vm, &view, outer_authority, caller_contract);
         let registers =
-            store_typed_contract_call(&mut vm, state, callee_contract, entrypoint, &payload);
+            store_typed_contract_call(&mut vm, state, nested_contract, entrypoint, &payload);
         for (index, value) in registers.iter().enumerate() {
             vm.set_register(18 + index, *value);
         }
@@ -16113,7 +16151,7 @@ seiyaku AliasPayout {{ permission AssetOps;
         let pool_contract = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku TypedPoolViews { permission AssetOps;
   state AssetDefinitionId QuoteAsset;
   state AccountId PoolAccount;
@@ -16136,25 +16174,24 @@ seiyaku TypedPoolViews { permission AssetOps;
     return PoolAccount;
   }
 }
-"#,
+",
             0,
         );
         let outer_caller = install_contract(
             state,
             authority,
-            r#"
+            r"
 seiyaku OuterCaller {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(state, authority, authority.clone());
         grant_asset_ops_to_account(state, authority, outer_caller.subject_id());
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
         let pool_bind_payload = Json::from_str_norito(&format!(
-            r#"{{"bound_pool_account":"{}","bound_quote_asset":"{}"}}"#,
-            actual_account, actual_asset
+            r#"{{"bound_pool_account":"{actual_account}","bound_quote_asset":"{actual_asset}"}}"#
         ))
         .expect("pool bind payload");
         execute_contract_call_transaction(
@@ -17164,9 +17201,11 @@ seiyaku OuterCaller {
     fn tooling_output_limit_cannot_widen_consensus_budget() {
         let authority = (*ALICE_ID).clone();
         let mut host = CoreHost::new(authority);
-        let mut parameters = SmartContractParameters::default();
-        parameters.max_output_items = NonZeroU64::new(7).expect("non-zero item limit");
-        parameters.max_output_bytes = NonZeroU64::new(4096).expect("non-zero byte limit");
+        let parameters = SmartContractParameters {
+            max_output_items: NonZeroU64::new(7).expect("non-zero item limit"),
+            max_output_bytes: NonZeroU64::new(4096).expect("non-zero byte limit"),
+            ..Default::default()
+        };
         host.set_output_limits_from_parameters(parameters);
         host.restrict_output_limits(HostOutputLimits::new(70, 40_960));
         assert_eq!(
@@ -17184,9 +17223,11 @@ seiyaku OuterCaller {
             InstructionBox::from(Log::new(iroha_logger::Level::INFO, "bounded".to_owned()));
         let host_with = |items: u64, bytes: u64| {
             let mut host = CoreHost::new((*ALICE_ID).clone());
-            let mut parameters = SmartContractParameters::default();
-            parameters.max_output_items = NonZeroU64::new(items).expect("non-zero item limit");
-            parameters.max_output_bytes = NonZeroU64::new(bytes).expect("non-zero byte limit");
+            let parameters = SmartContractParameters {
+                max_output_items: NonZeroU64::new(items).expect("non-zero item limit"),
+                max_output_bytes: NonZeroU64::new(bytes).expect("non-zero byte limit"),
+                ..Default::default()
+            };
             host.set_output_limits_from_parameters(parameters);
             host
         };
@@ -17473,6 +17514,43 @@ seiyaku OuterCaller {
         assert!(host.queued.is_empty());
     }
     #[test]
+    fn queued_ballot_consumes_exactly_one_pending_envelope_hash() {
+        let backend: iroha_schema::Ident = "pipa-r/pasta".into();
+        let mut proof = ProofAttachment::new_ref(
+            backend.clone(),
+            ProofBox::new(backend.clone(), vec![0xa5]),
+            VerifyingKeyId::new(backend.as_str(), "queued-ballot"),
+        );
+        let instruction = InstructionBox::from(DMZk::SubmitBallot {
+            election_id: "election".to_owned(),
+            ciphertext: vec![0x11; 32],
+            ballot_proof: proof.clone(),
+            nullifier: [0x22; 32],
+        });
+        let payload = norito::to_bytes(&instruction).expect("encode proof instruction");
+        let mut vm = IVM::new(1_000_000);
+        let ptr = store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
+        vm.set_register(10, ptr);
+        vm.set_register(11, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
+        let mut host = local_contract_host((*ALICE_ID).clone());
+        let pending_hash = [0x42; 32];
+        let following_hash = [0x43; 32];
+        Arc::make_mut(&mut host.zk_last_env_hash_ballot).extend([pending_hash, following_hash]);
+        host.syscall(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION, &mut vm)
+            .expect("queue ballot");
+        assert_eq!(host.zk_last_env_hash_ballot.len(), 1);
+        assert_eq!(host.zk_last_env_hash_ballot.front(), Some(&following_hash));
+        proof.envelope_hash = Some(pending_hash);
+        let expected = InstructionBox::from(DMZk::SubmitBallot {
+            election_id: "election".to_owned(),
+            ciphertext: vec![0x11; 32],
+            ballot_proof: proof,
+            nullifier: [0x22; 32],
+        });
+        assert_eq!(host.queued.len(), 1);
+        assert_eq!(host.queued[0].instruction(), Some(&expected));
+    }
+    #[test]
     fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {
         // The schedule is the host's own value (the block's frozen ZK settings),
         // so this test cannot disturb any other host in the process.
@@ -17532,7 +17610,7 @@ seiyaku OuterCaller {
     #[test]
     fn by_call_bytes_param_can_coexist_with_canonical_asset_operation() {
         let authority = (*ALICE_ID).clone();
-        let source = r#"
+        let source = r"
 seiyaku BurnWithMemo { permission AssetTransferRole;
   kotoage fn burn_with_memo(
     AccountId sender,
@@ -17543,7 +17621,7 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     ledger::asset::burn(account: sender, asset_definition: settlement_asset, amount: amount);
   }
 }
-"#;
+";
         let compiler = kotodama_lang::compiler::Compiler::new_with_options(
             kotodama_lang::compiler::CompilerOptions {
                 force_zk: true,
@@ -17612,13 +17690,13 @@ seiyaku BurnWithMemo { permission AssetTransferRole;
     }
     #[test]
     fn kotodama_source_rejects_opaque_instruction_submission() {
-        let source = r#"
+        let source = r"
 seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
   kotoage fn submit(bytes record_instruction) authorize(AssetTransferRole) {
     execute_instruction(record_instruction);
   }
 }
-"#;
+";
         // This is intentionally the non-deployable local harness profile: the
         // retired opaque-instruction escape must remain outside the public language surface.
         let error = kotodama_lang::compiler::Compiler::new_with_options(
@@ -17629,7 +17707,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         )
         .compile_source_with_manifest(source)
         .expect_err("opaque instruction submission must remain source-inaccessible");
-        let rendered = error.to_string();
+        let rendered = error.clone();
         assert!(
             rendered.contains("error[K2002]")
                 && rendered.contains("unknown function or builtin `execute_instruction`"),
@@ -17700,8 +17778,16 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         program.extend_from_slice(&contract_section);
         program.extend_from_slice(b"LTLB");
         program.extend_from_slice(&1u32.to_le_bytes());
-        program.extend_from_slice(&(post_pad as u32).to_le_bytes());
-        program.extend_from_slice(&(tlv.len() as u32).to_le_bytes());
+        program.extend_from_slice(
+            &u32::try_from(post_pad)
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
+        program.extend_from_slice(
+            &u32::try_from(tlv.len())
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
         let literal_descriptor = ivm::encode_literal_descriptor(
             ivm::LiteralKindV1::PointerTlv,
             u64::try_from(literal_data_offset).expect("literal offset fits u64"),
@@ -17727,7 +17813,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         program.extend_from_slice(
             &ivm::encoding::wide::encode_sys(
                 ivm::instruction::wide::system::SCALL,
-                ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION as u8,
+                u8::try_from(ivm_sys::SYSCALL_SMARTCONTRACT_EXECUTE_INSTRUCTION)
+                    .expect("fixture value fits u8"),
             )
             .to_le_bytes(),
         );
@@ -17765,8 +17852,16 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         .encode();
         program.extend_from_slice(b"LTLB");
         program.extend_from_slice(&0u32.to_le_bytes());
-        program.extend_from_slice(&(post_pad as u32).to_le_bytes());
-        program.extend_from_slice(&(tlv.len() as u32).to_le_bytes());
+        program.extend_from_slice(
+            &u32::try_from(post_pad)
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
+        program.extend_from_slice(
+            &u32::try_from(tlv.len())
+                .expect("fixture value fits u32")
+                .to_le_bytes(),
+        );
         program.extend_from_slice(&tlv);
         program.extend(std::iter::repeat_n(0u8, post_pad));
         program.extend_from_slice(&ivm::encoding::wide::encode_halt().to_le_bytes());
@@ -18743,8 +18838,8 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                     from_balance_after: Quantity::from(9_u64),
                     to_balance_before: Quantity::from(5_u64),
                     to_balance_after: Quantity::from(6_u64),
-                    from_smt_witness: Default::default(),
-                    to_smt_witness: Default::default(),
+                    from_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
+                    to_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
                 }],
                 authority_digest: Hash::new(b"axt-host-test:transfer-authority"),
                 poseidon_preimage_digest: None,
@@ -18878,8 +18973,12 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let mut vm = IVM::new(1_000_000);
         vm.load_program(&ivm::ProgramMetadata::default().encode())
             .expect("load metadata");
-        vm.alloc_input_tlv(&vec![0; ivm::Memory::INPUT_SIZE as usize])
-            .expect("fill INPUT exactly");
+        vm.alloc_input_tlv(&vec![
+            0;
+            usize::try_from(ivm::Memory::INPUT_SIZE)
+                .expect("fixture value fits usize")
+        ])
+        .expect("fill INPUT exactly");
         host.syscall(ivm::syscalls::SYSCALL_GET_AUTHORITY, &mut vm)
             .expect("authority syscall must spill");
         let authority_pointer = vm.register(10);
@@ -19467,30 +19566,30 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, durable_state_overlay) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -19535,7 +19634,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in } }",
@@ -19545,7 +19644,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller,
-            &callee,
+            &target_contract,
             "quote",
             Json::from(norito::json!({"amount_in":"10", "min_out":"7"})),
         );
@@ -19559,7 +19658,7 @@ seiyaku Callee {
         assert_eq!(decode_quantity_leaf(&vm, pointer), Quantity::from(10u32));
         assert_eq!(
             vm.validate_tlv(vm.register(10)).unwrap().payload,
-            callee.as_ref().as_bytes(),
+            target_contract.as_ref().as_bytes(),
             "typed calls preserve the target register"
         );
     }
@@ -19573,7 +19672,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in } }",
@@ -19587,7 +19686,7 @@ seiyaku Callee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee,
+            &target_contract,
             "quote",
             &Json::from(norito::json!({"amount_in":"10","min_out":"7"})),
         );
@@ -19617,7 +19716,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { state int counter; hajimari() {counter=0;} kotoage fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> int { counter=9; return 1; } }",
@@ -19632,7 +19731,7 @@ seiyaku Callee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee,
+            &target_contract,
             "quote",
             &Json::from(norito::json!({"amount_in":"10","min_out":"7"})),
         );
@@ -19668,7 +19767,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Child { view fn read() authorize(anyone) -> bool {true} }",
@@ -19680,8 +19779,13 @@ seiyaku Callee {
             host.set_query_state(&view);
             let mut vm = IVM::new(1_000_000);
             bind_nested_caller(&mut host, &mut vm, &view, &authority, &caller);
-            let registers =
-                store_typed_contract_call(&mut vm, &state, &callee, "read", &Json::new(()));
+            let registers = store_typed_contract_call(
+                &mut vm,
+                &state,
+                &target_contract,
+                "read",
+                &Json::new(()),
+            );
             match case {
                 0 => {
                     host.current_contract_runtime_context
@@ -19729,7 +19833,7 @@ seiyaku Callee {
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku PrivateCallee { kotoage fn main() authorize(anyone) {} }",
@@ -19737,7 +19841,7 @@ seiyaku Callee {
         );
         let syscall = ivm::encoding::wide::encode_sys(
             ivm::instruction::wide::system::SCALL,
-            ivm_sys::SYSCALL_GET_PRIVATE_INPUT as u8,
+            u8::try_from(ivm_sys::SYSCALL_GET_PRIVATE_INPUT).expect("fixture value fits u8"),
         );
         let program = build_authenticated_test_contract_program(&syscall.to_le_bytes(), 0, true);
         assert_eq!(
@@ -19746,9 +19850,15 @@ seiyaku Callee {
                 .entrypoint_requires_private_inputs("main"),
             Some(true)
         );
-        rebind_test_contract_program(&state, &authority, &callee, program);
-        let (result, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "main", Json::new(()));
+        rebind_test_contract_program(&state, &authority, &target_contract, program);
+        let (result, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "main",
+            Json::new(()),
+        );
         assert!(matches!(
             result.unwrap_err().as_unmetered(),
             ivm::VMError::PermissionDenied
@@ -19767,14 +19877,20 @@ seiyaku Callee {
             "seiyaku Caller { view fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { state StateMap<int,int> Values; view fn read() authorize(anyone) -> bool { true } kotoage fn write() authorize(anyone) { Values[1] = 9; } }",
             1,
         );
-        let (read, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "read", Json::new(()));
+        let (read, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "read",
+            Json::new(()),
+        );
         read.expect("a view may call another authenticated view");
         assert_eq!(
             render_nested_result(
@@ -19784,8 +19900,14 @@ seiyaku Callee {
             norito::json!(true)
         );
         assert!(effects.is_empty());
-        let (result, vm, effects) =
-            call_contract_syscall(&state, &authority, &caller, &callee, "write", Json::new(()));
+        let (result, vm, effects) = call_contract_syscall(
+            &state,
+            &authority,
+            &caller,
+            &target_contract,
+            "write",
+            Json::new(()),
+        );
         assert!(matches!(
             result.unwrap_err().as_unmetered(),
             ivm::VMError::PermissionDenied
@@ -19976,21 +20098,21 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let prepared_cache = PreparedContractCache::with_capacity(2);
@@ -19998,7 +20120,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
             prepared_cache.clone(),
@@ -20020,7 +20142,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
             prepared_cache.clone(),
@@ -20056,11 +20178,11 @@ seiyaku Callee {
         let contract = install_contract(
             &populated_state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             7,
         );
         let stale_record = {
@@ -20094,31 +20216,31 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn value() authorize(anyone) -> int { return 42; }
 }
-"#,
+",
             1,
         );
         let payload = Json::new(());
-        let request_bytes = typed_contract_request_bytes(&state, &callee_contract, "value");
+        let request_bytes = typed_contract_request_bytes(&state, &nested_contract, "value");
         let gas_limit = 1_000_000;
         let (result, vm, durable_state_overlay, _) = dispatch_call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             payload,
             gas_limit,
@@ -20143,17 +20265,17 @@ seiyaku Callee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Caller {
       kotoage fn main() authorize(anyone) -> int { return 0; }
     }
-    "#,
+    ",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
     seiyaku Callee { permission AssetOps;
       state int counter;
 
@@ -20164,14 +20286,14 @@ seiyaku Callee {
         return counter;
       }
     }
-    "#,
+    ",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let payload = Json::new(());
         let request_gas = ivm::gas::syscall_byte_gas(
             ivm::gas::G_CALL_CONTRACT,
-            typed_contract_request_bytes(&state, &callee_contract, "write"),
+            typed_contract_request_bytes(&state, &nested_contract, "write"),
             0,
         );
         // After authenticated staging and request validation, only one gas remains
@@ -20183,7 +20305,7 @@ seiyaku Callee {
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "write",
             payload,
             gas_limit,
@@ -20245,12 +20367,12 @@ seiyaku Callee { permission AssetOps;
             .into_iter()
             .find(|error| error.identity.ends_with("::CalleeError"))
             .expect("callee nominal error");
-        let callee_contract = install_contract(&state, &authority, callee_source, 1);
+        let nested_contract = install_contract(&state, &authority, callee_source, 1);
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let payload = Json::new(());
         let request_gas = ivm::gas::syscall_byte_gas(
             ivm::gas::G_CALL_CONTRACT,
-            typed_contract_request_bytes(&state, &callee_contract, "fail_after_write"),
+            typed_contract_request_bytes(&state, &nested_contract, "fail_after_write"),
             0,
         );
         let gas_limit = 1_000_000;
@@ -20258,7 +20380,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "fail_after_write",
             payload,
             gas_limit,
@@ -20311,23 +20433,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   view fn value() authorize(AssetOps) -> int {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         grant_named_permission_to_account(
@@ -20340,7 +20462,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20351,7 +20473,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20370,23 +20492,23 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Lifecycle {
   state int initialized;
   hajimari() { initialized = 1; }
   kaizen() {}
 }
-"#,
+",
             1,
         );
         for selector in ["hajimari", "kaizen"] {
@@ -20394,7 +20516,7 @@ seiyaku Lifecycle {
                 &state,
                 &authority,
                 &caller_contract,
-                &callee_contract,
+                &nested_contract,
                 selector,
                 Json::new(()),
             );
@@ -20413,17 +20535,17 @@ seiyaku Lifecycle {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract_with_pending_lifecycle(
+        let nested_contract = install_contract_with_pending_lifecycle(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku AwaitingHajimari {
   hajimari() {}
 
@@ -20431,14 +20553,14 @@ seiyaku AwaitingHajimari {
     return 42;
   }
 }
-"#,
+",
             1,
         );
         let (result, _, durable_state_overlay) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "value",
             Json::new(()),
         );
@@ -20456,21 +20578,21 @@ seiyaku AwaitingHajimari {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku HeldCallee {
   view fn value(int input) authorize(anyone) -> int { return input; }
 }
-"#,
+",
             1,
         );
         // `contract_test_state` has already applied its original signed genesis.
@@ -20500,7 +20622,7 @@ seiyaku HeldCallee {
             let binding = tx
                 .world
                 .contract_subject_bindings
-                .get_mut(&callee_contract)
+                .get_mut(&nested_contract)
                 .expect("callee lifecycle binding");
             binding.lifecycle.emergency_hold =
                 Some(iroha_data_model::smart_contract::ContractEmergencyHoldV1 {
@@ -20531,7 +20653,7 @@ seiyaku HeldCallee {
         let registers = store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "value",
             &Json::from(norito::json!({ "input": "42" })),
         );
@@ -20567,30 +20689,30 @@ seiyaku HeldCallee {
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee {
   view fn who_called() authorize(anyone) -> AccountId {
     return context::authority();
   }
 }
-"#,
+",
             1,
         );
         let (result, vm, _) = call_contract_syscall(
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "who_called",
             Json::new(()),
         );
@@ -20691,17 +20813,17 @@ seiyaku Callee {
         let caller = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku ViewCaller { permission NestedView;
   kotoage fn main() authorize(NestedView) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku EffectfulView { permission NestedView;
   state int Counter;
 
@@ -20718,7 +20840,7 @@ seiyaku EffectfulView { permission NestedView;
     return Counter;
   }
 }
-"#,
+",
             1,
         );
         grant_contract_entrypoint_to_account(
@@ -20732,14 +20854,14 @@ seiyaku EffectfulView { permission NestedView;
             &state,
             &authority,
             authority.clone(),
-            &callee,
+            &target_contract,
             "seed",
         );
         grant_contract_entrypoint_to_account(
             &state,
             &authority,
             caller.subject_id(),
-            &callee,
+            &target_contract,
             "increment_then_return",
         );
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
@@ -20748,17 +20870,19 @@ seiyaku EffectfulView { permission NestedView;
             &state,
             &authority,
             &fixture_signing_keypair(&authority),
-            contract_invocation_from_json(&state, callee.clone(), "seed", &seed_payload),
+            contract_invocation_from_json(&state, target_contract.clone(), "seed", &seed_payload),
             &mut ivm_cache,
         );
         // The embedded, verified contract interface is the execution authority.
         // Corrupt the separately registered manifest after deployment and prove
         // that it cannot relabel effectful bytecode as a view whose effects the
         // nested-call boundary would silently roll back.
-        let record =
-            crate::smartcontracts::code::fetch_bound_contract_record(&state.view(), &callee)
-                .expect("registry read completes")
-                .expect("installed effectful contract record");
+        let record = crate::smartcontracts::code::fetch_bound_contract_record(
+            &state.view(),
+            &target_contract,
+        )
+        .expect("registry read completes")
+        .expect("installed effectful contract record");
         let mut malicious_manifest = record.manifest;
         let descriptor = malicious_manifest
             .entrypoints
@@ -20784,7 +20908,7 @@ seiyaku EffectfulView { permission NestedView;
             .expect("next block height must fit in u64 and be non-zero");
         let mut block = state.block(BlockHeader::new(next_height, None, None, 0, 0));
         let mut tx = block.transaction();
-        let artifact_id = ContractArtifactId::for_address(&callee, record.code_hash)
+        let artifact_id = ContractArtifactId::for_address(&target_contract, record.code_hash)
             .expect("callee retains its exact artifact dataspace");
         tx.world
             .contract_manifests
@@ -20798,7 +20922,7 @@ seiyaku EffectfulView { permission NestedView;
                 &state,
                 &authority,
                 &caller,
-                &callee,
+                &target_contract,
                 "increment_then_return",
                 Json::new(()),
             );
@@ -20820,7 +20944,7 @@ seiyaku EffectfulView { permission NestedView;
     fn contract_view_of_persisted_account_state_returns_account_tlv() {
         let authority: AccountId = fixture_account("alice");
         let state = contract_test_state(&authority);
-        let source = r#"
+        let source = r"
 seiyaku StoredAccountView { permission AssetOps;
   state AccountId Stored;
 
@@ -20836,11 +20960,11 @@ seiyaku StoredAccountView { permission AssetOps;
     return Stored;
   }
 }
-"#;
+";
         let contract = install_contract(&state, &authority, source, 0);
         grant_asset_ops_to_account(&state, &authority, authority.clone());
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
-        let bind_payload = Json::from_str_norito(&format!(r#"{{"account_id":"{}"}}"#, authority))
+        let bind_payload = Json::from_str_norito(&format!(r#"{{"account_id":"{authority}"}}"#))
             .expect("bind payload");
         execute_contract_call_transaction(
             &state,
@@ -20901,17 +21025,17 @@ seiyaku StoredAccountView { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   state int backlog;
   state int safe_mode;
@@ -20926,7 +21050,7 @@ seiyaku Callee { permission AssetOps;
     safe_mode = safe_mode_value;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -20938,7 +21062,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "report",
             payload,
         );
@@ -20982,7 +21106,7 @@ seiyaku Callee { permission AssetOps;
             "seiyaku Caller { kotoage fn main() authorize(anyone) -> int { return 0; } }",
             0,
         );
-        let source = r#"
+        let source = r"
 seiyaku Callee { permission AssetOps;
   error enum ReceiptError { Refused = 7 }
   struct Receipt {
@@ -21005,8 +21129,8 @@ seiyaku Callee { permission AssetOps;
     return reload();
   }
 }
-"#;
-        let callee_contract = install_contract(&state, &authority, source, 1);
+";
+        let nested_contract = install_contract(&state, &authority, source, 1);
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
         let expected = norito::json!({
             "marker": null,
@@ -21022,7 +21146,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "roundtrip",
             payload,
         );
@@ -21060,17 +21184,17 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Callee { permission AssetOps;
   error enum CalleeError {
     ForcedFailure = 1,
@@ -21088,7 +21212,7 @@ seiyaku Callee { permission AssetOps;
     return 0;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller_contract.subject_id());
@@ -21096,7 +21220,7 @@ seiyaku Callee { permission AssetOps;
             &state,
             &authority,
             &caller_contract,
-            &callee_contract,
+            &nested_contract,
             "fail_after_write",
             Json::new(()),
         );
@@ -21113,14 +21237,14 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract_with_interface(
+        let nested_contract = install_contract_with_interface(
             &state,
             &authority,
             r#"
@@ -21193,7 +21317,7 @@ seiyaku Callee { permission AssetOps;
         store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "write_then_return",
             &Json::new(()),
         );
@@ -21238,7 +21362,7 @@ seiyaku Callee { permission AssetOps;
             "seiyaku Caller { kotoage fn main() authorize(anyone) {} }",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
             "seiyaku Callee { view fn no_args() authorize(anyone) -> int {1} view fn echo(int value) authorize(anyone) -> int {value} }",
@@ -21253,7 +21377,7 @@ seiyaku Callee { permission AssetOps;
             let registers = store_typed_contract_call(
                 &mut vm,
                 &state,
-                &callee,
+                &target_contract,
                 selector,
                 &Json::from(norito::json!({"value":"7"})),
             );
@@ -21531,14 +21655,14 @@ seiyaku Callee { permission AssetOps;
         let caller_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku Caller {
   kotoage fn open_position() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             0,
         );
-        let callee_contract = install_contract(
+        let nested_contract = install_contract(
             &state,
             &authority,
             r#"
@@ -21563,7 +21687,7 @@ seiyaku Callee { permission AssetOps;
         );
         grant_test_asset_transfer(
             &state,
-            callee_contract.subject_id(),
+            nested_contract.subject_id(),
             AssetId::of(asset_def_id.clone(), caller_contract.subject_id()),
         );
         let view = state.view();
@@ -21617,7 +21741,7 @@ seiyaku Callee { permission AssetOps;
         vm.set_register(14, dataspace_ptr);
         host.syscall(ivm_sys::SYSCALL_TRANSFER_ASSET_SCOPED, &mut vm)
             .expect("root transfer should enqueue");
-        let nested_target = callee_contract.subject_id().to_string();
+        let nested_target = nested_contract.subject_id().to_string();
         let nested_asset = asset_def_id.to_string();
         let nested_payload = Json::from(norito::json!({
             "target": nested_target,
@@ -21627,7 +21751,7 @@ seiyaku Callee { permission AssetOps;
         store_typed_contract_call(
             &mut vm,
             &state,
-            &callee_contract,
+            &nested_contract,
             "pull_into_vault",
             &nested_payload,
         );
@@ -21642,7 +21766,7 @@ seiyaku Callee { permission AssetOps;
                 .into_iter()
                 .map(|(effect_authority, _)| effect_authority)
                 .collect::<Vec<_>>(),
-            vec![caller_contract.subject_id(), callee_contract.subject_id()],
+            vec![caller_contract.subject_id(), nested_contract.subject_id()],
             "root and nested effects retain their respective contract subjects"
         );
         // Apply these component artifacts in ordinary execution, with no
@@ -21672,10 +21796,10 @@ seiyaku Callee { permission AssetOps;
             .value()
             .clone();
         let caller_asset_id = AssetId::of(asset_def_id.clone(), caller_contract.subject_id());
-        let callee_asset_id = AssetId::of(asset_def_id, callee_contract.subject_id());
+        let nested_asset = AssetId::of(asset_def_id, nested_contract.subject_id());
         let callee_balance = stx
             .world
-            .asset(&callee_asset_id)
+            .asset(&nested_asset)
             .expect("callee contract asset exists")
             .value()
             .clone();
@@ -21934,9 +22058,11 @@ seiyaku Callee { permission AssetOps;
         let (paynet, catalog) = retail_dataspace_catalog();
         let mut config = crate::sumeragi::test_chain::TestChainConfig::new(world, 0);
         config.chain_id = ChainId::from("test-chain");
-        let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.dataspace_catalog = catalog.clone();
-        nexus.configured_dataspace_catalog = catalog;
+        let mut nexus = iroha_config::parameters::actual::Nexus {
+            dataspace_catalog: catalog.clone(),
+            configured_dataspace_catalog: catalog,
+            ..Default::default()
+        };
         // Alias authorization is independent of monetary admission. Bind the
         // zero-fee policy and catalog before preparing this exact signed genesis.
         nexus.fees.base_fee = 0_u32.into();
@@ -22726,11 +22852,11 @@ seiyaku Callee { permission AssetOps;
         let contract_address = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku DurableOwner {
   view fn inspect() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
             411,
         );
         let identity = crate::smartcontracts::code::fetch_bound_contract_identity(
@@ -23827,7 +23953,7 @@ seiyaku DurableOwner {
             .find_map(|(path, value)| {
                 path.as_ref()
                     .contains("BytesMap/")
-                    .then(|| value.as_ref())
+                    .then_some(value.as_ref())
                     .flatten()
             })
             .expect("compiler-emitted bytes record")
@@ -23913,7 +24039,7 @@ seiyaku DurableOwner {
         )
         .expect("store authenticated ledger-time fixture block");
         state.append_committed_block_header_for_tests(authenticated_block.header());
-        let source = r#"
+        let source = r"
             seiyaku ValidationFeeConversionReader {
                 state StateMap<int, quantity> ValidationFeeConversion;
                 view fn main() authorize(anyone) -> quantity {
@@ -23921,7 +24047,7 @@ seiyaku DurableOwner {
                     return ValidationFeeConversion.get(0).unwrap_or(zero);
                 }
             }
-        "#;
+        ";
         let (code, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(source)
             .expect("compile validation-fee credit reader");
@@ -24422,7 +24548,7 @@ seiyaku DurableOwner {
         let path_ptr = store_state_path_tlv(&mut vm, &path);
         let code = [ivm::encoding::wide::encode_sys(
             ivm::instruction::wide::system::SCALL,
-            ivm_sys::SYSCALL_STATE_GET as u8,
+            u8::try_from(ivm_sys::SYSCALL_STATE_GET).expect("fixture value fits u8"),
         )
         .to_le_bytes()]
         .concat();
@@ -24976,13 +25102,13 @@ seiyaku DurableOwner {
             contract_alias: Some("fixture::shared".parse().expect("contract alias B")),
             entrypoint: "write".to_owned(),
         }));
-        let value_b_ptr = store_tlv(
+        let alternate_value_pointer = store_tlv(
             &mut vm,
             PointerType::NoritoBytes,
             &norito::to_bytes(&22_u64).expect("encode state value B"),
         );
         vm.set_register(10, path_ptr);
-        vm.set_register(11, value_b_ptr);
+        vm.set_register(11, alternate_value_pointer);
         assert_eq!(
             (host.syscall(ivm_sys::SYSCALL_STATE_SET, &mut vm))
                 .expect("expected successful fixture result"),
@@ -25034,12 +25160,12 @@ seiyaku DurableOwner {
                     .len()
             )
         );
-        let value_b_tlv = vm
+        let alternate_value_tlv = vm
             .memory
             .validate_tlv(vm.register(10))
             .expect("state get tlv B");
         let value_b: u64 =
-            norito::decode_from_bytes(value_b_tlv.payload).expect("decode state value B");
+            norito::decode_from_bytes(alternate_value_tlv.payload).expect("decode state value B");
         assert_eq!(value_b, 22);
     }
     #[test]
@@ -25540,10 +25666,12 @@ seiyaku DurableOwner {
             .expect("canonical confidential tree roots");
         let expected_roots = zk_state.root_history.clone();
         world.zk_assets.insert(asset_def_id.clone(), zk_state);
-        let mut election = ElectionState::default();
-        election.options = 2;
-        election.finalized = true;
-        election.tally = vec![1, 2];
+        let election = ElectionState {
+            options: 2,
+            finalized: true,
+            tally: vec![1, 2],
+            ..Default::default()
+        };
         world.elections.insert("election-1".to_string(), election);
         let backend = "pipa-r/pasta";
         let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
@@ -26073,14 +26201,14 @@ seiyaku DurableOwner {
         };
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku PreparedBoundaryArguments {
   view fn invoke(bytes small, bytes payload) authorize(anyone) -> bytes {
     let _small = small;
     return payload;
   }
 }
-"#,
+",
             )
             .expect("compile bytes-parameter contract");
         let metadata = ivm::ProgramMetadata::parse(&program).expect("parse contract metadata");

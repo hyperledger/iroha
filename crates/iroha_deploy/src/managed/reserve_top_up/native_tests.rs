@@ -147,7 +147,7 @@ pub(in crate::managed) struct NativeRequestedTopUp {
     pub(in crate::managed) signed: SignedTransaction,
 }
 
-/// Execute generated Set/Register and the exact wallet-prepared TopUp before exporting history.
+/// Execute generated Set/Register and the exact wallet-prepared `TopUp` before exporting history.
 /// The caller owns the ordinary native test guard and releases the reserved loopback ports first.
 pub(in crate::managed) fn native_requested_top_up(
     prepared: &PreparedLocalnet,
@@ -222,7 +222,7 @@ pub(in crate::managed) fn native_requested_top_up(
     let partial_request = retained.request(options.deadline);
     let partial_account = &AccountService::new(operator.clone()).unwrap();
     crate::managed::native_operation::test_support::preparation::payload_retained(
-        &prepared,
+        prepared,
         &transaction_path,
         || {
             partial_account

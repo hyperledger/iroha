@@ -37,13 +37,15 @@ impl ManagedStreamTokenCustody {
         journal::publish_intent(&directory, &original).unwrap();
         let account = authorization.bind_account(self.wallet().unwrap()).unwrap();
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest().unwrap(),
-            &HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest().unwrap(),
+                scope: &HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
@@ -64,7 +66,7 @@ impl ManagedStreamTokenCustody {
                 let current = native.bootstrap_custody(&self.authority, policy, &cut);
                 assert!(matches_predecessor(
                     &original.selection,
-                    current.current().map(|value| value.record())
+                    current.current().map(iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCustodyRecordV1::record)
                 ));
                 assert_eq!(cut.checkpoint().height(), verifier.checkpoint().height());
                 Ok(Observation::ordinary())

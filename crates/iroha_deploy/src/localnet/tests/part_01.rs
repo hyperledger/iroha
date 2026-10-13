@@ -51,7 +51,7 @@ fn parent_admission_is_explicit_and_exclusive_to_global_localnets() {
             .contains_key(&policy_id)
     );
 
-    let mut context = original.sumeragi_context_parameters().clone();
+    let mut context = original.sumeragi_context_parameters();
     context.root_scope = SumeragiRootScope::Dataspace {
         parent_network_id: iroha_data_model::NetworkId::from_genesis_hash(
             HashOf::from_untyped_unchecked(Hash::new(b"parent admission fixture")),
@@ -112,10 +112,11 @@ fn asset_extension_preserves_global_prefix_and_scoped_home_owners() {
         extended.transactions().len(),
         original.transactions().len() + 2
     );
-    let original_prefix = original.instructions().collect::<Vec<_>>();
-    assert_eq!(
-        &extended.instructions().collect::<Vec<_>>()[..original_prefix.len()],
-        original_prefix,
+    assert!(
+        extended
+            .instructions()
+            .take(original.instructions().count())
+            .eq(original.instructions()),
         "every original instruction and value precedes the exact appended asset sequence"
     );
     assert_eq!(
@@ -319,9 +320,10 @@ const EXPECTED_TAIRA_PARTICIPANTS: [(u32, &str, u64, bool); 5] = [
     (7, "is", 6_647_857_470_246_403_404, true),
 ];
 /// Instruction-only transactions `iroha taira seat-parliament` appends to the generated Taira
-/// genesis: the citizen seating transaction and the SCCP initialization transaction
-/// (`append_genesis_transaction` in `crates/iroha_cli/src/taira_parliament_seating.rs`).
-const TAIRA_PARLIAMENT_SEATING_TRANSACTIONS: usize = 2;
+/// genesis: only the citizen seating transaction, because the canonical profile already
+/// initializes SCCP (`append_genesis_transaction` in
+/// `crates/iroha_cli/src/taira_parliament_seating.rs`).
+const TAIRA_PARLIAMENT_SEATING_TRANSACTIONS: usize = 1;
 
 fn canonical_taira_options(out_dir: &Path, seed: &str) -> LocalnetOptions {
     LocalnetOptions {
@@ -528,10 +530,14 @@ fn taira_catalog_binds_sns_dataspaces_lanes_routes_and_public_validator_lanes() 
     );
 }
 
+include!("../sccp_profile_tests.rs");
+
 #[test]
 fn canonical_taira_seated_genesis_stays_within_bootstrap_network_inputs() {
-    let temp = crate::localnet::localnet_test_helpers::private_tempdir()
-        .expect("temporary Taira directory");
+    let temporary = crate::localnet::localnet_test_helpers::private_tempdir()
+        .expect("private runtime outside the checkout");
+    let temp = iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("network"))
+        .expect("private Taira directory");
     let opts = canonical_taira_options(temp.path(), "taira-genesis-input-budget");
     generate_localnet_with_chain(
         &opts,
@@ -546,8 +552,9 @@ fn canonical_taira_seated_genesis_stays_within_bootstrap_network_inputs() {
     let manifest = RawGenesisTransaction::from_path(temp.path().join("genesis.json"))
         .expect("parse bound Taira genesis");
     // Root domain and parameters; bootstrap authority, service and fee custody; topology; NPoS
-    // bootstrap with universal validators; the public BPNG validator registrations; alias setup.
-    assert_eq!(manifest.transactions().len(), 6);
+    // bootstrap with universal validators; public BPNG validator registrations; SCCP init;
+    // alias setup. Seating appends citizens without repeating the existing SCCP initializer.
+    assert_eq!(manifest.transactions().len(), 7);
     let generated_inputs = manifest
         .clone()
         .parse()
@@ -751,14 +758,14 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
         soracloud_runtime
             .get("hydration_concurrency")
             .and_then(toml::Value::as_integer),
-        Some(TAIRA_SORACLOUD_HYDRATION_CONCURRENCY),
+        Some(i64::try_from(taira_defaults::HYDRATION_CONCURRENCY).unwrap()),
         "canonical Taira configs must explicitly pin the first-release hydration worker count"
     );
     assert_eq!(
         soracloud_runtime
             .get("prepared_runtime_cache_capacity")
             .and_then(toml::Value::as_integer),
-        Some(TAIRA_SORACLOUD_PREPARED_RUNTIME_CACHE_CAPACITY),
+        Some(i64::try_from(taira_defaults::PREPARED_RUNTIME_CACHE_CAPACITY).unwrap()),
         "canonical Taira configs must explicitly pin the independent first-release prepared-runtime cache capacity"
     );
     let credential_scope = peer_config
@@ -841,17 +848,15 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
         if let Some(binding) = instruction
             .as_any()
             .downcast_ref::<SetAssetDefinitionAlias>()
+            && let Some(alias) = binding.alias.as_ref()
+            && let Some(domain_name) = alias.domain_segment()
         {
-            if let Some(alias) = binding.alias.as_ref() {
-                if let Some(domain_name) = alias.domain_segment() {
-                    let domain = DomainId::try_new(domain_name, alias.dataspace_segment())
-                        .expect("alias domain");
-                    assert!(
-                        registered_domains.contains(&domain),
-                        "alias namespace must precede its binding"
-                    );
-                }
-            }
+            let domain =
+                DomainId::try_new(domain_name, alias.dataspace_segment()).expect("alias domain");
+            assert!(
+                registered_domains.contains(&domain),
+                "alias namespace must precede its binding"
+            );
         }
     }
     for permission in [
@@ -1130,16 +1135,14 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
         );
         assert_eq!(
             parsed.soracloud_runtime.hydration_concurrency.get(),
-            usize::try_from(TAIRA_SORACLOUD_HYDRATION_CONCURRENCY)
-                .expect("Taira hydration worker count fits usize")
+            taira_defaults::HYDRATION_CONCURRENCY
         );
         assert_eq!(
             parsed
                 .soracloud_runtime
                 .prepared_runtime_cache_capacity
                 .get(),
-            usize::try_from(TAIRA_SORACLOUD_PREPARED_RUNTIME_CACHE_CAPACITY)
-                .expect("Taira prepared-runtime cache capacity fits usize")
+            taira_defaults::PREPARED_RUNTIME_CACHE_CAPACITY
         );
         let inrou = &parsed.soracloud_runtime.inrou;
         assert!(!inrou.enabled);
@@ -1219,7 +1222,7 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
                 .nexus
                 .storage
                 .local_budget_bytes
-                .map(|bytes| bytes.get()),
+                .map(iroha_config_base::util::Bytes::get),
             Some(taira_defaults::NEXUS_STORAGE_BUDGET_BYTES)
         );
         assert_eq!(
@@ -1227,7 +1230,7 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
                 .nexus
                 .storage
                 .effective_local_budget_bytes
-                .map(|bytes| bytes.get()),
+                .map(iroha_config_base::util::Bytes::get),
             Some(taira_defaults::NEXUS_STORAGE_BUDGET_BYTES)
         );
         assert_eq!(
@@ -1235,7 +1238,7 @@ fn canonical_taira_generation_binds_four_runtime_signers_to_validator_peers() {
                 .nexus
                 .storage
                 .configured_sorafs_max_capacity_bytes()
-                .map(|bytes| bytes.get()),
+                .map(iroha_config_base::util::Bytes::get),
             Some(taira_defaults::SORAFS_STORAGE_CAP_BYTES)
         );
         assert_eq!(
@@ -3102,7 +3105,7 @@ fn permissioned_localnet_registers_support_accounts_without_staking() {
     assert!(!nexus.contains_key("fees"));
     assert_eq!(
         nexus["storage"]["local_budget_bytes"].as_integer(),
-        Some(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES as i64),
+        Some(i64::try_from(LOCALNET_NEXUS_STORAGE_BUDGET_BYTES).unwrap()),
         "permissioned localnet storage must have the same finite developer cap"
     );
     assert!(

@@ -37,14 +37,14 @@ fn ledger_original_resource_refusal_keeps_selected_custody_and_retries() {
         norito::with_decode_limits_scope(limits, || w.ingest_ledger_original(&genesis, &original))
             .unwrap_err();
     assert!(matches!(error, Error::DecodeResource(ref cause)
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(w.custody.archive_checkpoint().unwrap(), before);
     let selected = w.ingest_ledger_original(&genesis, &original).unwrap();
     let after = w.custody.archive_checkpoint().unwrap();
     let error = norito::with_decode_limits_scope(limits, || w.ledger_progress_selected(&genesis))
         .unwrap_err();
     assert!(matches!(error, Error::DecodeResource(ref cause)
-        if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
     assert_eq!(w.custody.archive_checkpoint().unwrap(), after);
     assert_eq!(
         w.ledger_progress_selected(&genesis).unwrap(),
@@ -274,7 +274,7 @@ fn payout_originals_require_selected_tip_exact_world_and_row_before_custody_rele
     norito::with_decode_limits_scope(limits(limit), || {
         assert_eq!(
             cause.kind(),
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
         );
     });
     assert_eq!(w.custody.archive_checkpoint().unwrap(), custody_before);

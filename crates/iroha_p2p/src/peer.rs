@@ -12250,7 +12250,7 @@ mod state {
                         let conn = dialer.connect(target, QUIC_SERVER_NAME).await?;
                         let datagram_ingress = quic_datagrams_enabled.then(|| {
                             QuicDatagramIngress::spawn(
-                                conn.clone(),
+                                &conn,
                                 quic_datagram_max_payload_bytes,
                             )
                         });

@@ -14,10 +14,10 @@ class MonetaryScheduleTests(unittest.TestCase):
         self.assertTrue(result["exhausted"])
         self.assertIsNone(result["violation"])
         self.assertEqual(set(result["operations"]), set(OPERATIONS))
-        # Captured by the uncached exhaustive implementation. Caching must not
+        # Captured after admitting valid Archive of burned first credits. Caching must not
         # drop transitions, collapse distinct worlds or change rejected actions.
         self.assertEqual((result["states"], result["edges"], result["rejected"]),
-                         (56_910, 508_958, 575_055))
+                         (68_190, 610_738, 706_027))
         self.assertGreater(result["retries"], 0)
         self.assertGreater(result["rejected"], 0)
         self.assertGreater(result["edges"], result["states"])

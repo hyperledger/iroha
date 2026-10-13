@@ -5,7 +5,7 @@ use group::prime::PrimeCurveAffine;
 use iroha_pasta::{
     PastaCurve,
     fold::fold_generators_cancellable,
-    msm::{MemoryBudget, SharedMemoryBudget, msm_public_cancellable},
+    msm::{MemoryBudget, SharedMemoryBudget, msm_secret_cancellable},
     poseidon::PoseidonField,
 };
 use iroha_plonk::{
@@ -179,6 +179,9 @@ fn combined_evaluation<C: PastaCurve>(
 /// The owned coefficient, power and generator vectors total 8 MiB at k16;
 /// parameters are borrowed. Generator folding processes bounded chunks, and
 /// kernel scratch uses nonblocking shared admission with a complete fallback.
+/// The transcript can remain private inside an outer proof, so coefficient MSMs
+/// use full-width secret planning and scratch wiping. The complete fold still
+/// includes variable-time bucket and generator operations.
 ///
 /// # Errors
 /// Insufficient parameters, invalid salt, empty/short-only inputs, zero round
@@ -224,7 +227,7 @@ where
         let half = coefficients.len() / 2;
         let left_value = inner_product(&coefficients[half..], &powers[..half]);
         let right_value = inner_product(&coefficients[..half], &powers[half..]);
-        let left = (msm_public_cancellable::<C>(
+        let left = (msm_secret_cancellable::<C>(
             &coefficients[half..],
             &generators[..half],
             config.kernel_budget,
@@ -234,7 +237,7 @@ where
         .map_err(Error::from)?
             + auxiliary * (left_value * zeta))
             .to_affine();
-        let right = (msm_public_cancellable::<C>(
+        let right = (msm_secret_cancellable::<C>(
             &coefficients[..half],
             &generators[half..],
             config.kernel_budget,

@@ -271,6 +271,7 @@ impl Original {
     }
 }
 impl Selected<Original> {
+    #[cfg(test)]
     pub(super) fn matches(
         &self,
         intent: &Intent,
@@ -307,7 +308,7 @@ pub(super) fn read_intent(directory: &PrivateDirectory) -> Result<Option<Origina
             40,
         ),
     )
-    .map_err(|error| std::io::Error::other(error))?;
+    .map_err(std::io::Error::other)?;
     original.validate()?;
     Ok(Some(original))
 }

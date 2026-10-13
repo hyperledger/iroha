@@ -354,7 +354,7 @@ struct SidecarIndexLayout {
 }
 #[derive(Debug, Clone, Copy)]
 enum IndexedSidecarRewrite<'a> {
-    RetainNewest {
+    Newest {
         retention: NonZeroUsize,
         pinned_height: Option<u64>,
     },
@@ -364,10 +364,17 @@ enum IndexedSidecarRewrite<'a> {
     /// hard startup scan bound. Generic pipeline sidecars retain zero slots so
     /// every height in the canonical V1 window keeps a stable position.
     #[cfg(test)]
-    RetainNewestWindow { retention: NonZeroUsize },
+    NewestWindow { retention: NonZeroUsize },
     /// Discard only the authenticated terminal prefix while retaining a
     /// configured diagnostic window and every later (possibly pending) slot.
-    RetainAfterTerminalFrontier {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect terminal-frontier artifact retention; preserve required historical sidecars through bounded rewrites"
+        )
+    )]
+    AfterTerminalFrontier {
         terminal_height: u64,
         retention: NonZeroUsize,
         /// Exact evidence heights that remain live even below the ordinary

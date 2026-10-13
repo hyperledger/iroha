@@ -25,7 +25,7 @@ use mv::storage::StorageReadOnly;
 /// Optional exact target epoch; omission selects the next scheduling epoch.
 #[derive(Debug, Default, crate::json_macros::JsonDeserialize)]
 #[norito(deny_unknown_fields)]
-pub(super) struct CommitteeStatusQuery {
+pub struct CommitteeStatusQuery {
     pub(super) target_epoch: Option<u64>,
 }
 
@@ -287,6 +287,10 @@ struct CommitteeMemoryEnvelope {
 }
 
 impl CommitteeMemoryEnvelope {
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn new(working_set_bytes: usize) -> Result<Self, Response> {
         let phases = QueryFanoutMemoryEnvelope::new(working_set_bytes, 0)?;
         let unit = phases.route_body_bytes;
@@ -308,7 +312,7 @@ impl CommitteeMemoryEnvelope {
 }
 
 /// Serve the exact selected preparation and its immutable finality attachments.
-pub(super) async fn handler_validator_committee_status(
+pub async fn handler_validator_committee_status(
     State(app): State<SharedAppState>,
     crate::NoritoQuery(query): crate::NoritoQuery<CommitteeStatusQuery>,
     headers: axum::http::HeaderMap,

@@ -9,6 +9,9 @@
 //! result carries the boundary decision naming the complete next context. Handoffs are applied
 //! in sequence, one per epoch, even when the committee is retained, so members removed at an
 //! epoch start cannot certify any height of a later epoch.
+//! Participants additionally retain authenticated evicted contexts for their unresolved `Yes`
+//! obligations. The internal archive verifier shares every certificate check below; ordinary
+//! proofs and handoffs cannot select that historical authority.
 //!
 //! Certificate verification reuses the core's exact-quorum check
 //! ([`iroha_sumeragi::crypto::Verifier::verify_qc`]) over the committee's
@@ -78,15 +81,21 @@ pub struct AmxVerifiedBlock {
     pub block_hash: [u8; 32],
     /// Certified result `R`.
     pub result: [u8; 32],
-    /// The verified preimage of `R`.
-    pub certified_result: CertifiedResultV1,
+    /// The verified complete preimage of `R`, including the finality header.
+    certified_result: CertifiedResultV1,
 }
 
 impl AmxVerifiedBlock {
-    /// Borrow the original certified execution body.
+    /// The certified execution body, borrowed from its retained finality wrapper.
     #[must_use]
     pub const fn commitment(&self) -> &ExecutionResultCommitment {
         self.certified_result.commitment()
+    }
+
+    /// The complete authenticated result, including its finality header.
+    #[must_use]
+    pub const fn certified_result(&self) -> &CertifiedResultV1 {
+        &self.certified_result
     }
 }
 
@@ -172,11 +181,21 @@ impl AmxForeignInstanceV1 {
 
     /// Verify a certified block of this instance: its epoch is tracked, its `CommitQC` has exactly
     /// a quorum of valid signatures of that epoch's committee over this header and result, and its
-    /// result preimage hashes to the certified `R`.
+    /// result preimage hashes to the certified `R`. The retained scope comes from the authenticated
+    /// source role, never the result header. This compact proof has no block timestamp, so
+    /// it cannot independently check C5; the quorum authenticates that time.
     ///
     /// # Errors
     /// Oversized or malformed parts, an untracked epoch, or any failed binding or signature.
     pub fn verify_block(&self, block: &AmxCertifiedBlockV1) -> Result<AmxVerifiedBlock, AmxError> {
+        self.verify_block_with_contexts(block, &[])
+    }
+
+    fn verify_block_with_contexts(
+        &self,
+        block: &AmxCertifiedBlockV1,
+        decision_contexts: &[ValidatorEpochContextV1],
+    ) -> Result<AmxVerifiedBlock, AmxError> {
         need(
             !block.consensus_header.is_empty()
                 && block.consensus_header.len() <= MAX_AMX_HEADER_BYTES
@@ -190,7 +209,12 @@ impl AmxForeignInstanceV1 {
             norito::decode_canonical(&block.consensus_header)
         })
         .map_err(|error| super::proof_codec_error(error, "core header"))?;
-        let context = self.context(header.epoch.epoch)?;
+        let context = self.context(header.epoch.epoch).or_else(|error| {
+            decision_contexts
+                .binary_search_by_key(&header.epoch.epoch, |context| context.authorization.epoch)
+                .map(|index| &decision_contexts[index])
+                .map_err(|_| error)
+        })?;
         let epoch = core_epoch(context).map_err(|error| AmxError::Anchor(error.to_string()))?;
         need(
             header.instance.0 == self.instance,
@@ -254,8 +278,19 @@ impl AmxForeignInstanceV1 {
     /// # Errors
     /// A malformed record, a failed block verification or a path to another root.
     pub fn verify_record(&self, proof: &AmxRecordProofV1) -> Result<AmxVerifiedBlock, AmxError> {
+        self.verify_record_with_contexts(proof, &[])
+    }
+
+    /// Verify with additional authority retained in committed participant State from this
+    /// tracker's authenticated handoffs. The participant restricts this path to the exact
+    /// unresolved `Yes` obligation and checks its authenticated decision-height interval.
+    pub(super) fn verify_record_with_contexts(
+        &self,
+        proof: &AmxRecordProofV1,
+        decision_contexts: &[ValidatorEpochContextV1],
+    ) -> Result<AmxVerifiedBlock, AmxError> {
         let root = proof.claimed_root()?;
-        let verified = self.verify_block(&proof.block)?;
+        let verified = self.verify_block_with_contexts(&proof.block, decision_contexts)?;
         need(
             root == verified.commitment().execution.ordinary_writes_root,
             "the record is not in the block's write set",
@@ -273,10 +308,19 @@ impl AmxForeignInstanceV1 {
         &mut self,
         proof: &AmxHandoffProofV1,
     ) -> Result<AmxHandoffOutcome, AmxError> {
+        self.apply_handoff_retaining_evicted(proof)
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// Move the evicted authenticated context to its participant's obligation archive.
+    pub(super) fn apply_handoff_retaining_evicted(
+        &mut self,
+        proof: &AmxHandoffProofV1,
+    ) -> Result<(AmxHandoffOutcome, Option<ValidatorEpochContextV1>), AmxError> {
         let verified = self.verify_block(&proof.block)?;
         if verified.epoch != self.epoch() {
             // Verified under `C_{e−1}`: the handoff into `e`, which the tracker already holds.
-            return Ok(AmxHandoffOutcome::Stale);
+            return Ok((AmxHandoffOutcome::Stale, None));
         }
         need(
             verified.height == self.current.authorization.last_height,
@@ -292,9 +336,14 @@ impl AmxForeignInstanceV1 {
             .validate_against(&self.current)
             .map_err(proof_error)?;
         let next = boundary.next.clone();
-        self.previous = Some(std::mem::replace(&mut self.current, next));
-        Ok(AmxHandoffOutcome::Advanced {
-            epoch: self.epoch(),
-        })
+        let evicted = self
+            .previous
+            .replace(std::mem::replace(&mut self.current, next));
+        Ok((
+            AmxHandoffOutcome::Advanced {
+                epoch: self.epoch(),
+            },
+            evicted,
+        ))
     }
 }

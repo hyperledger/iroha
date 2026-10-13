@@ -115,9 +115,7 @@ impl Wake for ReentryProbe {
         if self.first_writer.try_lock().is_ok() && self.last_writer.try_lock().is_ok() {
             self.released.fetch_add(1, SeqCst);
         }
-        if self.panic {
-            panic!("original reusable-control callback failed");
-        }
+        assert!(!self.panic, "original reusable-control callback failed");
     }
 }
 

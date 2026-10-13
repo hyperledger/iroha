@@ -148,15 +148,6 @@ fn sync_bound_progress_append_index(file: &std::fs::File) -> std::io::Result<()>
     }
     file.sync_data()
 }
-fn sync_native_amx_latest_index_recovery_temp(file: &std::fs::File) -> std::io::Result<()> {
-    #[cfg(test)]
-    if FAIL_NEXT_NATIVE_AMX_LATEST_INDEX_RECOVERY_TEMP_SYNC.with(|flag| flag.replace(false)) {
-        return Err(std::io::Error::other(
-            "injected Native AMX latest-index recovery temporary sync failure",
-        ));
-    }
-    file.sync_all()
-}
 fn sync_indexed_sidecar_data(file: &std::fs::File) -> std::io::Result<()> {
     #[cfg(test)]
     if FAIL_NEXT_INDEXED_SIDECAR_DATA_SYNC.with(|flag| flag.replace(false)) {
@@ -360,6 +351,8 @@ pub enum Error {
 
     /// Failed reading/writing {1:?} from disk: {0}
     IO(#[source] std::io::Error, PathBuf),
+    /// Original native journal {1:?} is unavailable at its bound pathname: {0}
+    NativeJournalUnavailable(#[source] std::io::Error, PathBuf),
     /// Lane-geometry publication failed and exact prior-journal restoration was not proven: publication={publication}; restoration={restoration}
     LaneGeometryPublicationRestoreFailed {
         /// Original catalog-publication error.
@@ -469,20 +462,7 @@ pub enum Error {
     /// Kura requires restart to complete an interrupted durable prune transaction
     PruneRecoveryRequired,
 }
-impl Error {
-    /// Return whether this error proves that the canonical publication boundary cannot be
-    /// retried safely by the live consensus process.
-    #[must_use]
-    pub(crate) const fn requires_restart_recovery(&self) -> bool {
-        matches!(
-            self,
-            Self::DaBlockRewriteCommitStateUnknown { .. }
-                | Self::CanonicalBlockCommittedRecoveryRequired { .. }
-                | Self::CanonicalStoragePoisoned
-                | Self::PruneRecoveryRequired
-        )
-    }
-}
+impl Error {}
 trait AddErrContextExt<T> {
     type Context;
     fn add_err_context(self, context: &Self::Context) -> Result<T, Error>;

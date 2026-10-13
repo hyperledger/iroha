@@ -69,10 +69,11 @@ impl PreparationOriginalV1 {
             return Err(Error::WitnessLost("retained original bound"));
         }
         Ok(Some(match self {
-            Self::CurrentCredential => {
-                valid(KagemushaWalletCredentialV1::decode_canonical(bytes, scheme))?
-                    .credential_digest()
-            }
+            Self::CurrentCredential => read_model_original(
+                || KagemushaWalletCredentialV1::decode_canonical(bytes, scheme),
+                Error::Invalid("G1 validation"),
+            )?
+            .credential_digest(),
             Self::EnrollmentCertificates => {
                 let set: KagemushaWalletCertificateSetV1 = archive::decode(bytes)?;
                 valid(set.validate())?;
@@ -81,20 +82,26 @@ impl PreparationOriginalV1 {
                 }
                 return Ok(None);
             }
-            Self::SchemePolicy => valid(KagemushaWalletSchemePolicyV1::decode_canonical(
-                bytes, scheme,
-            ))?
+            Self::SchemePolicy => read_model_original(
+                || KagemushaWalletSchemePolicyV1::decode_canonical(bytes, scheme),
+                Error::Invalid("G1 validation"),
+            )?
             .scheme_policy_digest(),
-            Self::Blacklist => valid(KagemushaWalletBlacklistV1::decode_canonical(bytes, scheme))?
-                .blacklist_digest(),
-            Self::QuotaShare => {
-                valid(KagemushaWalletQuotaShareV1::decode_canonical(bytes, scheme))?
-                    .quota_share_digest()
-            }
-            Self::TimeAnchor => {
-                valid(KagemushaWalletTimeAnchorV1::decode_canonical(bytes, scheme))?
-                    .time_anchor_digest()
-            }
+            Self::Blacklist => read_model_original(
+                || KagemushaWalletBlacklistV1::decode_canonical(bytes, scheme),
+                Error::Invalid("G1 validation"),
+            )?
+            .blacklist_digest(),
+            Self::QuotaShare => read_model_original(
+                || KagemushaWalletQuotaShareV1::decode_canonical(bytes, scheme),
+                Error::Invalid("G1 validation"),
+            )?
+            .quota_share_digest(),
+            Self::TimeAnchor => read_model_original(
+                || KagemushaWalletTimeAnchorV1::decode_canonical(bytes, scheme),
+                Error::Invalid("G1 validation"),
+            )?
+            .time_anchor_digest(),
         }))
     }
 }
@@ -154,11 +161,12 @@ impl SourceCustodyV1 {
                 .ok_or(Error::WitnessLost("Unload identity original"))?;
             store.read_object(&address, role.maximum())
         };
-        let credential = KagemushaWalletCredentialV1::decode_canonical(
-            &read(PreparationOriginalV1::CurrentCredential)?,
-            scheme,
-        )
-        .map_err(|_| Error::WitnessLost("Unload credential original"))?;
+        let original = read(PreparationOriginalV1::CurrentCredential)?;
+        let credential = read_model_original(
+            || KagemushaWalletCredentialV1::decode_canonical(&original, scheme),
+            Error::WitnessLost("Unload credential original"),
+        )?;
+        drop(original);
         if credential.body.wallet_id != *wallet
             || credential.credential_digest() != package.statement.credential_digest
         {
@@ -212,8 +220,10 @@ impl SourceCustodyV1 {
                 reference,
                 &state.core.scheme_id,
             )?;
-            let list = KagemushaWalletBlacklistV1::decode_canonical(&bytes, &state.core.scheme_id)
-                .map_err(|_| Error::WitnessLost("selected blacklist encoding"))?;
+            let list = read_model_original(
+                || KagemushaWalletBlacklistV1::decode_canonical(&bytes, &state.core.scheme_id),
+                Error::WitnessLost("selected blacklist encoding"),
+            )?;
             if list.body.list_version != state.core.blacklist_version
                 || list.body.entries_root != state.core.blacklist_root
                 || list.body.issued_at_ms != state.core.blacklist_issued_at_ms
@@ -226,7 +236,12 @@ impl SourceCustodyV1 {
         };
         if role
             .digest(&bytes, &state.core.scheme_id)
-            .map_err(|_| Error::WitnessLost("retained original encoding"))?
+            .map_err(|error| match error {
+                // Digest reads the actual original again; a local refusal cannot establish
+                // missing custody even when the first decode already completed.
+                Error::DecodeResource(_) => error,
+                _ => Error::WitnessLost("retained original encoding"),
+            })?
             != expected
         {
             return Err(Error::WitnessLost("original state digest"));

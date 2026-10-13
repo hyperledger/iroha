@@ -641,8 +641,8 @@ impl ExecutionOutputProducer<'_, '_, '_> {
             && self.pipeline_started
             && self.time_started
         {
-            if self.source_entries.len() != self.rows.len()
-                || self.source_routes.len() != self.source.network_entrypoint_count()
+            if (self.source_entries.len(), self.source_routes.len())
+                != (self.rows.len(), self.source.network_entrypoint_count())
             {
                 return Err("retained source records differ from completed output rows".into());
             }

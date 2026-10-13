@@ -10,7 +10,7 @@ fn profile(name: &str) -> InstalledNetworkProfile {
             .public_key()
             .clone(),
         7,
-        "https://releases.example/checkpoint.nrt".into(),
+        "https://releases.example/checkpoint.nrt",
     )
     .unwrap()
 }
@@ -30,13 +30,8 @@ fn installed_profiles_require_explicit_canonical_authority_floor_and_https_locat
         "https://releases.example/checkpoint.nrt#fragment",
     ] {
         assert!(
-            InstalledNetworkProfile::new(
-                "fixture".into(),
-                valid.trust.public_key.clone(),
-                7,
-                url.into()
-            )
-            .is_err(),
+            InstalledNetworkProfile::new("fixture".into(), valid.trust.public_key.clone(), 7, url)
+                .is_err(),
             "{url}"
         );
     }
@@ -46,7 +41,7 @@ fn installed_profiles_require_explicit_canonical_authority_floor_and_https_locat
                 name.into(),
                 valid.trust.public_key.clone(),
                 floor,
-                valid.checkpoint_url.to_string()
+                valid.checkpoint_url.as_str()
             )
             .is_err()
         );
@@ -58,7 +53,7 @@ fn installed_profiles_require_explicit_canonical_authority_floor_and_https_locat
                 .public_key()
                 .clone(),
             1,
-            valid.checkpoint_url.to_string()
+            valid.checkpoint_url.as_str()
         )
         .is_err()
     );
@@ -91,7 +86,7 @@ fn installed_profile_set_roundtrips_sorted_and_loads_from_retained_custody() {
     assert_eq!(decoded.encode_installation().unwrap(), bytes);
     let temporary = tempfile::tempdir().unwrap();
     let directory =
-        iroha_fs::PrivateDirectory::open_or_create(&temporary.path().join("installation")).unwrap();
+        iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("installation")).unwrap();
     directory
         .write_atomic(
             NETWORK_PROFILES_FILENAME,

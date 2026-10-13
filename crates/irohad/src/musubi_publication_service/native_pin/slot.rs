@@ -8,9 +8,7 @@ use iroha_crypto::KeyPair;
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
-    transaction::{
-        Executable, FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionPayload,
-    },
+    transaction::{Executable, SignedTransaction, TransactionBuilder, TransactionPayload},
 };
 use iroha_operation_journal::{Journal, NativeRecord};
 use iroha_version::codec::DecodeVersioned as _;
@@ -56,12 +54,17 @@ pub(in crate::musubi_publication_service) struct SlotRequest {
     /// recalculates its retention from a later quote or signature time.
     #[norito(required)]
     pub(in crate::musubi_publication_service) pin_selected_at_unix_ms: Option<u64>,
-    /// Canonical exact single InstructionBox frame selected by the purpose owner.
+    /// Canonical exact single `InstructionBox` frame selected by the purpose owner.
     pub(in crate::musubi_publication_service) instruction: String,
     pub(in crate::musubi_publication_service) authorization: NativePinAuthorizationV1,
 }
 impl SlotRequest {
     pub(in crate::musubi_publication_service) fn validate(&self) -> Result<()> {
+        use iroha_data_model::isi::{
+            musubi::{AdvanceMusubiPinOutboxV1, CheckMusubiPinOutboxV1},
+            sorafs::RegisterPinManifest,
+        };
+
         self.authorization.validate()?;
         ensure!(
             self.network.as_bytes()[31] & 1 == 1
@@ -81,10 +84,6 @@ impl SlotRequest {
             "native pin manifest selection time differs from its purpose or original authorization"
         );
         let instruction: iroha_data_model::isi::InstructionBox = decode_frame(&self.instruction)?;
-        use iroha_data_model::isi::{
-            musubi::{AdvanceMusubiPinOutboxV1, CheckMusubiPinOutboxV1},
-            sorafs::RegisterPinManifest,
-        };
         match self.kind {
             SlotKind::Pin => {
                 let pin = instruction
@@ -221,7 +220,7 @@ impl SlotRequest {
         // Aggregate reservation is recomputed by the root over all original payloads. This
         // local check verifies just the immutable per-transaction component authorization.
         self.authorization.reserve_payload(
-            &Default::default(),
+            &super::authorization::ReservedFeesV1::default(),
             &payload.fee_payment,
             matches!(self.kind, SlotKind::Check(_)),
         )?;
@@ -582,6 +581,7 @@ impl Slot {
         self.journal
             .submission_recorded(&self.signed_record(signed)?)
     }
+    #[cfg(test)]
     pub(in crate::musubi_publication_service) fn retire_request_only(&self) -> Result<()> {
         self.journal.verify_native_inventory()?;
         ensure!(
@@ -663,7 +663,7 @@ fn encode_hex(bytes: &[u8]) -> Result<String> {
 fn decode_hex(text: &str) -> Result<Vec<u8>> {
     ensure!(
         !text.is_empty()
-            && text.len() % 2 == 0
+            && text.len().is_multiple_of(2)
             && text.len() / 2 <= MAX_FRAME_BYTES
             && text
                 .bytes()

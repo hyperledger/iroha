@@ -410,11 +410,11 @@ impl Fixture {
         seed: u8,
         now: u64,
     ) -> SignedTransaction {
-        let Some(asset) = &self.fee_asset else {
-            return chain_fixture::sign(&self.state, instruction, seed, now);
-        };
         use iroha_data_model::transaction::{
             FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionBuilder,
+        };
+        let Some(asset) = &self.fee_asset else {
+            return chain_fixture::sign(&self.state, instruction, seed, now);
         };
         let signer = key(seed);
         let mut builder = TransactionBuilder::new(

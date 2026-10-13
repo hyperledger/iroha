@@ -6,7 +6,7 @@ use crate::{
 };
 fn state() -> State {
     State::new_for_testing(
-        *fixture::fixture(true),
+        fixture::fixture(true),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     )

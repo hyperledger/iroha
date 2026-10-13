@@ -1,83 +1,43 @@
 [package]
+edition = "2021"
 name = "concread"
 version = "0.5.10"
 authors = ["William Brown <william@blackhats.net.au>"]
-edition = "2021"
-description = "Concurrently Readable Data-Structures for Rust"
-documentation = "https://docs.rs/concread/latest/concread/"
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Concurrently readable B+trees and epoch-reclaimed cells for Iroha"
 homepage = "https://github.com/kanidm/concread/"
-repository = "https://github.com/kanidm/concread/"
+documentation = "https://docs.rs/concread/latest/concread/"
 readme = "README.md"
-keywords = [
-    "concurrency",
-    "lru",
-    "mvcc",
-    "copy-on-write",
-    "transactional-memory",
-]
-categories = ["data-structures", "memory-management", "caching", "concurrency"]
+keywords = ["concurrency", "mvcc", "copy-on-write", "transactional-memory"]
+categories = ["data-structures", "memory-management", "concurrency"]
 license = "MPL-2.0"
+repository = "https://github.com/kanidm/concread/"
+
+[features]
+default = ["ebr", "maps"]
+ebr = ["dep:crossbeam-epoch"]
+maps = ["dep:crossbeam-utils"]
+# Exercise the same B+tree engine with a smaller node fanout.
+skinny = []
 
 [lib]
 name = "concread"
 path = "src/lib.rs"
 
-[features]
-default = ["asynch", "foldhash", "ebr", "maps", "arcache-is-hashtrie"]
-
-# Features to add/remove contents.
-ahash = ["dep:ahash"]
-foldhash = ["dep:foldhash"]
-
-arcache = ["maps", "lru", "crossbeam-queue"]
-asynch = ["tokio"]
-ebr = ["crossbeam-epoch"]
-maps = ["crossbeam-utils", "smallvec"]
-tcache = []
-
-# Internal features for tweaking some align/perf behaviours.
-dhat-heap = ["dep:dhat"]
-skinny = []
-hashtrie_skinny = []
-
-arcache-is-hashmap = ["arcache"]
-arcache-is-hashtrie = ["arcache"]
-simd = []
+[[test]]
+name = "bptree_map"
+path = "tests/bptree_map.rs"
+required-features = ["maps"]
 
 [dependencies]
-ahash = { version = "0.8.12", optional = true }
-foldhash = { version = "0.2.0", optional = true }
-crossbeam-utils = { version = "0.8.21", optional = true }
+iroha_allocation = { workspace = true }
 crossbeam-epoch = { version = "0.9.18", optional = true }
-crossbeam-queue = { version = "0.3.12", optional = true }
-dhat = { version = "0.3.3", optional = true }
-lru = { version = "0.18.2", optional = true }
-parking_lot = "0.12.5"
-serde = { version = "1.0", optional = true }
-smallvec = { version = "1.15.1", optional = true }
-sptr = "0.3"
-tokio = { version = "1.49.0", features = ["sync"], optional = true }
-tracing = "0.1.44"
+crossbeam-utils = { version = "0.8.21", optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.8.1", features = ["html_reports"] }
 rand = "0.9.2"
-tracing-subscriber = { version = "0.3.22", features = [
-    "env-filter",
-    "std",
-    "fmt",
-] }
-uuid = ">=1.19.0"
-function_name = "0.3"
-serde_json = ">=1.0.149"
-tokio = { version = "1.49.0", features = ["rt", "macros"] }
-proptest = "1.9.0"
-
-[[bench]]
-name = "hashmap_benchmark"
-harness = false
-
-[[bench]]
-name = "arccache"
-harness = false
-required-features = ["tcache"]

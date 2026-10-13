@@ -497,7 +497,8 @@ mod tests {
                 .map_err(crate::execution_attempt::expect_completed_rejection),
             refused(0)
         );
-        // The same approval of an ordinary proposal and every other SCCP instruction pass.
+        // This static outbound-value scan accepts other SCCP instructions. Public
+        // panel operations separately require their exact direct signed execution frame.
         assert!(matches!(
             check(&[approval], Some(vec![log("ordinary")])),
             Ok(())
@@ -509,7 +510,7 @@ mod tests {
                 .collect();
         assert_eq!(
             others.len(),
-            6,
+            10,
             "every current SCCP instruction except the record"
         );
         assert!(matches!(check(&others, None), Ok(())));
@@ -562,7 +563,8 @@ mod tests {
         assert!(!derives(Executable::Ivm(IvmBytecode::from_compiled(
             Vec::new()
         ))));
-        // Other SCCP instructions are not signed-only.
+        // Other SCCP instructions are outside this outbound-value scan. Panel
+        // operations enforce their own direct signed execution frame.
         let others: Vec<InstructionBox> =
             crate::smartcontracts::isi::sccp::test_support::SampleInstructions::all()
                 .into_iter()

@@ -57,7 +57,7 @@ static LEGAL_REVIEWER_ROLE_ID: LazyLock<RoleId> = LazyLock::new(|| {
 });
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceChallengeRequestDto {
+pub struct EvidenceChallengeRequestDto {
     case_id: String,
     round_id: String,
     quarantine_id_hex: String,
@@ -67,7 +67,7 @@ pub(crate) struct EvidenceChallengeRequestDto {
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceSessionRequestDto {
+pub struct EvidenceSessionRequestDto {
     case_id: String,
     round_id: String,
     quarantine_id_hex: String,
@@ -78,14 +78,14 @@ pub(crate) struct EvidenceSessionRequestDto {
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceInteractionRequestDto {
+pub struct EvidenceInteractionRequestDto {
     kind: String,
     event_metadata_digest_hex: Option<String>,
     idempotency_key_hex: String,
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceLegalHoldRequestDto {
+pub struct EvidenceLegalHoldRequestDto {
     case_id: String,
     round_id: String,
     quarantine_id_hex: String,
@@ -94,14 +94,14 @@ pub(crate) struct EvidenceLegalHoldRequestDto {
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceLegalHoldReleaseRequestDto {
+pub struct EvidenceLegalHoldReleaseRequestDto {
     case_id: String,
     round_id: String,
     idempotency_key_hex: String,
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceRetentionRequestDto {
+pub struct EvidenceRetentionRequestDto {
     case_id: String,
     round_id: String,
     quarantine_id_hex: String,
@@ -110,14 +110,14 @@ pub(crate) struct EvidenceRetentionRequestDto {
 }
 #[derive(crate::json_macros::JsonDeserialize, crate::json_macros::JsonSerialize)]
 #[norito(deny_unknown_fields)]
-pub(crate) struct EvidenceErasureRequestDto {
+pub struct EvidenceErasureRequestDto {
     case_id: String,
     round_id: String,
     quarantine_id_hex: String,
     idempotency_key_hex: String,
 }
 /// Issue an exact case/round/object/account/role-bound WebAuthn challenge.
-pub(crate) async fn handle_post_evidence_session_challenge(
+pub async fn handle_post_evidence_session_challenge(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -181,7 +181,7 @@ pub(crate) async fn handle_post_evidence_session_challenge(
     response
 }
 /// Consume a WebAuthn assertion and return one case-bound rotating-grant session.
-pub(crate) async fn handle_post_evidence_session(
+pub async fn handle_post_evidence_session(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -276,7 +276,7 @@ pub(crate) async fn handle_post_evidence_session(
     response
 }
 /// Return the case-bound payload-free manifest and rotate the grant.
-pub(crate) async fn handle_get_evidence_manifest(
+pub async fn handle_get_evidence_manifest(
     State(state): State<SharedAppState>,
     Path(session_id_hex): Path<String>,
     headers: HeaderMap,
@@ -346,7 +346,7 @@ pub(crate) async fn handle_get_evidence_manifest(
     response
 }
 /// Authenticate, decrypt, durably receipt, and return one bounded byte range.
-pub(crate) async fn handle_get_evidence_segment(
+pub async fn handle_get_evidence_segment(
     State(state): State<SharedAppState>,
     Path(session_id_hex): Path<String>,
     headers: HeaderMap,
@@ -446,7 +446,7 @@ pub(crate) async fn handle_get_evidence_segment(
     response
 }
 /// Append one signed payload-free browser interaction and rotate the grant.
-pub(crate) async fn handle_post_evidence_log(
+pub async fn handle_post_evidence_log(
     State(state): State<SharedAppState>,
     Path(session_id_hex): Path<String>,
     headers: HeaderMap,
@@ -522,7 +522,7 @@ pub(crate) async fn handle_post_evidence_log(
     response
 }
 /// Place one legal hold with a signed payload-free receipt.
-pub(crate) async fn handle_post_evidence_legal_hold(
+pub async fn handle_post_evidence_legal_hold(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -573,7 +573,7 @@ pub(crate) async fn handle_post_evidence_legal_hold(
     legal_hold_response(StatusCode::CREATED, &hold, &receipt)
 }
 /// Release one legal hold with a signed payload-free receipt.
-pub(crate) async fn handle_post_evidence_legal_hold_release(
+pub async fn handle_post_evidence_legal_hold_release(
     State(state): State<SharedAppState>,
     Path(hold_id_hex): Path<String>,
     headers: HeaderMap,
@@ -620,7 +620,7 @@ pub(crate) async fn handle_post_evidence_legal_hold_release(
     legal_hold_response(StatusCode::OK, &hold, &receipt)
 }
 /// Record one signed retention decision.
-pub(crate) async fn handle_post_evidence_retention(
+pub async fn handle_post_evidence_retention(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -668,7 +668,7 @@ pub(crate) async fn handle_post_evidence_retention(
     retention_response(&record, &receipt)
 }
 /// Return the bounded due-erasure projection to explicit legal reviewers.
-pub(crate) async fn handle_get_evidence_retention(
+pub async fn handle_get_evidence_retention(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -716,7 +716,7 @@ pub(crate) async fn handle_get_evidence_retention(
     )
 }
 /// Execute irreversible erasure unless an active legal hold has precedence.
-pub(crate) async fn handle_post_evidence_erasure(
+pub async fn handle_post_evidence_erasure(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -795,6 +795,10 @@ struct EvidenceAuditQueryV1 {
     predecessor: Option<EvidenceViewerReceiptCursorV1>,
     limit: usize,
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_evidence_audit_query(uri: &Uri) -> Result<EvidenceAuditQueryV1, Response> {
     let raw = uri
         .query()
@@ -843,6 +847,10 @@ fn parse_evidence_audit_query(uri: &Uri) -> Result<EvidenceAuditQueryV1, Respons
         limit: parse_usize_bounded(limit, "limit", MAX_AUDIT_PAGE)?,
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn canonical_query_segment<'a>(segment: &'a str, expected_key: &str) -> Result<&'a str, Response> {
     let (key, value) = segment
         .split_once('=')
@@ -854,7 +862,7 @@ fn canonical_query_segment<'a>(segment: &'a str, expected_key: &str) -> Result<&
     }
 }
 /// Return a bounded exact-cursor projection of signed, hash-chained, payload-free receipts.
-pub(crate) async fn handle_get_evidence_audit(
+pub async fn handle_get_evidence_audit(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -885,7 +893,7 @@ pub(crate) async fn handle_get_evidence_audit(
     audit_projection_response(&projection)
 }
 /// Return the payload-free durable audit status to explicit auditors or legal reviewers.
-pub(crate) async fn handle_get_evidence_status(
+pub async fn handle_get_evidence_status(
     State(state): State<SharedAppState>,
     headers: HeaderMap,
     method: Method,
@@ -911,17 +919,21 @@ pub(crate) async fn handle_get_evidence_status(
     audit_status_response(&status)
 }
 /// Serve the no-cache embedded same-origin viewer shell.
-pub(crate) async fn handle_get_evidence_viewer() -> Response {
+pub async fn handle_get_evidence_viewer() -> Response {
     static_asset_response("text/html; charset=utf-8", EVIDENCE_VIEWER_HTML)
 }
 /// Serve the immutable-in-binary, no-cache viewer stylesheet.
-pub(crate) async fn handle_get_evidence_viewer_css() -> Response {
+pub async fn handle_get_evidence_viewer_css() -> Response {
     static_asset_response("text/css; charset=utf-8", EVIDENCE_VIEWER_CSS)
 }
 /// Serve the immutable-in-binary, no-cache viewer controller.
-pub(crate) async fn handle_get_evidence_viewer_js() -> Response {
+pub async fn handle_get_evidence_viewer_js() -> Response {
     static_asset_response("text/javascript; charset=utf-8", EVIDENCE_VIEWER_JS)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_canonical_auth(
     state: &SharedAppState,
     headers: &HeaderMap,
@@ -930,7 +942,7 @@ fn require_canonical_auth(
     body: &[u8],
 ) -> Result<crate::app_auth::VerifiedCanonicalRequest, Response> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&state) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(state) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error.into_response());
@@ -941,9 +953,7 @@ fn require_canonical_auth(
         &state.state,
         state.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     ) {
@@ -954,6 +964,10 @@ fn require_canonical_auth(
         )),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_explicit_audit_or_legal_role(
     state: &SharedAppState,
     account: &iroha_data_model::account::AccountId,
@@ -971,6 +985,10 @@ fn require_explicit_audit_or_legal_role(
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn require_explicit_legal_role(
     state: &SharedAppState,
     account: &iroha_data_model::account::AccountId,
@@ -988,6 +1006,10 @@ fn require_explicit_legal_role(
         ))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn decode_json<T: norito::json::JsonDeserializeOwned>(body: &[u8]) -> Result<T, Response> {
     if body.is_empty() || body.len() > MAX_JSON_BODY_BYTES {
         return Err(fixed_error(
@@ -998,6 +1020,10 @@ fn decode_json<T: norito::json::JsonDeserializeOwned>(body: &[u8]) -> Result<T, 
     json::from_slice(body)
         .map_err(|_| fixed_error(StatusCode::BAD_REQUEST, "invalid_canonical_json"))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_role(value: &str) -> Result<EvidenceViewerRoleV1, Response> {
     match value {
         "juror" => Ok(EvidenceViewerRoleV1::Juror),
@@ -1006,6 +1032,10 @@ fn parse_role(value: &str) -> Result<EvidenceViewerRoleV1, Response> {
         _ => Err(fixed_error(StatusCode::BAD_REQUEST, "invalid_viewer_role")),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_interaction_kind(value: &str) -> Result<ModerationEvidenceViewerAccessKind, Response> {
     match value {
         "viewed" => Ok(ModerationEvidenceViewerAccessKind::Viewed),
@@ -1021,6 +1051,10 @@ fn parse_interaction_kind(value: &str) -> Result<ModerationEvidenceViewerAccessK
         )),
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_hex_fixed<const N: usize>(value: &str, code: &'static str) -> Result<[u8; N], Response> {
     if value.len() != N.saturating_mul(2)
         || value
@@ -1034,6 +1068,10 @@ fn parse_hex_fixed<const N: usize>(value: &str, code: &'static str) -> Result<[u
         .try_into()
         .map_err(|_| fixed_error(StatusCode::BAD_REQUEST, code))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_nonzero_digest(value: &str, code: &'static str) -> Result<[u8; 32], Response> {
     let digest = parse_hex_fixed::<32>(value, code)?;
     if digest == [0; 32] {
@@ -1042,6 +1080,10 @@ fn parse_nonzero_digest(value: &str, code: &'static str) -> Result<[u8; 32], Res
         Ok(digest)
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_u64(value: &str, code: &'static str) -> Result<u64, Response> {
     if value.is_empty()
         || (value.len() > 1 && value.starts_with('0'))
@@ -1053,6 +1095,10 @@ fn parse_u64(value: &str, code: &'static str) -> Result<u64, Response> {
         .parse()
         .map_err(|_| fixed_error(StatusCode::BAD_REQUEST, code))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn parse_usize_bounded(value: &str, code: &'static str, maximum: usize) -> Result<usize, Response> {
     let parsed = parse_u64(value, code)?;
     let parsed = usize::try_from(parsed).map_err(|_| fixed_error(StatusCode::BAD_REQUEST, code))?;
@@ -1062,6 +1108,10 @@ fn parse_usize_bounded(value: &str, code: &'static str, maximum: usize) -> Resul
         Ok(parsed)
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn exact_query(uri: &Uri, required: &[&'static str]) -> Result<BTreeMap<String, String>, Response> {
     let values = optional_query(uri, required)?;
     if required.iter().all(|key| values.contains_key(*key)) && values.len() == required.len() {
@@ -1070,6 +1120,10 @@ fn exact_query(uri: &Uri, required: &[&'static str]) -> Result<BTreeMap<String, 
         Err(fixed_error(StatusCode::BAD_REQUEST, "invalid_query"))
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn optional_query(
     uri: &Uri,
     allowed: &[&'static str],
@@ -1101,6 +1155,10 @@ fn optional_query(
     }
     Ok(values)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn grant_from_headers(headers: &HeaderMap) -> Result<OpaqueEvidenceViewerSecretV1, Response> {
     secret_from_headers(
         headers,
@@ -1109,6 +1167,10 @@ fn grant_from_headers(headers: &HeaderMap) -> Result<OpaqueEvidenceViewerSecretV
         "invalid_evidence_grant",
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn challenge_from_headers(headers: &HeaderMap) -> Result<OpaqueEvidenceViewerSecretV1, Response> {
     secret_from_headers(
         headers,
@@ -1117,6 +1179,10 @@ fn challenge_from_headers(headers: &HeaderMap) -> Result<OpaqueEvidenceViewerSec
         "invalid_evidence_challenge",
     )
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn secret_from_headers(
     headers: &HeaderMap,
     name: &'static str,
@@ -1153,6 +1219,10 @@ fn hash_component(hasher: &mut blake3::Hasher, value: &[u8]) {
     hasher.update(&u64::try_from(value.len()).unwrap_or(u64::MAX).to_le_bytes());
     hasher.update(value);
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn canonical_norito_b64<T: norito::core::NoritoSerialize>(value: &T) -> Result<String, Response> {
     norito::to_bytes(value)
         .map(|bytes| BASE64_STANDARD.encode(bytes))
@@ -1163,6 +1233,10 @@ fn canonical_norito_b64<T: norito::core::NoritoSerialize>(value: &T) -> Result<S
             )
         })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn manifest_value(manifest: &EvidenceViewerManifestV1) -> Result<Value, Response> {
     Ok(object([
         (
@@ -1211,6 +1285,10 @@ fn manifest_value(manifest: &EvidenceViewerManifestV1) -> Result<Value, Response
         ),
     ]))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn receipt_value(receipt: &EvidenceViewerSignedReceiptV1) -> Result<Value, Response> {
     Ok(object([
         ("schema", "sorafs.evidence.signed_receipt.v1".into()),
@@ -1604,6 +1682,10 @@ fn secure_private_headers(response: &mut Response) {
         HeaderValue::from_static(EXPOSED_EVIDENCE_HEADERS),
     );
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn insert_secret_header(
     response: &mut Response,
     name: &'static str,
@@ -1659,9 +1741,17 @@ fn network_time_now_ms() -> u64 {
         .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or_default()
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn healthy_network_time_now_ms() -> Result<u64, Response> {
     healthy_network_time_ms(iroha_core::time::now())
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn healthy_network_time_ms(status: iroha_core::time::NetworkTimeStatus) -> Result<u64, Response> {
     if !status.health.healthy || status.fallback {
         return Err(fixed_error(
@@ -2000,7 +2090,7 @@ mod tests {
             value
                 .get("receipts")
                 .and_then(Value::as_array)
-                .is_some_and(|receipts| receipts.is_empty())
+                .is_some_and(std::vec::Vec::is_empty)
         );
         assert!(value.get("after_sequence").is_none());
         assert!(value.get("next_after").is_none());

@@ -165,7 +165,7 @@ pub(crate) fn prepare_control<P: CustodyPurpose>(
         ControlAction::Revoke { signer, attester } => {
             let current = current.ok_or(HistoryError::Conflict)?;
             let mut next = current.state.clone();
-            if !(signer && !next.signer_revoked || attester && !next.attester_revoked) {
+            if (next.attester_revoked || !attester) && (next.signer_revoked || !signer) {
                 return Err(HistoryError::Conflict);
             }
             next.signer_revoked |= signer;

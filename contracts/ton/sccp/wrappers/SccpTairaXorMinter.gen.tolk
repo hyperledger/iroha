@@ -272,111 +272,34 @@ fun SccpTairaXorMinter.sendSccpRetry(
     from: address,
     queryId: uint64,
     response: address,
-    nonce: uint64,
+    operationId: uint64,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpRetry { queryId, response, nonce },
+        body: SccpRetry { queryId, response, operationId },
     });
     return net.send(from, genericMsg);
 }
 
-fun SccpTairaXorMinter.sendSccpConsumed(
+fun SccpTairaXorMinter.sendSccpRecoveryAck(
     self,
     from: address,
+    operationId: uint64,
+    stage: uint8,
+    attempt: uint64,
+    result: uint8,
     queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    tail: ConsumeTail,
+    response: address,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: SccpConsumed {
-            queryId,
-            nonce,
-            amount,
-            tail: tail.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpAlreadyConsumed(
-    self,
-    from: address,
-    queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    tail: ConsumeTail,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpAlreadyConsumed {
-            queryId,
-            nonce,
-            amount,
-            tail: tail.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpConsumeReverted(
-    self,
-    from: address,
-    queryId: uint64,
-    nonce: uint64,
-    amount: uint96,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpConsumeReverted { queryId, nonce, amount },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpRangeConsumed(
-    self,
-    from: address,
-    queryId: uint64,
-    first: uint64,
-    count: uint16,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpRangeConsumed { queryId, first, count },
-    });
-    return net.send(from, genericMsg);
-}
-
-fun SccpTairaXorMinter.sendSccpRangeRejected(
-    self,
-    from: address,
-    queryId: uint64,
-    first: uint64,
-    count: uint16,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: SccpRangeRejected { queryId, first, count },
+        body: SccpRecoveryAck { operationId, stage, attempt, result, queryId, response },
     });
     return net.send(from, genericMsg);
 }
@@ -510,6 +433,10 @@ fun SccpTairaXorMinter.minterFloor(self): int {
     return net.runGetMethod(self.address, "minter_floor");
 }
 
-fun SccpTairaXorMinter.getSccpRetry(self, nonce: int): int {
-    return net.runGetMethod(self.address, "get_sccp_retry", [nonce]);
+fun SccpTairaXorMinter.getSccpRecovery(self, operationId: int): cell? {
+    return net.runGetMethod(self.address, "get_sccp_recovery", [operationId]);
+}
+
+fun SccpTairaXorMinter.getSccpRecoveryState(self): (int, int, int) {
+    return net.runGetMethod(self.address, "get_sccp_recovery_state");
 }

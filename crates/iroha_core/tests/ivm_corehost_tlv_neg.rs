@@ -315,10 +315,16 @@ fn register_contract_bytes_enforces_tlv_provenance_type_hash_and_payload() {
             .alloc_host_tlv(&envelope)
             .unwrap_or_else(|error| panic!("allocate {label} fixture: {error:?}"));
         vm.set_register(10, pointer);
-        assert_eq!(
-            local_contract_debug_host(authority.clone())
-                .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm),
-            Err(expected),
+        let actual = local_contract_debug_host(authority.clone())
+            .syscall(syscalls::SYSCALL_REGISTER_SMART_CONTRACT_BYTES, &mut vm);
+        assert!(
+            matches!(
+                (actual, expected),
+                (
+                    Err(ivm::VMError::NoritoInvalid),
+                    ivm::VMError::NoritoInvalid
+                ) | (Err(ivm::VMError::DecodeError), ivm::VMError::DecodeError)
+            ),
             "{label} must fail closed"
         );
     }

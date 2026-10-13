@@ -29,6 +29,14 @@ impl<F> fmt::Debug for Polynomial<F> {
     }
 }
 
+impl<F: Zeroize> Zeroize for Polynomial<F> {
+    /// Erase every coefficient and reset the degree: the constant 0 remains.
+    fn zeroize(&mut self) {
+        self.coefficients.zeroize();
+        self.degree = Degree::ZERO;
+    }
+}
+
 impl<F: LambdaField> Polynomial<F> {
     /// A polynomial that carries only a mark.
     fn marked(degree: Degree) -> Self {
@@ -218,7 +226,10 @@ impl<F: LambdaField> ConstraintSystem for Prover<'_, F> {
         };
         let mut out = Polynomial::marked(degree);
         for (i, x) in a.coefficients[..=left].iter().enumerate() {
-            for (slot, y) in out.coefficients[i..].iter_mut().zip(&b.coefficients[..=right]) {
+            for (slot, y) in out.coefficients[i..]
+                .iter_mut()
+                .zip(&b.coefficients[..=right])
+            {
                 *slot += *x * *y;
             }
         }
@@ -324,6 +335,29 @@ mod tests {
     }
 
     #[test]
+    fn erasing_a_polynomial_leaves_the_constant_zero() {
+        let values = [element(1), element(2)];
+        let tags: Vec<u8> = (10..12).flat_map(|seed| element(seed).to_bytes()).collect();
+        let system = prover(&values, &tags);
+        let mut product = system.mul(system.witness(0), system.witness(1));
+        assert!(!product.coefficients[..3].iter().any(BinaryField::is_zero));
+        product.zeroize();
+        assert_eq!(product.degree, Degree::ZERO);
+        assert!(product.coefficients.iter().all(BinaryField::is_zero));
+        // A mark is erased with the rest.
+        let mut missing = system.witness(2);
+        missing.zeroize();
+        assert_eq!(missing.degree, Degree::ZERO);
+        // The erased value is usable as the constant 0.
+        let sum = system.add(product, system.witness(0));
+        assert_eq!(sum.coefficients, system.witness(0).coefficients);
+        // Buffers of values are erased through the same implementation.
+        let mut scratch = zeroize::Zeroizing::new(vec![system.witness(1); 4]);
+        scratch.zeroize();
+        assert!(scratch.is_empty());
+    }
+
+    #[test]
     fn marks_propagate_through_every_operation() {
         let values = [element(1)];
         let tags = element(2).to_bytes();
@@ -342,7 +376,10 @@ mod tests {
         let over = system.mul(power, w);
         assert_eq!(over.degree, Degree::Overflow);
         assert_eq!(system.add(over, w).degree, Degree::Overflow);
-        assert_eq!(system.mul(over, system.constant(F::ONE)).degree, Degree::Overflow);
+        assert_eq!(
+            system.mul(over, system.constant(F::ONE)).degree,
+            Degree::Overflow
+        );
         assert_eq!(system.len(), 1);
         assert_eq!(system.coordinate(0), Some((element(2), element(1))));
         assert_eq!(system.coordinate(1), None);
@@ -374,7 +411,9 @@ mod tests {
 
         let mask_values: Vec<u8> = (20..30).flat_map(|seed| element(seed).to_bytes()).collect();
         let mask_tags: Vec<u8> = (30..40).flat_map(|seed| element(seed).to_bytes()).collect();
-        let out = system.finish(&mask_values, &mask_tags).expect("complete stream");
+        let out = system
+            .finish(&mask_values, &mask_tags)
+            .expect("complete stream");
         for (j, coefficient) in out.iter().enumerate() {
             let column: Vec<F> = recorded.iter().map(|polynomial| polynomial[j]).collect();
             let mut mask = F::ZERO;

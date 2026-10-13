@@ -226,3 +226,33 @@ fn canonical_token_wire_change_preserves_signature_provider_time_and_size_denial
         assert_eq!(norito::core::get_decode_flags(), flags);
     }
 }
+
+#[test]
+fn invalid_stream_token_keeps_provider_identity_and_original_decode_cause() {
+    let token = canonical_token_fixture();
+    let provider = provider_id_hex();
+    for (encoded, malformed_payload) in [
+        (String::from("!"), false),
+        (STANDARD.encode(b"invalid"), true),
+    ] {
+        let mut input = gateway_provider_input(&token);
+        input.stream_token_b64 = encoded;
+        let error =
+            build_test_context(gateway_config(&"11".repeat(32), &chunker_handle()), [input])
+                .expect_err("malformed token must fail gateway admission");
+        assert!(error.to_string().contains(&provider));
+        let GatewayBuildError::InvalidStreamToken {
+            provider_id,
+            source,
+        } = error
+        else {
+            panic!("expected original stream-token decode error");
+        };
+        assert_eq!(provider_id.as_ref(), provider);
+        if malformed_payload {
+            assert!(matches!(source, StreamTokenDecodeError::InvalidPayload(_)));
+        } else {
+            assert!(matches!(source, StreamTokenDecodeError::InvalidBase64(_)));
+        }
+    }
+}

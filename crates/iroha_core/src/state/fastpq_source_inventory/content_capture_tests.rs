@@ -252,7 +252,7 @@ fn original_recorder_authority_failure_is_sticky_without_consuming_another_recor
                 assert_eq!(retained.fastpq_transcripts[0].entry_hash, *source);
                 assert_eq!(&retained.fastpq_transcripts[0].transcripts, transcripts);
                 drop(recording);
-                assert_not_published(&state);
+                assert_not_published(state);
             },
         );
     }
@@ -291,7 +291,7 @@ fn content_failure_survives_resynchronization_retry_getters_and_commit() {
                 // prepare/publish path; it cannot reach the old component enum gate.
                 assert!(block.verify_execution_output_publication().is_err());
                 drop(block);
-                assert_not_published(&state);
+                assert_not_published(state);
             },
         );
     }
@@ -508,7 +508,7 @@ fn directly_mutated_cached_public_bundles_cannot_commit_without_recapture_or_get
                     // prepare/publish path; it cannot reach the old component enum gate.
                     assert!(block.verify_execution_output_publication().is_err());
                     drop(block);
-                    assert_not_published(&state);
+                    assert_not_published(state);
                 },
             );
         }
@@ -577,7 +577,7 @@ fn cached_prebuilt_batches_reject_recapture_and_every_first_getter_with_sticky_f
                     // prepare/publish path; it cannot reach the old component enum gate.
                     assert!(block.verify_execution_output_publication().is_err());
                     drop(block);
-                    assert_not_published(&state);
+                    assert_not_published(state);
                 },
             );
         }
@@ -613,7 +613,7 @@ fn cached_prebuilt_batches_cannot_commit_without_recapture_or_getters() {
                     // prepare/publish path; it cannot reach the old component enum gate.
                     assert!(block.verify_execution_output_publication().is_err());
                     drop(block);
-                    assert_not_published(&state);
+                    assert_not_published(state);
                 },
             );
         }
@@ -665,7 +665,7 @@ fn failed_output_binding_publishes_no_partial_capture_and_cannot_be_retried() {
                     block.commit(),
                     Err(crate::state::TransactionsBlockError::FastpqSourceInventory)
                 ));
-                assert_not_published(&state);
+                assert_not_published(state);
                 crate::exec_witness::drain_exec_witness();
             },
         );

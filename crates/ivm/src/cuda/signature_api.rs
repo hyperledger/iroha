@@ -63,7 +63,7 @@ pub(super) fn admit() -> bool {
             signature: key.sign(message).to_bytes(),
             public_key: key.verifying_key().to_bytes(),
         };
-        let mut items: [Ed25519BatchItem<'_>; 10] = std::array::from_fn(|_| valid.clone());
+        let mut items: [Ed25519BatchItem<'_>; 10] = std::array::from_fn(|_| valid);
         items[1].signature = bad;
         items[2].signature = [0; 64];
         items[3].public_key = [0; 32];

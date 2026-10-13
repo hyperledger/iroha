@@ -4,7 +4,7 @@ use iroha_torii_shared::list_query::Order;
 
 /// Value class of a row field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FieldType {
+pub enum FieldType {
     /// JSON string; compared and sorted as text.
     String,
     /// Integer or exact decimal (number or decimal string); compared numerically.
@@ -32,7 +32,7 @@ impl FieldType {
 
 /// One filterable row field.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct FieldSpec {
+pub struct FieldSpec {
     /// Dotted field path.
     pub(crate) name: &'static str,
     /// Value class.
@@ -119,7 +119,7 @@ const fn json(name: &'static str) -> FieldSpec {
 
 /// A collection's query surface.
 #[derive(Debug)]
-pub(crate) struct CollectionSpec {
+pub struct CollectionSpec {
     /// Stable collection identifier (also binds cursors).
     pub(crate) id: &'static str,
     /// Cursor tag; unique per collection.
@@ -205,7 +205,7 @@ impl CollectionSpec {
 }
 
 /// `/v1/domains`
-pub(crate) static DOMAINS: CollectionSpec = CollectionSpec {
+pub static DOMAINS: CollectionSpec = CollectionSpec {
     id: "domains",
     tag: 1,
     fields: &[text("id"), account("owned_by"), unsorted_text("logo")],
@@ -217,7 +217,7 @@ pub(crate) static DOMAINS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/accounts`
-pub(crate) static ACCOUNTS: CollectionSpec = CollectionSpec {
+pub static ACCOUNTS: CollectionSpec = CollectionSpec {
     id: "accounts",
     tag: 2,
     fields: &[account("id"), text("label"), text("uaid")],
@@ -229,7 +229,7 @@ pub(crate) static ACCOUNTS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/assets/definitions`
-pub(crate) static ASSET_DEFINITIONS: CollectionSpec = CollectionSpec {
+pub static ASSET_DEFINITIONS: CollectionSpec = CollectionSpec {
     id: "asset_definitions",
     tag: 3,
     fields: &[
@@ -254,7 +254,7 @@ pub(crate) static ASSET_DEFINITIONS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/nfts`
-pub(crate) static NFTS: CollectionSpec = CollectionSpec {
+pub static NFTS: CollectionSpec = CollectionSpec {
     id: "nfts",
     tag: 4,
     fields: &[text("id"), account("owned_by")],
@@ -266,7 +266,7 @@ pub(crate) static NFTS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/rwas`
-pub(crate) static RWAS: CollectionSpec = CollectionSpec {
+pub static RWAS: CollectionSpec = CollectionSpec {
     id: "rwas",
     tag: 5,
     fields: &[
@@ -285,7 +285,7 @@ pub(crate) static RWAS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/accounts/{account_id}/assets`
-pub(crate) static ACCOUNT_ASSETS: CollectionSpec = CollectionSpec {
+pub static ACCOUNT_ASSETS: CollectionSpec = CollectionSpec {
     id: "account_assets",
     tag: 6,
     fields: &[
@@ -304,7 +304,7 @@ pub(crate) static ACCOUNT_ASSETS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/assets/{definition_id}/holders`
-pub(crate) static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
+pub static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
     id: "asset_holders",
     tag: 7,
     fields: &[
@@ -336,7 +336,7 @@ const TRANSACTION_FIELDS: &[FieldSpec] = &[
 ];
 
 /// `/v1/accounts/{account_id}/transactions`
-pub(crate) static ACCOUNT_TRANSACTIONS: CollectionSpec = CollectionSpec {
+pub static ACCOUNT_TRANSACTIONS: CollectionSpec = CollectionSpec {
     id: "account_transactions",
     tag: 8,
     fields: TRANSACTION_FIELDS,
@@ -348,7 +348,7 @@ pub(crate) static ACCOUNT_TRANSACTIONS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/transactions/query`
-pub(crate) static TRANSACTIONS: CollectionSpec = CollectionSpec {
+pub static TRANSACTIONS: CollectionSpec = CollectionSpec {
     id: "transactions",
     tag: 10,
     fields: TRANSACTION_FIELDS,
@@ -360,7 +360,7 @@ pub(crate) static TRANSACTIONS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/repo/agreements`
-pub(crate) static REPO_AGREEMENTS: CollectionSpec = CollectionSpec {
+pub static REPO_AGREEMENTS: CollectionSpec = CollectionSpec {
     id: "repo_agreements",
     tag: 9,
     fields: &[
@@ -391,7 +391,7 @@ pub(crate) static REPO_AGREEMENTS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/accounts/{account_id}/permissions`: effective direct and role permissions.
-pub(crate) static ACCOUNT_PERMISSIONS: CollectionSpec = CollectionSpec {
+pub static ACCOUNT_PERMISSIONS: CollectionSpec = CollectionSpec {
     id: "account_permissions",
     tag: 11,
     fields: &[text("name"), json("payload")],
@@ -403,7 +403,7 @@ pub(crate) static ACCOUNT_PERMISSIONS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/subscriptions/plans`
-pub(crate) static SUBSCRIPTION_PLANS: CollectionSpec = CollectionSpec {
+pub static SUBSCRIPTION_PLANS: CollectionSpec = CollectionSpec {
     id: "subscription_plans",
     tag: 12,
     fields: &[
@@ -420,7 +420,7 @@ pub(crate) static SUBSCRIPTION_PLANS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/subscriptions`
-pub(crate) static SUBSCRIPTIONS: CollectionSpec = CollectionSpec {
+pub static SUBSCRIPTIONS: CollectionSpec = CollectionSpec {
     id: "subscriptions",
     tag: 13,
     fields: &[
@@ -449,7 +449,7 @@ pub(crate) static SUBSCRIPTIONS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/space-directory/uaids/{uaid}/manifests`
-pub(crate) static UAID_MANIFESTS: CollectionSpec = CollectionSpec {
+pub static UAID_MANIFESTS: CollectionSpec = CollectionSpec {
     id: "uaid_manifests",
     tag: 14,
     fields: &[
@@ -469,7 +469,7 @@ pub(crate) static UAID_MANIFESTS: CollectionSpec = CollectionSpec {
 };
 
 /// Account movements within committed transactions, in descending chain order.
-pub(crate) static ACCOUNT_HISTORY: CollectionSpec = CollectionSpec {
+pub static ACCOUNT_HISTORY: CollectionSpec = CollectionSpec {
     id: "account_history",
     tag: 15,
     fields: &[
@@ -502,7 +502,7 @@ pub(crate) static ACCOUNT_HISTORY: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/contracts/activity`: newest-first committed contract calls.
-pub(crate) static CONTRACT_ACTIVITY: CollectionSpec = CollectionSpec {
+pub static CONTRACT_ACTIVITY: CollectionSpec = CollectionSpec {
     id: "contract_activity",
     tag: 16,
     fields: &[
@@ -526,7 +526,7 @@ pub(crate) static CONTRACT_ACTIVITY: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/contracts/events`: newest-first committed contract events.
-pub(crate) static CONTRACT_EVENTS: CollectionSpec = CollectionSpec {
+pub static CONTRACT_EVENTS: CollectionSpec = CollectionSpec {
     id: "contract_events",
     tag: 17,
     fields: &[
@@ -558,7 +558,7 @@ pub(crate) static CONTRACT_EVENTS: CollectionSpec = CollectionSpec {
 };
 
 /// Every collection, in cursor-tag order.
-pub(crate) const ALL: [&CollectionSpec; 17] = [
+pub const ALL: [&CollectionSpec; 17] = [
     &DOMAINS,
     &ACCOUNTS,
     &ASSET_DEFINITIONS,

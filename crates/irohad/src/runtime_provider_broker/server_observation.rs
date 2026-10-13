@@ -15,18 +15,31 @@ pub(super) struct Output<'a> {
     pub(super) state: &'a BrokerServerStateV1,
     pub(super) request: &'a OperationRequestV1,
     pub(super) stream: &'a mut UnixStream,
+    // The lifetime retains the original ingress throughout every reply continuation.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the borrow ties ingress custody to the full output lifetime; tests inspect its original identity"
+        )
+    )]
     pub(super) request_frame: &'a ScrubbedBytes,
     pub(super) admission: &'a Arc<DecodeResourceAdmissionV1>,
+    // Admission remains attached to the same accepted operation until output returns.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the borrow retains the accepted operation permit through output; tests inspect its original identity"
+        )
+    )]
     pub(super) operation_permit: &'a RuntimeProviderBrokerCallPermitV1,
     pub(super) deadline: BrokerDeadlineV1,
 }
 
-pub(super) fn serve(output: Output<'_>) -> Result<bool, BrokerError> {
-    // These borrows keep raw ingress and lifecycle admission live through the
-    // final write, including every local retry. No socket or permit is reacquired.
-    let _ingress = (output.request_frame, output.operation_permit);
+pub(super) fn serve(output: &mut Output<'_>) -> Result<bool, BrokerError> {
     #[cfg(test)]
-    test_hooks::output(&output);
+    test_hooks::output(output);
     let prepared = CompletedReply::dispatch(
         output.state,
         output.request,
@@ -38,7 +51,7 @@ pub(super) fn serve(output: Output<'_>) -> Result<bool, BrokerError> {
         Ok(owner)
     });
     #[cfg(test)]
-    test_hooks::retained_output(&output);
+    test_hooks::retained_output(output);
     match prepared {
         Ok(owner) => {
             output.deadline.remaining()?;

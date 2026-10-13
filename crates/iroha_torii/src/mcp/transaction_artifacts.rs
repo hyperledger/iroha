@@ -23,11 +23,11 @@ use norito::json::{Map, Value};
 
 /// Maximum number of stable instruction wire identifiers returned in one
 /// structural summary.
-pub(crate) const MAX_SUMMARY_INSTRUCTION_WIRE_IDS: usize = 64;
+pub const MAX_SUMMARY_INSTRUCTION_WIRE_IDS: usize = 64;
 
 /// Exact artifact type selected for inspection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TransactionArtifactKind {
+pub enum TransactionArtifactKind {
     /// Canonical unsigned bytes emitted by [`TransactionBuilder::encode_payload`].
     TransactionPayload,
     /// Canonical fixed-V1 bytes emitted by [`SignedTransaction::encode_wire_v1`].
@@ -46,7 +46,7 @@ impl TransactionArtifactKind {
 
 /// Closed failures from pure transaction-artifact handling.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TransactionArtifactError {
+pub enum TransactionArtifactError {
     /// An ordinary external-signing flow received the genesis-only domain.
     GenesisDomain,
     /// The payload binds a network other than the Torii network being served.
@@ -99,7 +99,7 @@ impl std::error::Error for TransactionArtifactError {}
 /// Metadata values, proof bytes, contract arguments, IVM bytecode, instruction
 /// fields, and signatures are intentionally excluded.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TransactionStructuralSummary {
+pub struct TransactionStructuralSummary {
     /// Canonical account authorizing the payload.
     pub(crate) authority: String,
     /// Exact network bound into the payload.
@@ -328,7 +328,7 @@ impl ExecutableSummary {
 
 /// Canonical unsigned payload plus its exact external-signing message.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PreparedTransactionArtifact {
+pub struct PreparedTransactionArtifact {
     canonical_payload_bytes: Vec<u8>,
     signing_message_bytes: [u8; Hash::LENGTH],
     payload_hash_hex: String,
@@ -405,7 +405,7 @@ impl PreparedTransactionArtifact {
 
 /// Signature verification outcome for an inspected artifact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SignatureVerification {
+pub enum SignatureVerification {
     /// Unsigned payloads have no authorization proof to verify.
     NotPresent,
     /// The canonical data-model verifier accepted every required signature.
@@ -448,7 +448,7 @@ impl SignatureVerification {
 
 /// Pure inspection result for either an unsigned payload or complete signed wire.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct InspectedTransactionArtifact {
+pub struct InspectedTransactionArtifact {
     /// Exact artifact kind that was decoded.
     pub(crate) kind: TransactionArtifactKind,
     /// Canonical unsigned payload and signing material derived from the artifact.
@@ -512,7 +512,7 @@ impl InspectedTransactionArtifact {
 }
 
 /// Canonicalize a complete typed unsigned payload for external signing.
-pub(crate) fn prepare_transaction_payload(
+pub fn prepare_transaction_payload(
     expected_network_id: &NetworkId,
     payload: TransactionPayload,
 ) -> Result<PreparedTransactionArtifact, TransactionArtifactError> {
@@ -524,7 +524,7 @@ pub(crate) fn prepare_transaction_payload(
 
 /// Decode and canonicalize exact bytes previously emitted by
 /// [`TransactionBuilder::encode_payload`].
-pub(crate) fn prepare_transaction_payload_bytes(
+pub fn prepare_transaction_payload_bytes(
     expected_network_id: &NetworkId,
     payload_bytes: &[u8],
 ) -> Result<PreparedTransactionArtifact, TransactionArtifactError> {
@@ -550,7 +550,7 @@ fn decode_canonical_payload_builder(
 }
 
 /// Inspect either exact unsigned payload bytes or a complete canonical signed wire.
-pub(crate) fn inspect_transaction_artifact(
+pub fn inspect_transaction_artifact(
     expected_network_id: &NetworkId,
     kind: TransactionArtifactKind,
     artifact_bytes: &[u8],
@@ -566,7 +566,7 @@ pub(crate) fn inspect_transaction_artifact(
 }
 
 /// Inspect exact unsigned payload bytes without signing or submitting them.
-pub(crate) fn inspect_transaction_payload(
+pub fn inspect_transaction_payload(
     expected_network_id: &NetworkId,
     payload_bytes: &[u8],
 ) -> Result<InspectedTransactionArtifact, TransactionArtifactError> {
@@ -583,7 +583,7 @@ pub(crate) fn inspect_transaction_payload(
 }
 
 /// Inspect a complete canonical fixed-V1 signed transaction wire.
-pub(crate) fn inspect_signed_transaction(
+pub fn inspect_signed_transaction(
     expected_network_id: &NetworkId,
     signed_wire_bytes: &[u8],
 ) -> Result<InspectedTransactionArtifact, TransactionArtifactError> {

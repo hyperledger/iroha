@@ -1,7 +1,7 @@
 //! Actual original allocation custody and admission before World writer acquisition.
 
 use super::*;
-use crate::state::{AnchorStorage, CommitteeStorage, World};
+use crate::state::{AnchorStorage, CommitteeStorage, World, sccp_forgery_custody::OffenceStorage};
 use iroha_allocation::{AllocationBudget, AllocationRefusal};
 use mv::cell::{Cell, CellPublicationSuccessor};
 use std::{
@@ -13,7 +13,7 @@ fn world_on(source: &AllocationBudget) -> World {
     World::try_with_execution_budget([], [], [], source).unwrap()
 }
 
-// Measure both independently exercised prepaid tables alongside the exact Cell
+// Measure all independently exercised prepaid tables alongside the exact Cell
 // and aggregate layouts. Their real empty-undo resets and publication owners
 // share one original refund scope, just as they do in World acquisition.
 fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
@@ -21,6 +21,7 @@ fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
     let source = AllocationBudget::new(1 << 20);
     let table = CommitteeStorage::try_new_admitted(source.clone()).unwrap();
     let anchors = AnchorStorage::try_new_admitted(source.clone()).unwrap();
+    let offences = OffenceStorage::try_new_admitted(source.clone()).unwrap();
     let baseline = source.reserved_bytes();
     let scope = source.try_owned_refund_scope().unwrap();
     let mut slot = table.try_block_acquisition_owned(&scope).unwrap();
@@ -31,6 +32,10 @@ fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
     anchor_slot.try_initialize(mode).unwrap();
     let anchor_block = anchor_slot.take_block();
     drop(anchor_slot);
+    let mut offence_slot = offences.try_block_acquisition_owned(&scope).unwrap();
+    offence_slot.try_initialize(mode).unwrap();
+    let offence_block = offence_slot.take_block();
+    drop(offence_slot);
     if freeze {
         let mut capture = block.capture_slot();
         capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
@@ -38,18 +43,24 @@ fn prepaid_world_table_writer_bytes(mode: BlockMode, freeze: bool) -> usize {
         let mut anchor_capture = anchor_block.capture_slot();
         anchor_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
         let (anchor_journal, anchor_cleanup) = anchor_capture.into_detached();
+        let mut offence_capture = offence_block.capture_slot();
+        offence_capture.try_capture(|_| Ok::<_, ()>(())).unwrap();
+        let (offence_journal, offence_cleanup) = offence_capture.into_detached();
         drop(cleanup);
         drop(anchor_cleanup);
+        drop(offence_cleanup);
         drop(scope);
         let bytes = source.reserved_bytes() - baseline;
         drop(journal);
         drop(anchor_journal);
+        drop(offence_journal);
         assert_eq!(source.reserved_bytes(), baseline);
         bytes
     } else {
         let bytes = source.reserved_bytes() - baseline;
         drop(block);
         drop(anchor_block);
+        drop(offence_block);
         drop(scope);
         assert_eq!(source.reserved_bytes(), baseline);
         bytes

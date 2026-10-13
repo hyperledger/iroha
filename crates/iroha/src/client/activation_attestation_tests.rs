@@ -425,6 +425,7 @@ fn bridge_finality_attestation_reader_binds_exact_request_headers_and_signed_bod
         )
     });
     let actual = actual.expect("authenticated attestation");
+    assert_eq!(actual.root_scope(), root_scope);
     assert_eq!(actual.attestation(), &attestation);
     assert_eq!(actual.into_attestation(), attestation);
     assert_eq!(request.method, HttpMethod::GET);
@@ -678,10 +679,11 @@ fn bridge_finality_attestation_reader_rejects_malformed_or_unbound_tip_progress(
 
 #[test]
 fn bridge_finality_attestation_reader_rejects_untyped_or_noncanonical_progress_http() {
-    let root_scope = current_finality_fixture().1.root_scope();
     use iroha_torii_shared::bridge_attestation::{
         FINALITY_ATTESTATION_FAILURE_MAX_BYTES, FinalityAttestationFailureReason as Reason,
     };
+
+    let root_scope = current_finality_fixture().1.root_scope();
     let progress = client_tip_progress_fixture();
     let envelope = client_tip_progress_envelope(progress.clone());
     let wire = norito::to_bytes(&envelope).expect("wire");
@@ -1943,6 +1945,107 @@ fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_
         },
     );
     assert!(calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn structural_finality_readers_use_selected_scope_and_reject_old_bare_body() {
+    use iroha_data_model::{
+        block::{CommitCertificate, consensus::SumeragiRootScope, decode_framed_signed_block},
+        sumeragi_finality::{
+            CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+            certified_result::FLAG_ACTIVE, context_committee_root,
+        },
+    };
+    let (original, _, signer) = current_finality_fixture();
+    let mut block = decode_framed_signed_block(&original.block_wire).unwrap();
+    let certificate = block.commit_certificate().unwrap();
+    let certified = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut fields = certified.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root =
+        context_committee_root(&certified.commitment().schedule.current).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        certified.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    for (preimage, is_wrapper) in [
+        (active.preimage().unwrap(), true),
+        (active.commitment().preimage().unwrap(), false),
+    ] {
+        // A height-one structural carrier has no QC. The node statement below remains
+        // genuinely BLS signed; neither SDK read grants genesis execution authority.
+        block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+            vec![],
+            vec![],
+            preimage,
+            vec![],
+        )));
+        let mut proof = original.clone();
+        proof.block_wire = block.encode_wire().unwrap();
+        let mut statement = client_attestation_fixture();
+        statement.body.genesis_finality_proof = proof.clone();
+        statement.body.finality_proof = proof.clone();
+        statement.signature = iroha_crypto::SignatureOf::try_from_hash(
+            signer.private_key(),
+            statement.body.signing_hash(),
+        )
+        .unwrap();
+        for scope in [
+            SumeragiRootScope::Global,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: *current_finality_client().network_id(),
+                dataspace_id: DataSpaceId::new(71),
+            },
+        ] {
+            let expected = is_wrapper && scope == SumeragiRootScope::Global;
+            let proof_read =
+                capture_request(norito_response(StatusCode::OK, &proof), |transport| {
+                    let client = current_finality_client().with_test_http_transport(transport);
+                    mark_data_model_compatible(&client);
+                    client.get_sumeragi_finality_proof(NonZeroU64::new(1).unwrap(), scope)
+                })
+                .0;
+            assert_eq!(proof_read.is_ok(), expected);
+            let interval_read = capture_request(
+                norito_response(StatusCode::OK, &vec![proof.clone()]),
+                |transport| {
+                    let client = current_finality_client().with_test_http_transport(transport);
+                    mark_data_model_compatible(&client);
+                    client.get_sumeragi_finality_interval(
+                        NonZeroU64::new(1).unwrap(),
+                        NonZeroU64::new(1).unwrap(),
+                        scope,
+                    )
+                },
+            )
+            .0;
+            assert_eq!(interval_read.is_ok(), expected);
+            let statement_read =
+                capture_request(norito_response(StatusCode::OK, &statement), |transport| {
+                    let client = current_finality_client().with_test_http_transport(transport);
+                    mark_data_model_compatible(&client);
+                    client.get_sumeragi_finality_attestation(
+                        NonZeroU64::new(1).unwrap(),
+                        statement.body.challenge,
+                        &statement.body.node_id,
+                        scope,
+                    )
+                })
+                .0;
+            assert_eq!(statement_read.is_ok(), expected);
+            if let Ok(carrier) = statement_read {
+                assert_eq!(carrier.root_scope(), scope);
+                assert_eq!(carrier.attestation(), &statement);
+            }
+        }
+    }
 }
 
 #[test]

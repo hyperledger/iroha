@@ -534,7 +534,9 @@ pub(crate) fn seed_consensus_schedule_for_tests(
     let epoch = crate::sumeragi::epoch::authenticated_genesis(&signed)
         .map(|genesis| genesis.into_parts().0)
         .expect("authenticated fixture genesis epoch");
-    let params = ChainParamsRecord::from_parameters(&Default::default());
+    let params = ChainParamsRecord::from_parameters(
+        &iroha_data_model::parameter::system::SumeragiParameters::default(),
+    );
     let first_height = state_transaction.block_height();
     let graph = ConsensusSchedule::from_owned_entries(
         (first_height..first_height + 3)

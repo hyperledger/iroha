@@ -11,6 +11,7 @@ const PLAN_MAX: usize = KAGEMUSHA_WALLET_ACTIVATION_MAX_BYTES_V1 + 4096;
 struct Plan {
     version: u16,
     capsule: [u8; 32],
+    capsule_commitment: [u8; 32],
     completion: [u8; 32],
     credential: KagemushaWalletCredentialV1,
     certificates: KagemushaWalletCertificateSetV1,
@@ -44,6 +45,7 @@ impl Plan {
         valid(self.body()?.validate())?;
         if self.version != 1
             || self.capsule == [0; 32]
+            || self.capsule_commitment == [0; 32]
             || self.completion == [0; 32]
             || self.output == Some([0; 32])
             || self.confirmation == Some([0; 32])
@@ -54,7 +56,7 @@ impl Plan {
             || self.asset != *asset
             || self.asset.asset_digest() != self.credential.body.asset_digest
             || self.bootstrap.statement.sequence != 0
-            || self.bootstrap.receipt.capsule_digest != self.capsule
+            || self.bootstrap.receipt.capsule_commitment != self.capsule_commitment
             || !matches!(
                 self.bootstrap.statement.effect,
                 KagemushaWalletEffectV1::Bootstrap { .. }
@@ -64,11 +66,27 @@ impl Plan {
         }
         Ok(())
     }
+    fn require_source(&self, step: &manifest::StepEntry) -> Result<(), Error> {
+        if self.capsule != step.capsule
+            || self.completion != step.completion
+            || self.bootstrap.receipt.operation_id != step.operation
+            || self.bootstrap.statement.effect.kind() != step.kind
+        {
+            return Err(Error::WitnessLost("activation retained source binding"));
+        }
+        Ok(())
+    }
+
     fn output(&self, bytes: &[u8]) -> Result<KagemushaWalletActivationV1, Error> {
-        let value = valid(KagemushaWalletActivationV1::decode_canonical(
-            bytes,
-            &self.credential.body.scheme_id,
-        ))?;
+        let value = read_model_original(
+            || {
+                KagemushaWalletActivationV1::decode_canonical(
+                    bytes,
+                    &self.credential.body.scheme_id,
+                )
+            },
+            Error::Invalid("G1 validation"),
+        )?;
         if value.control.body != self.body()?
             || value.credential != self.credential
             || value.certificates != self.certificates
@@ -86,6 +104,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if let Some(address) = selected.activation {
             let plan: Plan = archive::decode(&self.archive.read_object(&address, PLAN_MAX)?)?;
             plan.require(&self.scheme_id, &self.wallet_id, asset)?;
+            plan.require_source(&self.step_entry(&selected, 0)?)?;
             return Ok(plan);
         }
         let (root, mut manifest) = self.sync_manifest()?;
@@ -94,13 +113,14 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let certificates = snapshot
             .original(
                 &mut self.archive,
-                &source.frozen.capsule.successor_state,
+                &source.frozen.capsule.body().successor_state,
                 PreparationOriginalV1::EnrollmentCertificates,
             )?
             .ok_or(Error::WitnessLost("activation issuer original"))?;
         let plan = Plan {
             version: 1,
             capsule: source.retained.capsule_digest,
+            capsule_commitment: source.frozen.capsule.receipt_commitment(),
             completion: source.retained.completion_digest,
             credential: source.frozen.credential,
             certificates: archive::decode(&certificates)?,
@@ -126,9 +146,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     ) -> Result<(), Error> {
         let plan: Plan = archive::decode(&self.archive.read_object(&address, PLAN_MAX)?)?;
         plan.require(&self.scheme_id, &self.wallet_id, &plan.asset)?;
-        if plan.capsule != step.capsule || plan.completion != step.completion {
-            return Err(Error::WitnessLost("activation retained Bootstrap"));
-        }
+        plan.require_source(step)?;
         if let Some(output) = plan.output {
             plan.output(
                 &self

@@ -639,3 +639,77 @@ fn epoch_scope_compares_every_original_field_and_last_bounded_credential() {
         core_epoch(&next).unwrap()
     );
 }
+
+#[test]
+fn inline_height_projection_preserves_complete_native_configuration_and_rejection_order() {
+    fn projected(candidate: &ScheduledConfig) -> Result<HeightConfig, ScheduleError> {
+        let (epoch, params) =
+            candidate.core_parameters_with_validation(&mut EpochValidationScope::new())?;
+        iroha_sumeragi::pacemaker::validate_height_parts(
+            &epoch,
+            &params,
+            super::super::CHAIN_TRANSPORT_FRAME_LIMIT,
+        )
+        .map_err(ScheduleError::Params)?;
+        Ok(HeightConfig {
+            epoch: Box::new(epoch),
+            committee: global_committee(
+                candidate
+                    .epoch
+                    .committee
+                    .iter()
+                    .map(|member| consensus_key(&member.validator))
+                    .collect::<Result<_, _>>()?,
+            )?,
+            params,
+        })
+    }
+    for count in [4, 31] {
+        let context = fixture(count);
+        for mode in [ConsensusMode::Npos, ConsensusMode::Permissioned] {
+            let mut original = ScheduledConfig {
+                height: 2,
+                epoch: context.clone(),
+                params: params(),
+            };
+            original.epoch.mode = mode;
+            assert_eq!(
+                projected(&original).unwrap(),
+                original.height_config().unwrap()
+            );
+            let mut cases = Vec::new();
+            let mut changed = original.clone();
+            changed.height = 0;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.height = original.epoch.authorization.last_height + 1;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.epoch.leader_seed = [0; 32];
+            changed.height = 0;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.epoch.committee[count - 1].proof_of_possession[0] ^= 1;
+            changed.params.payload_retry_interval_ms = 0;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.epoch.committee.swap(0, count - 1);
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.params.payload_retry_interval_ms = 0;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.params.block_time_ms = original.params.payload_retry_interval_ms + 1;
+            cases.push(changed);
+            let mut changed = original.clone();
+            changed.params.max_block_bytes = u32::MAX;
+            cases.push(changed);
+            for changed in cases {
+                assert_eq!(
+                    projected(&changed).unwrap_err(),
+                    changed.height_config().unwrap_err()
+                );
+            }
+        }
+    }
+}

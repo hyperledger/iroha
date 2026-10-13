@@ -88,6 +88,7 @@ impl Original {
     }
 }
 impl Selected<Original> {
+    #[cfg(test)]
     pub fn matches(
         &self,
         policy: &ReserveAuthorityPolicyV1,

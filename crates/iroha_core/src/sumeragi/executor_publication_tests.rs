@@ -21,6 +21,39 @@ fn permissioned_chain() -> CertifiedTestChain {
         .expect("actual signed genesis")
 }
 
+#[test]
+fn published_execution_result_binds_the_original_header_and_body_digest() {
+    with_worker(|chain, worker, _blocks, _events| {
+        use iroha_data_model::sumeragi_finality::{
+            RESULT_TAG,
+            certified_result::{RESULT_BODY_TAG, X_LEN},
+        };
+        use sha2::{Digest as _, Sha256};
+        let block = proposal(chain, worker);
+        let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
+            panic!("the original ordinary proposal must execute before the result comparison")
+        };
+        let original = worker.live.as_ref().unwrap();
+        let PublicationPhase::Executed { preimage, .. } = &original.phase else {
+            panic!("the original completed execution retains its encoded result")
+        };
+        let (header, body) = preimage.as_slice().split_at(X_LEN);
+        let d_body: [u8; 32] = iroha_crypto::Hash::new_from_chunks(&[RESULT_BODY_TAG, body]).into();
+        let mut expected = Sha256::new();
+        expected.update(RESULT_TAG);
+        expected.update(header);
+        expected.update(d_body);
+        assert_eq!(
+            result,
+            Hash32(expected.finalize().into()),
+            "SC1 ordinary voting must bind the original finality header and body digest"
+        );
+        assert_eq!(original.result, result);
+        assert_eq!(original.header.height, 2);
+    });
+}
+
 pub(super) fn with_worker(
     test: impl FnOnce(
         &CertifiedTestChain,
@@ -59,6 +92,54 @@ pub(super) fn with_worker_from(
         .expect("publication worker fixture");
 }
 
+/// Construct the actual Global executor with a caller-controlled local clock.
+pub(super) fn with_worker_clock(
+    time_source: iroha_primitives::time::TimeSource,
+    test: impl FnOnce(
+        &CertifiedTestChain,
+        &mut Worker<'_>,
+        &KuraBlockStore,
+        &mut tokio::sync::broadcast::Receiver<EventBox>,
+    ) + Send
+    + 'static,
+) {
+    with_worker_from_clock(
+        permissioned_chain,
+        ConsensusMode::Permissioned,
+        time_source,
+        test,
+    );
+}
+
+/// Construct a genuine root with the local clock injected before any worker can execute.
+pub(super) fn with_worker_from_clock(
+    make_chain: impl FnOnce() -> CertifiedTestChain + Send + 'static,
+    consensus_mode: ConsensusMode,
+    time_source: iroha_primitives::time::TimeSource,
+    test: impl FnOnce(
+        &CertifiedTestChain,
+        &mut Worker<'_>,
+        &KuraBlockStore,
+        &mut tokio::sync::broadcast::Receiver<EventBox>,
+    ) + Send
+    + 'static,
+) {
+    crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-publication-test")
+        .spawn(move || {
+            let chain = make_chain();
+            with_worker_chain_and_clock(
+                &chain,
+                consensus_mode,
+                Arc::new(crate::sumeragi::lanes::merge::NoLanes),
+                time_source,
+                test,
+            );
+        })
+        .expect("spawn publication worker fixture")
+        .join()
+        .expect("publication worker fixture");
+}
+
 /// Borrow an actual signed chain and its actual lane source on the caller's
 /// Sumeragi fixture thread. Borrowed callbacks stay inside that original lifetime.
 pub(super) fn with_worker_chain(
@@ -72,11 +153,34 @@ pub(super) fn with_worker_chain(
         &mut tokio::sync::broadcast::Receiver<EventBox>,
     ),
 ) {
+    with_worker_chain_and_clock(
+        chain,
+        consensus_mode,
+        lane_blocks,
+        chain.execution_time_source(),
+        test,
+    );
+}
+
+/// Borrow the original chain and lane source while injecting its local executor clock.
+pub(super) fn with_worker_chain_and_clock(
+    chain: &CertifiedTestChain,
+    consensus_mode: ConsensusMode,
+    lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
+    time_source: iroha_primitives::time::TimeSource,
+    test: impl FnOnce(
+        &CertifiedTestChain,
+        &mut Worker<'_>,
+        &KuraBlockStore,
+        &mut tokio::sync::broadcast::Receiver<EventBox>,
+    ),
+) {
     let mut test = Some(test);
     with_worker_chain_erased(
         chain,
         consensus_mode,
         lane_blocks,
+        time_source,
         &mut |chain, worker, blocks, events| {
             test.take().expect("the fixture consumes its callback once")(
                 chain, worker, blocks, events,
@@ -92,6 +196,7 @@ fn with_worker_chain_erased(
     chain: &CertifiedTestChain,
     consensus_mode: ConsensusMode,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
+    time_source: iroha_primitives::time::TimeSource,
     test: &mut dyn FnMut(
         &CertifiedTestChain,
         &mut Worker<'_>,
@@ -117,6 +222,7 @@ fn with_worker_chain_erased(
         .unwrap();
     let (events, mut receiver) = tokio::sync::broadcast::channel(1024);
     let context = ExecutorContext {
+        time_source,
         state: Clone::clone(chain.state()),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -156,6 +262,11 @@ fn with_worker_chain_erased(
         schedule,
     );
     let mut worker = Worker {
+        prepare_clock: crate::sumeragi::crypto::prepare_clock::PrepareClock::new(
+            &context.state.ivm_execution_budget(),
+            context.time_source.clone(),
+        )
+        .expect("original worker clock admission"),
         payload_build: None,
         signature_decode: None,
         context: &context,
@@ -165,6 +276,7 @@ fn with_worker_chain_erased(
         finishing: None,
         results: BTreeMap::new(),
         completed_payload: None,
+        assembly_parent_service: None,
         queue: None,
         recovery: None,
         beacon: None,
@@ -241,7 +353,21 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity
             );
             assert!(original.allocation_refusal().is_none());
-            let outcome = norito::with_decode_limits_scope(limits, || worker.execute(&block, hash));
+            let decode_refusal = original
+                .decode_refusal()
+                .expect("payload decoding retains the original opaque refusal");
+            assert_eq!(
+                decode_refusal.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            // Separate decoding attempts retain distinct opaque identities, but the
+            // same source and limits must refuse at the same resource bound.
+            assert_eq!(
+                decode_refusal.resource_error(),
+                error.local_refusal().unwrap().resource_error()
+            );
+            let outcome =
+                norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false));
             assert!(
                 matches!(outcome, Err(PublicationError::Deferred(_))),
                 "local payload decode refusal must defer, got {outcome:?}; negatively cached: {}",
@@ -299,7 +425,7 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
         }
         drop(epoch);
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Ok(Some(ExecOutcome::Valid(_)))
         ));
         assert!(!worker.results.contains_key(&hash));
@@ -467,7 +593,7 @@ fn malformed_available_payload_remains_invalid_and_negatively_cached() {
             Err(payload::PayloadError::NotCanonical(_))
         ));
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Ok(Some(ExecOutcome::Invalid))
         ));
         let (source, outcome) = worker
@@ -478,7 +604,7 @@ fn malformed_available_payload_remains_invalid_and_negatively_cached() {
         assert!(matches!(outcome, ExecOutcome::Invalid));
         let limits = norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, 64);
         assert!(matches!(
-            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash)),
+            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false)),
             Ok(Some(ExecOutcome::Invalid))
         ));
         assert_eq!(worker.results.len(), 1);
@@ -548,6 +674,7 @@ pub(super) fn proposal_with_transactions(
         &accepted,
     )
     .unwrap();
+    chain.set_execution_time(proposal.header().creation_time());
     let payload = payload::encode(&proposal).unwrap();
     chain.author_payload(
         iroha_sumeragi::message::BlockHeader {
@@ -580,7 +707,7 @@ fn execute_proposal(
 ) -> (AvailableBody, Qc) {
     let crypto = worker.context.crypto.as_ref().unwrap();
     let block_hash = block.hash(&**crypto);
-    let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash) else {
+    let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
         panic!("original native validation must succeed")
     };
     let height = block.header().height;
@@ -1134,7 +1261,7 @@ fn preparation_pins_original_even_against_discard_replacement_and_another_valid_
         let competing = chain.author_payload(competing_header, block.payload().as_slice().to_vec());
         let hash = competing.hash(&**worker.context.crypto.as_ref().unwrap());
         assert!(matches!(
-            worker.execute(&competing, hash),
+            worker.execute(&competing, hash, false),
             Err(PublicationError::Retryable(_))
         ));
         assert_eq!(original_overlay(worker), overlay);
@@ -1240,7 +1367,7 @@ fn consuming_publication_failure_blocks_every_reexecution_path() {
         assert!(worker.prepare(&block, &qc).is_err());
         assert!(worker.commit(&block, &qc).is_err());
         assert!(matches!(
-            worker.execute(&block, qc.block_hash),
+            worker.execute(&block, qc.block_hash, false),
             Err(PublicationError::RecoveryRequired(_))
         ));
         worker.discard(2, &[]);
@@ -1286,7 +1413,7 @@ fn panic_after_actual_visibility_is_local_recovery_never_success_or_reexecution(
         assert!(worker.prepare(&block, &qc).is_err());
         assert!(worker.commit(&block, &qc).is_err());
         assert!(matches!(
-            worker.execute(&block, qc.block_hash),
+            worker.execute(&block, qc.block_hash, false),
             Err(PublicationError::RecoveryRequired(_))
         ));
         let (reply, response) = mpsc::sync_channel(1);
@@ -1573,7 +1700,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let mut occupied = None;
-        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
             assert!(matches!(
                 worker.finishing.as_ref().unwrap().phase,
                 FinishingPhase::ContextProof { .. }
@@ -1584,9 +1711,9 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         assert!(!worker.results.contains_key(&block_hash));
@@ -1614,7 +1741,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         let retained_bytes = budget.reserved_bytes();
         for _ in 0..2 {
             assert!(matches!(
-                worker.execute(&block, block_hash),
+                worker.execute(&block, block_hash, false),
                 Err(PublicationError::Deferred(_))
             ));
             let pending = worker.finishing.as_ref().unwrap();
@@ -1632,7 +1759,7 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash) else {
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
             panic!("same original execution completes after real pool release")
         };
         assert!(worker.finishing.is_none());
@@ -1671,19 +1798,20 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let mut occupied = None;
-        let outcome = worker.run_execution_with_encoder(&block, block_hash, |original, budget| {
-            let remaining = budget
-                .limit_bytes()
-                .checked_sub(budget.reserved_bytes())
-                .unwrap();
-            occupied = Some(
-                budget
-                    .try_reserve_bytes(remaining)
-                    .expect("occupy real original pool"),
-            );
-            encode_result_preimage(original, budget)
-        });
-        assert!(matches!(outcome, Err(_)));
+        let outcome =
+            worker.run_execution_with_encoder(&block, block_hash, false, |original, budget| {
+                let remaining = budget
+                    .limit_bytes()
+                    .checked_sub(budget.reserved_bytes())
+                    .unwrap();
+                occupied = Some(
+                    budget
+                        .try_reserve_bytes(remaining)
+                        .expect("occupy real original pool"),
+                );
+                encode_result_preimage(original, budget)
+            });
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         assert!(!worker.results.contains_key(&block_hash));
@@ -1716,7 +1844,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         let event_count = pending.events.len();
         for _ in 0..2 {
             assert!(matches!(
-                worker.execute(&block, block_hash),
+                worker.execute(&block, block_hash, false),
                 Err(PublicationError::Deferred(_))
             ));
             let pending = worker.finishing.as_ref().unwrap();
@@ -1740,7 +1868,7 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash) else {
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
             panic!("release permits encoding of the same original execution");
         };
         assert!(worker.finishing.is_none());
@@ -1777,11 +1905,12 @@ fn result_encoding_foreign_pool_requires_recovery_and_retains_original_execution
     with_worker(|chain, worker, _, _| {
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let outcome = worker.run_execution_with_encoder(&block, block_hash, |original, budget| {
-            let foreign = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
-            encode_result_preimage(original, &foreign)
-        });
-        assert!(matches!(outcome, Err(_)));
+        let outcome =
+            worker.run_execution_with_encoder(&block, block_hash, false, |original, budget| {
+                let foreign = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
+                encode_result_preimage(original, &foreign)
+            });
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_some());
         let pending = worker
             .finishing
@@ -1793,7 +1922,7 @@ fn result_encoding_foreign_pool_requires_recovery_and_retains_original_execution
         ));
         let overlay = std::ptr::from_ref(pending.overlay.as_ref());
         assert!(matches!(
-            worker.execute(&block, block_hash),
+            worker.execute(&block, block_hash, false),
             Err(PublicationError::RecoveryRequired(_))
         ));
         assert_eq!(
@@ -2151,7 +2280,7 @@ fn quarantine_requires_the_exact_control_free_transaction_rejection_hash() {
         let block = chain.author_payload(controlled, block.payload().as_slice().to_vec());
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Ok(Some(ExecOutcome::Invalid))
         ));
         assert!(
@@ -2192,7 +2321,7 @@ fn native_header_source_is_checked_against_the_pristine_committed_parent() {
             let block = changed_body;
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Ok(Some(ExecOutcome::Invalid))
             ));
             assert!(worker.live.is_none());
@@ -2300,7 +2429,7 @@ fn native_invalid_payloads_are_rejected_at_ordinary_and_boundary_heights() {
                 let flagged_hash = flagged.hash(&**worker.context.crypto.as_ref().unwrap());
                 for _ in 0..2 {
                     assert!(matches!(
-                        worker.execute(&flagged, flagged_hash),
+                        worker.execute(&flagged, flagged_hash, false),
                         Ok(Some(ExecOutcome::Invalid))
                     ));
                     let (source, verdict) = worker.results.get(&flagged_hash).unwrap();
@@ -2687,7 +2816,7 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
         let mut identities = None;
         let mut original_resource = None;
         let mut held = None;
-        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
             let original = worker.finishing.as_ref().unwrap();
             let FinishingPhase::ContextProof {
                 inputs,
@@ -2736,7 +2865,7 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -2793,7 +2922,7 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
         assert_eq!(budget.reserved_bytes(), held.unwrap());
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash) else {
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
             panic!("same original result proof must complete after the caller scope retires")
         };
         let live = worker.live.as_ref().unwrap();
@@ -2850,7 +2979,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         let mut identities = None;
         let mut original_resource = None;
         let mut held = None;
-        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
             // Complete the actual native result before narrowing only the archive decoder.
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_ref().unwrap();
@@ -2913,7 +3042,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
             ));
             held = Some(budget.reserved_bytes());
             norito::with_decode_limits_scope(limits, || {
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             })
         });
         assert!(
@@ -3003,7 +3132,7 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
 
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash) else {
+        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
             panic!(
                 "the unchanged original execution must finish after the caller decoder scope retires"
             )
@@ -3067,7 +3196,7 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
             let epoch = crossbeam_epoch::pin();
             let mut identities = None;
             let mut held = None;
-            let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+            let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
                 if result_completed {
                     worker.prepare_original_result().unwrap();
                 }
@@ -3100,7 +3229,7 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
                     iroha_crypto::HashOf::new(original.witness.wire()),
                 ));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             assert!(
                 matches!(outcome, Err(PublicationError::RecoveryRequired(_))),
@@ -3130,7 +3259,7 @@ fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
             let (overlay, committee, witness) = identities.unwrap();
             for _ in 0..2 {
                 let Err(PublicationError::RecoveryRequired(reason)) =
-                    worker.execute(&block, block_hash)
+                    worker.execute(&block, block_hash, false)
                 else {
                     panic!("unchanged corrupt execution stays in recovery")
                 };
@@ -3156,7 +3285,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         let block = proposal(chain, worker);
         let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let mut occupied = None;
-        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let budget = worker.state.ivm_execution_budget();
             occupied = Some(
@@ -3164,9 +3293,9 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
                     .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
                     .unwrap(),
             );
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
-        assert!(matches!(outcome, Err(_)));
+        assert!(outcome.is_err());
         assert!(worker.recovery.is_none());
         assert!(worker.live.is_none());
         let original = worker.finishing.as_ref().unwrap();
@@ -3196,7 +3325,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         let held = budget.reserved_bytes();
         for _ in 0..2 {
             assert!(matches!(
-                worker.execute(&block, block_hash),
+                worker.execute(&block, block_hash, false),
                 Err(PublicationError::Deferred(_))
             ));
             let retained = worker.finishing.as_ref().unwrap();
@@ -3243,7 +3372,7 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(digest))) = worker.execute(&block, block_hash) else {
+        let Ok(Some(ExecOutcome::Valid(digest))) = worker.execute(&block, block_hash, false) else {
             panic!("original execution finishes after actual pool capacity returns")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3376,7 +3505,12 @@ fn native_context_archive_failure_preserves_original_bytes_until_durable_acknowl
                     .as_ptr(),
                 pointer
             );
-            assert!(worker.execute(&block, qc.block_hash).unwrap().is_none());
+            assert!(
+                worker
+                    .execute(&block, qc.block_hash, false)
+                    .unwrap()
+                    .is_none()
+            );
             assert_eq!(worker.build(3, 0, 1 << 20, 100).unwrap(), None);
             assert_eq!(worker.applied.0, 1);
             assert!(events.try_recv().is_err());
@@ -3443,7 +3577,7 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
         .unwrap();
         let mut original_overlay = None;
         let mut original_result = None;
-        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
             worker.prepare_original_result().unwrap();
             let original = worker.finishing.as_ref().unwrap();
             original_overlay = Some(std::ptr::from_ref(original.overlay.as_ref()));
@@ -3480,7 +3614,7 @@ fn native_context_archive_preparation_refuses_foreign_pool_without_reexecuting()
             assert_eq!(foreign_budget.reserved_bytes(), 0);
             assert!(original.native_contexts.is_none());
             assert_eq!(archive_files(), original_archives);
-            worker.finish_execution_with_encoder(encode_result_preimage)
+            worker.finish_execution_with_encoder(false, encode_result_preimage)
         });
         assert!(matches!(outcome, Ok(Some(_))));
         let retained = worker.live.as_ref().unwrap();
@@ -3673,6 +3807,7 @@ fn beacon_startup_retains_original_capacity_through_worker_channel_and_node() {
         let applied = worker.applied;
         let budget = worker.state.ivm_execution_budget();
         let mut registration = crate::unit_test_support::release_registration(&budget);
+        registration.bind_thread(std::thread::current());
         let executor = StateExecutor::spawn(worker.context.clone()).unwrap();
         let _epoch = crossbeam_epoch::pin();
         let pressure = budget
@@ -3776,7 +3911,7 @@ fn original_prepared_signature_owner_survives_refusal_validation_publication_app
         let source_pointer = block.payload().as_slice().as_ptr();
         let (outcome, refused) =
             refuse_one_layout_during(BlockSignatures::allocation_layout(), || {
-                worker.execute(&block, hash)
+                worker.execute(&block, hash, false)
             });
         assert!(refused);
         assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
@@ -3839,7 +3974,7 @@ fn explicit_signature_preparation_rejection_retires_only_its_original_source() {
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let (outcome, refused) =
             refuse_one_layout_during(BlockSignatures::allocation_layout(), || {
-                worker.execute(&block, hash)
+                worker.execute(&block, hash, false)
             });
         assert!(refused);
         assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
@@ -3879,7 +4014,7 @@ fn later_canonical_child_allocator_refusal_keeps_the_original_prepared_signature
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
         let (outcome, refused) =
             refuse_one_layout_during(std::alloc::Layout::array::<u8>(64).unwrap(), || {
-                worker.execute(&block, hash)
+                worker.execute(&block, hash, false)
             });
         assert!(refused);
         assert!(matches!(outcome, Err(PublicationError::Deferred(_))));
@@ -3928,8 +4063,12 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
         isi::{InstructionBox, Log},
         parameter::{
             Parameter,
-            system::{BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, SumeragiParameter},
+            system::{
+                BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES, SumeragiParameter,
+                TransactionParameter,
+            },
         },
+        privacy::PrivacyConsensusLimitsV1,
     };
     const INCLUDABLE: u32 = 16 * 1024;
     const MAX_BLOCK_BYTES: u32 = BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + INCLUDABLE;
@@ -3941,7 +4080,7 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
     with_worker_from(
         move || {
             let mut world = World::new();
-            let mut limits = iroha_data_model::privacy::PrivacyConsensusLimitsV1::taira_default();
+            let mut limits = PrivacyConsensusLimitsV1::taira_default();
             // This small ordinary-Log fixture needs one coherent committed policy:
             // every contained privacy byte bound also fits its 16 KiB transaction cap.
             limits.max_proof_bytes_per_action = INCLUDABLE;
@@ -3966,7 +4105,7 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
             // The first-release genesis relation requires the transaction cap
             // itself to fit the committed payload after its reserve.
             config.genesis_parameters.push(Parameter::Transaction(
-                iroha_data_model::parameter::system::TransactionParameter::MaxTxBytes(
+                TransactionParameter::MaxTxBytes(
                     std::num::NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
                 ),
             ));
@@ -3999,6 +4138,27 @@ fn global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve() {
                 )
                 .expect("within the transaction cap")
             };
+            assert_eq!(
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .parameters()
+                    .transaction()
+                    .max_tx_bytes()
+                    .get(),
+                u64::from(INCLUDABLE)
+            );
+            assert_eq!(
+                chain
+                    .state()
+                    .view()
+                    .world()
+                    .privacy_consensus_policy()
+                    .current_limits
+                    .max_privacy_bytes_per_block,
+                INCLUDABLE
+            );
             // A transaction whose framed length is exactly the includable bound.
             let target = usize::try_from(INCLUDABLE).unwrap();
             let slack = 1_024;
@@ -4088,7 +4248,7 @@ fn worker_fixture_invokes_and_consumes_one_move_only_callback_on_the_actual_chai
     with_worker(move |chain, worker, _, _| {
         assert_eq!(observed.fetch_add(1, Ordering::SeqCst), 0);
         assert_eq!(chain.validators().len(), 4);
-        assert!(std::ptr::eq(worker.state, &**chain.state()));
+        assert!(std::ptr::eq(worker.state, &raw const **chain.state()));
         assert_eq!(worker.applied.0, chain.height());
         assert_eq!(
             worker.applied.1,
@@ -4268,7 +4428,7 @@ fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
             let epoch = crossbeam_epoch::pin();
             let mut identities = None;
             let mut held = None;
-            let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+            let outcome = worker.run_execution_with_finisher(&block, block_hash, false, |worker| {
                 if result_completed { worker.prepare_original_result().unwrap(); }
                 let original = worker.finishing.as_ref().unwrap();
                 let demand = NativeLaneStateProof::scratch_bytes(original.witness.writes.len()).unwrap();
@@ -4279,7 +4439,7 @@ fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
                 assert!(!error.is_local_refusal());
                 identities = Some((std::ptr::from_ref(original.overlay.as_ref()), original.witness.writes.as_ptr(), iroha_crypto::HashOf::new(original.witness.wire())));
                 held = Some(budget.reserved_bytes());
-                worker.finish_execution_with_encoder(encode_result_preimage)
+                worker.finish_execution_with_encoder(false, encode_result_preimage)
             });
             budget.set_limit_bytes(original_limit);
             assert!(

@@ -30,7 +30,7 @@ fn nested_account() -> AccountId {
     )
 }
 
-fn panel() -> SccpPausePanelV1 {
+pub(super) fn panel() -> SccpPausePanelV1 {
     let mut source = sample_pause_panel(1);
     source.accepted.remove(&source.drawn[0]);
     source.drawn[0] = nested_account();
@@ -39,7 +39,7 @@ fn panel() -> SccpPausePanelV1 {
     source
 }
 
-fn round() -> SccpFastPauseRoundV1 {
+pub(super) fn round() -> SccpFastPauseRoundV1 {
     let mut source = sample_fast_pause_round(1);
     source.endorsers.insert(
         nested_account(),
@@ -87,7 +87,7 @@ fn pause_graphs_preserve_canonical_model_wire_and_json_without_map_nodes() {
         round.endorsers.insert(
             account.clone(),
             SccpFastPauseEndorsementV1 {
-                incident_digest: [index as u8 + 1; 32],
+                incident_digest: [u8::try_from(index).expect("fixture value fits u8") + 1; 32],
                 recorded_at_height: index as u64 + 1,
             },
         );

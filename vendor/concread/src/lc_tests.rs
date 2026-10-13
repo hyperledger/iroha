@@ -1,3 +1,5 @@
+//! Coordinated publication tests for the synchronous linear cell.
+
 use crate::internals::bptree::cursor::{CursorRead, CursorWrite, SuperBlock};
 use crate::internals::lincowcell::{LinCowCell, LinCowCellCapable};
 

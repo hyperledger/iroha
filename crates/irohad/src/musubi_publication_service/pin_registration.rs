@@ -119,26 +119,6 @@ impl MusubiPublicationPrivateServiceContextV1 {
     }
 }
 impl MusubiPublicationFinalizedPinRegistrationReaderV1 {
-    #[cfg(unix)]
-    pub(super) fn binding(&self) -> (&NetworkId, &AccountId) {
-        (&self.network_id, &self.pin_authority)
-    }
-
-    #[cfg(all(test, unix))]
-    pub(super) fn from_test_handles(
-        network_id: NetworkId,
-        pin_authority: AccountId,
-        state: Arc<State>,
-        archive_reader: MusubiPublicationFinalizedArchiveRegistrationReaderV1,
-    ) -> Self {
-        Self {
-            network_id,
-            pin_authority,
-            state,
-            archive_reader,
-        }
-    }
-
     /// Recover a successful exact signed pin transaction and its current authoritative record.
     ///
     /// The source archive, pin output, and pin record are checked in one State query view. Both
@@ -244,7 +224,8 @@ pub(super) fn validate_signed_pin_intent(
         return Err(Invalid);
     }
     let signer = transaction.authority().try_signatory().ok_or(Invalid)?;
-    let hash = iroha_crypto::HashOf::try_new(transaction.payload()).map_err(codec_refusal)?;
+    let hash = iroha_crypto::HashOf::try_new(transaction.payload())
+        .map_err(|error| codec_refusal(&error))?;
     iroha_crypto::verify_signature_borrowed(&transaction.signature().0, signer, hash.as_ref())
         .map_err(|_| Invalid)?;
     let Executable::Instructions(instructions) = transaction.instructions() else {
@@ -261,7 +242,9 @@ pub(super) fn validate_signed_pin_intent(
     }
     let manifest = sorafs_manifest::decode_manifest_v1_canonical(&register.manifest_payload)
         .map_err(manifest_codec_refusal)?;
-    if ManifestDigest::from_manifest(&manifest).map_err(codec_refusal)? != expected_digest {
+    if ManifestDigest::from_manifest(&manifest).map_err(|error| codec_refusal(&error))?
+        != expected_digest
+    {
         return Err(Invalid);
     }
     validate_pin_manifest(&manifest, archive)?;
@@ -297,19 +280,19 @@ pub(super) fn manifest_codec_refusal(
     match error {
         sorafs_manifest::ManifestDecodeError::Decode { source }
         | sorafs_manifest::ManifestDecodeError::CanonicalEncoding { source } => {
-            codec_refusal(source)
+            codec_refusal(&source)
         }
         _ => MusubiPublicationFinalizedPinRegistrationReadErrorV1::Invalid,
     }
 }
 
 pub(super) fn codec_refusal(
-    error: norito::Error,
+    error: &norito::Error,
 ) -> MusubiPublicationFinalizedPinRegistrationReadErrorV1 {
     use MusubiPublicationFinalizedPinRegistrationReadErrorV1::{Deferred, Invalid};
-    if matches!(&error, norito::Error::AllocationFailed { .. }) {
+    if matches!(error, norito::Error::AllocationFailed { .. }) {
         Deferred(ivm::error::ExecutionDeferral::AllocationUnavailable.into())
-    } else if norito::core::decode_error_matches_active_limits(&error) {
+    } else if norito::core::decode_error_matches_active_limits(error) {
         Deferred(ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into())
     } else {
         Invalid
@@ -320,12 +303,14 @@ fn exact_successful_pin_transaction(
     expected: &SignedTransaction,
     block: &iroha_data_model::block::SignedBlock,
 ) -> Result<bool, MusubiPublicationFinalizedPinRegistrationReadErrorV1> {
-    let expected_hash = expected.try_hash_as_entrypoint().map_err(codec_refusal)?;
+    let expected_hash = expected
+        .try_hash_as_entrypoint()
+        .map_err(|error| codec_refusal(&error))?;
     let expected_wire = expected
         .wire_plan_v1()
-        .map_err(codec_refusal)?
+        .map_err(|error| codec_refusal(&error))?
         .into_vec_bounded(128 * 1024)
-        .map_err(codec_refusal)?;
+        .map_err(|error| codec_refusal(&error))?;
     let mut found = false;
     for (input_index, entrypoint) in block.network_entrypoints().enumerate() {
         let transaction = match entrypoint {
@@ -334,7 +319,7 @@ fn exact_successful_pin_transaction(
                 if reveal
                     .signed_transaction()
                     .try_hash_as_entrypoint()
-                    .map_err(codec_refusal)?
+                    .map_err(|error| codec_refusal(&error))?
                     == expected_hash
                 {
                     return Ok(false);
@@ -345,7 +330,7 @@ fn exact_successful_pin_transaction(
         };
         if transaction
             .try_hash_as_entrypoint()
-            .map_err(codec_refusal)?
+            .map_err(|error| codec_refusal(&error))?
             != expected_hash
         {
             continue;
@@ -361,9 +346,9 @@ fn exact_successful_pin_transaction(
         }
         let actual = transaction
             .wire_plan_v1()
-            .map_err(codec_refusal)?
+            .map_err(|error| codec_refusal(&error))?
             .into_vec_bounded(128 * 1024)
-            .map_err(codec_refusal)?;
+            .map_err(|error| codec_refusal(&error))?;
         if actual != expected_wire {
             return Ok(false);
         }
@@ -541,7 +526,7 @@ mod tests {
                     completions: Vec::new(),
                 })],
                 u64::from(success),
-                Default::default(),
+                std::collections::BTreeMap::default(),
                 block.axt_envelopes().unwrap_or_default().to_vec(),
                 block.axt_policy_snapshot().cloned().unwrap_or_default(),
                 block

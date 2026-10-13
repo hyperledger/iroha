@@ -144,7 +144,7 @@ enum Command {
 enum AdvancedCommand {
     /// Prepare signed remote-network bootstrap and native installation authorities offline
     #[command(subcommand)]
-    NetworkBootstrap(network_bootstrap::Command),
+    NetworkBootstrap(Box<network_bootstrap::Command>),
     /// Generate per-client CLI configs from a base client.toml
     #[command(name = "client-configs")]
     ClientConfigs(client_configs::Args),

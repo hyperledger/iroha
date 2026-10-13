@@ -148,8 +148,10 @@ fn install_retail_policy_fixture(
         exemption_classes: vec![VALIDATION_FEE_TREASURY_PAYOUT_EXEMPTION_CLASS.into()],
         reward_custody: bound.binding.custody(),
     };
-    let registry =
-        crate::validation_fee::tests::policy_registry(&[policy.clone()], &[bound.binding]);
+    let registry = crate::validation_fee::tests::policy_registry(
+        std::slice::from_ref(&policy),
+        &[bound.binding],
+    );
     registry.validate().unwrap();
     crate::validation_fee::tests::install_policy_registry_fixture(&registry, stx);
     policy
@@ -858,7 +860,8 @@ fn deferred_marker_is_consumed_once_and_preserves_atomic_free_and_paid_payments(
             stx.multisig_deferred_execution_stack
                 .push((owner.clone(), HashOf::new(&instructions)));
             admit_deferred(&[], stx).unwrap();
-            stx.world.retail_fee_source_transaction_hash = Some(*Hash::new([used as u8]).as_ref());
+            stx.world.retail_fee_source_transaction_hash =
+                Some(*Hash::new([u8::try_from(used).expect("fixture value fits u8")]).as_ref());
             pay(stx, &req);
             assert!(
                 finalize(stx).is_err(),

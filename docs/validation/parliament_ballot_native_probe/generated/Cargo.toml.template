@@ -1,0 +1,34 @@
+[package]
+name = "parliament-native-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+accel = ["iroha_parliament_ballot_proof/accel"]
+
+[[bin]]
+name = "parliament-native-probe"
+path = "driver.rs"
+
+[dependencies]
+iroha_parliament_ballot_proof = { path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof" }
+iroha_zkp_vole = { path = "/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole" }
+norito = { path = "/Users/mtakemiya/dev/iroha/crates/norito", features = ["json"], default-features = false }
+libc = "0.2.177"
+thiserror = "2.0"
+sha3 = { version = "0.10.8", default-features = false, features = ["std"] }
+
+[patch.crates-io]
+bytes = { path = "/Users/mtakemiya/dev/iroha/vendor/bytes" }
+http-body-util = { path = "/Users/mtakemiya/dev/iroha/vendor/http-body-util" }
+axum-core = { path = "/Users/mtakemiya/dev/iroha/vendor/axum-core" }
+concread = { path = "/Users/mtakemiya/dev/iroha/vendor/concread" }
+num-bigint = { path = "/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6" }
+find_cuda_helper = { path = "/Users/mtakemiya/dev/iroha/vendor/find_cuda_helper" }
+cust_raw = { path = "/Users/mtakemiya/dev/iroha/vendor/cust_raw" }
+wayland-scanner = { path = "/Users/mtakemiya/dev/iroha/vendor/wayland-scanner-0.31.10" }
+aes = { path = "/Users/mtakemiya/dev/iroha/vendor/aes" }

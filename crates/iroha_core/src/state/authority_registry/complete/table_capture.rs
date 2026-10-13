@@ -648,6 +648,11 @@ capture_world_table_once!(
     "world.sccp_committee_generations"
 );
 capture_world_table_once!(
+    capture_sccp_forgery_offences_once,
+    sccp_forgery_offences,
+    "world.sccp_forgery_offences"
+);
+capture_world_table_once!(
     capture_sccp_anchor_chunks_once,
     sccp_anchor_chunks,
     "world.sccp_anchor_chunks"
@@ -970,6 +975,7 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     native_world::capture_global_beacon_active_session_once::MATERIALIZER,
     native_world::capture_global_beacon_latest_pulse_once::MATERIALIZER,
     native_world::capture_global_beacon_pulses_once::MATERIALIZER,
+    capture_sccp_forgery_offences_once::MATERIALIZER,
     capture_sccp_committee_generations_once::MATERIALIZER,
     capture_sccp_anchor_chunks_once::MATERIALIZER,
     capture_sccp_block_leaves_once::MATERIALIZER,
@@ -1045,8 +1051,8 @@ mod tests {
             tables,
             membership: MembershipWorkLimits {
                 max_row_visits: 64,
-                max_streamed_bytes: 131072,
-                max_ordered_bytes: 131072,
+                max_streamed_bytes: 131_072,
+                max_ordered_bytes: 131_072,
             },
         }
     }
@@ -1366,6 +1372,7 @@ mod tests {
             "world.global_beacon_active_session",
             "world.global_beacon_latest_pulse",
             "world.global_beacon_pulses",
+            "world.sccp_forgery_offences",
             "world.sccp_committee_generations",
             "world.sccp_anchor_chunks",
             "world.sccp_block_leaves",
@@ -1471,7 +1478,7 @@ mod tests {
             } else {
                 0
             };
-            assert_eq!(node.row_count(), expected_rows, "{}", id);
+            assert_eq!(node.row_count(), expected_rows, "{id}");
         }
         let mut publication = state.state_view_publication();
         let guard = publication.begin();
@@ -1716,8 +1723,8 @@ mod tests {
                 (*id).clone(),
                 LedgerRole {
                     id: (*id).clone(),
-                    permissions: Default::default(),
-                    permission_epochs: Default::default(),
+                    permissions: std::collections::BTreeSet::default(),
+                    permission_epochs: std::collections::BTreeMap::default(),
                 },
             );
         }
@@ -2024,7 +2031,7 @@ mod tests {
         artifact.resize(artifact.len() + post_pad, 0);
         let executable_offset = artifact.len();
         let code_bytes = MAX_IMAGE_BYTES - (executable_offset - ivm::HEADER_SIZE);
-        assert!(code_bytes >= 16 && code_bytes % 4 == 0);
+        assert!(code_bytes >= 16 && code_bytes.is_multiple_of(4));
         artifact.extend_from_slice(&crate::ivm_test_support::unit_return());
         let filler =
             ivm::encoding::wide::encode_rr(ivm::instruction::wide::arithmetic::ADD, 3, 1, 2)

@@ -796,3 +796,57 @@ fn certified_direct_home_requires_exact_row_current_incarnation_and_domainless_d
         );
     }
 }
+
+#[test]
+fn certified_table_key_domain_refuses_omitted_newer_or_foreign_keys() {
+    use crate::bridge::SccpNetworkV1;
+    let (mut snapshot, _, _, _) = snapshot();
+    let field = "world.sccp_light_client_profiles";
+    let eth = SccpNetworkV1::EthereumMainnet;
+    let key = (eth, 3_u32);
+    snapshot.entries.push(WorldStateSnapshotEntryV1 {
+        field_id: field.into(),
+        kind: WorldStateElementKindV1::Table,
+        key_hash: Some(world_state_value_hash_v1(&key).unwrap()),
+        value_hash: world_state_value_hash_v1(&7_u64).unwrap(),
+    });
+    snapshot.entries.sort_by(|left, right| {
+        left.field_id
+            .cmp(&right.field_id)
+            .then(left.key_hash.cmp(&right.key_hash))
+    });
+    let tip = certify(&snapshot);
+    let verified = snapshot.authenticate(&tip).unwrap();
+    verified
+        .verify_table_keys_within(field, &[(eth, 2_u32), key])
+        .unwrap();
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[(eth, 2_u32)])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[(SccpNetworkV1::BscMainnet, 3_u32)])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within(field, &[key, key])
+            .is_err()
+    );
+    assert!(
+        verified
+            .verify_table_keys_within::<u32>("world.soracloud_sequence_watermark", &[])
+            .is_err()
+    );
+    let mut omitted = snapshot.clone();
+    omitted.entries.retain(|entry| entry.field_id != field);
+    assert!(omitted.authenticate(&tip).is_err());
+    let empty_tip = certify(&omitted);
+    omitted
+        .authenticate(&empty_tip)
+        .unwrap()
+        .verify_table_keys_within::<u32>(field, &[])
+        .unwrap();
+}

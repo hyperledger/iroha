@@ -23,12 +23,12 @@ fn independent(owner: &ManagedStreamTokenCustody) -> Result<BodyHistory> {
         CustodyPurpose::Renewal(2),
         &mut CheckpointImports::new(&owner.authority, None),
     )?
-    .ok_or(ManagedBootstrapFailure::RetainedMaterial.into())
+    .ok_or_else(|| ManagedBootstrapFailure::RetainedMaterial.into())
 }
 
 fn standalone(owner: &ManagedStreamTokenCustody) -> Result<BodyHistory> {
     BodyHistory::open(owner, CustodyPurpose::Renewal(2))?
-        .ok_or(ManagedBootstrapFailure::RetainedMaterial.into())
+        .ok_or_else(|| ManagedBootstrapFailure::RetainedMaterial.into())
 }
 
 fn assert_same(actual: &BodyHistory, expected: &BodyHistory) {
@@ -80,40 +80,42 @@ fn standalone_epoch_parse_keeps_exact_two_context_bound_and_fresh_custody() {
         iroha_data_model::sumeragi_finality::authenticated_genesis(fixture.native.chain.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap();
-    let mut cold = EpochValidationScope::new();
-    let original_charge = epoch_charge(&mut cold, &context);
+    let original_charge = {
+        let mut cold = EpochValidationScope::new();
+        epoch_charge(&mut cold, &context)
+    };
     assert!(original_charge > 0);
-    drop(cold);
 
     // The unchanged shared parser really warms the native workspace from a cold checkpoint.
     // This retains no body, source, certificate or current signing decision in the workspace.
     cold_imports(&fixture.owner);
     let attempts = fixture.owner.authority.test_checkpoint_import_attempts();
-    let mut validation = EpochValidationScope::new();
-    let parsed = BodyHistory::open_with_imports(
-        &fixture.owner,
-        CustodyPurpose::Renewal(2),
-        &mut CheckpointImports::new(&fixture.owner.authority, Some(&mut validation)),
-    )
-    .unwrap()
-    .unwrap();
-    assert!(fixture.owner.authority.test_checkpoint_import_attempts() > attempts);
-    assert_same(&parsed, &history);
-    assert_eq!(epoch_charge(&mut validation, &context), 0);
-    let mut second = context.clone();
-    second.leader_seed[0] ^= 1;
-    let mut third = context.clone();
-    third.leader_seed[0] ^= 2;
-    assert!(epoch_charge(&mut validation, &second) > 0);
-    assert_eq!(epoch_charge(&mut validation, &context), 0);
-    assert!(epoch_charge(&mut validation, &third) > 0);
-    assert_eq!(epoch_charge(&mut validation, &second), 0);
-    assert_eq!(epoch_charge(&mut validation, &third), 0);
-    assert_eq!(epoch_charge(&mut validation, &context), original_charge);
-    let mut invalid = context.clone();
-    invalid.leader_seed = [0; 32];
-    assert!(validation.core_epoch(&invalid).is_err());
-    drop(validation);
+    {
+        let mut validation = EpochValidationScope::new();
+        let parsed = BodyHistory::open_with_imports(
+            &fixture.owner,
+            CustodyPurpose::Renewal(2),
+            &mut CheckpointImports::new(&fixture.owner.authority, Some(&mut validation)),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(fixture.owner.authority.test_checkpoint_import_attempts() > attempts);
+        assert_same(&parsed, &history);
+        assert_eq!(epoch_charge(&mut validation, &context), 0);
+        let mut second = context.clone();
+        second.leader_seed[0] ^= 1;
+        let mut third = context.clone();
+        third.leader_seed[0] ^= 2;
+        assert!(epoch_charge(&mut validation, &second) > 0);
+        assert_eq!(epoch_charge(&mut validation, &context), 0);
+        assert!(epoch_charge(&mut validation, &third) > 0);
+        assert_eq!(epoch_charge(&mut validation, &second), 0);
+        assert_eq!(epoch_charge(&mut validation, &third), 0);
+        assert_eq!(epoch_charge(&mut validation, &context), original_charge);
+        let mut invalid = context.clone();
+        invalid.leader_seed = [0; 32];
+        assert!(validation.core_epoch(&invalid).is_err());
+    }
     assert_eq!(
         epoch_charge(&mut EpochValidationScope::new(), &context),
         original_charge

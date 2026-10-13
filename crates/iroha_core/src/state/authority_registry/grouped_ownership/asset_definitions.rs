@@ -276,12 +276,12 @@ fn contains(
 }
 
 fn optional_domain_equal(
-    left: &Option<DomainId>,
+    left: Option<&DomainId>,
     right: Option<&DomainId>,
     work: &mut AssetDefinitionWork,
 ) -> Result<bool, GroupedOwnershipError> {
     work.prepay(2)?;
-    match (left.as_ref(), right) {
+    match (left, right) {
         (Some(left), Some(right)) => equal(left, right, work),
         (None, None) => Ok(true),
         _ => Ok(false),
@@ -392,7 +392,7 @@ pub(in crate::state) fn validate_original_asset_definitions(
                 }
             }
             if !optional_domain_equal(
-                definition.owning_domain(),
+                definition.owning_domain().as_ref(),
                 lookup(contexts, image, id, work)?,
                 work,
             )? {
@@ -408,7 +408,7 @@ pub(in crate::state) fn validate_original_asset_definitions(
             let Some(definition) = lookup(rows, image, id, work)? else {
                 return Err(corrupt(GroupMismatch::ForeignMember));
             };
-            if !optional_domain_equal(definition.owning_domain(), Some(domain), work)? {
+            if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)? {
                 return Err(corrupt(GroupMismatch::ForeignMember));
             }
             Ok(())
@@ -474,7 +474,8 @@ pub(in crate::state) fn validate_original_asset_definitions(
                 let Some(definition) = lookup(rows, image, id, work)? else {
                     return Err(corrupt(GroupMismatch::ForeignMember));
                 };
-                if !optional_domain_equal(definition.owning_domain(), Some(domain), work)? {
+                if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)?
+                {
                     return Err(corrupt(GroupMismatch::ForeignMember));
                 }
             }

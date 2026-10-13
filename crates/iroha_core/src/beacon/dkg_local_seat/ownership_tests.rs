@@ -641,10 +641,10 @@ fn phase_one_restore_authenticates_original_signatures_proof_canonical_bytes_and
         drop(prepared);
         assert_eq!(budget.reserved_bytes(), floor);
     }
-    let (_foreign_source, foreign_authority, foreign_clock, _, _) = authenticated_source(4, 2000);
+    let (foreign_source, foreign_authority, foreign_clock, _, _) = authenticated_source(4, 2000);
     assert!(
         AuthenticatedGlobalBeaconDkgAttemptV1::signed_genesis(
-            _foreign_source.genesis.block(),
+            foreign_source.genesis.block(),
             clock.network_id(),
             clock.chain_id()
         )
@@ -670,7 +670,7 @@ fn phase_one_restore_authenticates_original_signatures_proof_canonical_bytes_and
         &foreign_authority,
         &foreign_clock,
         1,
-        &_foreign_source.validator_keys[0],
+        &foreign_source.validator_keys[0],
         public.as_slice(),
         7,
     );

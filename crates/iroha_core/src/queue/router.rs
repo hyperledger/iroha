@@ -583,6 +583,12 @@ impl RoutingResolveError {
     }
 }
 /// Evaluate the routing policy and resolve it against the configured catalogs.
+///
+/// # Errors
+///
+/// Returns an error for unknown, inactive, or incompatible catalog routes,
+/// conflicting transaction targets, or routing that requires unavailable
+/// authoritative policy or alias state.
 pub fn evaluate_policy_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -593,6 +599,12 @@ pub fn evaluate_policy_with_catalog(
         .map(|plan| plan.coordinator_route())
 }
 /// Evaluate the routing policy and resolve the full routing plan against the configured catalogs.
+///
+/// # Errors
+///
+/// Returns an error for unknown, inactive, or incompatible catalog routes,
+/// conflicting transaction targets, or routing that requires unavailable
+/// authoritative policy or alias state.
 pub fn evaluate_policy_plan_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -647,6 +659,12 @@ pub fn evaluate_policy_plan_with_catalog(
 }
 /// Evaluate the routing policy against catalogs, resolving opaque dataspace-scoped
 /// permissions from the current world snapshot when possible.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -664,6 +682,12 @@ pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
     )
 }
 /// Evaluate the routing policy against catalogs and the current world at a deterministic ledger time.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -701,6 +725,12 @@ fn evaluate_policy_with_catalog_and_world_at_opt<W: WorldReadOnly>(
     .map(|plan| plan.coordinator_route())
 }
 /// Evaluate the routing policy and resolve the full routing plan against catalogs/world state.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -719,6 +749,12 @@ pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
     )
 }
 /// Evaluate the routing policy and resolve the full plan at a deterministic ledger time.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -742,6 +778,12 @@ pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
 ///
 /// Autoscale elastic default-route sharding requires a candidate block height; this heightless
 /// helper therefore fails closed to non-elastic/default routing for no-target default traffic.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -760,6 +802,12 @@ pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
 }
 /// Evaluate the active Nexus routing policy and resolve the full plan at a deterministic ledger
 /// time and block height.
+///
+/// # Errors
+///
+/// Returns an error if catalog routes, authoritative aliases, settlement or
+/// permission targets cannot be resolved consistently. Malformed or cyclic
+/// multisig proposals are rejected; original resource refusals remain deferrals.
 pub fn evaluate_policy_plan_with_nexus_and_world_at_block_height<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -1320,10 +1368,10 @@ impl FxCorridorRoutingOverlay {
     ) -> Result<FxCorridorPolicy, RoutingResolveError> {
         match fx_corridor_policy_with_world(world, policy_id) {
             Ok(policy) => Ok(policy),
-            Err(error @ RoutingResolveError::FxCorridorPolicyRegistryMissing)
-            | Err(error @ RoutingResolveError::FxCorridorPolicyNotFound { .. }) => {
-                self.policies.get(policy_id).cloned().ok_or(error)
-            }
+            Err(
+                error @ (RoutingResolveError::FxCorridorPolicyRegistryMissing
+                | RoutingResolveError::FxCorridorPolicyNotFound { .. }),
+            ) => self.policies.get(policy_id).cloned().ok_or(error),
             Err(error) => Err(error),
         }
     }
@@ -3554,68 +3602,58 @@ fn collect_instruction_native_amx_participants<W: WorldReadOnly>(
         }
         return Ok(());
     }
-    if let Some(transfer) = any.downcast_ref::<TransferBox>() {
-        if let TransferBox::Asset(transfer) = transfer {
-            collect_asset_balance_native_amx_participants(
-                dataspaces,
-                asset_balance_definition_route_target_with_world(
-                    &transfer.source.definition,
-                    Some(dataspace_catalog),
-                    world,
-                    ledger_time_ms,
-                )?,
-                asset_id_explicit_dataspace_target(&transfer.source),
-                [
-                    account_dataspace_target(
-                        Some(world),
-                        &transfer.source.account,
-                        ledger_time_ms,
-                    )?,
-                    account_dataspace_target(Some(world), &transfer.destination, ledger_time_ms)?,
-                ],
-            )?;
-            return Ok(());
-        }
+    if let Some(TransferBox::Asset(transfer)) = any.downcast_ref::<TransferBox>() {
+        collect_asset_balance_native_amx_participants(
+            dataspaces,
+            asset_balance_definition_route_target_with_world(
+                &transfer.source.definition,
+                Some(dataspace_catalog),
+                world,
+                ledger_time_ms,
+            )?,
+            asset_id_explicit_dataspace_target(&transfer.source),
+            [
+                account_dataspace_target(Some(world), &transfer.source.account, ledger_time_ms)?,
+                account_dataspace_target(Some(world), &transfer.destination, ledger_time_ms)?,
+            ],
+        )?;
+        return Ok(());
     }
-    if let Some(mint) = any.downcast_ref::<MintBox>() {
-        if let MintBox::Asset(mint) = mint {
-            collect_asset_balance_native_amx_participants(
-                dataspaces,
-                asset_balance_definition_route_target_with_world(
-                    &mint.destination.definition,
-                    Some(dataspace_catalog),
-                    world,
-                    ledger_time_ms,
-                )?,
-                asset_id_explicit_dataspace_target(&mint.destination),
-                [account_dataspace_target(
-                    Some(world),
-                    &mint.destination.account,
-                    ledger_time_ms,
-                )?],
-            )?;
-            return Ok(());
-        }
+    if let Some(MintBox::Asset(mint)) = any.downcast_ref::<MintBox>() {
+        collect_asset_balance_native_amx_participants(
+            dataspaces,
+            asset_balance_definition_route_target_with_world(
+                &mint.destination.definition,
+                Some(dataspace_catalog),
+                world,
+                ledger_time_ms,
+            )?,
+            asset_id_explicit_dataspace_target(&mint.destination),
+            [account_dataspace_target(
+                Some(world),
+                &mint.destination.account,
+                ledger_time_ms,
+            )?],
+        )?;
+        return Ok(());
     }
-    if let Some(burn) = any.downcast_ref::<BurnBox>() {
-        if let BurnBox::Asset(burn) = burn {
-            collect_asset_balance_native_amx_participants(
-                dataspaces,
-                asset_balance_definition_route_target_with_world(
-                    &burn.destination.definition,
-                    Some(dataspace_catalog),
-                    world,
-                    ledger_time_ms,
-                )?,
-                asset_id_explicit_dataspace_target(&burn.destination),
-                [account_dataspace_target(
-                    Some(world),
-                    &burn.destination.account,
-                    ledger_time_ms,
-                )?],
-            )?;
-            return Ok(());
-        }
+    if let Some(BurnBox::Asset(burn)) = any.downcast_ref::<BurnBox>() {
+        collect_asset_balance_native_amx_participants(
+            dataspaces,
+            asset_balance_definition_route_target_with_world(
+                &burn.destination.definition,
+                Some(dataspace_catalog),
+                world,
+                ledger_time_ms,
+            )?,
+            asset_id_explicit_dataspace_target(&burn.destination),
+            [account_dataspace_target(
+                Some(world),
+                &burn.destination.account,
+                ledger_time_ms,
+            )?],
+        )?;
+        return Ok(());
     }
     insert_native_amx_participant(
         dataspaces,
@@ -3634,9 +3672,7 @@ enum AccountPermissionHolderTarget<'account> {
     Skip,
     Abort,
 }
-fn account_permission_holder_routing_target<'tx>(
-    tx: &'tx dyn TransactionRoutingView,
-) -> Option<&'tx AccountId> {
+fn account_permission_holder_routing_target(tx: &dyn TransactionRoutingView) -> Option<&AccountId> {
     let Some(executable) = transaction_executable(tx) else {
         return None;
     };
@@ -8511,7 +8547,8 @@ fn default_route_shard_index(tx: &dyn TransactionRoutingView, lane_count: usize)
     let mut bytes = [0_u8; core::mem::size_of::<u64>()];
     bytes.copy_from_slice(&hash.as_ref()[..core::mem::size_of::<u64>()]);
     let shard = u64::from_le_bytes(bytes);
-    (shard % lane_count as u64) as usize
+    usize::try_from(shard % lane_count as u64)
+        .expect("a lane-count remainder fits the original usize bound")
 }
 fn resolve_default_routing_decision(
     policy: &LaneRoutingPolicy,
@@ -8684,6 +8721,11 @@ fn resolve_policy_routing_decision(
 /// Query routing intentionally ignores transaction-instruction matchers because
 /// queries do not carry ISI batches. Rules without an instruction matcher still
 /// participate, including account-scoped rules and explicit catch-all rules.
+///
+/// # Errors
+///
+/// Returns an error if the selected catalog route is unknown or incompatible,
+/// the authority's dataspace cannot be resolved, or original state reads defer.
 pub fn resolve_query_routing_decision(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -8756,6 +8798,11 @@ fn resolve_query_routing_decision_with_world<W: WorldReadOnly>(
 ///
 /// This function intentionally rejects unresolved or ambiguous combinations
 /// instead of silently rewriting them to defaults.
+///
+/// # Errors
+///
+/// Returns an error for an unknown lane or dataspace, or when the lane belongs
+/// to a different dataspace.
 pub fn resolve_routing_decision(
     decision: RoutingDecision,
     lane_catalog: &LaneCatalog,
@@ -8788,10 +8835,10 @@ pub fn resolve_routing_decision(
     }
     Ok(decision)
 }
-fn first_matching_rule<'a>(
-    rules: &'a [LaneRoutingRule],
+fn first_matching_rule(
+    rules: &[LaneRoutingRule],
     mut matches: impl FnMut(&LaneRoutingRule) -> Result<bool, ExecutionDeferred>,
-) -> Result<Option<&'a LaneRoutingRule>, ExecutionDeferred> {
+) -> Result<Option<&LaneRoutingRule>, ExecutionDeferred> {
     for rule in rules {
         if matches(rule)? {
             return Ok(Some(rule));
@@ -9415,11 +9462,21 @@ fn matches_label(matcher: &str, label: &str) -> bool {
 /// Strategy object that derives lane/dataspace assignments for queued transactions.
 pub trait LaneRouter: Send + Sync + 'static {
     /// Route the given transaction and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction has no valid route under current
+    /// policy and authoritative state, or an original resource defers resolution.
     fn try_route(
         &self,
         tx: &dyn TransactionRoutingView,
     ) -> Result<RoutingDecision, RoutingResolveError>;
     /// Route with an existing state view and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route`].
     fn try_route_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9428,6 +9485,11 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route(tx)
     }
     /// Route with narrow state access and return deterministic route-resolution errors.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route_with_view`].
     fn try_route_with_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9440,6 +9502,11 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route_with_view(tx, &state_view)
     }
     /// Route without state snapshot when possible and return deterministic route errors.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route`].
     fn try_route_without_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9447,6 +9514,11 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route(tx).map(Some)
     }
     /// Build the full routing plan for a transaction and return deterministic errors.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route`].
     fn try_route_plan(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9455,6 +9527,11 @@ pub trait LaneRouter: Send + Sync + 'static {
             .map(|route| RoutingPlan::Single(RouteLeg::new(route, RouteLegRole::Coordinator)))
     }
     /// Build the full routing plan with an existing state view.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route_with_view`].
     fn try_route_plan_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9464,6 +9541,11 @@ pub trait LaneRouter: Send + Sync + 'static {
             .map(|route| RoutingPlan::Single(RouteLeg::new(route, RouteLegRole::Coordinator)))
     }
     /// Build the full routing plan with narrow state access when possible.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route_plan_with_view`].
     fn try_route_plan_with_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9476,6 +9558,11 @@ pub trait LaneRouter: Send + Sync + 'static {
         self.try_route_plan_with_view(tx, &state_view)
     }
     /// Build the full routing plan without state when possible.
+    ///
+    /// # Errors
+    ///
+    /// Propagates route-resolution failures and original resource deferrals
+    /// from [`Self::try_route_without_state`].
     fn try_route_plan_without_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9688,10 +9775,10 @@ impl LaneRouter for ConfigLaneRouter {
             return Ok(None);
         }
         if let Some(account_id) = account_permission_holder_routing_target(tx)
-            && !first_matching_rule(&self.policy.rules, |rule| {
+            && first_matching_rule(&self.policy.rules, |rule| {
                 query_rule_matches(rule, account_id, None)
             })?
-            .is_some()
+            .is_none()
         {
             return Ok(None);
         }
@@ -9790,7 +9877,7 @@ mod sccp_routing_tests {
         let samples = SampleInstructions::all();
         assert_eq!(
             samples.len(),
-            7,
+            11,
             "the complete current SCCP instruction surface"
         );
         for (index, instruction) in samples.iter().enumerate() {
@@ -10128,7 +10215,8 @@ mod tests {
                     reimbursement_leg_ordinal: 0,
                     legs: Vec::new(),
                 },
-                authority_catalog: Default::default(),
+                authority_catalog:
+                    iroha_data_model::nexus::PrivateSettlementAuthorityCatalogV1::default(),
                 legs: Vec::new(),
             },
         ));
@@ -10180,7 +10268,8 @@ mod tests {
                     reimbursement_leg_ordinal: 0,
                     legs: Vec::new(),
                 },
-                authority_catalog: Default::default(),
+                authority_catalog:
+                    iroha_data_model::nexus::PrivateSettlementAuthorityCatalogV1::default(),
                 deltas: Vec::new(),
                 prepare_certificates: Vec::new(),
                 prepared_bundle_digest: Hash::new(
@@ -12292,7 +12381,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "commonroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "commonroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -12383,7 +12475,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "crossroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "crossroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -12474,7 +12569,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(PvpIsi::new(
-                "pvpcrossroute".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "pvpcrossroute".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     primary_definition.clone(),
                     1_u32,
@@ -12604,7 +12702,10 @@ mod tests {
             (
                 "DVP",
                 InstructionBox::from(DvpIsi::new(
-                    "dvp_plan".parse().expect("settlement id"),
+                    iroha_data_model::isi::SettlementId::new(
+                        alice_id.clone(),
+                        "dvp_plan".parse().expect("settlement reference"),
+                    ),
                     SettlementLeg::new(
                         delivery_definition.clone(),
                         1_u32,
@@ -12623,7 +12724,10 @@ mod tests {
             (
                 "boxed PVP",
                 InstructionBox::from(SettlementInstructionBox::Pvp(PvpIsi::new(
-                    "pvp_plan".parse().expect("settlement id"),
+                    iroha_data_model::isi::SettlementId::new(
+                        alice_id.clone(),
+                        "pvp_plan".parse().expect("settlement reference"),
+                    ),
                     SettlementLeg::new(
                         delivery_definition.clone(),
                         1_u32,
@@ -12644,7 +12748,10 @@ mod tests {
                 InstructionBox::from(MultisigPropose::new(
                     alice_id.clone(),
                     vec![InstructionBox::from(DvpIsi::new(
-                        "multisig_dvp_plan".parse().expect("settlement id"),
+                        iroha_data_model::isi::SettlementId::new(
+                            alice_id.clone(),
+                            "multisig_dvp_plan".parse().expect("settlement reference"),
+                        ),
                         SettlementLeg::new(
                             delivery_definition.clone(),
                             1_u32,
@@ -12668,7 +12775,10 @@ mod tests {
                     alice_id.clone(),
                     vec![
                         InstructionBox::from(DvpIsi::new(
-                            "multisig_mixed_plan".parse().expect("settlement id"),
+                            iroha_data_model::isi::SettlementId::new(
+                                alice_id.clone(),
+                                "multisig_mixed_plan".parse().expect("settlement reference"),
+                            ),
                             SettlementLeg::new(
                                 delivery_definition.clone(),
                                 1_u32,
@@ -12759,7 +12869,10 @@ mod tests {
         }
 
         let global_private_instruction = InstructionBox::from(DvpIsi::new(
-            "global_private_plan".parse().expect("settlement id"),
+            iroha_data_model::isi::SettlementId::new(
+                alice_id.clone(),
+                "global_private_plan".parse().expect("settlement reference"),
+            ),
             SettlementLeg::new(global_definition, 1_u32, alice_id.clone(), bob_id.clone()),
             SettlementLeg::new(
                 delivery_definition.clone(),
@@ -12814,7 +12927,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             vec![InstructionBox::from(DvpIsi::new(
-                "same_dataspace_plan".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "same_dataspace_plan".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -13312,7 +13428,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(DvpIsi::new(
-                "proved-dvp-common".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-dvp-common".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     delivery_definition.clone(),
                     1_u32,
@@ -13393,7 +13512,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(PvpIsi::new(
-                "proved-pvp-cross".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-pvp-cross".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(
                     primary_definition.clone(),
                     1_u32,
@@ -13465,7 +13587,10 @@ mod tests {
             &alice_id,
             alice_keypair.private_key(),
             sample_proved_executable(vec![InstructionBox::from(DvpIsi::new(
-                "proved-dvp-alias".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    alice_id.clone(),
+                    "proved-dvp-alias".parse().expect("settlement reference"),
+                ),
                 SettlementLeg::new(opaque_delivery, 1_u32, alice_id.clone(), bob_id.clone()),
                 SettlementLeg::new(opaque_payment, 1_u32, bob_id, alice_id.clone()),
                 SettlementPlan::new(
@@ -13757,7 +13882,7 @@ mod tests {
     #[test]
     fn smart_contract_deploy_rule_with_universal_target_builds_native_amx_plan() {
         let (alice_id, alice_keypair) = gen_account_in("wonderland");
-        let is_dataspace = DataSpaceId::new(6647857470246403404);
+        let is_dataspace = DataSpaceId::new(6_647_857_470_246_403_404);
         let router = ConfigLaneRouter::new(
             LaneRoutingPolicy {
                 default_lane: LaneId::SINGLE,
@@ -15104,6 +15229,7 @@ mod tests {
         ) => {
             #[test]
             fn $name() {
+                type Permission = $permission;
                 let (alice_id, alice_keypair) = gen_account_in("wonderland");
                 let (bob_id, _) = gen_account_in("wonderland");
                 let (dataspace_id, lane_id, dataspace_catalog, lane_catalog, router) =
@@ -15112,7 +15238,6 @@ mod tests {
                     DomainId::try_new("cash", "universal").expect("asset definition domain"),
                     "pkr".parse().expect("asset definition name"),
                 );
-                type Permission = $permission;
                 let permission = Permission {
                     asset_definition: asset_definition.clone(),
                 };
@@ -15980,6 +16105,7 @@ mod tests {
         source_dataspace: DataSpaceId,
         destination_dataspace: DataSpaceId,
         owner: AccountId,
+        payer: AccountId,
         _former_destination_reserve: AccountId,
         recipient: AccountId,
         settlement_id: &str,
@@ -16030,7 +16156,10 @@ mod tests {
             expected_policy_revision: corridor.revision,
             source_asset_definition_id,
             destination_asset_definition_id,
-            settlement_id: settlement_id.parse().expect("FX settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                payer,
+                settlement_id.parse().expect("FX settlement reference"),
+            ),
             recipient,
             source_amount: iroha_primitives::numeric::Quantity::from(10_u32),
             expected_destination_amount: 760_u32.into(),
@@ -16130,6 +16259,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "policy_update_route",
@@ -16235,6 +16365,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "same_transaction_policy",
@@ -16395,6 +16526,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "nested_policy_overlay",
@@ -16518,6 +16650,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "approved_policy_overlay",
@@ -17351,6 +17484,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "escrow_route",
@@ -17508,6 +17642,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_non_deploy_first_match",
@@ -17609,6 +17744,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_universal_deploy_policy",
@@ -17684,6 +17820,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_duplicate_deploy_policy",
@@ -17749,6 +17886,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_expired_sns",
@@ -17853,6 +17991,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_missing_deploy_lane",
@@ -17946,6 +18085,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_deploy_policy",
@@ -18046,6 +18186,7 @@ mod tests {
             source_dataspace,
             destination_dataspace,
             source_sink,
+            authority.clone(),
             destination_reserve,
             recipient,
             "fx_dynamic_sns",
@@ -18165,7 +18306,10 @@ mod tests {
             expected_policy_revision: corridor.revision,
             source_asset_definition_id,
             destination_asset_definition_id,
-            settlement_id: "mobile_fx_1".parse().expect("FX settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "mobile_fx_1".parse().expect("FX settlement reference"),
+            ),
             recipient,
             source_amount: iroha_primitives::numeric::Quantity::from(10_u32),
             expected_destination_amount: 760_u32.into(),
@@ -18192,7 +18336,10 @@ mod tests {
             "bond".parse().expect("auxiliary DVP asset name"),
         );
         let bilateral_settlement = InstructionBox::from(DvpIsi::new(
-            "mobile_dvp_1".parse().expect("DVP settlement id"),
+            iroha_data_model::isi::SettlementId::new(
+                authority.clone(),
+                "mobile_dvp_1".parse().expect("DVP settlement reference"),
+            ),
             SettlementLeg::new(
                 dvp_source_definition.clone(),
                 1_u32,

@@ -14,6 +14,23 @@ fn chain() -> CertifiedTestChain {
     chain.commit_at(3_000, Vec::new());
     chain
 }
+
+#[test]
+fn terminal_result_scope_comes_from_the_signed_root() {
+    let chain = chain();
+    let view = chain.state().view();
+    let context = decoder(&view.execution_budget());
+    let mut reader = context.with(|| CertifiedChain::new(&view)).unwrap();
+    let terminal = context.with(|| reader.certified_terminal_amx(3)).unwrap();
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::CertifiedResultScope::from(
+            terminal.committed().root_scope()
+        ),
+        CertifiedResultScope::TairaGlobal
+    );
+    assert_eq!(terminal.committed().result(), chain.committed(3).result());
+}
+
 fn decoder(budget: &AllocationBudget) -> norito::core::DecodeBudgetContext {
     norito::core::DecodeBudgetContext::try_new_owned(
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 128),
@@ -351,7 +368,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     });
     let codec = context.consumed_allocated_bytes() - before_codec;
     let header = gap.borrowed().header().unwrap();
-    let verified = iroha_sumeragi::availability::verify_availability(
+    let authenticated = iroha_sumeragi::availability::verify_availability(
         header.instance,
         &config,
         header,
@@ -359,7 +376,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
         &prefix.authority.crypto,
     )
     .unwrap();
-    let shape = verified.shape();
+    let shape = authenticated.shape();
     let scratch = shape
         .encoded_bytes()
         .checked_add(
@@ -386,7 +403,6 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     } else {
         codec.checked_add(payload).unwrap() - 1
     };
-    drop(verified);
     drop(table);
 
     // Only the RS16 control supplies the existing funded artifact owner; this eliminates

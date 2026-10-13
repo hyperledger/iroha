@@ -155,7 +155,7 @@ fn long_write_failure_keeps_queues_bounded() {
             peak >= 20,
             "seed {seed}: the victim held its effects ({peak})"
         );
-        let lead = world.committed(if victim == 0 { 1 } else { 0 });
+        let lead = world.committed(usize::from(victim == 0));
         assert!(
             world.committed(victim) + 3 >= lead,
             "seed {seed}: the victim caught up ({} of {lead})",

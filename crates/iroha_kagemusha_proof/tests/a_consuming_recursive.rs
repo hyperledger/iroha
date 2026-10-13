@@ -82,6 +82,7 @@ struct Predecessor {
 /// This copies no witness into a proof and never creates a loaded balance.
 struct Head<'a> {
     state: StateWitness,
+    load_receipt: Option<&'a [u8; 282]>,
     binding: &'a iroha_plonk::DescriptorBinding,
     key: &'a VerifyingKey<Ep>,
     proof: &'a [u8],
@@ -93,6 +94,7 @@ impl<'a> Head<'a> {
     fn loaded(artifact: &'a load_outer::DiagnosticLoadOmega) -> Self {
         Self {
             state: artifact.source.state,
+            load_receipt: Some(&artifact.source.receipt),
             binding: &artifact.binding,
             key: &artifact.key,
             proof: &artifact.proof,
@@ -271,7 +273,8 @@ fn sources(artifact: &Head<'_>, retiring: bool) -> Sources {
         artifact.state.lineage[17],
         artifact.key.kagemusha_digest(artifact.binding).unwrap()
     );
-    let (witness, recovery) = unload_objects::transition(&artifact.state, retiring);
+    let (witness, recovery) =
+        unload_objects::transition(&artifact.state, artifact.load_receipt, retiring);
     let public = [vec![hash_with_domain(
         iroha_plonk_gadgets::statement::STATEMENT_DOMAIN,
         &witness.statement,
@@ -1675,6 +1678,7 @@ fn installed_native_retiring_from_bootstrap_preserves_every_original_and_checkpo
     assert_eq!(before.lineage[14], Fp::ZERO);
     let head = Head {
         state: before,
+        load_receipt: None,
         binding: &rooted.binding,
         key: &rooted.key,
         proof: &rooted.proof,
@@ -1820,9 +1824,9 @@ fn native_installed_consuming_differential(
             .map_err(|_| native::Error::Artifact)?;
         let prover = native::Prover::from_artifacts(plan, a_metadata, w_metadata)?;
         for (stage, original) in a.iter().enumerate() {
-            drop(prover.import_a(stage, &original.pk, config)?);
+            prover.import_a(stage, &original.pk, config)?;
             if let Some(original) = w.get(stage) {
-                drop(prover.import_w(stage, &original.pk, config)?);
+                prover.import_w(stage, &original.pk, config)?;
             }
         }
         Ok(prover)
@@ -1930,7 +1934,6 @@ fn native_installed_consuming_differential(
         ),
         Err(native::Error::Artifact)
     ));
-    drop(foreign_seal);
     let key_seal = installed.import_a(0, &a_originals[0].pk, config).unwrap();
     let key = installed.bind_a(0, &key_seal, None).unwrap();
     let generated = session
@@ -1942,7 +1945,6 @@ fn native_installed_consuming_differential(
             ProverConfig::default(),
         )
         .unwrap();
-    drop(key_seal);
     assert_eq!(generated.proof(), originals_a[0].0);
     let mut current = session
         .restore_first(originals_a[0].0.clone(), &originals_a[0].1, budget)
@@ -1991,7 +1993,6 @@ fn native_installed_consuming_differential(
                 ),
                 Err(native::Error::Artifact)
             ));
-            drop(foreign_seal);
         }
         let key_seal = installed
             .import_w(stage, &w_originals[stage].pk, config)
@@ -2007,7 +2008,6 @@ fn native_installed_consuming_differential(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(key_seal);
         assert_eq!(generated_w.proof(), originals_w[stage].0);
         let restored_w = session
             .restore_wrapper(
@@ -2042,7 +2042,6 @@ fn native_installed_consuming_differential(
                 ),
                 Err(native::Error::Artifact)
             ));
-            drop(foreign_seal);
         }
         let key_seal = installed
             .import_a(stage + 1, &a_originals[stage + 1].pk, config)
@@ -2058,7 +2057,6 @@ fn native_installed_consuming_differential(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(key_seal);
         assert_eq!(generated_a.proof(), originals_a[stage + 1].0);
         let restored_a = session
             .restore_a(

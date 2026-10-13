@@ -16,14 +16,14 @@ pub(super) fn originals(
 ) -> Result<Retained, Error> {
     use KagemushaWalletRetainedInputRoleV1 as Role;
     let request: KagemushaWalletRequestV1 = decode(retained_original(inputs, Role::Request)?)?;
-    let payment = authority(KagemushaWalletPaymentV1::decode_canonical(
-        retained_original(inputs, Role::Payment)?,
-        &scheme.scheme_id(),
-    ))?;
-    let payer = authority(KagemushaWalletCredentialV1::decode_canonical(
-        retained_original(inputs, Role::Credential)?,
-        &scheme.scheme_id(),
-    ))?;
+    let payment_original = retained_original(inputs, Role::Payment)?;
+    let payment = read_model(|| {
+        KagemushaWalletPaymentV1::decode_canonical(payment_original, &scheme.scheme_id())
+    })?;
+    let payer_original = retained_original(inputs, Role::Credential)?;
+    let payer = read_model(|| {
+        KagemushaWalletCredentialV1::decode_canonical(payer_original, &scheme.scheme_id())
+    })?;
     let certificates: KagemushaWalletCertificateSetV1 =
         decode(retained_original(inputs, Role::CertificateSet)?)?;
     let digests = authority(payment.verify(scheme, &payer, &certificates, &request))?;

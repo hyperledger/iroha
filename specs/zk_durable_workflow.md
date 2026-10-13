@@ -1,18 +1,18 @@
 # Durable multi-round workflows (contract v1)
 
 Task S.2 of the [ZK delivery plan](zk_delivery_plan.md). This document is the
-normative contract for workflows that need more than one transaction or an
-off-chain round: issuer and pool bootstrap, distributed key generation and
-threshold opening. Its machine-readable form and the scenario fixtures every
-SDK family runs are in [`fixtures/zk/workflow_v1/`](../fixtures/zk/workflow_v1/README.md).
+normative contract for durable transaction and off-chain processes: issuer and
+pool bootstrap, distributed key generation, threshold opening and native payment.
+Its machine-readable form and the shared scenario fixtures are in [`fixtures/zk/workflow_v1/`](../fixtures/zk/workflow_v1/README.md).
 
 What exists today: this contract, the fixtures, and the Rust implementation in
 `crates/iroha/src/workflow/` with its ledger adapter in
-`crates/iroha/src/client/workflow_ledger.rs`. What does not exist: ports to the
+`crates/iroha/src/client/workflow_ledger.rs`, plus the proof-gated native payment
+operation in `crates/iroha/src/client/native_payment.rs`. What does not exist: ports to the
 other five SDK families (S.3 to S.5), any bootstrap, key-generation or threshold
 cryptography (C.4, C.7, R.10 supply drivers), and runs against real validators
-(the product deliveries and V.2). The Rust tests use a fake ledger and a fake
-clock.
+(the product deliveries and V.2). The generic engine tests use a fake ledger and clock; native payment tests add
+real certificates over synthetic execution outputs and independent receipt verification.
 
 ## 1. No atomicity across transactions
 
@@ -39,7 +39,7 @@ success or error, carries a progress report with `atomicity:
 | Engine | Ordering, durability, recovery. No capability logic. | `WorkflowEngine`, `WorkflowHandle` |
 | Driver | The capability: builds payloads, runs and recovers rounds. | `WorkflowDriver` |
 | Account context | Network, authority, signing. | `WorkflowAccount`; `AccountWorkflowContext` over `AccountClient::sign_transaction` |
-| Ledger | One dispatch; read-only committed outcome. | `WorkflowLedger`; `AccountWorkflowContext` over the submission owner and the global status read |
+| Ledger | One dispatch; read-only committed outcome. | `WorkflowLedger`; `AccountWorkflowContext` over submission/global status; native payment requires certified exact input/output authentication |
 | Storage | One record per workflow, compare-and-swap, runner lease. Supplied by the caller. | `WorkflowStorage`; `FileWorkflowStorage` (durable), `MemoryWorkflowStorage` (not durable, tests only) |
 | Clock | Polling and the caller's local observation bound only. | `WorkflowClock` |
 
@@ -50,7 +50,7 @@ Each returns a durable handle with `run`, `recover` (read-only), `cancel` and
 restart. A driver that does not implement a step kind returns
 `UnsupportedOperation`.
 
-The workflow kinds are `issuer_bootstrap`, `dkg` and `threshold_opening`. The
+The workflow kinds are `issuer_bootstrap`, `dkg`, `threshold_opening`, `native_payment` and `amx_relay`. The
 kind is bound into the workflow identifier, so one request under two kinds is
 two workflows. Other multi-round processes (cross-lane, elections) add a kind
 when their delivery lands.
@@ -282,7 +282,8 @@ uses Norito's `Option<T>`; an empty vector and an absent option differ.
 | `CustodyHandleV1` | `label: String`, `reference: Bytes` |
 | `RoundRecordV1` | `state: RoundStateV1`, `round_id: Option<Digest32>`, `start_ordinal: u32`, `participants: Vec<Digest32>`, `transcript: Option<Bytes>`, `transcript_digest: Option<Digest32>`, `custody_handles: Vec<CustodyHandleV1>`, `failure: Option<WorkflowErrorCode>` |
 | `StepRecordV1` | `descriptor: StepDescriptorV1`, `transaction: Option<TransactionOperationV1>`, `round: Option<RoundRecordV1>` |
-| `WorkflowJournalV1` | `version: u16`, `sequence: u64`, `workflow_id: Digest32`, `identity: WorkflowIdentityV1`, `status: WorkflowStatusV1`, `cancel_requested: bool`, `failure_code: Option<WorkflowErrorCode>`, `failure_step: Option<u32>`, `created_at_ms: u64`, `updated_at_ms: u64`, `steps: Vec<StepRecordV1>` |
+| `NativePaymentCompletionV1` | `network: Digest32`, `request_digest: Digest32`, `transaction_hash: Digest32`, `block_height: u64`, `block_hash: Digest32`, `context_id: Digest32`, `receipt_digest: Digest32` |
+| `WorkflowJournalV1` | `version: u16`, `sequence: u64`, `workflow_id: Digest32`, `identity: WorkflowIdentityV1`, `status: WorkflowStatusV1`, `cancel_requested: bool`, `failure_code: Option<WorkflowErrorCode>`, `failure_step: Option<u32>`, `created_at_ms: u64`, `updated_at_ms: u64`, `steps: Vec<StepRecordV1>`, `native_payment_completion: Option<NativePaymentCompletionV1>` |
 | `WorkflowJournalRecordV1` | `journal: WorkflowJournalV1`, `digest: Digest32` |
 
 `vectors.json` supplies the complete semantic plan, identity and journals,
@@ -369,3 +370,52 @@ completed transcripts can be discarded.
 - The journal types live in the Rust client crate. A port that needs them
   behind the native bridge may move the transport-free part
   (`contract`, `journal`) to a lower crate.
+
+## Native payment binding
+
+The Rust `AccountClient::native_payment` operation uses the same journal, runner
+lease, signed-byte identity, account signer and classified dispatch owners. Its
+single direct `SettleAtomic` carrier requires one Global balance movement with
+the account as the payment namespace and debit owner. The independent request
+binds complete terms and exact `FeePaymentIntent`; `PipelineGas` is unsupported
+until an authenticated exact gas outcome exists.
+
+Journal integrity does not grant signing or dispatch authority. Before either
+effect, the native-payment adapter decodes the exact canonical carrier and checks
+its network, debit authority, sole complete instruction and fee intent against
+the independently retained request. Carrier metadata must be empty and signed
+attachments absent, matching the builder. The signer result and dispatch identity
+must also match those exact signed bytes. A canonical journal replacement with
+recomputed local digests cannot authorize another payment or fee.
+
+Pipeline status selects a candidate block only. `VerifiedSumeragiBlock` must
+authenticate the exact signed input and execution output before the carrier can
+be marked applied or rejected. Status-only expiry cannot close it. An
+authenticated replay rejection may select the original block, but only
+`VerifiedPaymentReceipt::verify_recovered` plus exact fee-authorization equality
+completes the business intent. The rejected retry carrier remains rejected.
+
+The optional completion record contains six fixed 32-byte fields and one u64
+(200 payload bytes), within the existing 2,048-byte fixed journal reserve and
+16 MiB record limit. It stores neither full proof nor block. The journal owner
+publishes this immutable locator by its existing lease/CAS after verification,
+and its presence disables any later dispatch. On every resume the operation
+re-fetches the original proof and independently verifies it again against the
+caller's selected genesis-rooted verifier, then compares every completion field.
+Decoded completion never constructs a verified receipt.
+
+One call defaults to at most 64 full proof reads, one existing bounded transport
+response at a time. The caller can choose another nonzero u16 local read budget.
+A budget refusal, transport failure or original typed decoder resource refusal
+keeps the carrier identity recoverable. Authenticated prefix progress remains in
+the caller's operation; after process restart callers supply independently
+retained genesis/checkpoint trust and online re-fetching rebuilds the prefix.
+TODO: integrate durable authenticated prefix custody with an existing bounded
+content-addressed owner before offering offline proof resume. No raw evidence
+is embedded in the journal and no current transport or storage ceiling grows.
+
+`NativePaymentOperation::recover` never builds, signs or dispatches. The final
+successful block carries its own native certificate, so neither verification nor
+recovery requires subsequent unrelated traffic. The `payment_` SDK tests exercise
+real QCs with synthetic execution outputs; Core-to-SDK execution coverage remains
+owned by `integration_tests/tests/native_payment_receipt.rs`.

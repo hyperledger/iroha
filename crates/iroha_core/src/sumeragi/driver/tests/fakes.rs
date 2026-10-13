@@ -492,6 +492,7 @@ impl Executor for FakeExecutor {
         &mut self,
         block: &AvailableBody,
         block_hash: &Hash32,
+        _certified: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError> {
         self.wait_open();
         let mut state = self.state.lock();
@@ -559,7 +560,7 @@ impl Executor for FakeExecutor {
         state.applied = (height, commit_qc.block_hash, commit_qc.result);
         state.cache.retain(|_, (h, _)| *h > height);
         let committed: Vec<u64> =
-            iroha_sumeragi::sim::driver::decode_txs(&block.payload().as_slice())
+            iroha_sumeragi::sim::driver::decode_txs(block.payload().as_slice())
                 .into_iter()
                 .map(|(id, _)| id)
                 .collect();

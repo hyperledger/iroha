@@ -631,7 +631,7 @@ fn mask_tail_bits(bytes: &mut [u8], len_bits: u16) {
     if remainder == 0 || bytes.is_empty() {
         return;
     }
-    let mask = (1_u16 << remainder) as u8 - 1;
+    let mask = (1_u8 << remainder) - 1;
     if let Some(last) = bytes.last_mut() {
         *last &= mask;
     }

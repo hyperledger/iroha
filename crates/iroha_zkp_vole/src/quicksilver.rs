@@ -66,8 +66,14 @@
 //! witness, `V` and `Q` in place from the buffers of [`crate::vole`]. For a
 //! relation of 36,000 witness bits at `lambda = 256` the engine's own state is
 //! below 2 kB next to the 4,500-byte witness and the 1,152,000 bytes of `V` or
-//! `Q` it borrows; values a relation keeps while it runs (a prover value is
-//! `8 * 32 + 1` bytes at `lambda = 256`) are the relation's.
+//! `Q` it borrows. Values a relation keeps while it runs are the relation's: a
+//! prover value is `8 * 32` coefficient bytes plus the degree tag at
+//! `lambda = 256` (264 bytes with alignment), so a relation that buffers three
+//! arrays of 1,600 values (one Keccak state before the linear layer, after it and
+//! after chi) holds about 1.3 MB of prover scratch, and about 0.2 MB in the plain
+//! evaluator and in the verifier (40 bytes a value).
+//! That is too much for a small thread stack: it belongs on the heap, allocated
+//! once per [`Relation::emit`] and reused, never once per constraint.
 //!
 //! # Secrets
 //!
@@ -75,8 +81,14 @@
 //! combined with field additions and multiplications only, over loops whose
 //! bounds are the public degrees; no value selects a branch, an index or an early
 //! exit, and structurally zero coefficients are multiplied like any other. The
-//! hash states are erased on drop. Values are `Copy` and live on the stack of the
-//! relation code: the engine cannot erase copies a relation leaves behind.
+//! hash states are erased on drop. Values are `Copy` and the engine cannot erase
+//! the copies a relation keeps, so every [`ConstraintSystem::Value`] is
+//! [`Zeroize`]: a relation **must** keep its value scratch in
+//! `zeroize::Zeroizing<Vec<C::Value>>` (or zeroize its arrays before `emit`
+//! returns on every path), allocate it once per [`Relation::emit`] and never per
+//! constraint. Erasing a value leaves the constant 0. Temporaries passed by value
+//! between operations stay in registers and on the stack frame of the relation
+//! code like any other intermediate of a field computation.
 //! [`violated_constraints`] branches on which constraints fail and is for tests
 //! and diagnostics; [`is_satisfied`] folds the outcomes into one flag.
 
@@ -85,6 +97,7 @@ mod prover;
 mod verifier;
 
 use thiserror::Error;
+use zeroize::Zeroize;
 
 pub use self::{plain::PlainValue, prover::Polynomial, verifier::Key};
 use crate::{
@@ -108,7 +121,11 @@ pub trait ConstraintSystem {
     /// The field `GF(2^lambda)` public scalars and constants live in.
     type Field: LambdaField;
     /// A value: a witness coordinate, a constant, or a combination of them.
-    type Value: Copy;
+    ///
+    /// Prover and plain values are secret; erasing one leaves the constant 0. See
+    /// "Secrets" in the module documentation for what a relation must do with the
+    /// values it buffers.
+    type Value: Copy + Zeroize;
 
     /// Witness coordinate `index`, of degree 1.
     fn witness(&self, index: usize) -> Self::Value;
@@ -140,7 +157,9 @@ pub trait ConstraintSystem {
 
     /// The public bit `bit` as a constant.
     fn bit(&self, bit: bool) -> Self::Value {
-        self.constant(<Self::Field as crate::field::BinaryField>::from_bit(u8::from(bit)))
+        self.constant(<Self::Field as crate::field::BinaryField>::from_bit(
+            u8::from(bit),
+        ))
     }
 
     /// `a + bit` for a public bit.
@@ -272,10 +291,9 @@ impl Degree {
     /// Degree of a sum, with the two degrees when both are valid.
     fn sum(self, other: Self) -> (Self, Option<(usize, usize)>) {
         match (self, other) {
-            (Self::Of(a), Self::Of(b)) => (
-                Self::Of(a.max(b)),
-                Some((usize::from(a), usize::from(b))),
-            ),
+            (Self::Of(a), Self::Of(b)) => {
+                (Self::Of(a.max(b)), Some((usize::from(a), usize::from(b))))
+            }
             (Self::BadIndex, _) | (_, Self::BadIndex) => (Self::BadIndex, None),
             _ => (Self::Overflow, None),
         }
@@ -481,14 +499,13 @@ pub fn prove<F: LambdaField, R: Relation<F> + ?Sized>(
         witness_bits.saturating_mul(F::BYTES),
         inputs.tags.len(),
     )?;
-    check_length(Input::MaskValues, MASKS * F::BYTES, inputs.mask_values.len())?;
-    check_length(Input::MaskTags, MASKS * F::BYTES, inputs.mask_tags.len())?;
-    let mut system = prover::Prover::<F>::new(
-        inputs.witness,
-        inputs.tags,
-        total,
-        challenge_2,
+    check_length(
+        Input::MaskValues,
+        MASKS * F::BYTES,
+        inputs.mask_values.len(),
     )?;
+    check_length(Input::MaskTags, MASKS * F::BYTES, inputs.mask_tags.len())?;
+    let mut system = prover::Prover::<F>::new(inputs.witness, inputs.tags, total, challenge_2)?;
     system.booleanity();
     relation.emit(public, &mut system);
     system.finish(inputs.mask_values, inputs.mask_tags)
@@ -562,10 +579,10 @@ pub(crate) mod tests {
     use crate::field::{BinaryField, Gf128, Gf192, Gf256};
 
     /// A deterministic field element.
-    pub(crate) fn element<F: LambdaField>(seed: u64) -> F {
+    pub fn element<F: LambdaField>(seed: u64) -> F {
         let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
         let mut acc = F::ZERO;
-        for _ in 0..F::BYTES / 8 + 1 {
+        for _ in 0..=F::BYTES / 8 {
             state ^= state << 13;
             state ^= state >> 7;
             state ^= state << 17;
@@ -592,14 +609,14 @@ pub(crate) mod tests {
     /// * identically zero, twice: `w6 * 0` and the constant 0;
     /// * degree 3 through a product with a degree-0 constant:
     ///   `(w32 * w33) * (w34 + 1) * 1 + w35`.
-    pub(crate) struct Mixed;
+    pub struct Mixed;
 
-    pub(crate) const MIXED_SCALARS: [u64; 8] = [3, 5, 7, 11, 13, 17, 19, 23];
+    pub const MIXED_SCALARS: [u64; 8] = [3, 5, 7, 11, 13, 17, 19, 23];
 
     impl Mixed {
         /// The public constant of the scalar constraint: the scalars of the
         /// coordinates whose public bit `3 + i` is set.
-        pub(crate) fn target<F: LambdaField>(public: &[bool]) -> F {
+        pub fn target<F: LambdaField>(public: &[bool]) -> F {
             let mut acc = F::ZERO;
             for (i, seed) in MIXED_SCALARS.into_iter().enumerate() {
                 acc += element::<F>(seed).mul_bit(u8::from(public[3 + i]));
@@ -608,19 +625,18 @@ pub(crate) mod tests {
         }
 
         /// A witness satisfying the relation for `public`, varied by `salt`.
-        pub(crate) fn witness(public: &[bool], salt: u64) -> Vec<u8> {
+        pub fn witness(public: &[bool], salt: u64) -> Vec<u8> {
             let mut bits = [false; 64];
             for (i, bit) in bits.iter_mut().enumerate() {
                 *bit = (salt.wrapping_mul(0x2545_f491_4f6c_dd1d) >> (i % 61)) & 1 == 1;
             }
             bits[2] = bits[0] ^ bits[1] ^ public[0];
-            for i in 0..8 {
-                bits[8 + i] = public[3 + i];
-            }
+            bits[8..16].copy_from_slice(&public[3..11]);
             bits[5] = (bits[3] & bits[4]) ^ public[1];
-            bits[22] = (bits[16] & bits[17] & bits[18] & bits[19]) ^ (bits[20] & bits[21]) ^ public[2];
+            bits[22] =
+                (bits[16] & bits[17] & bits[18] & bits[19]) ^ (bits[20] & bits[21]) ^ public[2];
             bits[31] = bits[24..31].iter().all(|&bit| bit);
-            bits[35] = bits[32] & bits[33] & !bits[34];
+            bits[35] = bits[32] && bits[33] && !bits[34];
             let mut bytes = vec![0u8; 8];
             for (i, bit) in bits.into_iter().enumerate() {
                 bytes[i / 8] |= u8::from(bit) << (i % 8);
@@ -666,7 +682,10 @@ pub(crate) mod tests {
             let vanishing = cs.mul(w(6), cs.zero());
             let nothing = cs.zero();
             let cubic = cs.add(
-                cs.mul(cs.mul(cs.mul(w(32), w(33)), cs.add(w(34), cs.one())), cs.one()),
+                cs.mul(
+                    cs.mul(cs.mul(w(32), w(33)), cs.add(w(34), cs.one())),
+                    cs.one(),
+                ),
                 w(35),
             );
             cs.constrain(linear);
@@ -688,18 +707,30 @@ pub(crate) mod tests {
     fn the_plain_evaluator_reports_exactly_the_violated_constraints() {
         fn check<F: LambdaField>() {
             let witness = Mixed::witness(&PUBLIC, 5);
-            assert_eq!(is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &witness), Ok(true));
+            assert_eq!(
+                is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &witness),
+                Ok(true)
+            );
             assert_eq!(
                 violated_constraints::<F, _>(&Mixed, &PUBLIC[..], &witness),
                 Ok(Vec::new())
             );
             assert_eq!(total_constraints::<F, _>(&Mixed), Ok(72));
             // Flip the output bit of each constraint that has one.
-            for (bit, constraint) in [(2usize, 64usize), (9, 65), (5, 66), (22, 67), (31, 68), (35, 71)]
-            {
+            for (bit, constraint) in [
+                (2usize, 64usize),
+                (9, 65),
+                (5, 66),
+                (22, 67),
+                (31, 68),
+                (35, 71),
+            ] {
                 let mut broken = witness.clone();
                 broken[bit / 8] ^= 1 << (bit % 8);
-                assert_eq!(is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &broken), Ok(false));
+                assert_eq!(
+                    is_satisfied::<F, _>(&Mixed, &PUBLIC[..], &broken),
+                    Ok(false)
+                );
                 assert_eq!(
                     violated_constraints::<F, _>(&Mixed, &PUBLIC[..], &broken),
                     Ok(vec![constraint])
@@ -751,14 +782,23 @@ pub(crate) mod tests {
     fn instance<F: LambdaField>(values: Vec<F>, seed: u64) -> Instance<F> {
         let ell = values.len();
         let delta = element::<F>(seed + 1);
-        let tags: Vec<F> = (0u64..).take(ell).map(|i| element::<F>(seed + 100 + i)).collect();
+        let tags: Vec<F> = (0u64..)
+            .take(ell)
+            .map(|i| element::<F>(seed + 100 + i))
+            .collect();
         let keys = tags
             .iter()
             .zip(&values)
             .map(|(tag, value)| *tag + *value * delta)
             .collect();
-        let mask_values: Vec<F> = (0u64..).take(MASKS).map(|m| element(seed + 10 + m)).collect();
-        let mask_tags: Vec<F> = (0u64..).take(MASKS).map(|m| element(seed + 30 + m)).collect();
+        let mask_values: Vec<F> = (0u64..)
+            .take(MASKS)
+            .map(|m| element(seed + 10 + m))
+            .collect();
+        let mask_tags: Vec<F> = (0u64..)
+            .take(MASKS)
+            .map(|m| element(seed + 30 + m))
+            .collect();
         let mask_keys: Vec<u8> = mask_tags
             .iter()
             .zip(&mask_values)
@@ -782,11 +822,91 @@ pub(crate) mod tests {
         }
     }
 
-    fn evaluate<F: LambdaField>(polynomial: &[F; DEGREE + 1], point: F) -> F {
+    /// The value of `polynomial` (coefficient of `X^j` at index `j`) at `point`.
+    pub fn evaluate<F: LambdaField>(polynomial: &[F; DEGREE + 1], point: F) -> F {
         polynomial
             .iter()
             .rev()
             .fold(F::ZERO, |acc, coefficient| acc * point + *coefficient)
+    }
+
+    /// The lifted constraint stream of one relation under each evaluator, on the
+    /// same field-valued witness.
+    pub struct Streams<F> {
+        /// The prover's polynomial of every constraint.
+        pub polynomials: Vec<[F; DEGREE + 1]>,
+        /// The verifier's value of every constraint.
+        pub keys: Vec<F>,
+        /// The plain value of every constraint.
+        pub plain: Vec<F>,
+        /// The verifier's `Delta`.
+        pub delta: F,
+    }
+
+    /// Run `relation` (Booleanity constraints included) under the prover, the
+    /// verifier and the plain evaluator on the witness `values`, which need not
+    /// be bits, with tags, keys and `Delta` derived from `seed`.
+    pub fn evaluators<F: LambdaField, R: Relation<F> + ?Sized>(
+        relation: &R,
+        public: &R::PublicInput,
+        values: Vec<F>,
+        seed: u64,
+    ) -> Streams<F> {
+        let total = values.len() + relation.constraints();
+        let fixture = instance(values, seed);
+        let mut prover = prover::Prover::<F>::with_elements(
+            &fixture.values,
+            &fixture.tags,
+            total,
+            &fixture.challenge,
+        )
+        .expect("valid challenge");
+        prover.record();
+        prover.booleanity();
+        relation.emit(public, &mut prover);
+        let polynomials = prover.recorded().to_vec();
+        prover
+            .finish(&fixture.mask_values, &fixture.mask_tags)
+            .expect("well formed");
+
+        let mut verifier = verifier::Verifier::<F>::with_keys(
+            &fixture.keys,
+            fixture.delta,
+            total,
+            &fixture.challenge,
+        )
+        .expect("valid challenge");
+        verifier.record();
+        verifier.booleanity();
+        relation.emit(public, &mut verifier);
+        let keys = verifier.recorded().to_vec();
+
+        let mut plain = plain::Plain::<F>::with_elements(&fixture.values, total);
+        plain.booleanity();
+        relation.emit(public, &mut plain);
+        let plain = plain.recorded().to_vec();
+        Streams {
+            polynomials,
+            keys,
+            plain,
+            delta: fixture.delta,
+        }
+    }
+
+    #[test]
+    fn the_stream_helper_reproduces_the_three_evaluations() {
+        let values: Vec<Gf128> = (0..64u64).map(|i| element(7000 + i)).collect();
+        let streams = evaluators::<Gf128, _>(&Mixed, &PUBLIC[..], values, 5);
+        assert_eq!(streams.polynomials.len(), 72);
+        for ((polynomial, key), plain) in streams
+            .polynomials
+            .iter()
+            .zip(&streams.keys)
+            .zip(&streams.plain)
+        {
+            assert_eq!(evaluate(polynomial, streams.delta), *key);
+            assert_eq!(polynomial[DEGREE], *plain);
+        }
     }
 
     #[test]
@@ -930,13 +1050,9 @@ pub(crate) mod tests {
         // For a bit, the lifted constraint is V^2 * X^5 + V * X^6.
         let values = vec![Gf128::ONE; 8];
         let fixture = instance(values, 77);
-        let mut prover = prover::Prover::<Gf128>::new(
-            &[0xa5],
-            &fixture.tags,
-            8,
-            &fixture.challenge,
-        )
-        .expect("valid challenge");
+        let mut prover =
+            prover::Prover::<Gf128>::new(&[0xa5], &fixture.tags, 8, &fixture.challenge)
+                .expect("valid challenge");
         prover.record();
         prover.booleanity();
         for (index, polynomial) in prover.recorded().iter().enumerate() {
@@ -1018,7 +1134,10 @@ pub(crate) mod tests {
                     violated_constraints::<F, _>(&relation, &(), &[0]),
                     Err(error)
                 );
-                assert_eq!(total_constraints::<F, _>(&relation).err(), (fault == 5).then_some(error));
+                assert_eq!(
+                    total_constraints::<F, _>(&relation).err(),
+                    (fault == 5).then_some(error)
+                );
                 let inputs = ProverInputs {
                     witness: &[0],
                     tags: &fixture.tags,
@@ -1176,9 +1295,18 @@ pub(crate) mod tests {
         assert_eq!(one.product(six), (Degree::Of(7), Some((1, 6))));
         assert_eq!(two.product(six), (Degree::Overflow, None));
         assert_eq!(Degree::Overflow.sum(one), (Degree::Overflow, None));
-        assert_eq!(Degree::Overflow.product(Degree::ZERO), (Degree::Overflow, None));
-        assert_eq!(Degree::BadIndex.sum(Degree::Overflow), (Degree::BadIndex, None));
-        assert_eq!(Degree::Overflow.product(Degree::BadIndex), (Degree::BadIndex, None));
+        assert_eq!(
+            Degree::Overflow.product(Degree::ZERO),
+            (Degree::Overflow, None)
+        );
+        assert_eq!(
+            Degree::BadIndex.sum(Degree::Overflow),
+            (Degree::BadIndex, None)
+        );
+        assert_eq!(
+            Degree::Overflow.product(Degree::BadIndex),
+            (Degree::BadIndex, None)
+        );
         assert_eq!(six.get(), Some(6));
         assert_eq!(Degree::BadIndex.get(), None);
         assert_eq!(Degree::Overflow.get(), None);
@@ -1188,28 +1316,55 @@ pub(crate) mod tests {
     fn the_stream_latches_the_first_error() {
         let mut stream = Stream::new(2);
         assert_eq!(stream.admit(Degree::Of(7)), Some(0));
-        assert_eq!(stream.finish(), Err(QuickSilverError::ConstraintCount { expected: 2, actual: 1 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::ConstraintCount {
+                expected: 2,
+                actual: 1
+            })
+        );
         assert_eq!(stream.admit(Degree::Overflow), None);
         assert_eq!(stream.admit(Degree::ONE), None);
         assert_eq!(stream.admit(Degree::BadIndex), None);
-        assert_eq!(stream.finish(), Err(QuickSilverError::DegreeOverflow { constraint: 1 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::DegreeOverflow { constraint: 1 })
+        );
 
         let mut stream = Stream::new(1);
         assert_eq!(stream.admit(Degree::ZERO), Some(7));
         assert_eq!(stream.finish(), Ok(()));
         assert_eq!(stream.admit(Degree::ZERO), None);
-        assert_eq!(stream.finish(), Err(QuickSilverError::ConstraintCount { expected: 1, actual: 2 }));
+        assert_eq!(
+            stream.finish(),
+            Err(QuickSilverError::ConstraintCount {
+                expected: 1,
+                actual: 2
+            })
+        );
     }
 
     #[test]
     fn constants_follow_the_field() {
         let system = plain::Plain::<Gf192>::new(&[1], 8, false);
-        assert_eq!(system.value_of(system.zero()), Gf192::ZERO);
-        assert_eq!(system.value_of(system.one()), Gf192::ONE);
-        assert_eq!(system.value_of(system.bit(true)), Gf192::ONE);
-        assert_eq!(system.value_of(system.bit(false)), Gf192::ZERO);
-        assert_eq!(system.value_of(system.add_bit(system.witness(0), true)), Gf192::ZERO);
-        assert_eq!(system.value_of(system.add_bit(system.witness(1), true)), Gf192::ONE);
+        assert_eq!(plain::Plain::<Gf192>::value_of(system.zero()), Gf192::ZERO);
+        assert_eq!(plain::Plain::<Gf192>::value_of(system.one()), Gf192::ONE);
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.bit(true)),
+            Gf192::ONE
+        );
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.bit(false)),
+            Gf192::ZERO
+        );
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.add_bit(system.witness(0), true)),
+            Gf192::ZERO
+        );
+        assert_eq!(
+            plain::Plain::<Gf192>::value_of(system.add_bit(system.witness(1), true)),
+            Gf192::ONE
+        );
         assert_eq!((DEGREE, MASKS), (7, 10));
     }
 }

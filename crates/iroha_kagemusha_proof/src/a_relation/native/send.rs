@@ -138,8 +138,10 @@ const DESCRIPTOR_MAX_BYTES: usize = 1 << 20;
 const VERIFYING_KEY_MAX_BYTES: usize = 1 << 18;
 
 /// Native preparation/proof failure. No failure changes a monetary head.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
+    /// Original local checkpoint read refusal; no invalid-input or proof verdict completed.
+    DecodeResource(norito::core::DecodeLocalRefusal),
     /// Explicit cancellation; no proof failure or burn verdict is produced.
     Cancelled,
     /// Installed descriptor/key/schema or fixed policy differs.
@@ -165,10 +167,24 @@ impl fmt::Display for Error {
         write!(f, "native Send: {self:?}")
     }
 }
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::DecodeResource(original) => Some(original),
+            _ => None,
+        }
+    }
+}
+impl From<norito::core::DecodeAttemptError> for Error {
+    fn from(error: norito::core::DecodeAttemptError) -> Self {
+        error
+            .into_local_refusal()
+            .map_or(Self::Input, Self::DecodeResource)
+    }
+}
 impl Error {
     /// Whether the operation was cancelled instead of proving an invalid input.
-    pub fn is_cancelled(self) -> bool {
+    pub fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
     }
 }

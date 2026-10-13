@@ -3,30 +3,28 @@
 //! The caller retains its prepared original-funded bytes through every error and retry.
 //! This module borrows those bytes and never clones, decodes, or re-signs their contents.
 
+use iroha_fs::{AtomicWriteStep, OwnerDirectory, PublishMode};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{self, Read, Write},
-    path::{Path, PathBuf},
+    fs::File,
+    io::{self, Read},
+    path::Path,
+};
+
+#[cfg(test)]
+use std::{
+    fs,
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
 pub use super::availability_schedule::AvailabilitySchedule;
 pub use super::body_read::{BodyReadError, BodyReadJob, BodyReadPoll, BodyReader};
-
 use crate::sumeragi::records::{Faults, FsStep, create_dir_durable, sync_dir};
 
 const COMPARE_BYTES: usize = 8192;
-const TEMP_ATTEMPTS: u64 = 16;
+const TEMP_ATTEMPTS: u32 = 16;
+#[cfg(test)]
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-
-struct TemporaryFile(PathBuf);
-
-impl Drop for TemporaryFile {
-    fn drop(&mut self) {
-        // A leftover .tmp never represents committed custody; reopening removes it.
-        let _ = fs::remove_file(&self.0);
-    }
-}
 
 fn conflict(path: &Path) -> io::Error {
     io::Error::new(
@@ -40,52 +38,50 @@ fn conflict(path: &Path) -> io::Error {
 
 /// Compare every original byte, including the certificate, without a file-sized allocation.
 /// A successful retry re-establishes both file and directory durability before reporting it.
-fn open_exact(target: &Path, bytes: &[u8]) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
-        options.custom_flags(i32::from_ne_bytes(flags.bits().to_ne_bytes()));
-    }
-    #[cfg(not(unix))]
-    if !fs::symlink_metadata(target)?.file_type().is_file() {
-        return Err(conflict(target));
-    }
-    let mut file = options.open(target)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.len() != bytes.len() as u64 {
-        return Err(conflict(target));
+fn open_exact(dir: &OwnerDirectory, name: &str, bytes: &[u8]) -> io::Result<Option<File>> {
+    let target = dir.path().join(name);
+    let Some(mut file) = dir.open_regular_optional(name)? else {
+        return Ok(None);
+    };
+    if file.metadata()?.len() != u64::try_from(bytes.len()).map_err(|_| conflict(&target))? {
+        return Err(conflict(&target));
     }
     let mut scratch = [0; COMPARE_BYTES];
     for expected in bytes.chunks(COMPARE_BYTES) {
         file.read_exact(&mut scratch[..expected.len()])?;
         if scratch[..expected.len()] != *expected {
-            return Err(conflict(target));
+            return Err(conflict(&target));
         }
     }
     if file.read(&mut scratch[..1])? != 0 {
-        return Err(conflict(target));
+        return Err(conflict(&target));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let current = fs::symlink_metadata(target)?;
-        if !current.file_type().is_file()
-            || current.dev() != metadata.dev()
-            || current.ino() != metadata.ino()
-        {
-            return Err(conflict(target));
-        }
-    }
-    Ok(file)
+    dir.require_same_regular_file(name, &file)?;
+    Ok(Some(file))
 }
 
 /// Compare a complete existing artifact with the exact prepared bytes using bounded scratch.
 /// This proves byte equality only; the caller must authenticate the original artifact.
-pub(super) fn check_exact(target: &Path, bytes: &[u8]) -> io::Result<()> {
-    open_exact(target, bytes).map(drop)
+#[cfg(test)]
+fn check_exact(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    let dir = OwnerDirectory::open(
+        target
+            .parent()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?,
+    )?;
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    open_exact(&dir, name, bytes)?
+        .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+        .map(drop)
+}
+
+/// Check a possible existing frame through the caller's original publication directory.
+/// Only initial file absence yields false; all bytes and final identity use the same reader.
+pub(super) fn check_exact_in(dir: &OwnerDirectory, name: &str, bytes: &[u8]) -> io::Result<bool> {
+    open_exact(dir, name, bytes).map(|file| file.is_some())
 }
 
 /// Establish a store directory and repair all ancestor durability after an interrupted open.
@@ -102,50 +98,74 @@ pub(super) fn establish_dir(faults: &dyn Faults, dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn sync_publication_path(faults: &dyn Faults, dir: &Path) -> io::Result<()> {
-    sync_dir(faults, dir)?;
-    // A failed create_dir_durable may leave dir visible without its parent's entry durable.
-    // The store root and its older ancestors are established by the store initializer.
-    if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        sync_dir(faults, parent)?;
-    }
-    Ok(())
-}
-
-fn verify_existing(faults: &dyn Faults, dir: &Path, target: &Path, bytes: &[u8]) -> io::Result<()> {
-    let file = open_exact(target, bytes)?;
-    faults.before(FsStep::SyncFile, target)?;
-    file.sync_all()?;
-    sync_publication_path(faults, dir)
-}
-
-fn create_temporary(
+fn sync_parent(
     faults: &dyn Faults,
-    dir: &Path,
-    name: &str,
-) -> io::Result<(TemporaryFile, File)> {
-    for _ in 0..TEMP_ATTEMPTS {
-        let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!("{name}.{}.{serial}.tmp", std::process::id()));
-        faults.before(FsStep::CreateTemp, &path)?;
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((TemporaryFile(path), file)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
+    dir: &OwnerDirectory,
+    display: &Path,
+    validate: &impl Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    if let Some(parent) = display
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        faults.before(FsStep::SyncDir, parent)?;
+        validate()?;
+        dir.sync_parent()?;
     }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "artifact temporary-file namespace is busy",
-    ))
+    validate()
 }
 
-/// Publish exactly the borrowed original frame; an existing different frame is never replaced.
-///
-/// Filesystem refusal never consumes or mutates the caller's prepared owner. After a visible
-/// publication followed by fsync refusal, retry verifies the complete retained bytes and
-/// completes fsync. Callers may advance the durable tip only after this returns success.
-pub(super) fn publish(faults: &dyn Faults, dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+fn verify_existing(
+    faults: &dyn Faults,
+    dir: &OwnerDirectory,
+    display: &Path,
+    name: &str,
+    bytes: &[u8],
+    validate: &impl Fn() -> io::Result<()>,
+) -> io::Result<bool> {
+    validate()?;
+    let Some(file) = open_exact(dir, name, bytes)? else {
+        return Ok(false);
+    };
+    faults.before(FsStep::SyncFile, &display.join(name))?;
+    validate()?;
+    dir.require_same_regular_file(name, &file)?;
+    file.sync_all()?;
+    faults.before(FsStep::SyncDir, display)?;
+    validate()?;
+    dir.sync()?;
+    sync_parent(faults, dir, display, validate)?;
+    dir.require_same_regular_file(name, &file)?;
+    Ok(true)
+}
+
+/// Publish exact borrowed bytes through one freshly selected operation directory.
+/// Long-lived stores use `publish_in` with their retained directory and lock authority.
+#[cfg(test)]
+fn publish(faults: &dyn Faults, dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    publish_in(
+        faults,
+        &OwnerDirectory::open(dir)?,
+        dir,
+        name,
+        bytes,
+        || Ok(()),
+    )
+}
+
+/// Publish through the caller's original directory, never a newly resolved namespace.
+/// The extra join retains the caller's lock through every observed filesystem boundary.
+/// Errors leave the exact prepared bytes with the caller and never advance its durable tip.
+/// `display` preserves the caller's diagnostic/fault-injection spelling (including system
+/// aliases); only `dir` supplies native I/O authority.
+pub(super) fn publish_in(
+    faults: &dyn Faults,
+    dir: &OwnerDirectory,
+    display: &Path,
+    name: &str,
+    bytes: &[u8],
+    validate: impl Fn() -> io::Result<()>,
+) -> io::Result<()> {
     let mut components = Path::new(name).components();
     if !matches!(components.next(), Some(std::path::Component::Normal(_)))
         || components.next().is_some()
@@ -155,31 +175,54 @@ pub(super) fn publish(faults: &dyn Faults, dir: &Path, name: &str, bytes: &[u8])
             "artifact name must be one path component",
         ));
     }
-    let target = dir.join(name);
-    match verify_existing(faults, dir, &target, bytes) {
-        Ok(()) => return Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+    match verify_existing(faults, dir, display, name, bytes, &validate) {
+        Ok(true) => return Ok(()),
+        Ok(false) => {
+            validate()?;
+            dir.revalidate()?;
+        }
         Err(error) => return Err(error),
     }
-    let (temporary, mut file) = create_temporary(faults, dir, name)?;
-    let (head, tail) = bytes.split_at(bytes.len() / 2);
-    faults.before(FsStep::WriteTemp, &temporary.0)?;
-    file.write_all(head)?;
-    faults.before(FsStep::WriteTempRest, &temporary.0)?;
-    file.write_all(tail)?;
-    faults.before(FsStep::SyncFile, &temporary.0)?;
-    file.sync_all()?;
-    drop(file);
-    // The existing fault-injection publication boundary is named Rename. Unlike replacement
-    // rename, a hard link atomically refuses an already-present target, including a racing writer.
-    faults.before(FsStep::Rename, &target)?;
-    match fs::hard_link(&temporary.0, &target) {
+    let result = dir.write_atomic_observed(
+        name,
+        bytes,
+        PublishMode::CreateNew,
+        TEMP_ATTEMPTS,
+        |step, path| {
+            let step = match step {
+                AtomicWriteStep::CreateTemp => FsStep::CreateTemp,
+                AtomicWriteStep::WriteHead => FsStep::WriteTemp,
+                AtomicWriteStep::WriteTail => FsStep::WriteTempRest,
+                AtomicWriteStep::SyncFile => FsStep::SyncFile,
+                AtomicWriteStep::Publish => FsStep::Rename,
+                AtomicWriteStep::SyncDirectory => FsStep::SyncDir,
+            };
+            let display_path = if step == FsStep::SyncDir {
+                display.to_owned()
+            } else {
+                display.join(path.file_name().expect("native child publication path"))
+            };
+            faults.before(step, &display_path)?;
+            validate()
+        },
+    );
+    match result {
         Ok(()) => {
-            fs::remove_file(&temporary.0)?;
-            sync_publication_path(faults, dir)
+            sync_parent(faults, dir, display, &validate)?;
+            dir.revalidate()
         }
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            verify_existing(faults, dir, &target, bytes)
+            match verify_existing(faults, dir, display, name, bytes, &validate) {
+                Ok(false) => {
+                    // A full staging-name collision budget must retain its native cause.
+                    // Recheck custody first so a missing original lock is never hidden.
+                    validate()?;
+                    dir.revalidate()?;
+                    Err(error)
+                }
+                Ok(true) => Ok(()),
+                Err(error) => Err(error),
+            }
         }
         Err(error) => Err(error),
     }

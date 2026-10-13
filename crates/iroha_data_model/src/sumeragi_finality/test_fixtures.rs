@@ -51,6 +51,13 @@ struct FixtureSigner<'a> {
     key: &'a KeyPair,
 }
 impl Signer for FixtureSigner<'_> {
+    fn sign_prepare(
+        &self,
+        context: &iroha_sumeragi::crypto::PrepareSigningContext<'_>,
+    ) -> Result<Signature, iroha_sumeragi::crypto::SigningError> {
+        self.sign(context.preimage())
+    }
+
     fn public_key(&self) -> &CoreKey {
         &self.public
     }
@@ -812,6 +819,72 @@ mod tests {
             original_wire
         );
         fixture.verifier().verify_retained_decision(&proof).unwrap();
+    }
+
+    #[test]
+    fn active_sccp_result_uses_original_root_scope_despite_genuine_quorum() {
+        use crate::block::consensus::SumeragiRootScope;
+        use crate::sumeragi_finality::certified_result::{FLAG_ACTIVE, context_committee_root};
+        use crate::sumeragi_finality::tests::sign_qc;
+
+        let parent = NativeFinalityFixture::new().network_id();
+        for root in [
+            SumeragiRootScope::Global,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: parent,
+                dataspace_id: iroha_model_base::topology::DataSpaceId::new(17),
+            },
+        ] {
+            let mut fixture = NativeFinalityFixture::start_with_scope("active-sccp-scope", root);
+            let mut selected = fixture.verifier();
+            let block = fixture.block_with_submitted_work(fixture.next_header());
+            let mut proof = fixture.certify(block);
+            let mut block = decode_framed_signed_block(&proof.block_wire).unwrap();
+            let original = block.commit_certificate().unwrap();
+            let header = original.consensus_header().to_vec();
+            let availability = original.availability().to_vec();
+            let mut qc: Qc = norito::decode_canonical(original.commit_qc()).unwrap();
+            let certified = CertifiedResultV1::decode(
+                original.result_preimage(),
+                CertifiedResultScope::from(root),
+            )
+            .unwrap();
+            let mut fields = certified.header().fields();
+            fields.flags = FLAG_ACTIVE;
+            fields.generation = 1;
+            fields.committee_root =
+                context_committee_root(&certified.commitment().schedule.current).unwrap();
+            // Synthetic SCCP state with a genuine exact-quorum certificate. This does
+            // not claim the test fixture executed a World transition.
+            let active = CertifiedResultV1::new(
+                SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+                certified.into_parts().1,
+                CertifiedResultScope::TairaGlobal,
+            )
+            .unwrap();
+            qc.result = active.result().unwrap();
+            sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
+            block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+                header,
+                norito::encode_canonical(&qc).unwrap(),
+                active.preimage().unwrap(),
+                availability,
+            )));
+            proof.block_wire = block.encode_wire().unwrap();
+            assert!(
+                proof
+                    .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .is_ok()
+            );
+            assert!(
+                proof
+                    .decode_checked(CertifiedResultScope::NonGlobal)
+                    .is_err()
+            );
+            let admitted = selected.verify(&proof);
+            assert_eq!(admitted.is_ok(), root == SumeragiRootScope::Global);
+            assert_eq!(selected.root_scope(), root);
+        }
     }
 
     #[test]

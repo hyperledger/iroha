@@ -7,7 +7,7 @@
 //! transaction; authenticated reads use the configured query signer.
 //! An Applied result also requires the authenticated committed envelope to match byte for byte.
 use crate::{Args, Command, RunContext};
-use eyre::{Result, WrapErr as _, ensure, eyre};
+use eyre::{Result, ensure, eyre};
 use iroha::{
     blocking::Client as BlockingClient,
     client::{Client, PreparedTransactionPayload},
@@ -383,7 +383,7 @@ fn recover(
     Ok(observation)
 }
 
-fn verify_committed(
+pub(crate) fn verify_committed(
     expected: &SignedTransaction,
     details: &PipelineTransactionDetailsResponse,
 ) -> Result<()> {

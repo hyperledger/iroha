@@ -124,6 +124,11 @@ pub struct PopCredentialRuntimeConfigV1 {
 }
 impl PopCredentialRuntimeConfigV1 {
     /// Validate configuration before any runtime secret is consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid service policy, state directories, timing
+    /// bounds, zero public bindings, or noncanonical runtime handles.
     pub fn validate(&self) -> Result<(), PopCredentialServiceError> {
         self.service_policy.validate()?;
         if self.issuer_state_dir.as_os_str().is_empty()
@@ -231,15 +236,18 @@ impl PopCredentialRuntimeProviderBindingsV1 {
     ///
     /// Every V1 field is required by this typed constructor. Runtime handles
     /// must use canonical production syntax and may not be test-marked.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty or noncanonical issuer identity, invalid
+    /// production handles, an invalid Ed25519 key, or zero policy or recipient digests.
     pub fn try_new(
         issuer_policy_digest: [u8; 32],
         issuer_id: String,
         issuer_signer_handle: String,
         issuer_public_key: [u8; 32],
-        enrollment_recipient_key_id: String,
-        enrollment_recipient_public_key_digest: [u8; 32],
-        wallet_recipient_key_id: String,
-        wallet_recipient_public_key_digest: [u8; 32],
+        (enrollment_recipient_key_id, enrollment_recipient_public_key_digest): (String, [u8; 32]),
+        (wallet_recipient_key_id, wallet_recipient_public_key_digest): (String, [u8; 32]),
         wallet_wrapping_key_id: String,
     ) -> Result<Self, PopCredentialServiceError> {
         if issuer_policy_digest == [0; 32] {
@@ -298,10 +306,14 @@ impl PopCredentialRuntimeProviderBindingsV1 {
             config.service_policy.issuer_id.clone(),
             config.service_policy.issuer_signer_handle.clone(),
             config.service_policy.issuer_public_key,
-            config.service_policy.enrollment_recipient_key_id.clone(),
-            config.enrollment_recipient_public_key_digest,
-            config.wallet_recipient_key_id.clone(),
-            config.wallet_recipient_public_key_digest,
+            (
+                config.service_policy.enrollment_recipient_key_id.clone(),
+                config.enrollment_recipient_public_key_digest,
+            ),
+            (
+                config.wallet_recipient_key_id.clone(),
+                config.wallet_recipient_public_key_digest,
+            ),
             config.wallet_wrapping_key_id.clone(),
         )
     }
@@ -391,6 +403,11 @@ pub trait PopCredentialRuntimeProviderRegistryV1: Send + Sync + fmt::Debug {
     /// Exact stable non-secret registry handle.
     fn handle(&self) -> &str;
     /// Current independently administered public policy qualification.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the control plane is unavailable or the provider
+    /// policy is stale or revoked.
     fn qualification(
         &self,
     ) -> Result<
@@ -398,6 +415,11 @@ pub trait PopCredentialRuntimeProviderRegistryV1: Send + Sync + fmt::Debug {
         PopCredentialRuntimeProviderRegistryErrorV1,
     >;
     /// Resolve one coherent runtime provider set for the exact public bindings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the control plane is unavailable, its policy is stale
+    /// or revoked, or the exact public bindings are rejected.
     fn resolve(
         &self,
         bindings: &PopCredentialRuntimeProviderBindingsV1,
@@ -517,11 +539,21 @@ pub struct PopFinalizedTimeSampleV1 {
 /// committed state; no file or environment fallback is permitted.
 pub trait PopFinalizedTimeProviderV1: Send + Sync + fmt::Debug {
     /// Return the current authoritative bounded sample.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` if no authoritative finalized-chain time sample
+    /// and independent clock observation can be supplied.
     fn sample(&self) -> Result<PopFinalizedTimeSampleV1, PopFinalizedTimeProviderErrorV1>;
 }
 /// Runtime-only provider for private issuance material.
 pub trait PopIssuanceDraftProviderV1: Send + Sync + fmt::Debug {
     /// Resolve a draft for one approved public request identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` if the provider cannot produce current governed
+    /// issuance material for the approved request and epoch.
     fn resolve(
         &self,
         request_id: [u8; 32],
@@ -531,6 +563,11 @@ pub trait PopIssuanceDraftProviderV1: Send + Sync + fmt::Debug {
 /// Runtime-only provider for a wallet's private updated membership witness.
 pub trait PopWalletWitnessProviderV1: Send + Sync + fmt::Debug {
     /// Resolve a private witness for the exact current public projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Unavailable` if the provider cannot produce a private membership
+    /// witness matching the credential and current finalized projection.
     fn resolve(
         &self,
         credential_commitment: [u8; 32],
@@ -580,7 +617,7 @@ impl fmt::Debug for QualifiedPopIssuerSignerV1 {
             .debug_struct("QualifiedPopIssuerSignerV1")
             .field("key_id", &self.key_id)
             .field("private_provider", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl QualifiedPopIssuerSignerV1 {
@@ -628,7 +665,7 @@ impl fmt::Debug for QualifiedPopWalletKeyWrapperV1 {
             .debug_struct("QualifiedPopWalletKeyWrapperV1")
             .field("active_key_id", &self.active_key_id)
             .field("private_provider", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl QualifiedPopWalletKeyWrapperV1 {
@@ -836,7 +873,7 @@ impl fmt::Debug for QualifiedPopEnrollmentRecipientV1 {
             .debug_struct("QualifiedPopEnrollmentRecipientV1")
             .field("key_id", &self.key_id)
             .field("private_provider", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl PopEnrollmentRecipientV1 for QualifiedPopEnrollmentRecipientV1 {
@@ -884,7 +921,7 @@ impl fmt::Debug for QualifiedPopWalletRecipientV1 {
             .debug_struct("QualifiedPopWalletRecipientV1")
             .field("key_id", &self.key_id)
             .field("private_provider", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl PopWalletRecipientV1 for QualifiedPopWalletRecipientV1 {
@@ -941,7 +978,7 @@ impl fmt::Debug for PopCredentialToriiRuntimeV1 {
             .field("issuer_state_dir", &self.config.issuer_state_dir)
             .field("wallet_state_dir", &self.config.wallet_state_dir)
             .field("runtime_providers", &"[REDACTED]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl PopCredentialToriiRuntimeV1 {
@@ -950,6 +987,12 @@ impl PopCredentialToriiRuntimeV1 {
     /// Registry identity, revision, policy digest, resolved public signer
     /// identity, both recipient protected-key identities, and wallet wrapper
     /// identity are checked before issuer or wallet state is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid configuration, missing or unavailable providers,
+    /// qualification or public-identity mismatches, or failure to open and validate
+    /// the durable issuer or wallet state.
     pub fn open(
         config: PopCredentialRuntimeConfigV1,
         registry: Option<Arc<dyn PopCredentialRuntimeProviderRegistryV1>>,
@@ -1644,7 +1687,6 @@ impl PopCredentialToriiRuntimeV1 {
 #[derive(Clone, Debug, NoritoSerialize, NoritoDeserialize, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Request envelope carrying one exact canonical native-Norito payload.
-
 pub struct PopCanonicalPayloadRequestV1 {
     /// Canonical native-Norito bytes encoded as unpadded URL-safe base64.
     pub canonical_payload_base64url: String,
@@ -1654,7 +1696,6 @@ pub struct PopCanonicalPayloadRequestV1 {
 #[derive(Clone, Debug, NoritoSerialize, NoritoDeserialize, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Request envelope selecting one durable PoP enrollment by identifier.
-
 pub struct PopRequestIdRequestV1 {
     /// Non-zero 32-byte request id as lowercase hex.
     pub request_id_hex: String,
@@ -1664,7 +1705,6 @@ pub struct PopRequestIdRequestV1 {
 #[derive(Clone, Debug, NoritoSerialize, NoritoDeserialize, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Request envelope selecting one wallet credential commitment.
-
 pub struct PopCredentialCommitmentRequestV1 {
     /// Non-zero credential commitment as lowercase hex.
     pub credential_commitment_hex: String,
@@ -1674,7 +1714,6 @@ pub struct PopCredentialCommitmentRequestV1 {
 #[derive(Clone, Debug, NoritoSerialize, NoritoDeserialize, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Request envelope for local membership-proof generation.
-
 pub struct PopMembershipRequestV1 {
     /// Non-zero credential commitment as lowercase hex.
     pub credential_commitment_hex: String,
@@ -1690,7 +1729,6 @@ pub struct PopMembershipRequestV1 {
 #[derive(Clone, Debug, NoritoSerialize, NoritoDeserialize, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Request envelope for verification and exactly-once nullifier consumption.
-
 pub struct PopVerifyMembershipRequestV1 {
     /// Canonical native-Norito proof encoded as unpadded URL-safe base64.
     pub canonical_proof_base64url: String,
@@ -1706,7 +1744,6 @@ pub struct PopVerifyMembershipRequestV1 {
 #[derive(Clone, Copy, Debug, Default, NoritoSerialize, NoritoDeserialize)]
 #[norito(deny_unknown_fields)]
 /// Strict empty-object request used by bounded worker and projection endpoints.
-
 pub struct PopEmptyRequestV1;
 impl norito::json::FastJsonWrite for PopEmptyRequestV1 {
     fn write_json(&self, out: &mut String) {
@@ -2119,11 +2156,19 @@ fn error_response(error: PopCredentialServiceError) -> Response {
         }),
     ))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn runtime(app: &SharedAppState) -> Result<Arc<PopCredentialToriiRuntimeV1>, Response> {
     app.sorafs_pop_credentials
         .clone()
         .ok_or_else(|| error_response(PopCredentialServiceError::RuntimeProviderUnavailable))
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn request_context(
     app: &SharedAppState,
     headers: &HeaderMap,
@@ -2562,7 +2607,7 @@ mod tests {
                 .debug_struct("TestRuntimeSigner")
                 .field("key_id", &self.key_id)
                 .field("private_key", &"[REDACTED]")
-                .finish()
+                .finish_non_exhaustive()
         }
     }
     impl PopIssuerSigner for TestRuntimeSigner {
@@ -2604,7 +2649,7 @@ mod tests {
                 .debug_struct("TestWalletKeyWrapper")
                 .field("key_id", &self.key_id)
                 .field("wrapping_key", &"[REDACTED]")
-                .finish()
+                .finish_non_exhaustive()
         }
     }
     impl PopWalletKeyWrapper for TestWalletKeyWrapper {
@@ -2653,7 +2698,7 @@ mod tests {
                 .debug_struct("TestRecipient")
                 .field("key_id", &self.key_id)
                 .field("private_key", &"[REDACTED]")
-                .finish()
+                .finish_non_exhaustive()
         }
     }
     impl PopEnrollmentRecipientV1 for TestRecipient {
@@ -2828,7 +2873,7 @@ mod tests {
                 .debug_struct("TestRuntimeProviderRegistry")
                 .field("handle", &self.handle)
                 .field("private_providers", &"[REDACTED]")
-                .finish()
+                .finish_non_exhaustive()
         }
     }
     impl PopCredentialRuntimeProviderRegistryV1 for TestRuntimeProviderRegistry {
@@ -2998,10 +3043,8 @@ mod tests {
             "pop-issuer-runtime-primary".to_owned(),
             "software://sorafs/pop-credentials/primary".to_owned(),
             issuer_public_key,
-            "kms:pop/enrollment:primary".to_owned(),
-            [0x42; 32],
-            "kms:pop/wallet-recipient:primary".to_owned(),
-            [0x43; 32],
+            ("kms:pop/enrollment:primary".to_owned(), [0x42; 32]),
+            ("kms:pop/wallet-recipient:primary".to_owned(), [0x43; 32]),
             "kms:pop/wallet:primary".to_owned(),
         )
         .expect("canonical exact bindings");
@@ -3042,10 +3085,14 @@ mod tests {
                     issuer_id.to_owned(),
                     issuer_signer_handle.to_owned(),
                     issuer_public_key,
-                    enrollment_recipient_key_id.to_owned(),
-                    enrollment_recipient_public_key_digest,
-                    wallet_recipient_key_id.to_owned(),
-                    wallet_recipient_public_key_digest,
+                    (
+                        enrollment_recipient_key_id.to_owned(),
+                        enrollment_recipient_public_key_digest
+                    ),
+                    (
+                        wallet_recipient_key_id.to_owned(),
+                        wallet_recipient_public_key_digest
+                    ),
                     wallet_wrapping_key_id.to_owned(),
                 ),
                 Err(PopCredentialServiceError::InvalidInput { field })
@@ -3320,8 +3367,7 @@ mod tests {
         let issuer_state_dir = config.issuer_state_dir.clone();
         let wallet_state_dir = config.wallet_state_dir.clone();
         let error = PopCredentialToriiRuntimeV1::open(config, registry)
-            .err()
-            .expect("runtime startup must fail");
+            .expect_err("runtime startup must fail");
         assert_eq!(error, expected);
         assert!(!issuer_state_dir.exists());
         assert!(!wallet_state_dir.exists());

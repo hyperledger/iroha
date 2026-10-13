@@ -70,6 +70,14 @@ pub struct Args {
     /// (`nexus-amx-context.v1.bin`). Validators and public reset inputs consume these bytes.
     #[clap(long, value_name = "PATH")]
     nexus_context_output: Option<PathBuf>,
+    /// Reserve the final SCCP network identity in the same history used during
+    /// genesis generation. Rejects an unreserved nonce or any previously signed reset identity.
+    #[clap(long, value_name = "PATH")]
+    sccp_reset_history: Option<PathBuf>,
+    /// Reserve a fresh SCCP reset nonce before signing a revised genesis.
+    /// Requires the durable history; use when reseating a previously signed network.
+    #[clap(long, requires = "sccp_reset_history")]
+    fresh_sccp_reset_nonce: bool,
     /// Replace the expected-hash file only if it still contains this exact prior NetworkId.
     /// Requires all four output paths. The identity is published last as the bundle's commit
     /// marker; interrupted publication must be retried with the same prior identity.
@@ -166,6 +174,11 @@ fn reject_artifact_alias(
 }
 
 fn resolve_artifact_paths(args: &Args) -> Result<ResolvedArtifactPaths, color_eyre::eyre::Error> {
+    if args.fresh_sccp_reset_nonce && args.sccp_reset_history.is_none() {
+        return Err(eyre!(
+            "--fresh-sccp-reset-nonce requires --sccp-reset-history"
+        ));
+    }
     if args.replace_expected_hash.is_some()
         && (args.expected_hash_out.is_none()
             || args.out_file.is_none()
@@ -680,6 +693,7 @@ fn append_npos_bootstrap(
     }
     Ok(builder)
 }
+#[cfg(test)]
 pub(super) fn load_peer_config(
     config_path: &Path,
 ) -> Result<actual::Root, color_eyre::eyre::Error> {
@@ -893,7 +907,7 @@ pub(super) fn prepare_genesis_for_signing(
     };
 
     let direct_sign_safe = topology_override.is_none() && !needs_npos_bootstrap;
-    let prepared = if direct_sign_safe {
+    let mut prepared = if direct_sign_safe {
         genesis.with_consensus_mode(consensus_mode)
     } else {
         let chain_discriminant = genesis.chain_discriminant();
@@ -922,6 +936,34 @@ pub(super) fn prepare_genesis_for_signing(
             .with_consensus_mode(consensus_mode)
             .with_consensus_meta()?
     };
+    if needs_npos_bootstrap {
+        // The explicit SCCP initializer captures the original staking bindings.
+        // Keep its own complete batch after the bootstrap appended above.
+        let initializers = prepared
+            .transactions()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tx)| {
+                tx.instructions()
+                    .iter()
+                    .any(|instruction| {
+                        instruction
+                            .as_any()
+                            .is::<iroha_data_model::isi::sccp::InitializeSccpV1>()
+                    })
+                    .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        if let [index] = initializers.as_slice() {
+            color_eyre::eyre::ensure!(
+                prepared.transactions()[*index].instructions().len() == 1,
+                "SCCP initialization must be its own genesis transaction before automatic NPoS bootstrap"
+            );
+            prepared.move_instruction_only_transaction_to_end(*index)?;
+        } else if !initializers.is_empty() {
+            return Err(eyre!("SCCP genesis must initialize exactly once"));
+        }
+    }
     prepared
         .validate_genesis_topology()
         .wrap_err("refusing to sign a genesis whose final topology is not an exact committee")?;
@@ -990,13 +1032,20 @@ impl<T: Write> RunArgs<T> for Args {
         } else {
             None
         };
-        let prepared_genesis = prepare_genesis_for_signing(
+        let mut prepared_genesis = prepare_genesis_for_signing(
             genesis,
             peer_config.as_ref(),
             consensus_mode,
             topology_override.as_deref(),
             &self.peer_pops,
         )?;
+        if self.fresh_sccp_reset_nonce {
+            let history = self
+                .sccp_reset_history
+                .as_deref()
+                .ok_or_else(|| eyre!("fresh SCCP nonce requires reset history"))?;
+            iroha_deploy::genesis::sccp::renew_reset_nonce(&mut prepared_genesis, history)?;
+        }
         let da_proof_policies = resolve_da_proof_policies(peer_config.as_ref());
         let confidential_policy_hash = resolve_confidential_policy_hash();
         if let Some(config) = peer_config.as_ref()
@@ -1026,6 +1075,25 @@ impl<T: Write> RunArgs<T> for Args {
                 Ok::<_, color_eyre::eyre::Report>(json)
             })
             .transpose()?;
+        let sccp_reset_nonce = if self.sccp_reset_history.is_some() {
+            let mut initializations = bound_manifest.instructions().filter_map(|instruction| {
+                instruction
+                    .as_any()
+                    .downcast_ref::<iroha_data_model::isi::sccp::InitializeSccpV1>()
+            });
+            let nonce = initializations
+                .next()
+                .map(|init| init.reset_nonce)
+                .ok_or_else(|| {
+                    eyre!("--sccp-reset-history requires SCCP initialization in this genesis")
+                })?;
+            if initializations.next().is_some() {
+                return Err(eyre!("SCCP genesis must initialize exactly once"));
+            }
+            Some(nonce)
+        } else {
+            None
+        };
         drop(bound_manifest);
         let genesis_expected_hash = genesis_block.0.hash();
         let network_id = NetworkId::from_genesis_hash(genesis_expected_hash);
@@ -1040,6 +1108,14 @@ impl<T: Write> RunArgs<T> for Args {
                 framed.len(),
                 SIGNED_GENESIS_MAX_BYTES_V1
             ));
+        }
+        if let (Some(history), Some(nonce)) = (self.sccp_reset_history.as_deref(), sccp_reset_nonce)
+        {
+            iroha_deploy::genesis::sccp::record_network_identity(
+                history,
+                nonce,
+                genesis_expected_hash.as_ref(),
+            )?;
         }
         if self.replace_expected_hash.is_none()
             && let Some(path) = artifact_paths.expected_hash_output.as_deref()
@@ -2722,6 +2798,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 bound_manifest_out: None,
                 expected_hash_out: None,
                 nexus_context_output: None,
+                sccp_reset_history: None,
+                fresh_sccp_reset_nonce: false,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
@@ -2750,6 +2828,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -2774,6 +2854,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 bound_manifest_out: None,
                 expected_hash_out: None,
                 nexus_context_output: None,
+                sccp_reset_history: None,
+                fresh_sccp_reset_nonce: false,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
@@ -2805,6 +2887,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 bound_manifest_out: None,
                 expected_hash_out: None,
                 nexus_context_output: None,
+                sccp_reset_history: None,
+                fresh_sccp_reset_nonce: false,
                 replace_expected_hash: None,
                 topology: None,
                 peer_pops: Vec::new(),
@@ -2843,6 +2927,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec!["pk=00".to_string()],
@@ -2873,6 +2959,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -2964,6 +3052,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(norito::json::to_json(&topology).expect("serialize topology override")),
             peer_pops,
@@ -3039,6 +3129,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some("not valid json".to_owned()),
             peer_pops: Vec::new(),
@@ -3069,6 +3161,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3099,6 +3193,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(output_path.clone()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3131,6 +3227,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3165,6 +3263,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(parent_alias.join("same-output")),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3190,6 +3290,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(manifest.clone()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3231,6 +3333,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(bound_manifest_path.clone()),
             expected_hash_out: Some(identity_path.clone()),
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3281,6 +3385,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(directory.join("genesis.bound.json")),
             expected_hash_out: Some(directory.join("genesis.expected_hash")),
             nexus_context_output: Some(directory.join("nexus-amx-context.v1.bin")),
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: Some(prior),
             topology: None,
             peer_pops: Vec::new(),
@@ -3594,6 +3700,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: Some(expected_hash_path.clone()),
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3764,6 +3872,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some("not valid json".to_owned()),
             peer_pops: Vec::new(),
@@ -3785,6 +3895,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -3815,6 +3927,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops: vec![peer_pops[0].clone()],
@@ -3864,6 +3978,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -3936,6 +4052,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec![],
@@ -4059,6 +4177,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: vec![],
@@ -4213,6 +4333,106 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         );
     }
     #[test]
+    fn sccp_sign_preparation_places_initialization_after_original_staking() {
+        use iroha_data_model::isi::sccp::InitializeSccpV1;
+
+        let (peers, _) = valid_test_topology(4);
+        let manifest = GenesisBuilder::new_without_executor(
+            ChainId::from("sccp-sign-order"),
+            PathBuf::from("."),
+        )
+        .append_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                max_validators: 4,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .set_topology_for_test(valid_test_topology_entries(4))
+        .build_raw()
+        .expect("complete signing fixture")
+        .with_consensus_mode(SumeragiConsensusMode::Npos)
+        .with_consensus_meta()
+        .expect("consensus metadata");
+        let manifest = with_explicit_test_xor_allocations(manifest, &peers);
+        let manifest = iroha_deploy::genesis::sccp::append_profile(manifest, [9; 32])
+            .expect("explicit SCCP profile");
+        assert!(!manifest_has_npos_bootstrap(&manifest));
+        let prepared = prepare_genesis_for_signing(
+            manifest.clone(),
+            None,
+            SumeragiConsensusMode::Npos,
+            None,
+            &[],
+        )
+        .expect("prepare SCCP genesis with original staking");
+        let mut registered = BTreeSet::new();
+        let mut initialized = false;
+        for instruction in prepared.instructions() {
+            if let Some(registration) = instruction
+                .as_any()
+                .downcast_ref::<RegisterPublicLaneValidator>()
+            {
+                assert!(
+                    !initialized,
+                    "original staking must precede SCCP initialization"
+                );
+                registered.insert(registration.validator.clone());
+            }
+            if instruction.as_any().is::<InitializeSccpV1>() {
+                assert!(!initialized, "SCCP initializes once");
+                assert_eq!(registered.len(), 4);
+                initialized = true;
+            }
+        }
+        assert!(initialized);
+        let last = prepared.transactions().last().expect("initializer batch");
+        assert_eq!(last.instructions().len(), 1);
+        assert!(last.instructions()[0].as_any().is::<InitializeSccpV1>());
+
+        // Repreparation preserves the already bootstrapped ordering exactly.
+        let again = prepare_genesis_for_signing(
+            prepared.clone(),
+            None,
+            SumeragiConsensusMode::Npos,
+            None,
+            &[],
+        )
+        .expect("idempotent preparation");
+        assert_eq!(
+            norito::codec::Encode::encode(&again),
+            norito::codec::Encode::encode(&prepared)
+        );
+
+        // Execute the actual staged genesis, including SCCP's original staking
+        // checks and the pinned liability policy, before signing its final body.
+        let key_pair = test_genesis_key_pair();
+        let (_, signed) = bind_and_sign_staged_sumeragi_context(
+            prepared,
+            &key_pair,
+            None,
+            None,
+            resolve_confidential_policy_hash(),
+            Some(1_000),
+        )
+        .expect("SCCP profile must execute and bind a genuine signed genesis");
+        assert_genesis_signatures_verify(&signed.0, &key_pair);
+
+        // An initializer mixed with other effects cannot be moved implicitly.
+        let mixed = manifest
+            .into_builder()
+            .append_instruction(iroha_data_model::isi::Log::new(
+                iroha_data_model::level::Level::INFO,
+                "after SCCP".to_owned(),
+            ))
+            .build_raw()
+            .expect("mixed initializer batch");
+        assert!(
+            prepare_genesis_for_signing(mixed, None, SumeragiConsensusMode::Npos, None, &[],)
+                .is_err()
+        );
+    }
+    #[test]
     fn sign_auto_bootstraps_npos_validators_for_topology() {
         let (peers, peer_pops) = valid_test_topology(4);
         let genesis_file = with_test_authority_for_topology(npos_genesis_file(), &peers);
@@ -4246,6 +4466,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4544,6 +4766,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4649,6 +4873,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: Some(bound_manifest.path().to_path_buf()),
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4722,6 +4948,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4754,6 +4982,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4786,6 +5016,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4817,6 +5049,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4858,6 +5092,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: Some(topology_json),
             peer_pops,
@@ -4922,6 +5158,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -4948,6 +5186,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -5048,6 +5288,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),
@@ -5080,6 +5322,8 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             bound_manifest_out: None,
             expected_hash_out: None,
             nexus_context_output: None,
+            sccp_reset_history: None,
+            fresh_sccp_reset_nonce: false,
             replace_expected_hash: None,
             topology: None,
             peer_pops: Vec::new(),

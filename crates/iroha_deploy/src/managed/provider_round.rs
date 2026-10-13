@@ -21,9 +21,11 @@ pub(super) fn run<T: Send, R: Send, E: Send>(
             inputs.map(|input| thread::Builder::new().spawn_scoped(scope, move || action(input)));
         // Do not use `?` until every handle is consumed, even when an earlier worker failed
         // to start, panicked, or returned an ordinary refusal. No task can outlive its inputs.
-        let results = handles.map(|handle| match handle {
-            Ok(handle) => handle.join().unwrap_or_else(|_| Err(worker_failed())),
-            Err(_) => Err(worker_failed()),
+        let results = handles.map(|handle| {
+            handle.map_or_else(
+                |_| Err(worker_failed()),
+                |handle| handle.join().unwrap_or_else(|_| Err(worker_failed())),
+            )
         });
         let [first, second, third] = results;
         Ok([first?, second?, third?])

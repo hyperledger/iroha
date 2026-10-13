@@ -122,7 +122,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         // Retirement stops new receiving quotes. It preserves Send of remaining value,
         // whose peer session still starts with an Offer (§6.3).
         if matches!(action, Action::Request { .. })
-            && source.frozen.capsule.successor_state.core.lifecycle
+            && source.frozen.capsule.body().successor_state.core.lifecycle
                 != KagemushaWalletLifecycleV1::Active
         {
             return Err(Error::Invalid("new Request requires active wallet"));
@@ -238,7 +238,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             &snapshot
                 .original(
                     &mut self.archive,
-                    &source.frozen.capsule.successor_state,
+                    &source.frozen.capsule.body().successor_state,
                     PreparationOriginalV1::EnrollmentCertificates,
                 )?
                 .ok_or(Error::WitnessLost("setup issuer original"))?,
@@ -311,7 +311,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             asset_digest: credential.body.asset_digest,
             payer_wallet_id: self.wallet_id,
             payer_credential_digest: credential.credential_digest(),
-            next_send: source.frozen.capsule.successor_state.core.next_send,
+            next_send: source.frozen.capsule.body().successor_state.core.next_send,
             amount,
             session_nonce: plan.nonce,
         };
@@ -368,7 +368,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         } else {
             let (source, snapshot) = self.setup_source(&plan)?;
             let credential = source.frozen.credential;
-            let state = source.frozen.capsule.successor_state;
+            let state = source.frozen.capsule.body().successor_state;
             let certificates = self.setup_certificates(&source, &snapshot)?;
             let issuer = *valid(certificates.certificate(
                 &credential.body.issuer_certificate,
@@ -551,6 +551,7 @@ mod tests {
         let template: KagemushaWalletRecoveryCapsuleV1 =
             fixture("KagemushaWalletRecoveryCapsuleV1");
         let original = template
+            .body()
             .retained_inputs
             .iter()
             .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
@@ -593,7 +594,7 @@ mod tests {
         let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
         offer.verify(&scheme).unwrap();
         let local = source.credential;
-        let state = &source.capsule.successor_state;
+        let state = &source.capsule.body().successor_state;
         let issuer = enrollment_issuer(&local);
         request.receiver_credential = local;
         request.certificates = KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap();
@@ -631,7 +632,7 @@ mod tests {
             let boot = bootstrap();
             wallet.commit(boot.clone()).unwrap();
             let (offer, mut request) = setup_quote(&boot);
-            let source = boot.capsule.capsule_digest().unwrap();
+            let source = boot.capsule.custody_digest();
             let id = [74; 32];
             let action = Action::Request {
                 offer: archive::encode(&offer).unwrap(),

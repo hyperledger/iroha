@@ -5,7 +5,7 @@
 //! The actual Native owner publishes and reads back the complete original before proving,
 //! and resolves it again before the existing issuer-role and full-list admission checks.
 
-use super::{Error, ObjectStore, archive};
+use super::{Error, ObjectStore, archive, read_model_original};
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as object_digest;
 use iroha_data_model::kagemusha::*;
 
@@ -25,8 +25,10 @@ impl BlacklistOriginalReferenceV1 {
     /// Derive a local reference from a complete canonical list, never from its signed header.
     /// This pure helper conveys no publication or issuer-authentication authority.
     pub(crate) fn for_original(scheme_id: &[u8; 32], original: &[u8]) -> Result<Self, Error> {
-        KagemushaWalletBlacklistV1::decode_canonical(original, scheme_id)
-            .map_err(|_| Error::WitnessLost("blacklist source canonical original"))?;
+        read_model_original(
+            || KagemushaWalletBlacklistV1::decode_canonical(original, scheme_id),
+            Error::WitnessLost("blacklist source canonical original"),
+        )?;
         let reference = Self {
             version: 1,
             scheme_id: *scheme_id,
@@ -89,8 +91,10 @@ impl BlacklistOriginalReferenceV1 {
         if original.len() != maximum || object_digest(original) != self.original_digest {
             return Err(Error::WitnessLost("blacklist source exact original"));
         }
-        KagemushaWalletBlacklistV1::decode_canonical(original, scheme_id)
-            .map_err(|_| Error::WitnessLost("blacklist source canonical original"))?;
+        read_model_original(
+            || KagemushaWalletBlacklistV1::decode_canonical(original, scheme_id),
+            Error::WitnessLost("blacklist source canonical original"),
+        )?;
         Ok(())
     }
 }

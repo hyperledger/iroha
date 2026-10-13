@@ -10,9 +10,9 @@ use iroha_torii::{
 fn telemetry_disabled() -> MaybeTelemetry {
     MaybeTelemetry::from_profile(None, TelemetryProfile::Disabled)
 }
-async fn telemetry_for(profile: TelemetryProfile, configure: impl Fn(&Metrics)) -> MaybeTelemetry {
+fn telemetry_for(profile: TelemetryProfile, configure: impl Fn(&Metrics)) -> MaybeTelemetry {
     let telemetry = MaybeTelemetry::for_tests().with_profile(profile);
-    configure(telemetry.metrics().await);
+    configure(telemetry.metrics());
     telemetry
 }
 #[tokio::test]
@@ -38,7 +38,7 @@ async fn disabled_profile_hides_status_and_metrics() {
             StatusCode::SERVICE_UNAVAILABLE
         );
     }
-    let metrics_err = handle_metrics(&telemetry).await.unwrap_err();
+    let metrics_err = handle_metrics(&telemetry).unwrap_err();
     assert_eq!(
         metrics_err.into_response().status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -46,7 +46,7 @@ async fn disabled_profile_hides_status_and_metrics() {
 }
 #[tokio::test]
 async fn operator_profile_exposes_status_only() {
-    let telemetry = telemetry_for(TelemetryProfile::Operator, |_| {}).await;
+    let telemetry = telemetry_for(TelemetryProfile::Operator, |_| {});
     let status_resp = handle_status(
         &build_identity_test_fixture::build_identity().status(),
         &telemetry,
@@ -55,7 +55,7 @@ async fn operator_profile_exposes_status_only() {
     .await
     .unwrap();
     assert_eq!(status_resp.status(), StatusCode::OK);
-    let metrics_err = handle_metrics(&telemetry).await.unwrap_err();
+    let metrics_err = handle_metrics(&telemetry).unwrap_err();
     assert_eq!(
         metrics_err.into_response().status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -68,8 +68,7 @@ async fn extended_profile_exposes_prometheus_metrics() {
             .sumeragi_view_changes_total
             .with_label_values(&["global"])
             .inc();
-    })
-    .await;
+    });
     let status_resp = handle_status(
         &build_identity_test_fixture::build_identity().status(),
         &telemetry,
@@ -78,7 +77,7 @@ async fn extended_profile_exposes_prometheus_metrics() {
     .await
     .unwrap();
     assert_eq!(status_resp.status(), StatusCode::OK);
-    let prometheus = handle_metrics(&telemetry).await.unwrap();
+    let prometheus = handle_metrics(&telemetry).unwrap();
     assert!(
         !prometheus.trim().is_empty(),
         "expected non-empty Prometheus payload"
@@ -86,8 +85,8 @@ async fn extended_profile_exposes_prometheus_metrics() {
 }
 #[tokio::test]
 async fn developer_profile_hides_prometheus_metrics() {
-    let developer = telemetry_for(TelemetryProfile::Developer, |_| {}).await;
-    let metrics_err = handle_metrics(&developer).await.unwrap_err();
+    let developer = telemetry_for(TelemetryProfile::Developer, |_| {});
+    let metrics_err = handle_metrics(&developer).unwrap_err();
     assert_eq!(
         metrics_err.into_response().status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -100,8 +99,7 @@ async fn full_profile_combines_all_capabilities() {
             .sumeragi_view_changes_total
             .with_label_values(&["global"])
             .inc();
-    })
-    .await;
+    });
     let status = handle_status(
         &build_identity_test_fixture::build_identity().status(),
         &telemetry,
@@ -110,7 +108,7 @@ async fn full_profile_combines_all_capabilities() {
     .await
     .unwrap();
     assert_eq!(status.status(), StatusCode::OK);
-    let prometheus = handle_metrics(&telemetry).await.unwrap();
+    let prometheus = handle_metrics(&telemetry).unwrap();
     assert!(prometheus.contains("sumeragi_view_changes_total{lane=\"global\"} 1"));
 }
 

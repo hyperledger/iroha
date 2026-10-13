@@ -231,9 +231,13 @@ fn build_onboarding_test_context_at(
     );
     {
         let mut block = world.block();
-        block.parameters.get_mut().set_parameter(Parameter::Custom(
-            SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        block
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(
+                SumeragiNposParameters::default().into_custom_parameter(),
+            ))
+            .expect("valid default consensus parameters");
         block.commit();
     }
     install_account_alias_policy(&mut world, &authority_id, &fee_asset_id);

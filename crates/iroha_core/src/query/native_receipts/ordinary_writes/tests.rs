@@ -88,6 +88,7 @@ fn projection() -> NativeExecutionProjectionV1 {
         carrier_hash: HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(b"original carrier")),
         lanes: SumeragiLaneState::default(),
         casting_bindings: vec![],
+        sccp_delta: vec![],
         ordinary_writes: vec![
             ExecKv {
                 key: vec![1],
@@ -111,7 +112,7 @@ fn input(bytes: &[u8], budget: &AllocationBudget) -> ChargedBuffer<u8> {
 }
 fn demand(bytes: &[u8]) -> usize {
     let view = ncore::from_bytes_view(bytes).unwrap();
-    let [_, _, _, writes, _] = fields::<5>(view.as_bytes(), view.flags()).unwrap();
+    let [_, _, _, writes, _, _] = fields::<6>(view.as_bytes(), view.flags()).unwrap();
     RawWrites::new(writes, view.flags())
         .unwrap()
         .demand()
@@ -225,7 +226,7 @@ fn canonical_framing_and_post_admission_errors_never_leak_normal_drop_credit() {
     // A valid raw write graph followed by a bad fixed carrier hash exercises cleanup after
     // complete write allocation, while retaining the original schema/header/checksum.
     let view = ncore::from_bytes_view(&bytes).unwrap();
-    let root = fields::<5>(view.as_bytes(), view.flags()).unwrap();
+    let root = fields::<6>(view.as_bytes(), view.flags()).unwrap();
     let mut payload = Vec::new();
     for (index, field) in root.into_iter().enumerate() {
         let value = if index == 1 { &[][..] } else { field };
@@ -251,7 +252,7 @@ fn canonical_framing_and_post_admission_errors_never_leak_normal_drop_credit() {
 fn unwind_keeps_ledger_until_complete_payload_reclamation_can_be_proven() {
     let bytes = norito::encode_canonical(&projection()).unwrap();
     let view = ncore::from_bytes_view(&bytes).unwrap();
-    let [_, _, _, writes, _] = fields::<5>(view.as_bytes(), view.flags()).unwrap();
+    let [_, _, _, writes, _, _] = fields::<6>(view.as_bytes(), view.flags()).unwrap();
     let raw = RawWrites::new(writes, view.flags()).unwrap();
     let expected = raw.demand().unwrap().bytes;
     let budget = AllocationBudget::new(expected);
@@ -374,7 +375,7 @@ fn casting_materializer_rejects_malformed_native_fields_before_any_allocation() 
     for malformed in mutations {
         let sequence = casting_sequence(&malformed, flags);
         assert!(RawCasting::new(&sequence, flags).is_err());
-        let payload = replace_field::<5>(view.as_bytes(), 4, &sequence, view.flags());
+        let payload = replace_field::<6>(view.as_bytes(), 4, &sequence, view.flags());
         let frame = ncore::frame_bare_with_header_flags::<NativeExecutionProjectionV1>(
             &payload,
             view.flags(),
@@ -444,7 +445,7 @@ fn nonempty_lane_graph_is_borrowed_from_the_original_charged_frame() {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::new(1),
             incarnation: [1; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee,
             created_at: 1,
             active_from: 3,
@@ -471,7 +472,7 @@ fn nonempty_lane_graph_is_borrowed_from_the_original_charged_frame() {
     let input = input(&bytes, &budget);
     let decoded = decode_projection(&input, &budget).unwrap();
     let view = ncore::from_bytes_view(input.as_slice()).unwrap();
-    let lane = fields::<5>(view.as_bytes(), view.flags()).unwrap()[2];
+    let lane = fields::<6>(view.as_bytes(), view.flags()).unwrap()[2];
     assert!(std::ptr::eq(decoded.lane_payload.as_ptr(), lane.as_ptr()));
     assert_eq!(decoded.lane_payload, original.lanes.encode());
     assert_eq!(
@@ -497,10 +498,13 @@ fn alternate_archive_flags_and_noncanonical_outer_lengths_are_rejected() {
     assert!(decode_projection(&encoded, &budget).is_err());
     assert_eq!(budget.peak_reserved_bytes(), frame.len());
     drop(encoded);
-    let fields = fields::<5>(&payload, flags).unwrap();
+    let fields = fields::<6>(&payload, flags).unwrap();
     let mut changed = Vec::new();
     // Encode the first short length with an overlong compact prefix, preserving all field bytes.
-    changed.extend_from_slice(&[(fields[0].len() as u8) | 0x80, 0]);
+    changed.extend_from_slice(&[
+        u8::try_from(fields[0].len()).expect("fixture value fits u8") | 0x80,
+        0,
+    ]);
     changed.extend_from_slice(fields[0]);
     for field in &fields[1..] {
         ncore::write_len_with_flags(&mut changed, field.len() as u64, flags).unwrap();
@@ -511,5 +515,33 @@ fn alternate_archive_flags_and_noncanonical_outer_lengths_are_rejected() {
     let encoded = input(&frame, &budget);
     assert!(decode_projection(&encoded, &budget).is_err());
     drop(encoded);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn mandatory_delta_field_has_no_five_field_fallback() {
+    let projection = projection();
+    let encoded = norito::encode_canonical(&projection).unwrap();
+    let view = ncore::from_bytes_view(&encoded).unwrap();
+    let items = fields::<6>(view.as_bytes(), view.flags()).unwrap();
+    let mut old_payload = Vec::new();
+    for item in &items[..5] {
+        ncore::write_len_with_flags(
+            &mut old_payload,
+            u64::try_from(item.len()).unwrap(),
+            view.flags(),
+        )
+        .unwrap();
+        old_payload.extend_from_slice(item);
+    }
+    let frame = ncore::frame_bare_with_header_flags::<NativeExecutionProjectionV1>(
+        &old_payload,
+        view.flags(),
+    )
+    .unwrap();
+    let budget = AllocationBudget::new(frame.len() + (1 << 20));
+    let source = input(&frame, &budget);
+    assert!(decode_projection(&source, &budget).is_err());
+    drop(source);
     assert_eq!(budget.reserved_bytes(), 0);
 }

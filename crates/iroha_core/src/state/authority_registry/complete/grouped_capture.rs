@@ -481,7 +481,7 @@ mod direct_home_admission_tests {
     #[test]
     fn committed_readers_retry_in_the_same_state_allocation_pool() {
         let _pin = crossbeam_epoch::pin();
-        let mut world = *fixture::fixture(false);
+        let mut world = fixture::fixture(false);
         world
             .set_asset_definition_dataspace_for_testing(
                 fixture::definition("coin"),
@@ -501,8 +501,8 @@ mod direct_home_admission_tests {
             max_tables: 1,
             max_rows: 64,
             max_payload_bytes: 65536,
-            max_ordered_table_bytes: 131072,
-            max_streamed_value_bytes: 131072,
+            max_ordered_table_bytes: 131_072,
+            max_streamed_value_bytes: 131_072,
         };
         type Capture =
             fn(&State, LeafLimits) -> Result<Option<CanonicalTablePairedSnapshot>, LeafError>;

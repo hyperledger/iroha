@@ -1,0 +1,5 @@
+Concurrent added call occurrences: 1
+Actual current source: crates/iroha_core/src/state.rs: start phases must use the original block and height in order
+Diagnostic only: evaluating guard with the single added SCCP call omitted IN MEMORY; no files changed.
+SORA Parliament source/model contract: ok
+Counterfactual full guard return code: 0

@@ -42,7 +42,7 @@ fn fp(value: Fq) -> Result<Fp, &'static str> {
 // read from the supplied public length word. The smaller synthetic DATA test
 // also exercises a nonempty final padding byte without deriving any parameters.
 fn decode_load(frame: &Frame, proof_length: usize) -> Result<LoadData, &'static str> {
-    if proof_length == 0 || proof_length > MAX_SIGMA_BYTES || proof_length % 32 != 0 {
+    if proof_length == 0 || proof_length > MAX_SIGMA_BYTES || !proof_length.is_multiple_of(32) {
         return Err("sigma extent");
     }
     let tape_length = proof_length.checked_add(4).ok_or("sigma extent")?;
@@ -72,7 +72,7 @@ fn decode_load(frame: &Frame, proof_length: usize) -> Result<LoadData, &'static 
     let statement = fp(instances[0][0])?;
     let capacity = chunks.checked_mul(31).ok_or("sigma extent")?;
     let mut tape = Vec::with_capacity(capacity);
-    for word in &frame[0][1..1 + chunks] {
+    for word in &frame[0][1..=chunks] {
         if word[31] != 0 {
             return Err("chunk above 248 bits");
         }

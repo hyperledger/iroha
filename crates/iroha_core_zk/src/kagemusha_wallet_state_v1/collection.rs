@@ -98,7 +98,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .read_fold_cancellable(&latest, Some(&guard.token))?
                 .ok_or(Error::WitnessLost("collection covering Ω"))?;
             if let KagemushaWalletEffectV1::Send { credit_id, fee, .. } =
-                step.frozen.capsule.statement.effect
+                step.frozen.capsule.body().statement.effect
             {
                 let opening =
                     self.collection_outgoing_absence(&manifest, &fold.record, &credit_id)?;

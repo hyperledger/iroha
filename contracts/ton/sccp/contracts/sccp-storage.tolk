@@ -9,6 +9,7 @@
 import "@stdlib/strings"
 import "sccp-constants"
 import "sccp-errors"
+import "sccp-recovery"
 
 /// `initial_pin#_` — the Parliament-pinned generation of this deployment.
 struct InitialPin {
@@ -61,10 +62,8 @@ struct MinterStorage {
     /// in ascending height order (§5.1.3); read and written through
     /// `Checkpoints` of `sccp-finality.tolk`.
     checkpoints: cell
-    /// Asynchronous steps that bounced and wait for `sccp_retry` (§5.3.4): key
-    /// nonce → `SCCP_RETRY_UNCONSUME`, or key `index · 512` →
-    /// `SCCP_RETRY_ACTIVATE` for bucket `index`. Empty in the initial data.
-    retries: map<uint64, uint8>
+    /// All dispatched and queued operations, bounded before allocation.
+    recovery: Cell<RecoveryBook>
 }
 
 fun MinterStorage.load(): MinterStorage {
@@ -99,6 +98,7 @@ struct WalletStorage {
     jettonBalance: coins
     ownerAddress: address
     minterAddress: address
+    recovery: Cell<RecoveryReceipts>
 }
 
 fun WalletStorage.load(): WalletStorage {
@@ -113,13 +113,14 @@ fun WalletStorage.save(self) {
 /// bits:uint512`; the 512 flags are stored as their high and low 256-bit
 /// halves, so flag `i` is bit `i` of the 512-bit big-endian integer
 /// `bitsHi ‖ bitsLo`. The canonical `StateInit` has `activated = false` and
-/// clear flags; only the minter's `sccp_activate_bucket` sets `activated`.
+/// clear flags; only the minter's activation dispatch sets `activated`.
 struct BucketStorage {
     minterAddress: address
     index: uint64
     activated: bool
     bitsHi: uint256
     bitsLo: uint256
+    recovery: Cell<RecoveryReceipts>
 }
 
 fun BucketStorage.load(): BucketStorage {

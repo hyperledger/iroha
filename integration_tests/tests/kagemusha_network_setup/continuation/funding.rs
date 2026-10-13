@@ -380,6 +380,32 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> Result<norito::json::Value> {
 }
 
 #[test]
+fn funded_capture_retains_original_x_body_and_outer_result() {
+    use iroha_data_model::testing::native_finality::NativeFinalityFixture;
+    let mut fixture = NativeFinalityFixture::start("funded-capture-certified-result");
+    let carrier = fixture.block_with_submitted_work(fixture.next_header());
+    let proof = fixture.certify(carrier);
+    let block = fixture.verifier().verify_retained_decision(&proof).unwrap();
+    let capture = block_capture(&block).unwrap();
+    let original = block
+        .block()
+        .commit_certificate()
+        .unwrap()
+        .result_preimage();
+    let captured = hex::decode(capture["result_preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(captured, original);
+    assert_eq!(
+        iroha_data_model::sumeragi_finality::result_of_preimage(&captured),
+        Some(block.result()),
+    );
+    assert_eq!(
+        capture["result_hash_hex"].as_str().unwrap(),
+        hex::encode(block.result().0)
+    );
+    assert_ne!(captured, block.commitment().preimage().unwrap());
+}
+
+#[test]
 fn block_capture_preserves_original_certified_result_envelope() {
     use iroha_data_model::sumeragi_finality::{
         result_of_preimage, test_fixtures::NativeFinalityFixture,

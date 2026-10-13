@@ -1,0 +1,44 @@
+{
+  "schema": "parliament-allocation-frontier-prover-checks-v1",
+  "commands": [
+    {
+      "label": "allocation-frontier-prover-tests",
+      "command": [
+        "python3.11",
+        "-m",
+        "pytest",
+        "-q",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_allocation_cases_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_allocation_match_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_allocation_prepare_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_allocation_trace_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_stack_frontiers_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_prover_accounting_test.py",
+        "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_allocator_activation_test.py"
+      ],
+      "exit": 0,
+      "log": "docs/validation/parliament_ballot_b6/allocation-frontier-prover-tests.txt",
+      "log_sha256": "b4db0c43594ad090086bd2c1e42b3b56a078a702a34311c60d02c4c84034f257",
+      "elapsed_seconds": 6.777798125054687
+    },
+    {
+      "label": "allocation-frontier-prover-source-contract",
+      "command": [
+        "python3.11",
+        "scripts/formal/check_sora_parliament_source_contract.py"
+      ],
+      "exit": 1,
+      "log": "docs/validation/parliament_ballot_b6/allocation-frontier-prover-source-contract.txt",
+      "log_sha256": "215294a754c15e8cecacff883cd4a969425d7818713f0275b6616eadcc5d2857",
+      "elapsed_seconds": 5.428645041072741
+    }
+  ],
+  "binding_ballot_available": false,
+  "qualified_attempt_latency_ms": null,
+  "gate_source_sha256": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786",
+  "core_source_sha256": "a69b3f8ed0892b3e2c98a0f03b7f62e2d12cdabf90c93ec9b7ece462d121c3c5",
+  "no_experimental_core_torii_dependencies": true,
+  "complete_workspace_suite_run": false,
+  "complete_workspace_certificate": false,
+  "profile_qualified": false
+}

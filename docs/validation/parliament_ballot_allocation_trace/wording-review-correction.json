@@ -1,0 +1,9 @@
+{
+  "before": {
+    "manifest": "e2bf17f4b37cd624089800fc4f154de2e7323a741ee6114fabe1666a770c6eef",
+    "readme": "8d2aa8304e32700a466beee819b5b32496c740ebdab77019c13411fdbb90832c"
+  },
+  "readme_after": "57b61cf04c85e63a69e540968056ec5fb01d3981caf3df23265669a1ead18c86",
+  "scope": "Documentation clarifies corpus-only event/allocation totals; raw campaign, summary values, scripts, binaries and measurement receipts unchanged. Earlier manifest and README retained as historical templates; earlier manifest is not asserted against the corrected README.",
+  "profile_qualified": false
+}

@@ -80,7 +80,8 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
     let (mut chain, binding) =
         crate::validation_fee::tests::signed_payout_lifecycle_registry_fixture_with_config(config);
     assert_eq!(binding.xor_asset_id, asset);
-    let registry = crate::validation_fee::tests::policy_registry(&[], &[binding.clone()]);
+    let registry =
+        crate::validation_fee::tests::policy_registry(&[], std::slice::from_ref(&binding));
     registry
         .validate()
         .expect("the actual retained certificate validates");
@@ -219,7 +220,7 @@ fn asset_balance(
     world
         .assets()
         .get(&AssetId::of(fixture.asset.clone(), owner.clone()))
-        .map_or(Quantity::zero(), |value| value.0.clone())
+        .map_or_else(Quantity::zero, |value| value.0.clone())
 }
 
 fn assert_slash(world: &impl WorldReadOnly, fixture: &PenaltyFixture, slashed: bool, height: u64) {

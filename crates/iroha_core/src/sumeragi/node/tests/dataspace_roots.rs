@@ -136,16 +136,17 @@ impl DataspaceChain {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         let pipeline = iroha_config::parameters::actual::Pipeline::default();
-        let mut gas = iroha_config::parameters::actual::Gas::default();
-        gas.tech_account_id = SAMPLE_GENESIS_ACCOUNT_ID.to_string();
-        gas.accepted_assets = vec![fee_asset.canonical_address()];
-        gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
-            asset: fee_asset.canonical_address(),
-            units_per_gas: 1,
-            twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
-            liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
-            volatility: iroha_config::parameters::actual::GasVolatility::Stable,
-        }];
+        let gas = iroha_config::parameters::actual::Gas {
+            tech_account_id: SAMPLE_GENESIS_ACCOUNT_ID.to_string(),
+            accepted_assets: vec![fee_asset.canonical_address()],
+            units_per_gas: vec![iroha_config::parameters::actual::GasRate {
+                asset: fee_asset.canonical_address(),
+                units_per_gas: 1,
+                twap_local_per_xor: iroha_primitives::numeric::Numeric::one(),
+                liquidity: iroha_config::parameters::actual::GasLiquidity::Tier2,
+                volatility: iroha_config::parameters::actual::GasVolatility::Stable,
+            }],
+        };
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = scope;
         let builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
@@ -331,7 +332,7 @@ impl DataspaceChain {
             .expect("start independent private root with its original stores and authority");
             assert_eq!(
                 node.instance,
-                root_instance(&self.chain.genesis, &self.chain.chain_id.to_string()).unwrap()
+                root_instance(&self.chain.genesis, self.chain.chain_id.as_ref()).unwrap()
             );
             assert!(node.handle().startup_recovery().is_ready());
             assert_eq!(
@@ -513,8 +514,8 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
         // Even a genuinely paid, quorum-certified private receipt is not Global SCCP
         // authority. Observe the original pool after node workers stop, so unrelated
         // publication cleanup cannot race the refusal/refund assertion.
-        use crate::smartcontracts::isi::sccp::read::{
-            SccpCertificateReadError, certificate_from_native,
+        use crate::smartcontracts::isi::sccp::read::native::{
+            SccpNativeReadControl, SccpNativeReadError, finality,
         };
         use crate::sumeragi::certified_chain::{CertifiedChain, QcVerification};
         let view = stopped_private_state.view();
@@ -524,9 +525,18 @@ fn independent_dataspace_roots_pay_and_restart_without_sharing_state_or_storage(
         assert_eq!(original.root_scope(), first.scope);
         let budget = stopped_private_state.ivm_execution_budget();
         let occupied = budget.reserved_bytes();
+        let stop = std::sync::atomic::AtomicBool::new(false);
         assert!(matches!(
-            certificate_from_native(&original, &budget),
-            Err(SccpCertificateReadError::Source(_))
+            finality(
+                &view,
+                std::num::NonZeroU64::new(2),
+                &budget,
+                SccpNativeReadControl {
+                    deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                    stop: &stop,
+                },
+            ),
+            Err(SccpNativeReadError::UnsupportedScope)
         ));
         assert_eq!(budget.reserved_bytes(), occupied);
     }
@@ -645,9 +655,15 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         iroha_data_model::transaction::TransactionDomain::Network(*state.network_id_ref())
     );
     assert!(
-        payload::select(&state, &queue, 1024 * 1024, 0)
-            .expect("completed routing read")
-            .is_empty()
+        payload::select(
+            &state.view(),
+            &queue,
+            1024 * 1024,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .expect("completed routing read")
+        .is_empty()
     );
     assert_eq!(queue.queued_len(), 0);
     // Exercise the independent hostile-proposer boundary even though the queue

@@ -54,8 +54,10 @@ BSC) and the `sccp_transfer_to_taira` external-out body `BoC` with its minter
 `--ignored regenerate_native_transfer_event_v1` and runs the Ethereum and TON
 vectors through their light clients.
 
-`governance_v1.json` and `ton_bodies_v1.json` of the §11 table are added with
-the governance payload and TON message-body code that generate them.
+`governance_v1.json` and `ton_boc_v1.json` of the §11 table are added with
+the governance payload and TON message-body code that generate them (`TODO:
+WP-TON-RUST` for `ton_boc_v1.json`, written by
+`crates/iroha_sccp/src/v1/ton_cell.rs`).
 
 ## Reference vectors (revision 5)
 
@@ -191,11 +193,24 @@ know:
 
 `TODO:` the remaining ethereum/bls12-381-tests cases, and TON finalize and
 void rows through the bucket round trip (§5.3.4), are not produced by either
-reference. `TODO:` (TON contract work package) the TON destination word is a
-placeholder until the Acton harness pins its minter address, and no shared TON
-row pins a stored signer key that is the identity, no point or outside G1
-until that harness confirms how `BLS_FASTAGGREGATEVERIFY` treats it; the two
-models agree on those inputs in their own unit tests.
+reference; the Acton suite covers those round trips with certificates signed
+in its test VM.
+
+The Acton suite (`contracts/ton/sccp/tests/unit`) replays the TON rows from
+two generated Tolk files (`scripts/ton_sccp_builder.py vectors`, whose
+`--check` fails when a fixture here changed and they did not). It installs its
+minter at the placeholder account id `0:35…35`, so the rows that commit to
+that destination word apply unchanged. `sccp-bls.test.tolk` confirms that
+`BLS_FASTAGGREGATEVERIFY` answers `false`, and the minter `BadSignature`, for
+a stored signer key with the infinity flag or without the compression flag,
+with `x ≥ p` or the coordinates `(0, 0)`, outside G1 and for keys that sum to
+the identity (`error_choices.ton_signer_key_refused_by_the_opcode`). Both
+reference generators now derive `expected.ton = BadSignature` for all six
+shared signer-key rows. `committee_transitions_v1.json` records the actual
+harness coverage and atomic-model boundary under `model_scope`. `TODO:` the
+reference generators still need the TON destination-effect rows in
+`control_v1.json`; the Acton suite currently rebuilds those scenarios for its
+minter at `0:35…35`.
 
 ## Contract-generated vectors
 
@@ -203,10 +218,14 @@ models agree on those inputs in their own unit tests.
 (`contracts/ton/sccp/scripts/stateinit-golden.tolk`) and cross-checked by
 `scripts/generate_ton_sccp_stateinit_golden.py` (§5.3.1). It pins the
 canonical minter initial data, the minter, bucket (canonical, not activated)
-and wallet addresses and the code cell hashes and depths. The Rust
+and wallet addresses and the code cell hashes and depths, for the committees
+`n4` and `n31` of `finality_v1.json`. `scripts/sccp_ton_contract_build.sh`
+fails when it differs from the compiled contracts. The Rust
 `iroha_sccp::v1::ton_cell` unit tests recompute every vector from the recorded
 code references and authenticate the native committee root, canonical BLS key
-order and pinned generation in each vector.
+order and pinned generation in each vector. The Rust address assertions read
+this golden, and its minter rent constants match the current contract bound
+of 122 000 bits and 260 cells.
 
 ## Captured RPC responses
 

@@ -30,8 +30,8 @@ fn limits() -> LeafLimits {
         max_tables: 1,
         max_rows: 8,
         max_payload_bytes: 65536,
-        max_ordered_table_bytes: 131072,
-        max_streamed_value_bytes: 131072,
+        max_ordered_table_bytes: 131_072,
+        max_streamed_value_bytes: 131_072,
     }
 }
 fn path(value: &str) -> StatePath {
@@ -409,7 +409,7 @@ fn real_replacement_keeps_rewound_rows_deletion_and_absent_undo() {
 fn catalog_verifier_dispatch_preserves_bounded_structural_validation() {
     for corrupt in [false, true] {
         let state = State::new_for_testing(
-            *verifier_fixture::world(),
+            verifier_fixture::world(),
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );

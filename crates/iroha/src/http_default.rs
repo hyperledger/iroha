@@ -662,30 +662,55 @@ fn async_http_client_builder() -> reqwest::ClientBuilder {
         .timeout(std::time::Duration::from_secs(60))
 }
 fn build_direct_loopback_http_client() -> BlockingClient {
+    direct_loopback_http_client_builder()
+        .build()
+        .expect("Failed to build direct loopback HTTP client")
+}
+fn direct_loopback_http_client_builder() -> reqwest::blocking::ClientBuilder {
     let addresses = [
         std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
         std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
     ];
-    blocking_http_client_builder()
+    let builder = blocking_http_client_builder()
         .no_proxy()
-        .resolve_to_addrs("localhost", &addresses)
-        .build()
-        .expect("Failed to build direct loopback HTTP client")
+        .resolve_to_addrs("localhost", &addresses);
+    // This separate pool accepts only cleartext loopback requests and never follows
+    // redirects. Loading trust roots cannot protect these requests.
+    #[cfg(any(
+        feature = "tls-native",
+        feature = "tls-native-vendored",
+        feature = "tls-rustls-native-roots",
+        feature = "tls-rustls-webpki-roots"
+    ))]
+    let builder = builder.tls_built_in_root_certs(false);
+    builder
 }
 fn build_direct_loopback_async_http_client() -> crate::Result<reqwest::Client> {
     #[cfg(test)]
     lazy_tests::record_construction();
-    let addresses = [
-        std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
-        std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
-    ];
-    async_http_client_builder()
-        .no_proxy()
-        .resolve_to_addrs("localhost", &addresses)
+    direct_loopback_async_http_client_builder()
         .build()
         .map_err(|error| crate::Error::TransportConstruction {
             details: error.to_string(),
         })
+}
+fn direct_loopback_async_http_client_builder() -> reqwest::ClientBuilder {
+    let addresses = [
+        std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+        std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 0)),
+    ];
+    let builder = async_http_client_builder()
+        .no_proxy()
+        .resolve_to_addrs("localhost", &addresses);
+    // Keep this policy confined to the cleartext pool; HTTPS uses the ordinary pool.
+    #[cfg(any(
+        feature = "tls-native",
+        feature = "tls-native-vendored",
+        feature = "tls-rustls-native-roots",
+        feature = "tls-rustls-webpki-roots"
+    ))]
+    let builder = builder.tls_built_in_root_certs(false);
+    builder
 }
 struct ClientResponse {
     response: reqwest::blocking::Response,
@@ -958,6 +983,10 @@ mod tests {
             "http://example.com/v1/fees/quote",
             "http://[::2]/v1/fees/quote",
             "https://localhost:8080/v1/fees/quote",
+            "https://127.0.0.1:8080/v1/fees/quote",
+            "https://[::1]:8080/v1/fees/quote",
+            "http://localhost.example/v1/fees/quote",
+            "ftp://localhost/v1/fees/quote",
         ] {
             assert!(
                 owned_request_builder(
@@ -1085,10 +1114,18 @@ mod tests {
 
     #[test]
     fn owned_http_client_does_not_follow_signed_body_redirects() {
-        for (status_code, reason) in [
+        for (status_code, reason, direct, asynchronous) in [
             (307_u16, "Temporary Redirect"),
             (308_u16, "Permanent Redirect"),
-        ] {
+        ]
+        .into_iter()
+        .flat_map(|(status, reason)| {
+            [
+                (status, reason, false, false),
+                (status, reason, true, false),
+                (status, reason, true, true),
+            ]
+        }) {
             let redirect_listener = TcpListener::bind("127.0.0.1:0").expect("redirect listener");
             let redirect_addr = redirect_listener.local_addr().expect("redirect address");
             let target_listener = TcpListener::bind("127.0.0.1:0").expect("target listener");
@@ -1133,11 +1170,30 @@ mod tests {
                     }
                 }
             });
-            let response = build_http_client()
-                .post(format!("http://{redirect_addr}/query"))
+            let builder = owned_request_builder(
+                Method::POST,
+                format!("http://{redirect_addr}/query").parse().unwrap(),
+            );
+            let builder = if direct {
+                builder.direct_loopback()
+            } else {
+                builder
+            };
+            let request = builder
                 .body(vec![0x01, 0x02, 0x03])
-                .send()
-                .expect("redirect response");
+                .timeout(Duration::from_secs(2))
+                .build()
+                .expect("redirect request");
+            let response = if asynchronous {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("redirect runtime")
+                    .block_on(request.send())
+            } else {
+                request.send_blocking()
+            }
+            .expect("redirect response");
             redirect_server.join().expect("redirect server");
             let followed = target_server.join().expect("target server");
             assert_eq!(response.status().as_u16(), status_code);
@@ -1573,3 +1629,7 @@ mod tests {
 #[cfg(test)]
 #[path = "http_default/lazy_tests.rs"]
 mod lazy_tests;
+
+#[cfg(all(test, feature = "tls-rustls-native-roots"))]
+#[path = "http_default/loopback_tls_tests.rs"]
+mod loopback_tls_tests;

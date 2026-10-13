@@ -78,11 +78,11 @@ mod tests {
     use super::*;
     use kotodama_lang::linker::SourceContractArtifact;
 
-    const PREVIOUS: &str = r#"seiyaku Migration {
+    const PREVIOUS: &str = r"seiyaku Migration {
         state bool existing;
         hajimari() { existing = true; }
         view fn old() authorize(anyone) -> bool { existing }
-    }"#;
+    }";
     const CURRENT: &str = r#"seiyaku Migration {
         error enum Reason { Retry = 1 }
         state bool existing;

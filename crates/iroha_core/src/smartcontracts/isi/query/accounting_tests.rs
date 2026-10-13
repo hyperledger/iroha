@@ -55,9 +55,9 @@ fn sorted_paths_charge_each_source_once_and_retain_exact_key_byte_costs() {
                 Some(QueryExecutionBudget::from_weighted_limit(units, 7, 3)),
             )
         };
-        let (output, stats) = run(exact_units).expect("exact source and key work fits");
-        assert_eq!(stats.processed_items(), 4);
-        assert_eq!(stats.processed_bytes(), bytes);
+        let (output, execution_stats) = run(exact_units).expect("exact source and key work fits");
+        assert_eq!(execution_stats.processed_items(), 4);
+        assert_eq!(execution_stats.processed_bytes(), bytes);
         let expected = [
             values[3].id.clone(),
             values[0].id.clone(),
@@ -103,9 +103,9 @@ fn bounded_offset_charges_skipped_rows_and_the_probe_once() {
         )
     };
     let exact_units = 4 * 7 + bytes * 3;
-    let (output, stats) = run(exact_units).expect("offset, page and probe fit exactly");
-    assert_eq!(stats.processed_items(), 4);
-    assert_eq!(stats.processed_bytes(), bytes);
+    let (output, execution_stats) = run(exact_units).expect("offset, page and probe fit exactly");
+    assert_eq!(execution_stats.processed_items(), 4);
+    assert_eq!(execution_stats.processed_bytes(), bytes);
     assert_eq!(output.remaining_items, None);
     assert!(output.has_more);
     assert!(matches!(
@@ -126,7 +126,7 @@ fn ephemeral_postprocessing_preserves_preflight_work_and_budget() {
                     "rank".parse().unwrap(),
                 )
             } else {
-                Default::default()
+                iroha_data_model::query::parameters::Sorting::default()
             },
         };
         let limits = QueryLimits::new(2).with_count_mode(QueryCountMode::Bounded);
@@ -156,13 +156,13 @@ fn ephemeral_postprocessing_preserves_preflight_work_and_budget() {
                 initial,
             )
         };
-        let (_, stats) = run(exact_units).expect("preflight and source work fit exactly");
+        let (_, execution_stats) = run(exact_units).expect("preflight and source work fit exactly");
         assert_eq!(
-            stats.processed_items,
+            execution_stats.processed_items,
             initial.processed_items + source_stats.processed_items
         );
         assert_eq!(
-            stats.processed_bytes,
+            execution_stats.processed_bytes,
             initial.processed_bytes + source_stats.processed_bytes
         );
         assert!(matches!(

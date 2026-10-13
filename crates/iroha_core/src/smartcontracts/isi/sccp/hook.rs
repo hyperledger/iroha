@@ -53,20 +53,23 @@ pub fn begin_block(state_block: &mut StateBlock<'_>) -> Result<(), StateStorageA
         state_block
             .native_execution_tip()
             .filter(|parent| parent.height().checked_add(1) == Some(header.height().get()))
-            .map_or(old.min(time), |parent| {
-                if cfg!(all(test, sumeragi_core_mutation = "HC229")) {
-                    old.saturating_add(time.saturating_sub(parent.creation_time_ms()))
+            .map_or_else(
+                || old.min(time),
+                |parent| {
+                    if cfg!(all(test, sumeragi_core_mutation = "HC229")) {
+                        old.saturating_add(time.saturating_sub(parent.creation_time_ms()))
+                            .min(time)
+                    } else {
+                        next_liability_clock_v1(
+                            old,
+                            parent.creation_time_ms(),
+                            time,
+                            parameters.committee_heartbeat_ms,
+                        )
                         .min(time)
-                } else {
-                    next_liability_clock_v1(
-                        old,
-                        parent.creation_time_ms(),
-                        time,
-                        parameters.committee_heartbeat_ms,
-                    )
-                    .min(time)
-                }
-            })
+                    }
+                },
+            )
     };
     let mut stx = state_block.try_transaction()?;
     store::liability_clock::set(&mut stx, next);
@@ -165,6 +168,11 @@ fn local_or_degraded<T>(
     match result {
         Ok(value) => Ok(Some(value)),
         Err(GenerationError::Degraded(reason)) => {
+            if cfg!(all(test, sumeragi_core_mutation = "HC310")) {
+                return Err(BlockValidationError::ExecutionContextInvalid(
+                    "missing SCCP generation input".to_owned(),
+                ));
+            }
             *failure = Some(reason);
             Ok(None)
         }
@@ -195,13 +203,16 @@ pub fn finalize_block(
     state_block: &mut StateBlock<'_>,
     header: &BlockHeader,
     height_inputs: Option<&SccpHeightInputsV1<'_>>,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> Result<SccpFinalityHeaderV1, BlockValidationError> {
     let height = header.height().get();
     let time = generations::timestamp_ms(header);
     let inactive =
         SccpFinalityHeaderV1::inactive(*state_block.network_id().as_bytes(), height, time)
             .expect("BlockHeader height is nonzero");
-    if !params::exists(&state_block.world) {
+    if root_scope != iroha_data_model::block::consensus::SumeragiRootScope::Global
+        || !params::exists(&state_block.world)
+    {
         return Ok(inactive);
     }
     #[cfg(test)]
@@ -313,8 +324,7 @@ pub fn finalize_block(
         degrade(&mut stx, height, reason);
     }
     light_clients::prune(&mut stx, MAX_PRUNE_DELETIONS_PER_BLOCK);
-    // TODO: WP-S6: generation/anchor-root retirement requires the real Pending SCCP forgery
-    // State and instruction owner. Never replace that missing authority with an empty set.
+    super::pruning::prune(&mut stx).map_err(BlockValidationError::StateStorageAdmission)?;
     generations::clear_destinations(&mut stx)
         .map_err(BlockValidationError::StateStorageAdmission)?;
     stx.apply();
@@ -479,7 +489,13 @@ mod tests {
         let candidate = header(2);
         let mut block = state.block(candidate);
         let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no-op finalizer");
+        finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("no-op finalizer");
         assert!(
             observed::take().is_empty(),
             "the finalizer returns before reading inputs without SCCP"
@@ -536,7 +552,13 @@ mod tests {
                     .unwrap(),
             ),
         };
-        finalize_block(&mut block, &candidate, Some(&inputs)).expect("hook");
+        finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("hook");
         assert_eq!(
             observed::take(),
             vec![(2, Some(observed::HeightInputsSnapshot::from(&inputs)))]
@@ -595,7 +617,13 @@ mod tests {
         }
         // Block 2 runs at 8 000 ms, past the retention of checkpoints recorded at 0. The
         // lowest checkpoint of a stride bucket is permanent; the other one is pruned.
-        finalize_block(&mut block, &candidate, None).expect("hook");
+        finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("hook");
         let _ = observed::take();
         assert!(store::light_client_checkpoints::contains(
             &block.world,
@@ -649,7 +677,17 @@ mod tests {
         }
         let before = block.world.sccp_execution_write_set_bytes();
         let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no leaves");
+        let outcome = finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        );
+        assert!(
+            outcome.is_ok(),
+            "missing SCCP inputs must degrade the extension without invalidating ordinary execution"
+        );
+        assert!(!outcome.unwrap().is_active());
         assert_ne!(block.world.sccp_execution_write_set_bytes(), before);
         assert_eq!(*store::degraded_run::get(&block.world), 1);
         assert_eq!(store::history::get(&block.world).size, 0);
@@ -679,6 +717,72 @@ mod tests {
         nexus.staking.unbonding_delay =
             std::time::Duration::from_millis(super::super::test_support::SCCP_UNBONDING_DELAY_MS);
         nexus.staking.max_slash_bps = 10_000;
+        if scope == iroha_data_model::block::consensus::SumeragiRootScope::Global {
+            use iroha_data_model::{
+                Registrable,
+                account::{Account, AccountId},
+                asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+                domain::Domain,
+                isi::RegisterPublicLaneValidator,
+                nexus::PublicLaneMonetaryPlanV1,
+            };
+            use iroha_primitives::numeric::{NumericSpec, Quantity};
+
+            // G1 captures genuine original staking records. Fund the normal genesis
+            // registration plan before the sole SCCP initializer executes.
+            let owner = AccountId::new(config.genesis_key.public_key().clone());
+            let definition: AssetDefinitionId = nexus.staking.stake_asset_id.parse().unwrap();
+            let escrow = AccountId::parse_encoded(&nexus.staking.stake_escrow_account_id).unwrap();
+            let amount = Quantity::from(1_000_u32);
+            let validators = crate::sumeragi::test_chain::fixture_validators();
+            let accounts = validators
+                .iter()
+                .map(|(peer, _)| AccountId::new(peer.public_key().clone()))
+                .collect::<Vec<_>>();
+            config.world = World::with_assets(
+                [Domain::new(
+                    iroha_model_base::domain::DomainId::try_new("nexus", "universal").unwrap(),
+                )
+                .build(&owner)],
+                accounts
+                    .iter()
+                    .chain([&escrow])
+                    .map(|account| Account::new(account.clone()).build(&owner)),
+                [AssetDefinition::new(
+                    definition.clone(),
+                    "Network XOR",
+                    NumericSpec::fractional(9),
+                    AssetBalancePolicy::Global,
+                    None,
+                )
+                .build(&owner)],
+                accounts.iter().map(|account| {
+                    Asset::new(
+                        AssetId::new(definition.clone(), account.clone()),
+                        amount.clone(),
+                    )
+                }),
+                [],
+            );
+            for ((peer, _), validator) in validators.iter().zip(accounts) {
+                config.genesis_instructions.push(
+                    RegisterPublicLaneValidator {
+                        lane_id: iroha_model_base::topology::LaneId::SINGLE,
+                        validator: validator.clone(),
+                        peer_id: peer.clone(),
+                        stake_account: validator.clone(),
+                        initial_stake: amount.clone(),
+                        metadata: iroha_model_base::metadata::Metadata::default(),
+                        monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
+                            AssetId::new(definition.clone(), validator),
+                            AssetId::new(definition.clone(), escrow.clone()),
+                            amount.clone(),
+                        ),
+                    }
+                    .into(),
+                );
+            }
+        }
         if let iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
             dataspace_id,
             ..
@@ -804,7 +908,10 @@ mod tests {
         assert_eq!(committed.block().header().creation_time_ms, time);
         let header = committed.certified_result().header();
         assert!(header.is_active());
-        assert!(header.is_rotation());
+        assert!(
+            header.is_rotation(),
+            "a due heartbeat must rotate the unchanged native committee"
+        );
         assert_eq!(
             header.generation(),
             1,
@@ -851,8 +958,18 @@ mod tests {
         let original = reader.certified(height).unwrap();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
-        let retained = super::super::read::certificate_from_native(&original, &budget).unwrap();
-        let certificate = retained.certificate();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let retained = super::super::read::native::finality(
+            &view,
+            std::num::NonZeroU64::new(height),
+            &budget,
+            super::super::read::native::SccpNativeReadControl {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                stop: &stop,
+            },
+        )
+        .unwrap();
+        let certificate = retained.data();
         assert_eq!(
             &certificate.header,
             original.certified_result().header().as_bytes()
@@ -877,7 +994,9 @@ mod tests {
         );
         assert_eq!(
             budget.reserved_bytes(),
-            occupied + certificate.committee.len() * 48
+            occupied
+                + std::mem::size_of::<iroha_sccp::api::SccpCertificateV1>()
+                + iroha_data_model::sumeragi::epoch::MAX_VALIDATORS * 48
         );
         drop(retained);
         assert_eq!(budget.reserved_bytes(), occupied);
@@ -954,7 +1073,13 @@ mod tests {
         let candidate =
             BlockHeader::new(std::num::NonZeroU64::new(2).unwrap(), None, None, 2_000, 0);
         let mut block = chain.state().block(candidate);
-        let inactive = finalize_block(&mut block, &candidate, None).unwrap();
+        let inactive = finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(!inactive.is_active());
         assert_eq!(*store::degraded_run::get(&block.world), 1);
         assert_eq!(*store::committee_current::get(&block.world), 1);
@@ -983,7 +1108,13 @@ mod tests {
             .unwrap(),
             next_roster: None,
         };
-        let active = finalize_block(&mut recovered, &candidate, Some(&inputs)).unwrap();
+        let active = finalize_block(
+            &mut recovered,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(active.is_active());
         assert!(!active.is_rotation());
         assert_eq!(active.generation(), 1);
@@ -1009,6 +1140,7 @@ mod tests {
         let view = chain.state().view();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
+        let original_generation = chain.state().state_view_generation();
         let original_peer = std::ptr::from_ref(
             &view
                 .world()
@@ -1045,8 +1177,13 @@ mod tests {
         let external = budget
             .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
             .unwrap();
-        let error = finalize_block(&mut block, &candidate, Some(&inputs))
-            .expect_err("original transaction admission refuses");
+        let error = finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect_err("original transaction admission refuses");
         let BlockValidationError::ExecutionDeferred(deferred) = &error else {
             panic!("expected unfinished original execution: {error:?}")
         };
@@ -1063,9 +1200,29 @@ mod tests {
             std::ptr::from_ref(inputs.roster.iter().next().unwrap()),
             original_peer
         );
+        let released_bytes = external.remaining_bytes();
+        let before_release = budget.reserved_bytes();
         drop(external);
+        assert_eq!(budget.reserved_bytes(), before_release - released_bytes);
+        assert_eq!(
+            waiter.poll_wait(release, &mut cx),
+            Poll::Pending,
+            "same-thread refunds wait until every original State writer retires"
+        );
+        // Native validation drops an unsealed refused overlay before returning its
+        // original proposal and release. Retry that same candidate only after the
+        // writer boundary, retaining this exact captured schedule and its borrower.
+        drop(block);
         assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
-        let active = finalize_block(&mut block, &candidate, Some(&inputs)).unwrap();
+        assert_eq!(chain.state().state_view_generation(), original_generation);
+        let mut block = chain.state().block(candidate);
+        let active = finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(active.is_active());
         assert!(!active.is_rotation());
         assert_eq!(active.generation(), 1);
@@ -1131,7 +1288,7 @@ mod tests {
         let view = chain.state().view();
         let retained = store::fast_pauses::get(view.world(), &network).unwrap();
         assert!(
-            std::ptr::eq(&**retained, &*original),
+            std::ptr::eq(&raw const **retained, &raw const *original),
             "authenticated Dataspace scope cannot authorize Global lapse"
         );
     }

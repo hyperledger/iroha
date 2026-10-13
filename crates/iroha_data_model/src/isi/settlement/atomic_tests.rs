@@ -44,7 +44,10 @@ fn instruction(count: usize) -> SettleAtomic {
         network_id: NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
             Hash::new(b"atomic-network"),
         )),
-        settlement_id: "atomic_fixture".parse().expect("business id"),
+        settlement_id: SettlementId::new(
+            from,
+            "atomic_fixture".parse().expect("business reference"),
+        ),
         movements: AtomicSettlementMovements::try_from(values).expect("canonical movements"),
         expires_at_height: NonZeroU64::new(500).expect("nonzero expiry"),
         metadata: Metadata::default(),
@@ -52,8 +55,27 @@ fn instruction(count: usize) -> SettleAtomic {
 }
 
 #[test]
+#[ignore = "explicit current typed capture of the owner-qualified atomic settlement"]
+fn print_scoped_settlement_atomic_fixture_rows() {
+    let value = instruction(3);
+    let record = crate::isi::generated_record_identity_tests::capture(value.clone());
+    let boxed = crate::isi::generated_box_identity_tests::case(
+        "Atomic",
+        SettlementInstructionBox::Atomic(value),
+    );
+    println!(
+        "SCOPED_SETTLEMENT_RECORD={}",
+        json::to_json(&record).unwrap()
+    );
+    println!(
+        "SCOPED_SETTLEMENT_BOX_CASE={}",
+        json::to_json(&boxed).unwrap()
+    );
+}
+
+#[test]
 fn atomic_settlement_canonical_roundtrips_minimum_and_maximum() {
-    for count in [2, 3, 255] {
+    for count in [1, 2, 3, 255] {
         let value = instruction(count);
         let frame = norito::encode_canonical(&value).expect("canonical frame");
         let decoded: SettleAtomic = norito::decode_canonical(&frame).expect("canonical decode");
@@ -70,11 +92,50 @@ fn atomic_settlement_canonical_roundtrips_minimum_and_maximum() {
 }
 
 #[test]
+fn atomic_settlement_rejects_namespace_owner_outside_its_debits() {
+    for count in [1, 3] {
+        let mut value = instruction(count);
+        value.settlement_id.owner = account(3);
+        assert!(
+            value
+                .validate()
+                .unwrap_err()
+                .contains("settlement id owner")
+        );
+        assert!(value.intent_hash().is_err());
+        let frame = norito::encode_canonical(&value).unwrap();
+        assert!(norito::decode_canonical::<SettleAtomic>(&frame).is_err());
+        let json = json::to_json(&value).unwrap();
+        // Derived JSON captures structure; consensus/SDK must apply the shared static check.
+        assert!(
+            json::from_str::<SettleAtomic>(&json)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn atomic_settlement_intent_binds_the_explicit_participating_namespace_owner() {
+    let mut value = instruction(2);
+    let mut movements = value.movements.as_slice().to_vec();
+    movements[1].source.account = account(4);
+    movements.sort_by(|left, right| {
+        (&left.source, &left.recipient).cmp(&(&right.source, &right.recipient))
+    });
+    value.movements = AtomicSettlementMovements::try_from(movements).unwrap();
+    let original = value.intent_hash().unwrap();
+    value.settlement_id.owner = account(4);
+    assert_ne!(value.intent_hash().unwrap(), original);
+}
+
+#[test]
 fn atomic_settlement_rejects_noncanonical_keys_and_invalid_movements() {
     #[derive(Encode)]
     struct Forged(Vec<AtomicSettlementMovement>);
     let valid = instruction(3).movements.as_slice().to_vec();
-    let mut cases = vec![vec![], valid[..1].to_vec(), vec![valid[0].clone(); 256]];
+    let mut cases = vec![vec![], vec![valid[0].clone(); 256]];
     let mut reversed = valid.clone();
     reversed.swap(0, 1);
     cases.push(reversed);
@@ -87,9 +148,11 @@ fn atomic_settlement_rejects_noncanonical_keys_and_invalid_movements() {
     cases.push(quantity_duplicate);
     let mut zero = valid.clone();
     zero[1].quantity = Quantity::from(0_u32);
+    cases.push(vec![zero[1].clone()]);
     cases.push(zero);
     let mut self_payment = valid.clone();
     self_payment[1].recipient = self_payment[1].source.account().clone();
+    cases.push(vec![self_payment[1].clone()]);
     cases.push(self_payment);
     for values in cases {
         assert!(AtomicSettlementMovements::try_from(values.clone()).is_err());
@@ -107,19 +170,24 @@ fn atomic_settlement_rejects_noncanonical_keys_and_invalid_movements() {
 }
 
 #[test]
-fn atomic_settlement_decoder_rejects_oversized_count_before_elements() {
-    // An oversized declaration with no element body must fail on the count,
+fn atomic_settlement_decoders_reject_empty_or_oversized_count_before_elements() {
+    // An empty or oversized declaration with no element body must fail on the count,
     // before Vec's element planner or allocation is reached.
-    for count in [256_u64, 65_536] {
+    for count in [0_u64, 256, 65_536] {
         let field = count.to_le_bytes();
         let mut payload = vec![8_u8]; // compact V1 byte length of the sole Vec field
         payload.extend_from_slice(&field);
         let flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
         let error =
             AtomicSettlementMovements::decode_from_slice(&payload).expect_err("reject count");
+        let receipt_error = ResolvedSettlementMovements::decode_from_slice(&payload)
+            .expect_err("reject receipt count");
         drop(flags);
         assert!(
-            matches!(error, ncore::Error::Message(ref text) if text == "atomic movement count outside 2..=255")
+            matches!(error, ncore::Error::Message(ref text) if text == "atomic movement count outside 1..=255")
+        );
+        assert!(
+            matches!(receipt_error, ncore::Error::Message(ref text) if text == "atomic movement count outside 1..=255")
         );
     }
 }
@@ -234,7 +302,7 @@ fn atomic_settlement_intent_binds_every_authorized_field() {
     );
     variants.push(changed);
     let mut changed = value.clone();
-    changed.settlement_id = "another_business_id".parse().expect("id");
+    changed.settlement_id.reference = "another_business_id".parse().expect("reference");
     variants.push(changed);
     let mut changed = value.clone();
     changed.expires_at_height = NonZeroU64::new(501).expect("expiry");
@@ -324,35 +392,39 @@ fn atomic_settlement_resolves_exact_scopes_and_rejects_inconsistent_receipts() {
 
 #[test]
 fn atomic_settlement_receipt_requires_one_typed_complete_outcome() {
-    let value = instruction(3);
-    let receipt = SettlementReceipt {
-        authority: account(9),
-        metadata: value.metadata.clone(),
-        block_height: 7,
-        block_hash: HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(b"committing-block")),
-        executed_at_ms: 11,
-        details: SettlementDetails::Atomic(crate::isi::AtomicSettlementDetails {
-            movements: value.movements.resolve().expect("resolved"),
-            intent_hash: value.intent_hash().expect("intent"),
-        }),
-    };
-    let bytes = norito::encode_canonical(&receipt).expect("receipt frame");
-    assert_eq!(
-        norito::decode_canonical::<SettlementReceipt>(&bytes).expect("receipt decode"),
-        receipt
-    );
-    let text = json::to_json(&receipt).expect("receipt JSON");
-    assert_eq!(receipt.details.movements().count(), 3);
-    assert_eq!(
-        json::from_str::<SettlementReceipt>(&text).expect("receipt JSON decode"),
-        receipt
-    );
-    for malformed in [
-        text.replacen('{', "{\"plan\":null,", 1),
-        text.replacen("\"Atomic\"", "\"Unknown\"", 1),
-    ] {
-        assert_ne!(malformed, text);
-        assert!(json::from_str::<SettlementReceipt>(&malformed).is_err());
+    for count in [1, 3, 255] {
+        let value = instruction(count);
+        let receipt = SettlementReceipt {
+            authority: account(9),
+            metadata: value.metadata.clone(),
+            block_height: 7,
+            block_hash: HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
+                b"committing-block",
+            )),
+            executed_at_ms: 11,
+            details: SettlementDetails::Atomic(crate::isi::AtomicSettlementDetails {
+                movements: value.movements.resolve().expect("resolved"),
+                intent_hash: value.intent_hash().expect("intent"),
+            }),
+        };
+        let bytes = norito::encode_canonical(&receipt).expect("receipt frame");
+        assert_eq!(
+            norito::decode_canonical::<SettlementReceipt>(&bytes).expect("receipt decode"),
+            receipt
+        );
+        let text = json::to_json(&receipt).expect("receipt JSON");
+        assert_eq!(receipt.details.movements().count(), count);
+        assert_eq!(
+            json::from_str::<SettlementReceipt>(&text).expect("receipt JSON decode"),
+            receipt
+        );
+        for malformed in [
+            text.replacen('{', "{\"plan\":null,", 1),
+            text.replacen("\"Atomic\"", "\"Unknown\"", 1),
+        ] {
+            assert_ne!(malformed, text);
+            assert!(json::from_str::<SettlementReceipt>(&malformed).is_err());
+        }
     }
 }
 

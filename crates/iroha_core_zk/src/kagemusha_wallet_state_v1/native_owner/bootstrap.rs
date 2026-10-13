@@ -108,15 +108,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 .try_into()
                 .map_err(|_| Error::WitnessLost("Bootstrap frozen reference"))?;
             let frozen = self.frozen(capsule)?;
-            let expected = proof(preparation.freeze_bootstrap(
+            let expected = proof(preparation.body_bootstrap(
                 &owner,
                 &prepared,
-                frozen.capsule.step_proof.clone(),
+                frozen.capsule.body().step_proof.clone(),
                 self.proofs.budget,
             ))?;
-            if expected != frozen {
-                return Err(Error::WitnessLost("Bootstrap frozen source"));
-            }
+            proof(expected.require_matches(&frozen))?;
             frozen
         } else {
             // Design §5.3: check this phone before proving; commit checks it again.
@@ -151,7 +149,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             };
             let frozen =
                 proof(preparation.freeze_bootstrap(&owner, &prepared, sigma, self.proofs.budget))?;
-            let capsule = valid(frozen.capsule.capsule_digest())?;
+            let capsule = frozen.capsule.custody_digest();
             self.archive
                 .put(ArchiveKey::Capsule(capsule), &archive::encode(&frozen)?)?;
             self.archive.put(ArchiveKey::BootstrapFrozen, &capsule)?;

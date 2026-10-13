@@ -1,0 +1,26 @@
+{
+  "time_utc": "2026-10-13T06:04:55.150046+00:00",
+  "command": [
+    "python3.11",
+    "scripts/formal/check_sora_parliament_source_contract.py"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: crates/iroha_core/src/state.rs: start phases must use the original block and height in order\n",
+  "source_before": {
+    "crates/iroha_core/src/state.rs": "21ddf29711cf058ba1295caa233d56885053c1b139488daf763a59c40a8db8e2",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786"
+  },
+  "source_after": {
+    "crates/iroha_core/src/state.rs": "21ddf29711cf058ba1295caa233d56885053c1b139488daf763a59c40a8db8e2",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3",
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "efaba6b927534f7096898e8a20206b86a3926fc561984cdd53bb8d7279ab0786"
+  },
+  "source_identity_unchanged": true,
+  "gates": {
+    "binding_ballot_unavailable": true,
+    "qualified_attempt_latency_unavailable": true
+  },
+  "scope": "Read-only current Core guard, separate from standalone request/resource/lifecycle evidence. No Core/guard edits; no full-workspace qualification."
+}

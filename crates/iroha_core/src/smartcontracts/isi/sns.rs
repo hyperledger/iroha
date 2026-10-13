@@ -1066,7 +1066,7 @@ mod tests {
         let collector_account = Account::new(collector.clone()).build(&collector);
         let authority_account = Account::new(authority.clone()).build(&collector);
         let target_a_account = Account::new(target_a.clone()).build(&collector);
-        let target_b_account = Account::new(target_b.clone()).build(&collector);
+        let second_target_registration = Account::new(target_b.clone()).build(&collector);
         let payment_definition = AssetDefinition::numeric(
             payment_asset.clone(),
             "xor".to_owned(),
@@ -1080,7 +1080,7 @@ mod tests {
                 collector_account,
                 authority_account,
                 target_a_account,
-                target_b_account,
+                second_target_registration,
             ],
             [payment_definition],
         );
@@ -1419,13 +1419,13 @@ mod tests {
             )
             .expect("completed original genesis read")
             .unwrap();
-        let signed =
+        let signed_payload =
             iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&genesis)
                 .unwrap();
         let view = fixture.state.view();
         assert_eq!(
             crate::sumeragi::lanes::routing::committed_root_scope(view.world()),
-            Some(signed.sumeragi_context.root_scope)
+            Some(signed_payload.sumeragi_context.root_scope)
         );
         assert_eq!(view.latest_block_hash(), Some(genesis.hash()));
         assert_eq!(
@@ -4087,8 +4087,8 @@ mod tests {
             Register::account(bare_wallet.clone()).into(),
             ensure.clone().into(),
         ];
-        let signed = chain.sign(&registrar_key, instructions, 1_999);
-        let committed = chain.commit_at(2_000, vec![signed]);
+        let signed_payload = chain.sign(&registrar_key, instructions, 1_999);
+        let committed = chain.commit_at(2_000, vec![signed_payload]);
         let tip = chain.committed(2);
         assert_eq!(
             committed,
@@ -4300,7 +4300,7 @@ mod tests {
             );
         };
         assert_eq!(
-            message.to_string(),
+            message.clone(),
             format!(
                 "alias.quote.cap_exceeded: exact charge {} exceeds authorized cap 0",
                 second_quote.charge_amount

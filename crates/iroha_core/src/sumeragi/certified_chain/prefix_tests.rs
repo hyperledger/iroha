@@ -845,11 +845,14 @@ fn assert_walk_parent_link_retains_original_body(
     assert!(link.block.belongs_to(&budget));
     assert_eq!(link.is_extended_by(&child), child.extends(&parent));
     assert!(link.is_extended_by(&child));
-    let original_pointer: *const SignedBlock = &*original;
+    let original_pointer: *const SignedBlock = &raw const *original;
     drop(parent);
     drop(original);
     assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
-    assert!(std::ptr::eq::<SignedBlock>(&*link.block, original_pointer));
+    assert!(std::ptr::eq::<SignedBlock>(
+        &raw const *link.block,
+        original_pointer
+    ));
     assert!(link.is_extended_by(&child));
 
     link.height = u64::MAX;

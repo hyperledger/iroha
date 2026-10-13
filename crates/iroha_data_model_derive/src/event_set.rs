@@ -94,9 +94,9 @@ impl FromDeriveInput for EventSetEnum {
             ));
             return Err(accumulator.finish().unwrap_err());
         };
-        if variants.len() > 32 {
+        if variants.len() > 64 {
             accumulator.push(darling::Error::custom(
-                "EventSet can be derived only on enums with up to 32 variants",
+                "EventSet can be derived only on enums with up to 64 variants",
             ));
         }
         accumulator.finish_with(Self {
@@ -118,6 +118,11 @@ impl ToTokens for EventSetEnum {
             schema_name,
             variants,
         } = self;
+        let repr = if variants.len() <= 32 {
+            quote!(u32)
+        } else {
+            quote!(u64)
+        };
         let flag_raw_values = variants
             .iter()
             .zip(0u32..)
@@ -195,7 +200,7 @@ impl ToTokens for EventSetEnum {
             #[repr(transparent)]
             #[norito_schema(name = #schema_name)]
             #[doc = #doc]
-            #vis struct #set_ident(u32);
+            #vis struct #set_ident(#repr);
             // we want to imitate an enum here, so not using the SCREAMING_SNAKE_CASE here
             #[allow(non_upper_case_globals)]
             impl #set_ident {
@@ -360,11 +365,11 @@ impl ToTokens for EventSetEnum {
                 }
                 fn update_schema_map(metamap: &mut iroha_schema::MetaMap) {
                     if !metamap.contains_key::<Self>() {
-                        if !metamap.contains_key::<u32>() {
-                            <u32 as iroha_schema::IntoSchema>::update_schema_map(metamap);
+                        if !metamap.contains_key::<#repr>() {
+                            <#repr as iroha_schema::IntoSchema>::update_schema_map(metamap);
                         }
                         metamap.insert::<Self>(iroha_schema::Metadata::Bitmap(iroha_schema::BitmapMeta {
-                            repr: core::any::TypeId::of::<u32>(),
+                            repr: core::any::TypeId::of::<#repr>(),
                             masks: vec![
                                 #(
                                     iroha_schema::BitmapMask {
@@ -440,5 +445,49 @@ mod tests {
             .err()
             .expect("identity required");
         assert!(error.to_string().contains("EventSet requires #[event_set"));
+    }
+
+    #[test]
+    fn bitmap_width_covers_32_and_64_events_and_rejects_65() {
+        for count in [32, 33, 64, 65] {
+            let variants = (0..count).map(|n| quote::format_ident!("Event{n}"));
+            let input = syn::parse2(quote! {
+                #[event_set(schema_name = "fixture::WideSet")]
+                pub enum Wide { #(#variants),* }
+            })
+            .unwrap();
+            let parsed = EventSetEnum::from_derive_input(&input);
+            if count == 65 {
+                assert!(
+                    parsed
+                        .err()
+                        .unwrap()
+                        .to_string()
+                        .contains("up to 64 variants")
+                );
+                continue;
+            }
+            let file: syn::File = syn::parse2(parsed.unwrap().into_token_stream()).unwrap();
+            let child = file
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    syn::Item::Struct(item) if item.ident == "WideSet" => Some(item),
+                    _ => None,
+                })
+                .unwrap();
+            let width = if count <= 32 { "u32" } else { "u64" };
+            assert_eq!(
+                child
+                    .fields
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .ty
+                    .to_token_stream()
+                    .to_string(),
+                width
+            );
+        }
     }
 }

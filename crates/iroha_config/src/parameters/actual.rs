@@ -79,6 +79,8 @@ use std::{
 };
 #[path = "actual_soranet_handshake_debug.rs"]
 mod actual_soranet_handshake_debug;
+mod amx_relay;
+pub use amx_relay::{AmxRelay, AmxRelayRoute};
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
     KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
@@ -137,6 +139,8 @@ pub struct Root<G = Genesis> {
     pub soracloud_runtime: SoracloudRuntime,
     /// Non-secret local custody root for the injected private Musubi publisher.
     pub musubi_publication: MusubiPublication,
+    /// Supervised native AMX delivery with explicit signing and fee custody.
+    pub amx_relay: AmxRelay,
     /// Block storage (Kura) configuration.
     pub kura: Kura,
     /// Consensus (Sumeragi) configuration.
@@ -1011,6 +1015,7 @@ impl<G> Root<G> {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,
@@ -1053,6 +1058,7 @@ impl<G> Root<G> {
             torii,
             soracloud_runtime,
             musubi_publication,
+            amx_relay,
             kura,
             sumeragi,
             block_sync,

@@ -224,8 +224,7 @@ fn second_initializer_in_one_genesis_transaction_rolls_back_the_first() {
     let fixture = Fixture::new();
     let initialize = initializer(&fixture);
     let state = chain(vec![initialize.clone().into(), initialize.into()], None)
-        .err()
-        .expect("a second initializer fails genesis")
+        .expect_err("a second initializer fails genesis")
         .state;
     assert!(
         native::read_head(state.view().world(), None)

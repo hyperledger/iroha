@@ -76,7 +76,8 @@ and wire definitions below describe that candidate, not a claim of release or li
    application when a key enters a committee, so rogue-key attacks are excluded. Collision-resistant
    `H`. The simulator uses a fake scheme with identical interfaces and provenance tracking (§13).
 
-   **Consensus signing suite (application binding).** Production
+   **Consensus signing suite (application binding).** The current signer/verifier migration
+   is implemented; combined runtime and network qualification remain open. Production
    signatures of kinds `0x01`–`0x05` (§3.3) and of the RS16 availability statements (§12.8) are
    made and checked only through the consensus API `iroha_crypto::bls::consensus`. It signs
    `m = SHA-256(P)` for an allowlisted preimage `P`, as `sk · hash_to_G2(m, DST_SIG)` with
@@ -621,7 +622,7 @@ would otherwise accuse honest leaders. Penalties are the application's.
 evidence the core never produces. SCCP records a `CommitQC`-valid certificate of a committee
 generation whose block hash or certified result differs from the global chain's at that height
 (`specs/sccp.md` §4.9). The committed evidence record carries
-`RecordedEvidenceV1 { Native(Evidence), SccpForgery(SccpForgeryRecordV1) }`, with the scope
+`RecordedEvidenceV1 { Native(Evidence), SccpForgery(Box<SccpForgeryRecordV1>) }`, with the scope
 `EvidenceScope::SccpGeneration { generation }`. An SCCP record is self-contained: its offence
 height is the generation's start height and its offenders are the validator registrations
 resolved when the generation was created, so the penalty uses neither the peer-key lookup nor the
@@ -825,12 +826,14 @@ slow resource stopped every honest node at once. Here:
 **Status.** These are application-level executor rules of the node driver (`iroha_core`), not
 rules of the sans-IO core; the core's only part is the `certified` flag of `Action::Execute`
 (§4.2, §12.1), which `iroha_sumeragi` emits. The rules are the target of `specs/sccp.md`
-revision 5 and are not yet implemented in `iroha_core` (`TODO:` WP-C3), whose driver does not yet
-pass the flag to its executor (`TODO:` WP-C2). The simulator models them (§13.1).
+revision 5. Core forwards that flag and implements CT1 for full State roots and routing lanes. Native CT5
+checks original due work at execution, completion and Prepare signing. The simulator models
+the guards and original parent/creation-floor pacing (§13.1).
 `specs/sccp.md` §4.3 and `specs/parliament_private_ballot_design.md` §3.4 rely on them.
 
 Canonical block time is `max(parent + cadence, lane time_floor_ms, max tx.creation_time + 1)`
-and is checked against a wall clock only at genesis, so one Byzantine leader could move the
+and is compared with a local wall clock before uncertified full-State execution. Genesis keeps
+its original wall-clock validation. Without these guards a Byzantine leader could move the
 chain's clock arbitrarily far forward with a post-dated transaction, or anchor due work at a
 stale time with an old one. Deadlines of the SCCP and governance applications are anchored at
 certified block times, so both directions need a bound. No validity rule reads a clock:
@@ -842,6 +845,17 @@ certified block times, so both directions need a bound. No validity rule reads a
 | CT3 | **Builder pacing.** The payload builder MUST NOT include a transaction with `creation_time_ms > local_wall_ms`, and MUST NOT propose while the block's canonical time, including lane merge floors, would exceed `local_wall_ms`; it waits instead. |
 | CT4 | **Bound.** `max_clock_drift_ms` is a committed chain parameter (`SumeragiParameters`), not a node-local setting, so every honest voter's guard uses the same value. Genesis validation and `validate_parameter_change` MUST enforce `max_clock_drift_ms ≤ MAX_CLOCK_DRIFT_BOUND_MS = 60 000`. |
 | CT5 | **Stale due work** (global executor). The executor MUST answer `Failed(StaleDueWork)` for a block executed with `certified = false` that applies due governance or SCCP work, exactly the keepalive validity predicate of `specs/sccp.md` §4.7.4 K2, while `local_wall_ms − t(block) > gov.due_work_max_lag_ms`. It is in the same class as CT1: liveness only, never `Invalid`, never on apply or replay. `gov.due_work_max_lag_ms` is a committed governance parameter (default 60 000) and MUST be at least `2·max_clock_drift_ms + 4·block_cadence_ms`. Wherever CT5 can delay a block, a fresh keepalive is admissible, so an honest proposer can always satisfy it. |
+
+**Clock-drift parameter ownership.** `max_clock_drift_ms` belongs to the application State;
+it is absent from the lag-two `ChainParamsRecord`. The guard for height `h` reads the committed
+parent State. A successful `MaxClockDriftMs` update at `h` first governs the guard at `h + 1`,
+and cannot change the guard of its own block. The single model-owned CT4 bound is enforced by
+structured genesis authoring, validation of the executed genesis State, and `SetParameter`
+validation, including genesis instructions. Lane policy validation applies the same bound
+before copying its parameters into an incarnation; that incarnation retains its pinned allowance.
+Zero and the exact 60 000 ms bound are permitted;
+larger values reject deterministically without consulting a clock. CT4 does not itself implement
+the local guards or establish a real-time expiry guarantee; their implementation scope is below.
 
 **Certified re-proposals.** The core sets `certified = !certified_results(bh).is_empty()` whenever
 it emits `Execute` (§6.2 step 9), re-evaluated when a `RetryAt` entry re-emits it; this covers a
@@ -883,17 +897,40 @@ PrepareQC that this argument already covers, so the bound of that first PrepareQ
 - **Determinism.** `Valid(R)` / `Invalid` is unchanged and never depends on `certified` or a
   clock; only the timing of Prepare votes does.
 
-**Verification.** CT1, CT3, CT5 and the executor's use of `certified` are planned Core
-mutation-gate entries (SC5, SC6, SC12 and SC17, planning identifiers of §13.4). The machine's
+**Core ownership.** Full State roots (Global and independent dataspaces) forward the core's
+`certified` flag through the driver and serialized executor request. CT1 reads an injected
+Unix clock only after original header/authority binding and before execution effects. A refusal
+retains its source for retry and never enters the deterministic negative cache. Authenticated
+CommitQC preparation and cold replay bypass the guard. Routing `LaneBatch` derives its effective
+timestamp from its authenticated anchor time and signed input creation times (§3 of
+`specs/sumeragi_lanes.md`), using the allowance pinned in its incarnation. The lane executor
+retains its original decoded admission across clock waits and rejoins the original anchor identity.
+
+**Builder ownership.** Global and routing-lane selection leave future signed inputs in their
+original Queue admission. Future-only work returns a clock retry instead of an empty answer, so the driver's
+timer retries the final input without another admission. The original assembled header gates
+publication, including parent cadence and certified lane floors. Clock waiting retains the
+same source, input lease and funded output; completed output reuse rechecks the clock after
+the physical parent and Queue lease. A local clock regression withholds that same output until
+the boundary recovers, without changing its canonical bytes or any validity result.
+
+**Verification.** Full-State CT1 and certified-flag forwarding have Core controls HC257/HC258
+(SC5 and the CT1 portion of SC17). Global CT3 input and canonical publication pacing have
+HC259/HC260 controls, including original retained output and certified lane floors (SC6).
+Routing-lane CT1 and effective builder pacing have HC268/HC269 controls; future-only lane
+retry is HC264. Native CT5 due-work refusal and its certified exemption have HC281/HC282
+controls (SC12/SC17); HC291 checks completion resampling and HC294 checks the original
+Prepare-signing observation. Their current-candidate strict mutation qualification is tracked
+with the SCCP controls in §13.4. The machine's
 emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
 and CT5 in its toy application (§13.1): per-machine wall clocks with skew, block times stamped
 by the builders at their wall clock (so honest blocks satisfy CT3), honest executors that answer
-`Failed` for uncertified executions and skip both rules for certified ones. Its block time is
-the builder's stamp, not the canonical `max(parent + cadence, …)`, so a committed post-dated
-block does not raise the next block's time and CT3's wait is not exercised (`TODO:` model the
-canonical floor and the builder wait in the simulator; SC6 covers CT3 in the Core). Its tests
-are:
+`Failed` for uncertified executions and skip both rules for certified ones. Clock-enabled builders also retain the certified parent's cadence and original queued creation
+floors. They answer `EMPTY` while the floor is ahead, retain the original work, and deliver
+one request-bound `PayloadReady` after the wall clock catches up. Deterministic validation
+checks those floors during execution and replay; Core SC6 additionally covers native lane
+floors and funded publication. The simulator's tests are:
 
 - `clock_guard_liveness_with_f_plus_one_slow_clocks` (n = 4 and 7): `f` Byzantine members
   withhold every vote and propose far-future blocks, `f + 1` honest clocks run at real time and
@@ -908,10 +945,25 @@ are:
 - `f33_hidden_prepareqc_due_work_block_commits_after_lag`: in F33, every transaction applies due
   work, and a hidden PrepareQC delays the re-proposal past `gov.due_work_max_lag_ms`. The honest
   members execute it with `certified = true` and it commits. With MS51, CT5 refuses it forever.
-- F39 (§13.3) is the randomized scenario of MS51 and MS52.
+- `clock_guard_due_work_lower_bound_at_first_prepare`: a Byzantine voter backdates due-work
+  proposals beyond the permitted lag. Honest executors refuse them, honest leaders still
+  progress, and O-TIME checks freshness at the first genuine honest Prepare of each due-work
+  block. It kills MS65, which deletes simulated CT5; delayed certified re-proposals and commits
+  retain the original first-Prepare evidence without a new freshness requirement.
+- `clock_guard_committed_parent_wait_retains_work_until_clock_recovery`: an actual committed
+  parent and separately the original queued creation time survive a clock regression; no
+  payload is published until its floor is reached, duplicate wakeups do not consume a current
+  request, and the original work commits after natural catch-up or clock correction (MS68).
+- `clock_guard_accepts_exact_drift_allowance`: a slow honest voter accepts a block stamped by
+  an honest leader exactly `max_clock_drift_ms` ahead. It kills MS66, which removes the allowance.
+- F39 (§13.3) is the randomized scenario of MS51, MS52, MS65 and MS66.
 
-A simulator test cannot kill a Core mutation, so SC17 has its own Core test,
-`certified_execution_skips_clock_guards` (`TODO:` WP-C2, added once `iroha_core` builds).
+A simulator test cannot kill a Core mutation. The full-State CT1 portion of SC17 has the
+Core controls above; `certified_execution_skips_clock_guards` additionally exercises a genuine
+certificate and cold replay. Routing-lane controls retain the corresponding original admission
+and encoding. Native CT5 controls exercise original-parent due work, completion, certified
+retry and the final Prepare-signing boundary; simulator evidence does not substitute for their
+named Core mutation kills.
 
 ---
 
@@ -1787,8 +1839,10 @@ verifies every retained and nested QC and TC under the authenticated committee f
 certificate's height and the current suite, including the parent CommitQC (required above
 `g + 1`). A failed verification refuses the record in the same way. An ahead record remains
 untrusted and abstaining until its height's authenticated configuration is available; this
-also holds for R5 at a pending epoch boundary, where the record remains inert as R6 instead
-of authorizing a recommit before its complete certificate graph can be checked. Size is
+also holds for R5 at a pending epoch boundary when the record retains a QC or TC at its own
+height. If its only certificate is the parent CommitQC, R5 verifies that certificate under
+the authenticated parent-height committee and recommits the boundary; boundary application
+must authenticate the next epoch before any retained reservation is restored or signed. Size is
 bounded by the envelope and certificate limits. Nothing else is persisted by the core; the block
 bodies it relies on are written by the driver on `StoreBody`.
 Votes, pools, pacemaker level and routing stage are re-derived or re-fetched.
@@ -1869,8 +1923,11 @@ value drawn by the driver for every `Init`; the simulator draws it from its seed
    crash after entering `t+2`, before the apply of `t+1` was durable): first verify every
    retained/nested round certificate under authenticated `C_{t+2}` and then its
    `parent_commit_qc` under `C_{t+1}` as a CommitQC for `t + 1`; failure →
-   `Halt(SafetyRecordInconsistent)`. If `C_{t+2}` is still pending, retain the record inert as R6
-   until ordinary catch-up authenticates it. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
+   `Halt(SafetyRecordInconsistent)`. If `C_{t+2}` is still pending and the record contains a
+   round QC or TC, retain the record inert as R6 until ordinary catch-up authenticates it.
+   If the only certificate is its parent CommitQC, no round-certificate check needs `C_{t+2}`:
+   verify and recommit the parent, then authenticate `C_{t+2}` through boundary application
+   before restoring the reservations. On success commit it (§6.8 steps 2–3: `tip` becomes `t + 1`;
    the `pending_apply` entry carries the old tip's hash and result as parent, and its want looks in
    the local body store first; that the block extends the old tip is checked when the body
    arrives, §6.9 rule 6), and continue with `t := t + 1`. At most one key has a record at any
@@ -2559,8 +2616,24 @@ and dataspaces `D1..Dk`, each a separate core instance with its own committee.
    instance verifies (`G`, and every DS taking part in AMX) changes committees only at epoch starts:
    heights `s` with `(s − g_J − 1) mod E_J == 0`, `E_J = epoch_length` (a chain parameter of `J`).
    The applied certified boundary result `R_{s−1}` authenticates the complete next context (§10). A verifier tracks, per foreign instance, the latest epoch
-   `e` it has verified with `C_{J,e}`, and also `C_{J,e−1}`. It accepts a foreign CommitQC for height
-   `x` only if `epoch(x) ∈ {e − 1, e}` and `verify_commit_qc(I_J, C_{J,epoch(x)}, qc)` holds. To
+   `e` it has verified with `C_{J,e}`, and also `C_{J,e−1}`. Ordinary foreign proofs require
+   `epoch(x) ∈ {e − 1, e}` and `verify_commit_qc(I_J, C_{J,epoch(x)}, qc)`. A participant also
+   retains authenticated older contexts needed to settle its unresolved `Yes` obligations.
+   Each such obligation binds its certified `Begin` height `b` and deadline `d`, checked as
+   `0 < d − b ≤ MAX_AMX_DEADLINE_WINDOW`. Before eviction, an authenticated context is
+   retained iff its height interval intersects `[b, d + 1]` for an unresolved `Yes`. These
+   contexts verify only that obligation's `Decision`: a `Commit` must be in `[b, d]` and an
+   `Abort` in `[b, d + 1]`. They never admit old `Begin` proofs, unrelated decisions, or
+   handoffs. Authority is retained from the sequential authenticated history, never accepted
+   from a committee supplied with a delayed proof. The retained contexts and obligation
+   bindings are committed participant State and survive authenticated restart. Checking a
+   decoded archive's shapes and interval coverage alone does not authenticate historical
+   committees; restoration requires authenticated enclosing State or original certified replay.
+   Contexts are
+   reclaimed when no unresolved `Yes` needs them, without releasing escrow by timeout.
+   At most `MAX_AMX_PENDING × (MAX_AMX_DEADLINE_WINDOW + 2)` distinct older contexts are
+   needed: epochs have disjoint nonempty height intervals, and each bounded obligation
+   intersects at most one distinct epoch per height. To
    advance to `e + 1` it needs a *handoff proof*: the header of height `s − 1` (`s` = first height of
    epoch `e + 1`), its CommitQC verified under `C_{J,e}`, and a proof of the complete authenticated next epoch context in
    `R_{s−1}`. Handoffs are relayed in sequence, one per epoch even if the committee is unchanged.
@@ -2625,8 +2698,13 @@ Choices beyond the rules above are Appendix E, E58 (node) and E59 (simulator).
   frame. Before first delivery it joins the advertised count to the native proof reader's
   authenticated complete Prepared writes; ordered distinct rows still require their exact
   certified record proofs. The original proof and funded instruction survive local admission
-  or final namespace refusal for the same-source retry. Delivery supplies no signing or fee
-  authority and does not acknowledge the intent. The authorized parent signer/fee boundary,
+  or final namespace refusal for the same-source retry. Delivery returns a move-only
+  `NativeAmxRelayIntentV1`: its exact source network/scope, carrier height/hash, record key
+  and authenticated target network/scope/instance accompany the same original funded
+  instruction graph. The copied descriptor is only a durable identity and route selector;
+  it cannot decode or reconstruct proof authority. Fresh signing after restart requires
+  reauthentication of the source. Delivery supplies no signing or fee authority and does
+  not acknowledge the intent. The authorized parent signer/fee boundary,
   durable transaction journal and autonomous submission remain unimplemented; this is not
   submitted relay or complete H2 qualification.
 - *Tracker* (`AmxForeignInstanceV1`, item 7): the complete authenticated contexts `C_{J,e}` and
@@ -2634,7 +2712,10 @@ Choices beyond the rules above are Appendix E, E58 (node) and E59 (simulator).
   its height, exactly `q` members of that epoch's committee signed the `CommitQC` (the core's
   `Verifier::verify_qc`), and the result preimage hashes to the certified `R` and names that
   height and context. A handoff proof is the certified last block of `e`: the boundary decision in
-  its result preimage, validated against `C_{J,e}`, names `C_{J,e+1}`.
+  its result preimage, validated against `C_{J,e}`, names `C_{J,e+1}`. Participant State retains
+  evicted decision contexts only while unresolved `Yes` obligations need their bounded height
+  intervals. The same certificate verifier uses that retained authority for the matching
+  delayed decision; ordinary tracker proofs and sequential handoffs keep the two-epoch rule.
 - *`G`* (`iroha_core::sumeragi::amx`): the World cell `sumeragi_amx` holds the registered
   participant dataspaces with their trackers and the transactions whose deadline has not passed.
   `RegisterAmxDataspaceV1` (in genesis, or by an authority holding `CanSetParameters`) anchors a
@@ -3288,9 +3369,12 @@ consensus metadata counts alone are not evidence of those costs or of live settl
 - Optional application clock guard of the toy application (§4.5; F39 and the named clock-guard
   tests). Each machine has a wall clock: its local clock plus a wall offset that a script may
   step without moving the core's monotonic `now`. Builders stamp each non-empty payload with a
-  leading block-time record `wall + lead`, where honest builders use `lead = 0` (CT3) and
-  Byzantine builders may post-date or back-date; the stamp has no parent floor (§4.5
-  "Verification"). A transaction flag marks due work. Honest
+  leading block-time record. Honest builders wait until their wall reaches the original
+  committed-parent cadence and queued-transaction creation floors, retaining the original
+  queue and request across clock backsteps and stale wakeups (CT3); Byzantine builders may
+  post-date or back-date with `wall + lead`. Execution rejects stamps below the exact
+  parent or original creation floors without consulting a local clock, including on
+  certified replay (§4.5 "Verification"). A transaction flag marks due work. Honest
   executors answer `Failed(ClockAhead)` (CT1) and `Failed(StaleDueWork)` (CT5) only for
   `Execute { certified: false }`, never `Invalid`, and record the rule they skip for a certified
   execution. Byzantine executors run no guard, and apply never consults a clock (CT2). Without
@@ -3325,7 +3409,7 @@ consensus metadata counts alone are not evidence of those costs or of live settl
 | O-HALT | No honest halt, except at a node where the scenario injected record corruption or a divergent executor. |
 | O-EVID | Evidence soundness: honest nodes never report evidence against honest nodes. |
 | O-FAULT | Local-fault soundness: an honest node emits `LocalFault(ExecutorFailed)` or `LocalFault(ExecutionMismatch)` only where the scenario injected executor failures or divergence; cancelled, discarded or evicted executions never surface as faults, `Failed` or `ApplyDiverged`. |
-| O-TIME | (F39 and the clock-guard tests, §4.5) At the first honest commit of a block that carries a block time `t`, `t` is at most the smallest honest wall clock plus `2·max_clock_drift_ms`. |
+| O-TIME | (F39 and the clock-guard tests, §4.5) At the first honest commit of a block that carries a block time `t`, `t` is at most the smallest honest wall clock plus `2·max_clock_drift_ms`. At the first genuine honest Prepare of a due-work block, `t` is at least that signer's wall clock minus `gov.due_work_max_lag_ms`; later certified re-proposals and commits may be arbitrarily late. |
 | O-AMX | (F31) Over every instance's committed reference chain: at most one `Begin`, one `Decision` and, per participant, one `Prepared` and one settlement per transaction (idempotence); `G` records `Commit` only at a height `≤ d` with a committed `Yes` from every participant, `Abort` before `d + 1` only on a committed `No`, and decides every transaction by `d + 1`; a participant applies a `Yes` escrow only on `G`'s `Commit` and releases it only on `G`'s `Abort` (an escrow leaves only through a settlement), and its ledger moves only by its escrows and settlements (atomicity); every transaction `G` decided at least the settle window (20 s) before the end is settled by every participant by the end. Non-blocking is O-LIVE, which exempts only the stalled instance. |
 
 ### 13.3 Fault scenarios (each over `n ∈ {1, 4, 5, 7, 22}` where meaningful)
@@ -3513,6 +3597,9 @@ Detection needs targeted adversaries: random faults alone did not kill the TC-ru
 | MS61 | General Status admission suppresses a probe retry after refused Echo signing | `det_signing_refusal_echo_does_not_consume_rate_limit`: refusal consumes no successful-Echo allowance, identical retry succeeds and subsequent successful sends remain rate-limited | — | O-LIVE |
 | MS62 | A retained earlier-view Timeout suppresses current-view signing retry | `det_signing_refusal_current_timeout_retries_with_prior_timeout_retained`: the current reserved Timeout retries despite an earlier successful Timeout | — | O-LIVE, O-SIGN |
 | MS63 | Periodic proposal retry consumes its marker while the original body is unavailable | `det_signing_retry_retains_restored_proposal_until_delayed_body_arrives`: the marker survives a due tick, and delayed original body delivery resends the exact recorded proposal | — | O-LIVE, O-SIGN |
+| MS64 | Parent-only R5 recommit waits for the successor authority that applying the parent activates | `det_s64_recommit_parent_only_record_authenticates_boundary_before_resuming`, `det_s33_key_rotation_restart`: independently verify the parent CommitQC, recommit it once, then authenticate and restore the successor key's reservation; retained successor-height QCs/TCs still require their own authenticated authority before any installation | — | O-LIVE, O-CERT |
+| MS65 | Fake driver executor deletes CT5 | `clock_guard_due_work_lower_bound_at_first_prepare`: a Byzantine voter backdates due-work proposals beyond the allowed lag; the first genuine honest Prepare oracle detects stale acceptance, while the baseline rejects stale proposals and permits honest leaders to progress | F39 | O-TIME |
+| MS66 | Fake driver executor omits CT1's clock-drift allowance | `clock_guard_accepts_exact_drift_allowance`: an honest block exactly one allowed drift ahead of a slow honest voter remains admissible; `clock_guard_liveness_with_f_plus_one_slow_clocks` also exercises this allowance across four- and seven-node worlds | F39 | Direct assertion, O-LIVE |
 
 
 
@@ -3717,7 +3804,7 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC83 | Scheduler destruction refunds retained original controls before cancelling every linked waiter | `cancelling_and_dropping_scheduler_unlinks_all_waiters_before_original_refunds` | Cancellation retires all same-pool registrations before dropping original bodies, input owners, refusal carriers or registration backing. The real capacity callback remains silent during context cancellation, recovery and scheduler destruction; an earlier refunded control must never wake a later still-linked registration. |
 | HC84 | Startup assembly converts original committed-history refusal into invalid configuration | `startup_history_retains_original_cold_kura_refusal_and_exact_retry` | Actual cold Kura admission keeps the original State pool and release observation through `assemble_init` and the typed node error. A failed read creates no missing entry or partial startup input; the same signed tip and complete header window retry after actual release. Global and lane callers preserve local deferral, while missing history and completed I/O or corruption errors retain their exact height and category. This boundary does not claim complete cold decoder or startup graph funding. |
 | HC85 | An authenticated shared beacon session is reused under a substituted current context | `shared_authenticated_session_rechecks_every_current_external_binding` | Network, session, ordered-roster and transcript bindings are checked against the immutable sealed graph on every borrowed use. Sharing its original charged owner grants no new epoch or authority. Separate graph controls prove exact aggregate admission, preconstruction refusal, same-pool release, zero-allocation clones, last-reader credit retention and canonical lifecycle encoding; this does not claim complete DKG construction, snapshot decode or credential registry funding. |
-| HC86 | An original local execution custody invariant is treated as retryable resource pressure | `original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine` | The sticky host-local invariant abandons the original transaction without fees and requires native recovery before publishing a result. Clearing a local fault cannot authorize worker retry, quarantine, or a deterministic invalid-transaction verdict. Real capacity refusals retain their distinct original release source. |
+| HC86 | An original local execution custody invariant is treated as retryable resource pressure | `original_local_custody_invariant_halts_worker_without_fee_result_or_quarantine`, `native_authority_prepaid_custody_errors_require_recovery` | The sticky host-local invariant abandons the original transaction without fees and requires native recovery before publishing a result. Clearing a local fault cannot authorize worker retry, quarantine, or a deterministic invalid-transaction verdict. Foreign native-authority custody, short prepaid reservations and compact-key layout faults also require recovery at the actual parent-service publication boundary. Real capacity refusals retain their distinct original release source. |
 | HC88 | A beacon session decoder classifies its surviving original resource scope as malformed input | `session_decoder_preserves_actual_local_scope_without_invalidity_or_fabricated_pool` | Actual inherited decoder allocation refusal retains the original typed Norito source without charging the session graph or fabricating an allocation-pool release. The same canonical bytes retry successfully after the scope ends; malformed frames remain invalid. Raw decoder backing remains a separate physical funding obligation. |
 | HC89 | Credential decoding collapses an actual inherited-scope or physical allocator refusal into invalid input | `credential_decoder_captures_original_scope_before_unwind_and_retries_unchanged_bytes`, `credential_decoder_physical_refusal_keeps_exact_allocator_cause_and_retries` | The canonical admission decoder captures the original Norito cause before scopes end. Header, global beacon and TLE imports carry that cause to startup and terminal boundaries; local refusal is unavailable and cannot consume the original launch credential. Intrinsic limits, malformed bytes and existing identity failures remain rejection. The same original frame retries after local capacity returns. Raw decoded graph and frame backing still require a separate physical funding cutover. |
 | HC90 | Native journal verification relabels original block-control capacity refusal as invalid evidence | `native_cursor_preserves_original_pool_refusal_and_retries_identical_prefix` | The complete independently pinned journal reuses one caller operation pool. Its exact original refusal and release source survive verification and provisioning; no callback or cursor update occurs on refusal. Foreign refunds cannot authorize retry; the identical prefix succeeds after actual source release. Canonical block/header checks remain strict and malformed source remains rejected. Raw source, decoded graphs and index backing still require separate full retained funding. |
@@ -3866,8 +3953,8 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC237 | SCCP control cause: replace the exact World-authenticated certificate ID with its proposal ID | `smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state` | The stored valid due certificate executes through the unchanged exact-context owner; the recorded leaf/event must retain GovernanceCertificateId::derive_v1(certificate) and the original effect hash, distinct from the proposal ID. |
 | HC238 | SCCP control recorder: omit the actual active destination fast-pause expiry | `smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state` | A Parliament effect changes only its own flag; the current 199-byte control records the actual active independent expiry, exact cause, hash and event, preserving the original pause record. |
 | HC239 | Native epoch construction: forget the original charge ledger after partial payload unwind | `sumeragi::epoch_election::owned::tests::partial_epoch_committee_unwind_refunds_retired_nested_backing` | A real nested committee construction unwinds after admitted backing exists. Destroyed payloads must refund their exact original pool; an existing retained schedule keeps its bytes and key identity, retry succeeds, and its final reader releases the remaining credit. |
-| HC248 | SCCP G6 resolves a global signer's liability across participant staking lanes | `smartcontracts::isi::sccp::generations::tests::global_member_binding_ignores_participant_staking_registration`: simultaneous global and participant registration retains the global binding at generation start | — | O-VAL |
-| HC249 | SCCP destination clearance scans cleared generation history before limiting work | `smartcontracts::isi::sccp::generations::tests::destination_clearance_visits_only_bounded_pending_index_after_cleared_history`: historical cleared records do not increase the at-most-64 visited pending records | — | O-LIVE |
+| HC250 | SCCP G6 resolves a global signer's liability across participant staking lanes | `smartcontracts::isi::sccp::generations::tests::global_member_binding_ignores_participant_staking_registration`: simultaneous global and participant registration retains the global binding at generation start | — | O-VAL |
+| HC251 | SCCP destination clearance scans cleared generation history before limiting work | `smartcontracts::isi::sccp::generations::tests::destination_clearance_visits_only_bounded_pending_index_after_cleared_history`: historical cleared records do not increase the at-most-64 visited pending records | — | O-LIVE |
 
 | HC240 | SCCP retained fast Taira pause: omit the active network hold from original consumers | `smartcontracts::isi::sccp::outbound::tests::record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects`, `smartcontracts::isi::sccp::settle::tests::taira_fast_pause_holds_inbound_only_without_losing_proof_money_or_retry`, `smartcontracts::isi::sccp::settle::tests::taira_fast_pause_keeps_void_refund_pending_without_stranding_or_moving_money` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC241 | SCCP retained destination pause: omit the active exact-revision outbound hold | `smartcontracts::isi::sccp::outbound::tests::record_obeys_fast_pause_network_revision_and_exact_expiry_without_effects` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
@@ -3875,8 +3962,30 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC243 | SCCP eligibility: replace original pre-block facts with the executing writes | `smartcontracts::isi::sccp::eligibility_tests::original_eligibility_preimages_survive_siblings_rollback_and_replacement` | The original native consumer must retain its exact hold, time and pre-block facts. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC244 | Network failure-fee settlement: swallow the original local execution deferral as a completed rejection | `state::output_capacity::producer::tests::network::fees::sccp_failure_fee_decoder_refusal_keeps_original_deferral_and_retry`, `state::output_capacity::producer::tests::network::fees::ordinary_failure_fee_decoder_refusal_keeps_original_deferral_and_retry`, `state::output_capacity::producer::tests::network::penalties::refusal::fee_decoder_refusal_after_actual_ballot_penalty_rolls_back_and_retries_once` | Actual rejection settlement must preserve the original local deferral before terminal projection; abandon the poisoned block and qualify original-source retry with exactly-once fee/slash effects. Every declared control must fail at its own causal assertion under this test-only mutation. |
 | HC245 | Network ballot-penalty settlement: swallow the original local execution deferral as a completed rejection | `state::output_capacity::producer::tests::network::penalties::refusal::actual_ballot_penalty_decoder_refusal_keeps_original_deferral_and_retry` | Actual rejection settlement must preserve the original local deferral before terminal projection; abandon the poisoned block and qualify original-source retry with exactly-once fee/slash effects. Every declared control must fail at its own causal assertion under this test-only mutation. |
-| HC246 | SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments | `smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation`, `smartcontracts::isi::sccp::read::control::tests::lapse::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once` | At the exact original block timestamp, remove only the expired original record; preserve Parliament state, subject heads and leaves, retain its original reader, and publish one event only after successful native certification. Cancellation discards the effect and fresh original-source retry publishes once. Every declared control must fail at its own causal assertion. Panel and casting-open producers remain separate open requirements. |
-| HC247 | Payload producer retry: erase the original resource refusal at the driver boundary | `sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry`, `sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry` | Return the original typed refusal from the actual queued worker. Preserve the exact pool release and keep the waiter pending until an external release; retain the queued transaction and retry the same source. Policy-capacity refusals without a release owner remain typed without inventing one. |
+| HC246 | SCCP fast-pause lifecycle: omit Global G4 expiry cleanup after enactments | `smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_uses_exact_time_and_preserves_parliament_confirmation`, `smartcontracts::isi::sccp::read::native::control_producer_tests::lapse_tests::native_fast_pause_lapse_cancellation_keeps_original_record_and_retries_once` | At the exact original block timestamp, remove only the expired original record; preserve Parliament state, subject heads and leaves, retain its original reader, and publish one event only after successful native certification. Cancellation discards the effect and fresh original-source retry publishes once. Every declared control must fail at its own causal assertion. Panel and casting-open producers remain separate open requirements. |
+| HC247 | Payload producer retry: erase the original resource refusal at the driver boundary | `sumeragi::executor::publication_tests::original_lane_policy_proposal_refusal_retains_worker_owner_and_exact_queued_retry`, `sumeragi::executor::publication_tests::original_staking_payload_worker_retains_pool_refusal_and_exact_queued_retry` | Return the original typed refusal from the actual queued worker. Preserve the exact pool release and keep the waiter pending until an external release; retain the queued transaction and retry the same source. Policy-capacity refusals without a release owner remain typed without inventing one. Every declared control must fail at its own exact assertion; worker controls retain their original child and join panic ownership. |
+| HC248 | Drop the retained original parent-service preparation on its actual refusal | `sumeragi::executor::parent_service_custody_tests::parent_service_validation_retains_original_receipts_without_waking_its_own_retry`; `sumeragi::executor::parent_service_custody_tests::parent_service_assembly_retains_original_parent_and_queue_before_capacity_retry` | The actual worker validation control must fail at its own Pending assertion. The assembly control must fail at its first-refusal full-pool assertion before inspecting retained pointers; it also preserves the subsequent original Pending, unchanged receipt pointers, queue and external-release retry checks. Original native receipts and physical carrier bodies remain with the same caller attempt until external release, cancellation or explicit candidate replacement; final source/proposal authentication is unchanged. The separate constructor baseline proves original-pool admission, and nested decoder/output custody remains open. Every declared control must fail at its own exact assertion; worker controls retain their original child and join panic ownership. |
+| HC249 | An impossible native-authority prepaid custody plan is relabeled as capacity pressure | `native_authority_prepaid_custody_errors_require_recovery` | The already admitted original pool cannot repair foreign custody, a short reservation, or a compact-key layout mismatch. The mapper preserves LocalInvariantViolation before the parent-service driver requires recovery. Original actual capacity and physical allocator refusal keep their distinct causes. |
+| HC252 | Native commit retry keeps callback-delayed polling while executed State writers remain retained | `sumeragi::executor::payload_owner::tests::retained_partial_payload_idle_expiry_wakes_original_commit_with_live_execution` | Actual Queue expiry retires the original partial payload and returns its pool credits while preserving the same Live overlay, commitment, source and result. Callback-free original-pool wakeup must make the scheduler retry the Arc-identical committed head before independent pressure is released. Generic callbacks and physical-lock release still wait for their original safe boundary. The mutation must fail at its exact scheduler-retry assertion under the original worker and join panic owners. |
+| HC253 | Native parent reads classify unavailable original journal path bindings as corrupt history | `sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_missing_original_parent_and_resumes_same_paid_wire`; `sumeragi::executor::payload_owner::tests::retained_partial_payload_refuses_substituted_original_parent_and_resumes_same_paid_wire` | Missing or replaced paths must refuse before body I/O while retaining the exact paid payload, queue lease and pool charge. Restoring the original journal must resume that same payload. This availability classification applies only to the original pathname/descriptor binding; malformed bytes and contradictory durable slots remain errors. |
+| HC265 | A direct payment retry consumes another execution fee after its payer-scoped business identity succeeded | `executor::settlement_replay::tests::direct_payment_replay_two_carriers_charge_once_and_recover_after_certified_restart` | Distinct signed carriers of the same owner-authorized singleton intent charge once, preserve the original receipt and recover its original successful block after certified replay. The mutant must fail at the exact fee-balance assertion. A typed retry outcome rejects the new carrier; verification of the original successful execution remains mandatory. |
+| HC266 | AMX relay outcome omits its freshly authenticated source-instruction and explicit-authority binding | `amx_relay::ledger::proof_tests::relay_journal_identity_cannot_substitute_an_unrelated_successful_carrier` | A valid exact-quorum block and exact input/output proof for a different native instruction cannot complete the relay. The mutant removes only the fresh source instruction/authority comparison; genesis, finality, exact carrier identity and successful execution checks remain. The deterministic test uses real certificates over synthetic results and does not establish whole-network AMX qualification. |
+| HC271 | Begin delivery skips the original successful-input and namespace join after Prepare admission | `native_amx_begin_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid Global Begin execution and native replay retain the original signed input. Replacing its archive namespace after the Prepare proof and fields are admitted must refuse delivery without releasing or replacing them; restoring the original namespace resumes the same proof and transaction pointers with exact final refund. |
+| HC272 | State publication makes actual effect-index contention irreversible before visibility | `actual_state_effect_reader_refusal_retains_original_and_retries_after_release`, `actual_state_effect_writer_refusal_retains_original_and_retries_after_release`, `signed_lifecycle_index_refusal_precedes_geometry_and_replays_final_cursor_journal` | A real last-index reader or writer must return its exact original wait before visibility. Three attempts retain the same publisher, prepared effects, staged rows and pool while releasing all sibling writers. Releasing only the blocker wakes the original wait, then that same owner publishes once; a completed retry cannot duplicate the State generation. An authenticated signed lifecycle also leaves physical geometry untouched on refusal, then persists the final cursor journal and converges through original certified-frame replay. |
+| HC273 | Lifecycle preflight discards its original manifest writer refusal | `signed_lifecycle_manifest_writer_refusal_retains_preflight_and_original_retry` | Each original manifest read preserves its error precedence and returns the actual local writer refusal before geometry. Repeated refusals release the publication fences and retain the same signed lifecycle owner; releasing that writer lets the original carrier publish once with its final durable cursor journal. |
+| HC274 | Kura publication releases notify before enclosing original State owners retire | `original_kura_partial_refusal_callbacks_follow_all_state_siblings`, `original_kura_success_callbacks_follow_all_state_siblings`, `original_kura_unwind_callbacks_follow_all_state_siblings` | Partial acquisition, completion and unwind release actual Kura fences into four original fixed batches. Callbacks run only after the actual State fences and effect writers are free; exact original waits, empty-batch behavior, finite-pool refund and borrowed Kura identity remain checked. |
+| HC275 | Native append discards its original physical State authority read release | `original_append_driver_retains_manifest_release_without_timer_or_foreign_wake` | The original global authority read captures State once without blocking and preserves its typed physical refusal. The actual executor-thread append completion retains that same release in the existing committed-head scheduler: elapsed time and unrelated releases cannot dispatch it, while the actual writer release permits the same certified frame to append and only then reach commit. |
+| HC267 | Decision delivery skips the original Begin/Decision namespace join after instruction admission | `native_amx_decision_delivery_final_namespace_refusal_preserves_original_instruction` | Genuine paid execution and native replay produce the original Decision. Replacing its archive namespace immediately after funded instruction admission must refuse delivery while retaining that exact instruction; restoring the original namespace permits delivery with unchanged proof pointers and complete refund. |
+| HC257 | Omit CT1 in full State execution | `sumeragi::executor::clock_tests::prepare_withheld_while_block_time_ahead` | A genuine future block returns local Failed before effects and without a negative cache entry. Advancing the injected clock to the exact committed allowance boundary permits the same original execution. |
+| HC258 | Drop `Execute.certified` in the production driver | `sumeragi::driver::tests::sched::certified_execution_flag_reaches_the_application_without_inference` | False and true reach the application unchanged on every request, including repeated original execution. `certified_execution_skips_clock_guards` additionally exercises the actual worker request, identical result, certificate authentication and cold replay. |
+| HC259 | Global and routing-lane selection includes future signed inputs | `proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time`; `lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance` | A valid queued input one millisecond ahead of the injected proposer clock remains resident and unselected; advancing to its exact time selects its unchanged identity, and rewinding withholds it again. |
+| HC260 | Publish an original canonical payload before its proposer clock boundary | `proposer_clock_retains_final_input_and_canonical_output_until_due`; `proposer_clock_retains_certified_lane_floor_and_completed_original` | Genuine signed Queue inputs and certified lane ranges wait through canonical assembly and completed output reuse. Advancing the injected clock releases the same original backing; rewinding withholds it again. `clock_ahead_payload_retries_without_another_queue_notification` separately checks the actual scheduler's timed retry with no new input. |
+| HC264 | Routing lane builder collapses a clock wait into an empty answer | `sumeragi::lanes::executor::tests::future_only_lane_work_retries_without_an_empty_answer_or_new_traffic` | Future-only work yields a local retry and no empty callback. Advancing the injected clock lets the unchanged queue source produce the same signed transaction without another admission event. |
+| HC268 | Omit routing-lane CT1 before caching original admission | `sumeragi::lanes::executor::native_decode_tests::signed_lane_clock_retains_original_admission_until_exact_boundary_and_certified_replay` | A signed four-validator lane body retains one original decoded admission at the anchor/input clock boundary, resumes at equality, and produces the same result during certified execution and authenticated stored recovery. A separate foreign-anchor control refuses changed identity. |
+| HC269 | Publish a routing-lane payload ahead of its effective clock | `sumeragi::lanes::executor::tests::lane_builder_effective_clock_retains_original_payload_across_clock_rewind` | Both the anchor and latest signed input can set the clock floor. Local waiting retains the same original batch and completed funded bytes; rewinding withholds the same output until its exact boundary recovers. |
+| HC254 | Retire the original lane geometry owners without final physical authentication | `state::tests::geometry_completion_tests::completed_publication_refuses_substituted_journal_namespace_and_retries_original_owner`; `state::tests::geometry_completion_tests::prepublication_refuses_substituted_tiered_directory_and_retries_original_owner`; `state::tests::geometry_completion_tests::completed_publication_refuses_substituted_tiered_directory_and_retries_original_owner` | Logical phase flags cannot replace original journal and tiered-directory identity. All three independent controls refuse substitution before releasing either retained owner, preserve the runtime catalog and journal direction, and restore the same original physical source before successful retry. The journal namespace test preserves original journal metadata rather than weakening ctime checks. This does not grant physical lane retirement authority. |
+| HC255 | Reopen an already-applied tiered plan before an original-path identity refusal | `state::tests::geometry_completion_tests::completed_retry_preserves_original_applied_progress_on_tiered_identity_refusal` | Retry of a completed publication authenticates its retained tiered plan immutably. Refusal preserves applied progress, both original owner addresses, catalog phase and cursor progress; restoring the original directory resumes that same operation. |
+| HC256 | A completed publication accepts a changed configured baseline | `state::tests::geometry_completion_tests::completed_publication_refuses_changed_baseline_and_retries_original_owner` | Completion rejoins the configured baseline retained by the original raw publication owner. Both an absent and a different baseline refuse without changing journal bytes or releasing either owner; only the original baseline permits retry. |
 
 The finite Core full-proof interval is request-owned. Its Torii/SDK callers retain actual query, worker and response owners separately under the existing route and SDK absolute deadlines. Nested signed-genesis/result/authority graph funding remains open. These controls do not attribute the observed H3 timeout to prefix work or qualify the paid transition.
 
@@ -3924,7 +4033,9 @@ restart and full release qualification remain separate required controls.
 | DM31 | instruction base64: omit cumulative scratch admission | `isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input` | The actual base64 scratch capacity is cumulatively admitted before allocation and decoding. Below-capacity admission refuses with exact fields; the same source retries. This does not claim physical original-pool ownership of the decoded graph. |
 | DM32 | structured asset instructions: erase original canonical account refusal | `isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry` | All four structured asset-transfer instructions borrow the account literal and delegate to canonical AccountId JSON admission. Genuine scoped shortages retain their fields and original observer through the public InstructionBox reader; the same input/context retries and malformed or padded account literals remain terminal. |
 | DM33 | Allocate a diagnostic String instead of retaining the original intrinsic native AMX multisig cause | `sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations`, `sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations` | The sole canonical policy/member validators retain their Copy cause by value, including original dynamic version, curve, count and threshold fields. Replay of the already materialized invalid owner preserves the exact original pool, controls, keys, member/charge ledger and spans without a diagnostic or replacement allocation; ordinary canonical diagnostic parity remains exact. The test-only omission restores only the old String conversion. Core maps this intrinsic cause to the existing terminal diagnostic without inferring local retry provenance. Ordinary codec diagnostics, the final Core diagnostic and complete graph funding remain separate open boundaries. |
-| DM34 | Reconstruct an owning canonical epoch snapshot for optional validation reuse | `sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph` | The actual cache retains all original scalar and ordered key/PoP values inline under the native maximum of 31. Mandatory context validation is measured independently; the named physical-allocation assertion runs with adequate original capacity before optional insertion assertions. A separate full-pool phase checks fresh insertion/hits, unchanged cumulative debit and final refund. Exact fields, last-member/order/overflow refusal, source independence and default-stack layout remain required; complete authority/configuration/source graph funding is still separate. |
+| DM34 | Reconstruct an owning canonical epoch snapshot for optional validation reuse | `sumeragi_finality::epoch_graph::validation_tests::epoch_scope_retains_exact_context_without_a_hidden_heap_graph` | The actual cache retains all original scalar and ordered key/PoP values inline under the native maximum of 31. Mandatory context validation is measured independently; the named physical-allocation assertion runs with adequate original capacity before optional insertion assertions. A separate full-pool phase checks fresh insertion/hits, unchanged cumulative debit and final refund. Exact fields, last-member/order/overflow refusal, source independence and default-stack layout remain required; complete authority/configuration/source graph funding is still separate. Every declared control must fail at its own exact assertion; worker controls retain their original child and join panic ownership. |
+| DM35 | Discard an evicted authenticated global context while an unresolved AMX Yes still needs it | `sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart` | A delayed genuine Commit or Abort remains verifiable after three authenticated committee rotations and canonical participant State serialization/restart. Handoffs never release escrow, the successful decision creates exactly one effect, and replay cannot create another. Missing required historical authority fails restored-State validation. |
+| DM36 | Omit the shared CT4 clock-drift bound | `parameter::system::tests::clock_drift_bound_accepts_exact_limit_and_rejects_excess_without_overflow` | Zero and 60 000 ms are admitted; 60 001 ms and `u64::MAX` are rejected by the single model validator used by structured genesis, executed genesis and committed parameter changes. No local clock enters deterministic parameter validity. |
 
 SDK public-read and Deploy managed-bootstrap rules use separate owning `--sdk` and
 `--deploy` unit-test families (`SUMERAGI_SDK_MUTATION`/`sumeragi_sdk_mutation` and
@@ -3990,43 +4101,108 @@ The consensus signing-suite integration additionally owns this Core mutation:
 The Core rules above are replay and committee-retention prerequisites. They do not qualify production lane
 offence admission, original-stake monetary dispatch or the complete H3 allocation graph.
 
-**SCCP and certified-time application rules** (`specs/sccp.md` §4.3–§4.10, §11.6; Core gate
-`--core`; target, not yet implemented). The CT rules are §4.5 of this document; the rest are SCCP
-rules whose code lives in `iroha_core`. These entries run with real crypto, so none may change a
-signing preimage layout (§1 item 6); the gate checks that no HC mutation edits
-`crates/iroha_sumeragi/src/preimage.rs` (`TODO:` WP-C5).
-`SC1`–`SC25` below are SCCP planning labels, except SC4, which is
-implemented by the Core SC4 mutation above. Assign
-unique `HC` IDs when each case gains its source hook and named test; the active
-`HC` registry above belongs to the implemented owners.
+**SCCP and certified-time application rules** (`specs/sccp.md` §4.3–§4.10,
+§11.6; Core gate `--core`). SC1–SC25 retain their original rule labels;
+the exact source controls below use the active HC IDs, except the dedicated
+SC4 signing-suite control. Every fault has a registered hook and named test.
+These entries use real crypto and cannot change a consensus signing-preimage
+layout (§1 item 6). Source coverage is distinct from qualification: the current
+baseline and each declared causal failure must pass with `--strict`; compiler
+errors and resource failures never count as mutation kills. Cross-owner
+Parliament eligibility, due scheduling and casting-open authority remain
+external inputs, not synthetic fixture success.
 
-| Id | Core site — change | Named deterministic test (setup → expected) | Oracle |
+| Rule and active controls | Core fault | Named deterministic tests | Oracle |
 |---|---|---|---|
-| SC1 | Core writes the result body without the finality header into the result preimage | `outer_result_binds_finality_header` | `R` binds `F` and `D_body` (§4.1.1) |
-| SC2 | The header's `committee_root` is taken from `C_{h+1}` at a boundary | `boundary_header_signed_by_outgoing` | A boundary header names the outgoing committee |
-| SC3 | `ROTATION` is not set at a key change | `boundary_header_names_successor` | A key change names the successor root and validity |
-| SC4 (implemented) | `KeyPairSigner` signs through the generic (w3f) API | `production_consensus_suite_refuses_generic_and_nonallowlisted_signatures` | Consensus signatures match the dedicated `DST_SIG` suite and generic/unscoped signatures are refused (§1 item 6) |
-| SC5 | CT1 disabled | `prepare_withheld_while_block_time_ahead` | No Prepare vote on a block ahead of the local clock (§4.5) |
-| SC6 | CT3 builder pacing disabled | `leader_waits_for_wall_clock` | The leader never proposes a block timed ahead of its clock |
-| SC7 | The keepalive due predicate ignores the heartbeat time | `keepalive_requires_heartbeat_due` | A keepalive before the heartbeat is refused |
-| SC8 | The keepalive due predicate ignores governance work | `idle_chain_enacts_due_fast_pause` | An idle chain produces the block a due enactment needs (fails before the keepalive exists) |
-| SC9 | Keepalive quota K1 disabled | `second_keepalive_invalidates_block` | A block with two keepalives is `Invalid` |
-| SC10 | Missing SCCP inputs return `Invalid` | `sccp_missing_inputs_keep_block_valid` | Missing inputs give an inactive header, never `Invalid` |
-| SC11 | The heartbeat trigger `BEAT` disabled | `idle_chain_heartbeat_renews_generation` | An idle chain creates a heartbeat generation |
-| SC12 | CT5 disabled | `stale_due_work_prepare_withheld` | No Prepare vote on a stale uncertified due-work block |
-| SC13 | Forgery rule E4 ignores `D_body` | `forged_result_body_at_genuine_block_is_evidence` | A genuine header with a forged body digest is evidence |
-| SC14 | Forgery rule E0 ignores `liable(g)` | `expired_forgery_evidence_rejected` | Evidence outside the liability window is refused |
-| SC15 | An unbond is finalized while its stake is liable or a forgery record is pending | `liable_unbond_held_until_generation_liability_ends`, `pending_forgery_penalty_holds_unbond` | Stake stays in custody while slashable |
-| SC16 | Keepalive rule K2 disabled | `non_due_keepalive_invalidates_block` | A block whose keepalive applies no due work is `Invalid` |
-| SC17 | The executor ignores `Execute.certified` | `certified_execution_skips_clock_guards` (Core unit test; `TODO:` WP-C2, added when `iroha_core` builds) | Given a block dated more than `max_clock_drift_ms` ahead of the local wall clock, and a due-work block older than `gov.due_work_max_lag_ms`, the executor answers `Failed(ClockAhead)` and `Failed(StaleDueWork)` with `certified = false`, and the same `Valid(R)` with `certified = true`. The simulator counterpart is `f33_hidden_prepareqc_due_work_block_commits_after_lag` (MS51) |
-| SC18 | Forgery rule E3 compares against Iroha's `state.block_hashes` | `genuine_certificate_is_not_evidence` | A genuine certificate is never evidence |
-| SC19 | The liability clock follows block time without the step cap | `halt_then_time_jump_keeps_generation_liable` | A halt followed by a time jump consumes no liability window |
-| SC20 | The destination-progress gate L5 is ignored | `backdated_destination_keeps_generation_liable` | A generation stays liable until destinations progress past its deadline |
-| SC21 | The SCCP penalty uses the certificate height as the offence height, or resolves offenders by peer key | `forgery_far_above_tenure_slashes_members` | Offenders are the recorded registrations at the generation start |
-| SC22 | The SCCP due predicate ignores the degraded run | `persistent_degradation_stops_keepalives_after_one_retry` | A persistent defect produces at most two keepalive blocks |
-| SC23 | The resync rule G7 disabled | `missed_boundary_resyncs_generation` | A missed key change is repaired by a resync generation |
-| SC24 | Pruning ignores pending forgery records | `pending_record_keeps_generation_retained` | A generation named by a pending record is retained |
-| SC25 | The forgery hold ignores the revision's `forgery_floor` | `old_generation_evidence_holds_no_attested_revision` | Evidence for a passed generation holds no revision |
+| SC1 (HC308) | Ordinary result hashing omits the original finality header | `published_execution_result_binds_the_original_header_and_body_digest` | Raw SHA-256 binds original X and the original tagged body digest |
+| SC2 (HC226, HC325) | The header's `committee_root` is taken from `C_{h+1}` at a boundary | `native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor`, `key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | A boundary header names the outgoing committee |
+| SC3 (HC309) | `ROTATION` is not set at a key change | `key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | A key change names the successor root and validity |
+| SC4 (implemented) | `KeyPairSigner` signs through the generic (w3f) API | `consensus_signature_matches_dst_sig_fixture`, `production_consensus_suite_refuses_generic_and_nonallowlisted_signatures` | Consensus signatures match the dedicated `DST_SIG` suite and generic/unscoped signatures are refused (§1 item 6) |
+| SC5 (HC257) | CT1 disabled | `prepare_withheld_while_block_time_ahead` | Full State execution defers beyond the committed allowance; routing-lane effective time and pinned allowance are covered by HC268 (§4.5) |
+| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled | `proposer_clock_selection_retains_future_signed_inputs_until_the_exact_time`, `lane_proposer_clock_selection_preserves_future_inputs_and_resumes_after_advance`, `proposer_clock_retains_final_input_and_canonical_output_until_due`, `proposer_clock_retains_certified_lane_floor_and_completed_original`, `future_only_lane_work_retries_without_an_empty_answer_or_new_traffic` | The leader never proposes a block timed ahead of its clock |
+| SC7 (HC312) | The keepalive due predicate ignores the heartbeat time | `heartbeat_due_rejects_early_progress_and_includes_the_exact_deadline` | A keepalive before the heartbeat is refused |
+| SC8 (HC313) | The keepalive due predicate ignores governance work | `governance_due_keeps_the_original_fast_pause_leg_when_heartbeat_is_disabled` | The original parent fast-pause conclusion remains due even with heartbeat disabled; the Parliament producer remains external |
+| SC9 (HC277) | Keepalive quota K1 disabled | `keepalive_k1_counts_carriers_independently_of_outcomes` | A block with two keepalives is `Invalid` |
+| SC10 (HC310) | Missing SCCP inputs return `Invalid` | `degraded_block_without_leaves_keeps_history_and_records_failure` | Missing inputs give an inactive header, never `Invalid` |
+| SC11 (HC311) | The heartbeat trigger `BEAT` disabled | `native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor` | An idle chain creates a heartbeat generation |
+| SC12 (HC281, HC291, HC294) | CT5 disabled | `keepalive_ct5_stale_due_work_is_a_local_refusal`, `sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry`, `sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate` | No Prepare vote on a stale uncertified due-work block |
+| SC13 (HC315) | Forgery rule E4 ignores `D_body` | `signed_body_digest_only_forgery_is_e4_against_original_anchor` | A genuine header with a forged body digest is evidence |
+| SC14 (HC316) | Forgery rule E0 ignores `liable(g)` | `generation_lookup_and_inclusive_liability_use_captured_values_only` | Evidence outside the liability window is refused |
+| SC15 (HC320, HC321) | An unbond is finalized while its stake is liable or a forgery record is pending | `sccp_liable_unbond_keeps_exact_pending_request_and_both_balances`, `pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it` | Stake stays in custody while slashable |
+| SC16 (HC314) | Keepalive rule K2 disabled | `keepalive_admission_requires_established_due_work_before_assigning_exemption` | Unavailable or absent due work grants no Keepalive exemption |
+| SC17 (HC258, HC282) | The executor ignores `Execute.certified` | `certified_execution_flag_reaches_the_application_without_inference`, `keepalive_ct5_certified_execution_ignores_the_local_wall_clock` | Actual certified execution preserves the deterministic result while skipping CT1 and CT5 local wall-clock refusal |
+| SC18 (HC317) | Forgery rule E3 compares against Iroha's `state.block_hashes` | `genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash` | A genuine certificate is never evidence |
+| SC19 (HC229) | The liability clock follows block time without the step cap | `begin_block_clamps_halt_time_using_original_native_parent` | A halt followed by a time jump consumes no liability window |
+| SC20 (HC322) | The destination-progress gate L5 is ignored | `current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes` | A generation stays liable until destinations progress past its deadline |
+| SC21 (HC318, HC319) | The SCCP penalty uses the certificate height as the offence height, or resolves offenders by peer key | `sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or_peer_map`, `sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody` | Offenders are the recorded registrations at the generation start |
+| SC22 (HC278) | The SCCP due predicate ignores the degraded run | `keepalive_k2_uses_parent_heartbeat_and_degraded_run` | A persistent defect produces at most two keepalive blocks |
+| SC23 (HC227, HC324) | The resync rule G7 disabled | `resync_uses_real_native_parent_time_then_boundary_rotates_again` | A missed committee change creates a resync generation using the actual native parent time |
+| SC24 (HC292, HC293) | Pruning ignores pending forgery records | `pruning_keeps_pending_exact_generation_until_penalty_is_applied`, `pruning_anchor_boundary_uses_minimum_retained_start_and_is_strict` | A generation named by a pending record is retained |
+| SC25 (HC323) | The forgery hold ignores the revision's `forgery_floor` | `forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel` | Evidence for a passed generation holds no revision |
+
+The continuation implements these additional SCCP source hooks and exact causal
+controls. Registry membership is distinct from a passing mutation report; current
+candidate results are recorded by `scripts/sumeragi_mutation_gate.py`.
+
+| Id | Changed rule | Named deterministic control | Oracle |
+|---|---|---|---|
+| MS67 | A durable Prepare reservation grants a certified clock exemption | `machine::tests::signing::det_prepare_context_restart_reservation_alone_is_uncertified` | Only original certified protocol state may grant the exemption after restart |
+| MS68 | An honest clock-enabled builder publishes before its canonical time floor | `sim::world::clock_guard::tests::clock_guard_committed_parent_wait_retains_work_until_clock_recovery` | Original work remains queued until both the committed parent cadence and transaction creation floors are admissible |
+| HC276 | EVM registration omits the locked CREATE2 address binding | `evm_address_binds_original_identity_network_pin_revision_and_cap` | The destination binds the original identity, network, pin, revision and cap |
+| HC277 | A block accepts a second Keepalive carrier | `keepalive_k1_counts_carriers_independently_of_outcomes` | K1 counts every carrier independently of its execution outcome |
+| HC278 | Heartbeat continues after two degraded parent heights | `keepalive_k2_uses_parent_heartbeat_and_degraded_run` | K2 reads the original parent and stops repeated degradation |
+| HC279 | Keepalive ignores standalone Ed25519 and empty fee intent | `keepalive_k3_k5_require_standalone_ed25519_due_time_and_empty_fee` | K3 and K5 require the exact signed shape and due time |
+| HC280 | The builder retains a Keepalive older than half the agreed lag | `keepalive_k4_refreshes_after_half_lag_and_preserves_boundary` | K4 preserves the equality boundary and replaces older carriers |
+| HC281 | CT5 accepts stale uncertified due work | `keepalive_ct5_stale_due_work_is_a_local_refusal` | Staleness defers the local attempt without declaring the block invalid |
+| HC282 | CT5 applies local wall-clock refusal to certified execution | `keepalive_ct5_certified_execution_ignores_the_local_wall_clock` | Genuine certified execution retains its exemption |
+| HC283 | Native registration omits the retained forgery generation floor | `native_forgery_publication_requires_a_strictly_newer_pin` | A new pin must be strictly newer than every retained forged generation |
+| HC284 | Proposer permission bypasses the Parliament ballot gate | `sccp_route_governance_proposal_requires_permission_or_bond` | Permission cannot create interim ballot authority |
+| HC285 | Deployment attestation lowers the retained forgery floor | `native_offence_release_and_later_attestation_never_lower_the_floor` | Attestation and offence release preserve the monotone floor |
+| HC286 | Replays replace a quarantine's original permanent cause | `quarantine_retains_its_original_cause_across_replays_and_progress` | Quarantine retains its first cause across later progress |
+| HC287 | Forged-mint evidence omits authenticated payload binding | `forged_mint_requires_exact_registered_event_and_payload_binding` | Another payload's id cannot increase forged supply |
+| HC288 | A quarantined revision retires before reconciliation completes | `quarantined_retirement_requires_the_single_completed_reconciliation_window` | Retirement waits for the single completed reconciliation window |
+| HC289 | Reconciliation claims spend backing reserved for refunds | `reconciliation_reserves_refunds_and_later_claims_exhaust_only_priced_backing` | Priced claims preserve pending refund backing |
+| HC290 | A refused reconciled credit advances settled face | `reconciliation_pending_credit_retry_recomputes_rounding_without_spending_face` | Refusal spends no face and retry recomputes rounding against current backing |
+| HC291 | Completed execution skips CT5 resampling | `sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry` | The original completed owner waits again if due work becomes stale |
+| HC294 | Prepare signing skips its original clock resample | `sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coordinate` | Delivery of Valid does not exempt a later uncertified Prepare signature |
+| HC292 | Generation pruning drops a pending penalty's generation | `pruning_keeps_pending_exact_generation_until_penalty_is_applied` | Exact pending attribution retains its original generation |
+| HC293 | Anchor pruning erases the retained boundary | `pruning_anchor_boundary_uses_minimum_retained_start_and_is_strict` | Only chunks strictly below the minimum retained start may be pruned |
+| HC295 | Reserve seats replace originals early | `sccp_pause_seats_replace_only_unaccepted_in_primary_then_backup_order_at_deadline` | No replacement before the exact acceptance deadline; eligible reserves remain disjoint |
+| HC296 | Revoked endorsements count toward quorum | `sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt` | Current eligible seat holders alone satisfy quorum |
+| HC297 | An expired endorsement window certifies | `sccp_pause_certification_rechecks_revoked_members_and_exact_close_after_halt` | Equality at the closing time is expired even after a halt |
+| HC298 | Lift ignores original casting-open position | `sccp_pause_lift_compares_original_height_position_and_removes_only_the_matching_part` | Resume can clear only a strictly earlier pause and its matching part |
+| HC299 | Suspension clears an active pause | `sccp_pause_suspension_never_clears_active_parts_and_zero_removes_only_suspension` | Suspension changes only the suspension deadline |
+| HC300 | A consumed direct instruction is rearmed | `pause_direct_source_binds_each_signed_slot_and_cannot_be_rearmed_or_substituted` | Each exact signed slot is consumed once; callbacks and substitution grant no authority |
+| HC301 | Fast-pause controls ignore occupied block leaves | `sccp_pause_controls_preflight_capacity_nonce_and_every_live_part_before_effects` | Every live destination part fits before the first hold, nonce or leaf write |
+| HC302 | Keepalive reads the new overlay's pause work | `keepalive_pause_conclusion_stays_due_through_expiry_and_reads_original_parent` | Admission retains the original parent's due-work observation |
+| HC303 | G0 requires the later committee boundary instead of the pulse carrier | `sccp_panel_draw_reads_the_original_pulse_at_its_actual_carrying_height` | A genuine verified pulse is available at its original pre-boundary carrying height |
+| HC304 | Genesis accepts a budget that only recertifies pauses | `sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment` | At least six conclusions and one enactment fit in the committed budget |
+
+| HC305 | Genesis accepts an unbound committee signer | `sccp_genesis_requires_every_original_signer_to_have_one_staking_binding` | Missing original global stake refuses before parameters, generation or events |
+| HC306 | Bundled admission skips a signed advance's state expectation | `signed_bundle_uses_original_overlay_and_checks_each_advance_cas` | Every advance binds its original overlay state before effects |
+| HC307 | Local allocation refusal becomes protocol rejection | `exhausted_bundle_admission_preserves_original_deferral_and_retry` | The original deferred attempt remains retryable after custody is released |
+| HC308 | SC1 SCCP result: omit the original fixed header from ordinary voting | `sumeragi::executor::publication_tests::published_execution_result_binds_the_original_header_and_body_digest` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC309 | SC3 SCCP key change: omit native boundary rotation | `smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC310 | SC10 SCCP unavailable inputs: invalidate ordinary execution instead of degrading | `smartcontracts::isi::sccp::hook::tests::degraded_block_without_leaves_keeps_history_and_records_failure` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC311 | SC11 SCCP unchanged committee: disable due heartbeat rotation | `smartcontracts::isi::sccp::hook::tests::native_heartbeat_certificate_keeps_outgoing_generation_then_uses_successor` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC312 | SC7 SCCP heartbeat: ignore the original due timestamp | `smartcontracts::isi::sccp::keepalive::tests::heartbeat_due_rejects_early_progress_and_includes_the_exact_deadline` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC313 | SC8 SCCP due work: omit the original fast-pause conclusion leg | `smartcontracts::isi::sccp::keepalive::tests::governance_due_keeps_the_original_fast_pause_leg_when_heartbeat_is_disabled` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC314 | SC16 SCCP Keepalive: admit a carrier without established due work | `smartcontracts::isi::sccp::keepalive::tests::keepalive_admission_requires_established_due_work_before_assigning_exemption` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC315 | SC13 SCCP forgery: ignore the signed result-body digest | `smartcontracts::isi::sccp::forgery::tests::signed_body_digest_only_forgery_is_e4_against_original_anchor` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC316 | SC14 SCCP forgery: accept evidence outside original generation liability | `smartcontracts::isi::sccp::forgery::tests::generation_lookup_and_inclusive_liability_use_captured_values_only` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC317 | SC18 SCCP forgery: replace original core anchor with outer Iroha block hash | `smartcontracts::isi::sccp::forgery::tests::genuine_native_certificate_uses_core_anchor_instead_of_outer_block_hash` | A genuine native certificate remains not evidence under the original core anchor |
+| HC318 | SC21 SCCP penalty: use attacker-selected certificate height for liability | `sumeragi::penalties::tests::sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or_peer_map` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC319 | SC21 SCCP penalty: replace captured registration with current peer-key mapping | `sumeragi::penalties::tests::sccp_penalty_ignores_late_peer_mapping_and_keeps_original_g6_custody` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC320 | SC15 SCCP unbond: omit the original generation liability barrier | `smartcontracts::isi::staking::tests::sccp_liable_unbond_keeps_exact_pending_request_and_both_balances` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC321 | SC15 SCCP unbond: omit the exact pending offence barrier | `smartcontracts::isi::sccp::liability::tests::pending_exact_offence_survives_liability_expiry_and_only_applied_releases_it` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC322 | SC20 SCCP liability: omit original destination-progress clearance | `smartcontracts::isi::sccp::liability::tests::current_generation_and_parent_clearance_cannot_be_shortened_by_block_writes` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC323 | SC25 SCCP holds: ignore the retained maximum forgery generation | `smartcontracts::isi::sccp::hold::forgery_tests::forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC324 | SC23 SCCP generation: disable missed-boundary resynchronization | `smartcontracts::isi::sccp::generations::tests::resync_uses_real_native_parent_time_then_boundary_rotates_again` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC325 | SC2 SCCP rotation: substitute the successor for the outgoing committee root | `smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | Exact original-source assertion; current strict baseline and named causal kill required |
+
+These consumer and source-binding controls do not qualify missing Parliament
+eligibility, draw, shared-pass or Policy Jury opening producers. No component
+fixture supplies production authority for those external interfaces.
 
 Also required: golden vectors for every preimage (including `echo_preimage`, §3.3), `block_hash`, `att_digest`, `committee_digest`,
 the permutation, `D_h`, slot substitution (order and leaders for `|D| ∈ {0, 1, f}`, with demoted

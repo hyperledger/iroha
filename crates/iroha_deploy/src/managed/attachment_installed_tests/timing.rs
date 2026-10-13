@@ -87,7 +87,7 @@ fn candidate(bundle: &Path, copied_bin: &Path) -> TestResult<Candidate> {
         let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
         let hash = digest(
             &NativeBundleLayout::current()
-                .runtime_directory(&bundle)
+                .runtime_directory(bundle)
                 .join(&filename),
         )?;
         // The explicit desktop campaign inventories its full source bundle. Only the two CLI

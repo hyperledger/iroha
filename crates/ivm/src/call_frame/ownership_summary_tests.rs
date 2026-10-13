@@ -195,7 +195,7 @@ fn exact_owner_summary_preserves_zero_tables_and_zero_sized_frames_at_arbitrary_
     assert!(leaf.validate());
     let reserved = CallFrameShape {
         frame_bytes: 16,
-        ..leaf.clone()
+        ..leaf
     };
     let result_table = |result_base| CallTables {
         argument_base: 0,

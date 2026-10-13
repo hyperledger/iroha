@@ -1,0 +1,24 @@
+test_cloned_prefix_executed_once_including_failed_attempts (parliament_ballot_prover_accounting_test.CounterTests.test_cloned_prefix_executed_once_including_failed_attempts) ... ok
+test_zero_cap_and_rejected_counts (parliament_ballot_prover_accounting_test.CounterTests.test_zero_cap_and_rejected_counts) ... ok
+test_cli_refuses_qualification_and_failed_component (parliament_ballot_prover_accounting_test.EvidenceTests.test_cli_refuses_qualification_and_failed_component) ... ok
+test_exact_helper_bytes_loaded_even_after_same_length_edit (parliament_ballot_prover_accounting_test.EvidenceTests.test_exact_helper_bytes_loaded_even_after_same_length_edit) ... ok
+test_helper_drift_during_load_refuses (parliament_ballot_prover_accounting_test.EvidenceTests.test_helper_drift_during_load_refuses) ... ok
+test_inventory_hash_is_order_independent (parliament_ballot_prover_accounting_test.EvidenceTests.test_inventory_hash_is_order_independent) ... ok
+test_midrun_source_drift_does_not_publish_component_success (parliament_ballot_prover_accounting_test.EvidenceTests.test_midrun_source_drift_does_not_publish_component_success) ... ok
+test_report_checks_all_shapes_and_does_not_qualify (parliament_ballot_prover_accounting_test.EvidenceTests.test_report_checks_all_shapes_and_does_not_qualify) ... ok
+test_source_drift_refuses_before_executing_helper (parliament_ballot_prover_accounting_test.EvidenceTests.test_source_drift_refuses_before_executing_helper) ... ok
+test_all_vote_sizes_are_monotone_and_within_maximum (parliament_ballot_prover_accounting_test.ProverTests.test_all_vote_sizes_are_monotone_and_within_maximum) ... ok
+test_both_gate_labels_and_no_h3_or_counter_in_backend (parliament_ballot_prover_accounting_test.ProverTests.test_both_gate_labels_and_no_h3_or_counter_in_backend) ... ok
+test_literal_maxima_from_source_phase_walk (parliament_ballot_prover_accounting_test.ProverTests.test_literal_maxima_from_source_phase_walk) ... ok
+test_profile_serialization_and_actual_table_word_counts (parliament_ballot_prover_accounting_test.ProverTests.test_profile_serialization_and_actual_table_word_counts) ... ok
+test_setup_has_one_credential_and_one_authorization_output (parliament_ballot_prover_accounting_test.ProverTests.test_setup_has_one_credential_and_one_authorization_output) ... ok
+test_shape_rejection (parliament_ballot_prover_accounting_test.ProverTests.test_shape_rejection) ... ok
+test_unbounded_context_setup_is_explicitly_excluded (parliament_ballot_prover_accounting_test.ProverTests.test_unbounded_context_setup_is_explicitly_excluded) ... ok
+test_byte_walk_rate_padding_and_squeeze_boundaries (parliament_ballot_prover_accounting_test.SpongeTests.test_byte_walk_rate_padding_and_squeeze_boundaries) ... ok
+test_invalid_dimensions_and_negative_calls (parliament_ballot_prover_accounting_test.SpongeTests.test_invalid_dimensions_and_negative_calls) ... ok
+test_schedule_tracks_work_and_bytes_separately (parliament_ballot_prover_accounting_test.SpongeTests.test_schedule_tracks_work_and_bytes_separately) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 1.409s
+
+OK

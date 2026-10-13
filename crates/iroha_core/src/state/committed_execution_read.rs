@@ -99,7 +99,7 @@ impl State {
         }
         let (hashes, tip) = loop {
             let generation = self.state_view_generation();
-            if generation % 2 != 0 {
+            if !generation.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }

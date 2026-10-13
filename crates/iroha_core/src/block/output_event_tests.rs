@@ -185,10 +185,10 @@ fn event_fixture_block(
         .set_execution_outputs(
             outputs,
             fragments,
-            Default::default(),
+            std::collections::BTreeMap::default(),
             Vec::new(),
-            Default::default(),
-            Default::default(),
+            iroha_data_model::nexus::AxtPolicySnapshot::default(),
+            std::collections::BTreeSet::default(),
             &ExecutionOutputLimits {
                 max_outputs: 16,
                 max_output_bytes: 65_536,

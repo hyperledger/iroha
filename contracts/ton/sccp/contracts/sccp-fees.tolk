@@ -2,7 +2,7 @@
 //
 // Required values are computed at entry from the current price config with
 // `GETGASFEE`, `GETFORWARDFEE` and `GETSTORAGEFEE`; there is no fixed TON
-// amount anywhere, so price-config changes cannot break a flow. The gas
+// amount: a mid-flight price change can require a funded recovery retry. The gas
 // limits are the per-step maxima (n = 31, q = 21, the largest paths and
 // payloads) with headroom, and the size constants cover the largest message
 // and state of each kind. `tests/unit/sccp-fees.test.tolk` pins every
@@ -23,6 +23,7 @@
 import "@stdlib/gas-payments"
 import "sccp-constants"
 import "sccp-errors"
+import "sccp-recovery"
 
 /// 100 years (§5.3.5 minter and bucket floors).
 const SCCP_FLOOR_SECONDS = 3153600000
@@ -41,55 +42,42 @@ const SCCP_STORAGE_GRACE_SECONDS = 604800
 // The four steps that verify a certificate are measured at n = 31 with the
 // 21 highest signers, full checkpoint slots, the last leaf of a 512-leaf
 // block under a history of 2^32 blocks, a 1024-byte sender and four bucket
-// activations: `sccp_checkpoint` (a key-changing rotation to another
-// committee of 31) 208 942, `sccp_finalize` 251 280, `sccp_void_expired`
-// 250 412 and `sccp_apply_control` 224 746. One plain certificate through
-// `sccp_checkpoint` costs 97 564 gas at n = 4, 104 668 at n = 7 and 161 644
-// at n = 31, of which `BLS_FASTAGGREGATEVERIFY` is 58 000 + 3 000·q; a
-// heartbeat adds 3 665 and a key change 10 598, 14 988 and 44 828.
+// activations. Exact current measurements belong to gas-baseline.json.
 const SCCP_GAS_MINTER_CHECKPOINT = 250000
-const SCCP_GAS_MINTER_FINALIZE = 300000
-const SCCP_GAS_MINTER_VOID = 285000
+const SCCP_GAS_MINTER_FINALIZE = 550000
+const SCCP_GAS_MINTER_VOID = 535000
 const SCCP_GAS_MINTER_APPLY_CONTROL = 260000
-const SCCP_GAS_MINTER_VOID_FROZEN = 30000
-const SCCP_GAS_MINTER_DEPLOY_BUCKETS = 60000
-const SCCP_GAS_MINTER_RETRY = 14000
-const SCCP_GAS_MINTER_CONSUMED = 14000
-const SCCP_GAS_MINTER_CONSUME_REVERTED = 6000
-const SCCP_GAS_MINTER_RANGE_REPLY = 8000
+const SCCP_GAS_MINTER_VOID_FROZEN = 300000
+const SCCP_GAS_MINTER_DEPLOY_BUCKETS = 800000
+const SCCP_GAS_MINTER_RETRY = 80000
+/// Bounded dictionary work and one outgoing action per recovery transition.
+const SCCP_GAS_RECOVERY = 80000
 const SCCP_GAS_MINTER_BURN = 48000
-/// The minter's handling of a bounced `internal_transfer` (unconsume or record).
-const SCCP_GAS_MINTER_BOUNCE = 20000
-const SCCP_GAS_BUCKET_CONSUME = 8000
-const SCCP_GAS_BUCKET_CONSUME_RANGE = 9000
-const SCCP_GAS_BUCKET_ACTIVATE = 3000
-const SCCP_GAS_BUCKET_UNCONSUME = 5000
-const SCCP_GAS_WALLET_RECEIVE = 8000
+/// The minter's minimal authenticated original-dispatch bounce handler.
+const SCCP_GAS_MINTER_BOUNCE = 60000
+const SCCP_GAS_WALLET_RECEIVE = 10000
 const SCCP_GAS_WALLET_TRANSFER = 8000
-const SCCP_GAS_WALLET_BURN = 7000
+/// Includes full 1024-byte recipient validation at the wallet.
+const SCCP_GAS_WALLET_BURN = 15000
 
-// Account state sizes, upper bounds of the storage statistics of each
-// account (code, data and the account's own cell). The minter bound is the
-// measured largest state: the compiled code, the 16 `KeyChunk`s of n = 31,
-// three checkpoints, the largest supplies and counters, the wallet and bucket
-// code, and eight `retries` records, which only bounced steps create: 257
-// cells and 120 032 bits.
-// TODO: WP-TON-RUST: `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` of
-// `crates/iroha_sccp/src/v1/ton_cell.rs` mirror the two minter constants and
-// still hold the bound of the retired roster minter (102 000 bits, 205
-// cells); move them to the values below.
-const SCCP_BUCKET_STATE_BITS = 9000
-const SCCP_BUCKET_STATE_CELLS = 27
-const SCCP_WALLET_STATE_BITS = 7500
-const SCCP_WALLET_STATE_CELLS = 16
-const SCCP_MINTER_STATE_BITS = 122000
-const SCCP_MINTER_STATE_CELLS = 260
+// Account state sizes including code, data and the account's own cell.
+// The maximum minter includes 31 keys, all checkpoints and 512 operation rows
+// with distinct immutable tails; each destination includes 512 receipts.
+// Native fixtures measure their full DAGs and require at most 5% headroom.
+// Capacity admission before dispatch makes these enforceable storage bounds.
+// Rust TON_MINTER_STATE_BITS / CELLS must match these priced bounds.
+const SCCP_BUCKET_STATE_BITS = 83000
+const SCCP_BUCKET_STATE_CELLS = 1080
+const SCCP_WALLET_STATE_BITS = 86000
+const SCCP_WALLET_STATE_CELLS = 1080
+const SCCP_MINTER_STATE_BITS = 790000
+const SCCP_MINTER_STATE_CELLS = 2380
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
-const SCCP_BUCKET_STATE_INIT_BITS = 9000
+const SCCP_BUCKET_STATE_INIT_BITS = 9600
 const SCCP_BUCKET_STATE_INIT_CELLS = 28
-const SCCP_WALLET_STATE_INIT_BITS = 7500
-const SCCP_WALLET_STATE_INIT_CELLS = 17
+const SCCP_WALLET_STATE_INIT_BITS = 12500
+const SCCP_WALLET_STATE_INIT_CELLS = 32
 
 // Message sizes (header and body cells), upper bounds.
 const SCCP_MSG_CONSUME_BITS = 1800
@@ -146,32 +134,51 @@ fun sccpWalletMinStorage(): coins {
     return calculateStorageFee(
         SCCP_WORKCHAIN,
         SCCP_WALLET_MIN_STORAGE_SECONDS,
+        SCCP_WALLET_STATE_INIT_BITS,
+        SCCP_WALLET_STATE_INIT_CELLS,
+    );
+}
+
+/// A wallet holding bridge receipts prepays the same 100-year custody horizon
+/// as the minter and buckets, before it credits any minted tokens.
+fun sccpWalletRecoveryFloor(): coins {
+    return calculateStorageFee(
+        SCCP_WORKCHAIN,
+        SCCP_FLOOR_SECONDS,
         SCCP_WALLET_STATE_BITS,
         SCCP_WALLET_STATE_CELLS,
     );
 }
 
-/// Value attached to `sccp_activate_bucket`: the bucket's gas and its floor.
+/// Dispatch, Prepared, Drop and Dropped: each side has a bounded dictionary
+/// operation. This also funds the most expensive recovery confirmation step.
+fun sccpRecoveryRoundTrip(): coins {
+    return 4 *
+        (sccpGasFee(SCCP_GAS_RECOVERY) +
+            sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS));
+}
+
+/// Value attached to an activation dispatch: the bucket's gas and its floor.
 fun sccpBucketActivationValue(): coins {
-    return sccpGasFee(SCCP_GAS_BUCKET_ACTIVATE) + sccpBucketFloor();
+    return sccpGasFee(SCCP_GAS_RECOVERY) + sccpBucketFloor();
 }
 
 /// Cost of one bucket activation sent by the minter (value plus forwarding
 /// with the bucket StateInit, paid separately).
 fun sccpBucketActivationCost(): coins {
-    return sccpBucketActivationValue() +
+    return sccpBucketActivationValue() + sccpRecoveryRoundTrip() +
         sccpForwardFee(
             SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
             SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
         );
 }
 
-/// Bucket round trip of one consume (`sccp_consume` never carries a
+/// Bucket round trip of one consume (a consume dispatch never carries a
 /// StateInit): forwarding there and back, bucket gas and the bucket floor
 /// top-up.
 fun sccpConsumeRoundTrip(): coins {
-    return sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS) +
-        sccpGasFee(SCCP_GAS_BUCKET_CONSUME) +
+    return sccpRecoveryRoundTrip() + sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS) +
+        sccpGasFee(SCCP_GAS_RECOVERY) +
         sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS);
 }
@@ -213,14 +220,15 @@ fun sccpCheckpointRequiredValue(): coins {
 fun sccpFinalizeRequiredValue(deployCount: int): coins {
     return sccpGasFee(SCCP_GAS_MINTER_FINALIZE) + sccpInlineCertificateFees() +
         sccpConsumeRoundTrip() +
-        sccpGasFee(SCCP_GAS_MINTER_CONSUMED) +
+        sccpGasFee(SCCP_GAS_RECOVERY) +
         sccpEventForwardFee() +
         sccpForwardFee(
             SCCP_MSG_INTERNAL_TRANSFER_BITS + SCCP_WALLET_STATE_INIT_BITS,
             SCCP_MSG_INTERNAL_TRANSFER_CELLS + SCCP_WALLET_STATE_INIT_CELLS,
         ) +
         sccpGasFee(SCCP_GAS_WALLET_RECEIVE) +
-        sccpWalletMinStorage() +
+        sccpWalletRecoveryFloor() +
+        sccpRecoveryRoundTrip() +
         sccpExcessForwardFee() +
         deployCount * sccpBucketActivationCost();
 }
@@ -228,7 +236,7 @@ fun sccpFinalizeRequiredValue(deployCount: int): coins {
 /// Step value of a void that activates `deployCount` buckets.
 fun sccpVoidRequiredValue(deployCount: int): coins {
     return sccpGasFee(SCCP_GAS_MINTER_VOID) + sccpInlineCertificateFees() + sccpConsumeRoundTrip() +
-        sccpGasFee(SCCP_GAS_MINTER_CONSUMED) +
+        sccpGasFee(SCCP_GAS_RECOVERY) +
         sccpEventForwardFee() +
         sccpExcessForwardFee() +
         deployCount * sccpBucketActivationCost();
@@ -237,9 +245,9 @@ fun sccpVoidRequiredValue(deployCount: int): coins {
 /// Value the minter attaches to `sccp_consume_range`: bucket gas and floor,
 /// the reply and the minter's handling of it.
 fun sccpRangeConsumeValue(): coins {
-    return sccpGasFee(SCCP_GAS_BUCKET_CONSUME_RANGE) + sccpBucketFloor() +
+    return sccpRecoveryRoundTrip() + sccpGasFee(SCCP_GAS_RECOVERY) + sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS) +
-        sccpGasFee(SCCP_GAS_MINTER_RANGE_REPLY) +
+        sccpGasFee(SCCP_GAS_RECOVERY) +
         sccpEventForwardFee();
 }
 
@@ -266,27 +274,12 @@ fun sccpApplyControlRequiredValue(): coins {
         sccpExcessForwardFee();
 }
 
-/// Value the minter attaches to `sccp_unconsume` (forwarding paid separately).
-fun sccpUnconsumeValue(): coins {
-    return sccpGasFee(SCCP_GAS_BUCKET_UNCONSUME);
-}
-
-/// Cost of one `sccp_unconsume` sent by the minter (value plus forwarding).
-fun sccpUnconsumeCost(): coins {
-    return sccpUnconsumeValue() + sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS);
-}
-
 /// Step value of `sccp_retry`: the minter step, the costlier of the two
 /// retried messages and the excess return.
 fun sccpRetryRequiredValue(): coins {
-    return sccpGasFee(SCCP_GAS_MINTER_RETRY) +
-        max(sccpBucketActivationCost(), sccpUnconsumeCost()) +
-        sccpExcessForwardFee();
-}
-
-/// Value a bucket attaches to `sccp_consume_reverted` from its own balance.
-fun sccpConsumeRevertedValue(): coins {
-    return sccpGasFee(SCCP_GAS_MINTER_CONSUME_REVERTED);
+    // Any recovery stage can finish its receipt handshake and then dispatch
+    // the next stage. A complete maximum activation batch is a safe bound.
+    return sccpFinalizeRequiredValue(SCCP_MAX_DEPLOY_BUCKETS_PER_CALL);
 }
 
 /// Minimal value of an SCCP burn sent to a wallet: the wallet step, the

@@ -68,8 +68,8 @@ fn rebuild(world: &mut World) {
     world.rebuild_contract_alias_indexes().unwrap();
 }
 
-fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+fn fixture() -> World {
+    let mut world = World::default();
     let alice = &*iroha_test_samples::ALICE_ID;
     let (id, value) = Account::new(alice.clone()).build(alice).into_key_value();
     world.accounts.insert(id, value);
@@ -112,8 +112,8 @@ fn fixture() -> Box<World> {
     world
 }
 
-fn restart(world: &World) -> Box<World> {
-    let mut copy = Box::new(World::default());
+fn restart(world: &World) -> World {
+    let mut copy = World::new();
     copy.accounts = restored(&world.accounts);
     copy.domains = restored(&world.domains);
     copy.asset_definitions = restored(&world.asset_definitions);

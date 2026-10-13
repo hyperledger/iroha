@@ -677,7 +677,7 @@ fn hydrated_file(path: &[&str], offset: u64, size: u64) -> SorafsHydratedFileLay
         size,
     }
 }
-fn assert_report_contains(error: eyre::Report, expected: &str) {
+fn assert_report_contains(error: &eyre::Report, expected: &str) {
     let rendered = format!("{error:#}");
     assert!(
         rendered.contains(expected),
@@ -715,14 +715,14 @@ fn remote_hydration_manifest_response_rejects_substituted_commitments() -> Resul
         .checked_sub(1)
         .expect("fixture manifest content is nonempty");
     assert_report_contains(
-        validate_remote_manifest_response(&source, bounded_response, undersized_budget)
+        &validate_remote_manifest_response(&source, bounded_response, undersized_budget)
             .expect_err("remote manifest beyond the configured hydration budget must fail"),
         "content length is zero, inconsistent, or exceeds",
     );
     let mut noncanonical_base64 = remote_manifest_response_for_fixture(&fixture)?;
     noncanonical_base64.manifest_b64.push('\n');
     assert_report_contains(
-        validate_remote_manifest_response(&source, noncanonical_base64, 1_024)
+        &validate_remote_manifest_response(&source, noncanonical_base64, 1_024)
             .expect_err("noncanonical manifest base64 must fail"),
         "decode exact canonical remote manifest payload",
     );
@@ -733,14 +733,14 @@ fn remote_hydration_manifest_response_rejects_substituted_commitments() -> Resul
     substituted_root.manifest_b64 =
         sorafs_manifest::encode_manifest_v1_base64_canonical(&manifest)?;
     assert_report_contains(
-        validate_remote_manifest_response(&source, substituted_root, 1_024)
+        &validate_remote_manifest_response(&source, substituted_root, 1_024)
             .expect_err("substituted manifest root must fail"),
         "root CID does not match committed ledger state",
     );
     let mut substituted_digest = remote_manifest_response_for_fixture(&fixture)?;
     substituted_digest.manifest_digest_hex = "11".repeat(32);
     assert_report_contains(
-        validate_remote_manifest_response(&source, substituted_digest, 1_024)
+        &validate_remote_manifest_response(&source, substituted_digest, 1_024)
             .expect_err("substituted manifest digest must fail"),
         "manifest digest does not match committed ledger state",
     );
@@ -748,7 +748,7 @@ fn remote_hydration_manifest_response_rejects_substituted_commitments() -> Resul
     substituted_content_length.content_length =
         substituted_content_length.content_length.saturating_add(1);
     assert_report_contains(
-        validate_remote_manifest_response(&source, substituted_content_length, 1_024)
+        &validate_remote_manifest_response(&source, substituted_content_length, 1_024)
             .expect_err("substituted manifest content length must fail"),
         "content length is zero, inconsistent, or exceeds",
     );
@@ -757,7 +757,7 @@ fn remote_hydration_manifest_response_rejects_substituted_commitments() -> Resul
         .chunk_profile_handle
         .push_str(".substituted");
     assert_report_contains(
-        validate_remote_manifest_response(&source, substituted_profile, 1_024)
+        &validate_remote_manifest_response(&source, substituted_profile, 1_024)
             .expect_err("substituted manifest profile must fail"),
         "chunk profile does not match",
     );
@@ -775,7 +775,7 @@ fn remote_hydration_plan_page_rejects_inconsistent_counts_flags_indices_and_dige
         );
     })?;
     assert_report_contains(
-        parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_count, 16)
+        &parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_count, 16)
             .expect_err("inconsistent returned count must fail"),
         "returned counts do not match page arrays",
     );
@@ -787,7 +787,7 @@ fn remote_hydration_plan_page_rejects_inconsistent_counts_flags_indices_and_dige
         );
     })?;
     assert_report_contains(
-        parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_flags, 16)
+        &parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_flags, 16)
             .expect_err("inconsistent pagination flags must fail"),
         "pagination flags or counts are inconsistent",
     );
@@ -800,7 +800,7 @@ fn remote_hydration_plan_page_rejects_inconsistent_counts_flags_indices_and_dige
             .insert("chunk_index".into(), norito::json::Value::from(1_u64));
     })?;
     assert_report_contains(
-        parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_index, 16)
+        &parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_index, 16)
             .expect_err("noncontiguous chunk index must fail"),
         "chunk page is not contiguous",
     );
@@ -813,7 +813,7 @@ fn remote_hydration_plan_page_rejects_inconsistent_counts_flags_indices_and_dige
         *listed_digest = norito::json::Value::from("77".repeat(32));
     })?;
     assert_report_contains(
-        parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_digest, 16)
+        &parse_remote_hydration_plan_page(&fixture.manifest_id_hex, &inconsistent_digest, 16)
             .expect_err("inconsistent chunk digest arrays must fail"),
         "chunk digest arrays disagree",
     );
@@ -827,21 +827,21 @@ fn remote_hydration_payload_verifier_rejects_payload_car_and_por_substitution() 
     let mut substituted_payload = fixture.payload.clone();
     substituted_payload[0] ^= 0x01;
     assert_report_contains(
-        verify_remote_hydration_payload(&substituted_payload, &plan, &manifest)
+        &verify_remote_hydration_payload(&substituted_payload, &plan, &manifest)
             .expect_err("substituted payload must fail"),
         "payload does not match the authenticated plan",
     );
     let mut substituted_car = manifest.clone();
     substituted_car.manifest.car_digest[0] ^= 0x01;
     assert_report_contains(
-        verify_remote_hydration_payload(&fixture.payload, &plan, &substituted_car)
+        &verify_remote_hydration_payload(&fixture.payload, &plan, &substituted_car)
             .expect_err("substituted CAR commitment must fail"),
         "payload does not match canonical CAR manifest fields",
     );
     let mut substituted_por = manifest;
     substituted_por.manifest.por_root[0] ^= 0x01;
     assert_report_contains(
-        verify_remote_hydration_payload(&fixture.payload, &plan, &substituted_por)
+        &verify_remote_hydration_payload(&fixture.payload, &plan, &substituted_por)
             .expect_err("substituted PoR commitment must fail"),
         "payload does not match canonical CAR manifest fields",
     );
@@ -939,7 +939,7 @@ fn remote_hydration_rejects_equal_size_file_offset_swap() -> Result<()> {
     std::mem::swap(&mut first[0].offset, &mut remaining[0].offset);
     assert_eq!(first[0].size, remaining[0].size);
     assert_report_contains(
-        verify_remote_hydration_payload(&payload, &plan, &verified_manifest)
+        &verify_remote_hydration_payload(&payload, &plan, &verified_manifest)
             .expect_err("equal-size file offset swap must fail"),
         "does not match canonical CAR layout offset",
     );
@@ -947,7 +947,7 @@ fn remote_hydration_rejects_equal_size_file_offset_swap() -> Result<()> {
 }
 #[test]
 fn remote_hydration_sources_exclude_noncompleted_orders_and_prefer_newest() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let fixtures = vec![
         build_remote_manifest_fixture(b"pending-order", [0x41; 32], 41)?,
         build_remote_manifest_fixture(b"expired-order", [0x42; 32], 42)?,
@@ -988,7 +988,7 @@ fn operator_preseed_bundle_hydration_requires_exact_iroha_hash() -> Result<()> {
     let payload = b"operator-preseed-bundle";
     let (plan, manifest) = build_sorafs_manifest(payload)?;
     let qualified = ingest_operator_preseed_payload(&store, &plan, &manifest, payload)?;
-    let state = test_state()?;
+    let state = test_state();
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().join("runtime-state")),
         Arc::clone(&state),
@@ -1057,7 +1057,7 @@ fn operator_preseed_inrou_layout_accepts_real_guest_size_without_buffering() -> 
         content_length
     );
     assert_report_contains(
-        plan_operator_preseed_sorafs_files(
+        &plan_operator_preseed_sorafs_files(
             &files,
             Path::new("/private/runtime/inrou"),
             content_length,
@@ -1108,7 +1108,7 @@ fn operator_preseed_inrou_directory_hydration_requires_exact_manifest_binding() 
         manifest_digest_hex,
         content_cid: encode_content_cid(&sorafs_manifest::canonical_manifest_root_cid([0xA5; 32])),
     };
-    let state = test_state()?;
+    let state = test_state();
     let configured_artifact = bundle
         .container
         .inrou
@@ -1135,7 +1135,7 @@ fn operator_preseed_inrou_directory_hydration_requires_exact_manifest_binding() 
     fs::create_dir_all(&bundle_root_path)?;
     let bundle_root = ensure_secure_inrou_disk_directory(&bundle_root_path)?;
     assert_report_contains(
-        manager
+        &manager
             .hydrate_published_inrou_guest_image_artifact(&bundle_root, &bundle, &plan)
             .expect_err("a substituted manifest CID must fail"),
         "manifest CID does not match",
@@ -1202,7 +1202,7 @@ fn enabled_inrou_host_requires_exact_trusted_guest_preseed_before_startup() -> R
         .manifest_by_digest(&manifest_digest)
         .expect("newly published guest manifest")
         .content_length();
-    let state = test_state()?;
+    let state = test_state();
 
     let missing_store = SoracloudRuntimeManager::new(
         test_runtime_manager_config_with_trusted_guest(
@@ -1212,7 +1212,7 @@ fn enabled_inrou_host_requires_exact_trusted_guest_preseed_before_startup() -> R
         Arc::clone(&state),
     );
     assert_report_contains(
-        missing_store
+        &missing_store
             .ensure_trusted_inrou_guest_artifact_preseeded()
             .expect_err("enabled hosting must not fetch its trust anchor at runtime"),
         "requires a disabled-provider operator-preseed SoraFS store",
@@ -1230,7 +1230,7 @@ fn enabled_inrou_host_requires_exact_trusted_guest_preseed_before_startup() -> R
         qualified_test_operator_preseed_manifests(&store),
     )?;
     assert_report_contains(
-        missing_artifact
+        &missing_artifact
             .ensure_trusted_inrou_guest_artifact_preseeded()
             .expect_err("a different valid artifact must not satisfy the configured trust"),
         "is missing or does not currently qualify trusted Inrou guest manifest",
@@ -1253,7 +1253,7 @@ fn enabled_inrou_host_requires_exact_trusted_guest_preseed_before_startup() -> R
                 qualified_test_operator_preseed_manifests(&store),
             )?;
     assert_report_contains(
-        undersized_guest_budget
+        &undersized_guest_budget
             .ensure_trusted_inrou_guest_artifact_preseeded()
             .expect_err("the immutable guest-image budget must bound preseed materialization"),
         "configured materialization byte budget",
@@ -1277,17 +1277,16 @@ fn enabled_inrou_host_requires_exact_trusted_guest_preseed_before_startup() -> R
     Ok(())
 }
 #[test]
-fn enabled_inrou_host_rejects_embedded_provider_storage() -> Result<()> {
+fn enabled_inrou_host_rejects_embedded_provider_storage() {
     for operator_preseed_attached in [false, true] {
         let error =
             validate_operator_preseed_provider_boundary(true, operator_preseed_attached, true)
                 .expect_err("Inrou V1 hosting and provider storage must be mutually exclusive");
         assert_report_contains(
-            error,
+            &error,
             "Inrou V1 hosting requires embedded SoraFS provider storage to be disabled",
         );
     }
-    Ok(())
 }
 #[test]
 fn enabled_inrou_host_rejects_wrong_isa_trusted_guest_preseed() -> Result<()> {
@@ -1314,14 +1313,14 @@ fn enabled_inrou_host_rejects_wrong_isa_trusted_guest_preseed() -> Result<()> {
             temp_dir.path().join("runtime-state"),
             artifact,
         ),
-        test_state()?,
+        test_state(),
     )
     .with_operator_preseed_store(
         Arc::clone(&store),
         qualified_test_operator_preseed_manifests(&store),
     )?;
     assert_report_contains(
-        manager
+        &manager
             .ensure_trusted_inrou_guest_artifact_preseeded()
             .expect_err("a valid artifact for a different ISA must fail startup"),
         "must contain exactly the selected image",
@@ -1360,14 +1359,14 @@ fn enabled_inrou_host_rejects_extra_trusted_guest_preseed_member() -> Result<()>
             temp_dir.path().join("runtime-state"),
             artifact,
         ),
-        test_state()?,
+        test_state(),
     )
     .with_operator_preseed_store(
         Arc::clone(&store),
         qualified_test_operator_preseed_manifests(&store),
     )?;
     assert_report_contains(
-        manager
+        &manager
             .ensure_trusted_inrou_guest_artifact_preseeded()
             .expect_err("an extra authenticated member must fail startup"),
         "must contain exactly the selected image",
@@ -1387,10 +1386,10 @@ fn published_inrou_guest_image_requires_exact_operator_trust_anchor() -> Result<
             temp_dir.path().join("runtime-state"),
             sample_published_inrou_guest_image_artifact(0x7F),
         ),
-        test_state()?,
+        test_state(),
     );
     assert_report_contains(
-        manager
+        &manager
             .hydrate_published_inrou_guest_image_artifact(&bundle_root, &bundle, &plan)
             .expect_err("a different valid operator trust anchor must fail closed"),
         "does not match the operator-approved host artifact",
@@ -1431,7 +1430,7 @@ fn published_inrou_guest_image_does_not_trust_preexisting_local_files() -> Resul
         fs::create_dir_all(target.parent().expect("guest-image path parent"))?;
         fs::write(target, b"unverified-local-image")?;
     }
-    let state = test_state()?;
+    let state = test_state();
     let configured_artifact = image.published_artifact.clone();
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config_with_trusted_guest(
@@ -1443,7 +1442,7 @@ fn published_inrou_guest_image_does_not_trust_preexisting_local_files() -> Resul
     let plan = sample_inrou_runtime_plan(&bundle, guest_isa);
     let bundle_root = secure_test_inrou_disk_directory(&temp_dir)?;
     assert_report_contains(
-        manager
+        &manager
             .hydrate_published_inrou_guest_image_artifact(&bundle_root, &bundle, &plan)
             .expect_err("preexisting local guest images must not bypass SoraFS verification"),
         "operator-preseed store is missing configured",
@@ -1466,7 +1465,7 @@ fn published_inrou_guest_image_does_not_trust_preexisting_local_files() -> Resul
 fn published_inrou_guest_image_requires_manifest_and_selected_isa() -> Result<()> {
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let bundle_root = secure_test_inrou_disk_directory(&temp_dir)?;
-    let state = test_state()?;
+    let state = test_state();
     let bundle = sample_inrou_test_bundle()?;
     let trusted_guest_artifact = bundle
         .container
@@ -1490,7 +1489,7 @@ fn published_inrou_guest_image_requires_manifest_and_selected_isa() -> Result<()
     let mut missing_manifest = bundle.clone();
     missing_manifest.container.inrou = None;
     assert_report_contains(
-        manager
+        &manager
             .hydrate_published_inrou_guest_image_artifact(&bundle_root, &missing_manifest, &plan)
             .expect_err("a signed Inrou bundle without its manifest must fail closed"),
         "missing its manifest",
@@ -1505,7 +1504,7 @@ fn published_inrou_guest_image_requires_manifest_and_selected_isa() -> Result<()
         .guest_images
         .remove(&plan.selected_guest_isa);
     assert_report_contains(
-        manager
+        &manager
             .hydrate_published_inrou_guest_image_artifact(&bundle_root, &missing_guest_isa, &plan)
             .expect_err("a signed Inrou bundle without the selected ISA must fail closed"),
         "missing selected guest ISA",
@@ -1525,21 +1524,21 @@ fn published_inrou_guest_image_requires_exact_authenticated_members() -> Result<
     let mut unrelated = expected.clone();
     unrelated[0].path = vec!["x86_64".to_owned(), "unrelated.bin".to_owned()];
     assert_report_contains(
-        validate_published_inrou_guest_image_files(&plan, &unrelated)
+        &validate_published_inrou_guest_image_files(&plan, &unrelated)
             .expect_err("an unrelated authenticated file must not satisfy the image contract"),
         "must contain exactly",
     );
     let mut extra = expected;
     extra.push(hydrated_file(&["metadata.json"], 3, 1));
     assert_report_contains(
-        validate_published_inrou_guest_image_files(&plan, &extra)
+        &validate_published_inrou_guest_image_files(&plan, &extra)
             .expect_err("extra authenticated files must fail the exact image contract"),
         "must contain exactly",
     );
     let mut noncanonical_plan = plan;
     noncanonical_plan.kernel_image_path = "/inrou//x86_64/vmlinux".to_owned();
     assert_report_contains(
-        validate_published_inrou_guest_image_files(&noncanonical_plan, &[])
+        &validate_published_inrou_guest_image_files(&noncanonical_plan, &[])
             .expect_err("noncanonical selected image paths must fail closed"),
         "nonportable path component",
     );
@@ -1864,7 +1863,7 @@ fn test_provider_cache_with_transport_hints(
             max_same_pool_per_path: 1,
         },
         notes: None,
-        stream_budget: stream_budget.clone(),
+        stream_budget,
         transport_hints: transport_hints.clone(),
     };
     let mut advert = ProviderAdvertV1 {
@@ -1991,7 +1990,7 @@ fn test_provider_cache(
 }
 #[test]
 fn remote_hydration_provider_target_requires_range_hint_and_stream_budget() -> Result<()> {
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let cases = [
         ([0x91; 32], None, Some(8), false),
@@ -2060,7 +2059,7 @@ fn remote_hydration_provider_target_uses_tighter_advertised_stream_limit() -> Re
         7,
         Some(3),
     )?;
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().to_path_buf()),
@@ -2094,7 +2093,7 @@ fn remote_hydration_provider_session_retries_after_advert_replacement() -> Resul
         .expect("provider advert fixture record")
         .advert()
         .clone();
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().to_path_buf()),
@@ -2213,7 +2212,7 @@ fn remote_hydration_provider_session_fails_closed_when_advert_expires() -> Resul
         .expect("provider advert fixture record")
         .advert()
         .clone();
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().to_path_buf()),
@@ -2297,7 +2296,7 @@ fn hydration_workers_share_the_provider_stream_limit() -> Result<()> {
         4,
         Some(1),
     )?;
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().to_path_buf()),
@@ -2441,7 +2440,7 @@ fn committed_remote_hydration_rejects_case_variant_digest_and_chunker() -> Resul
     )?;
     let server = spawn_remote_hydration_fixture(std::slice::from_ref(&fixture))?;
     let cache = test_provider_cache(&server.base_url, provider_id)?;
-    let state = test_state()?;
+    let state = test_state();
     let temp_dir = canonical_runtime_fixture_tempdir()?;
     let manager = SoracloudRuntimeManager::new(
         test_runtime_manager_config(temp_dir.path().to_path_buf()),
@@ -2495,7 +2494,7 @@ fn committed_remote_hydration_rejects_case_variant_digest_and_chunker() -> Resul
             .read_committed_remote_sorafs_payload(
                 std::slice::from_ref(&case_variant_chunker),
                 Hash::new(&fixture.payload),
-            )?
+            )
             .is_none(),
         "case-variant committed chunker handles must not match"
     );
@@ -2559,7 +2558,7 @@ fn approve_remote_hydration_sources_with_status_and_finalization(
     {
         let mut pin_manifests = block.world.pin_manifests_mut_for_testing().transaction();
         for fixture in fixtures {
-            let policy = fixture.pin_policy.clone();
+            let policy = fixture.pin_policy;
             let content_length = fixture.payload.len() as u64;
             let amount = pricing
                 .public_pin_fee(
@@ -2572,7 +2571,7 @@ fn approve_remote_hydration_sources_with_status_and_finalization(
                 .wrap_err("compute remote hydration fixture pin fee")?;
             let mut record = PinManifestRecord::new(
                 fixture.manifest_digest,
-                fixture.manifest_root_cid.clone(),
+                fixture.manifest_root_cid,
                 fixed_chunker_handle(),
                 fixture.chunk_digest_sha3_256,
                 fixture.por_root,
@@ -2606,7 +2605,7 @@ fn approve_remote_hydration_sources_with_status_and_finalization(
                 ReplicationOrderRecord {
                     order_id: fixture.order_id,
                     manifest_digest: fixture.manifest_digest,
-                    manifest_root_cid: fixture.manifest_root_cid.clone(),
+                    manifest_root_cid: fixture.manifest_root_cid,
                     musubi_archive: None,
                     issued_by: (*ALICE_ID).clone(),
                     issued_epoch: fixture.issued_epoch,

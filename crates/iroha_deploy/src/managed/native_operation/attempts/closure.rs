@@ -3,6 +3,11 @@ use super::*;
 use crate::managed::native_operation::{Fees, authorization::DispatchAuthorization};
 use std::time::Instant;
 
+#[path = "closure_read_phase.rs"]
+mod read_phase;
+use crate::managed::stream_token_custody::body_history::NativeClosureInspector;
+use read_phase::{ClosureInspection, PrepareNext, ReadPhase};
+
 #[derive(Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_deploy::managed::native_operation::attempts::ClosureTail")]
 pub(super) enum ClosureTail {
@@ -37,12 +42,16 @@ pub(in crate::managed) struct PendingUnsignedClosure {
     history: History,
 }
 // A consuming read returns the same owner when the exact closure is still pending.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "A pending consuming read returns the original history owner without a new allocation in bounded admission"
+)]
 pub(in crate::managed) enum UnsignedClosureVerification {
     Pending(History),
     Closed(VerifiedUnsignedClosure),
 }
 pub(in crate::managed) struct VerifiedUnsignedClosure {
-    history: std::sync::Arc<History>,
+    history: std::rc::Rc<History>,
     digest: [u8; 32],
     successor: [u8; 32],
     cumulative_reserved: usize,
@@ -82,7 +91,7 @@ impl VerifiedUnsignedClosure {
         self.history.require_current_with_pass(pass)?;
         self.require_receipt()
     }
-    pub(super) fn shared_history(&self) -> &std::sync::Arc<History> {
+    pub(super) fn shared_history(&self) -> &std::rc::Rc<History> {
         &self.history
     }
     pub(in crate::managed) fn retained_history(&self) -> &History {
@@ -179,12 +188,12 @@ impl History {
         {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
-        if let Some(closed) = &self.closed {
-            if closed.plan != digest(plan)? || closed.tail != plan.tail {
-                return Err(invalid(
-                    "unsigned closure changed its reserved closing plan",
-                ));
-            }
+        if let Some(closed) = &self.closed
+            && (closed.plan != digest(plan)? || closed.tail != plan.tail)
+        {
+            return Err(invalid(
+                "unsigned closure changed its reserved closing plan",
+            ));
         }
         Ok(())
     }
@@ -197,6 +206,27 @@ impl History {
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
         self.require_current_with_pass(pass)?;
+        self.check_successor_binding(successor, pass)
+    }
+    fn check_successor_for_wallets<'history, 'pass, 'snapshot>(
+        &'history self,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&'pass EnrollmentReadPass<'snapshot>>,
+    ) -> Result<Option<parser_pass::CurrentReadAdmission<'history, 'pass, 'snapshot>>> {
+        let current = if let Some(pass) = pass {
+            pass.current_read(self)?
+        } else {
+            self.require_current()?;
+            None
+        };
+        self.check_successor_binding(successor, pass)?;
+        Ok(current)
+    }
+    fn check_successor_binding(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
         let snapshot = pass.and_then(EnrollmentReadPass::snapshot);
         successor.revalidate_with_snapshot_read_pass(snapshot)?;
         let target = successor.target();
@@ -219,18 +249,23 @@ impl History {
         self.require_fees(evidence.fees())?;
         Ok(())
     }
-    fn verify_unsigned_wallets(
-        &self,
-        inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
-    ) -> Result<()> {
-        self.verify_unsigned_wallets_with_pass(inspect, None)
-    }
     fn verify_unsigned_wallets_with_pass(
         &self,
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
-        self.verify_wallets_with_pass(
+        self.verify_unsigned_wallets_after_current(inspect, pass, None)
+    }
+    fn verify_unsigned_wallets_after_current(
+        &self,
+        inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+        current: Option<parser_pass::CurrentReadAdmission<'_, '_, '_>>,
+    ) -> Result<()> {
+        if self.closing.is_some() || self.closed.is_some() {
+            return Err(ManagedBootstrapFailure::TransitionPending.into());
+        }
+        self.verify_wallets_inner_after_current(
             |attempt| {
                 let value = inspect(attempt)?;
                 if matches!(
@@ -243,7 +278,9 @@ impl History {
                 }
                 Ok(value)
             },
+            None,
             pass,
+            current,
         )?;
         for attempt in &self.attempts {
             require_no_native_effects(attempt)?;
@@ -253,8 +290,9 @@ impl History {
     fn inspect_unsigned_tail(
         &self,
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<ClosureTail> {
-        self.verify_unsigned_wallets(inspect)?;
+        self.verify_unsigned_wallets_with_pass(inspect, pass)?;
         if self
             .attempts
             .iter()
@@ -296,80 +334,96 @@ impl History {
             ),
         }
     }
+    #[cfg(test)]
     pub(in crate::managed) fn prepare_unsigned_closure(
         self,
         successor: &dyn SemanticSuccessor,
         authorization: &dyn DispatchAuthorization,
         deadline: Instant,
         mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    ) -> Result<PendingUnsignedClosure> {
+        self.prepare_unsigned_closure_inner(
+            successor,
+            authorization,
+            deadline,
+            ClosureInspection::Generic(&mut inspect),
+            retire,
+        )
+    }
+    pub(in crate::managed) fn prepare_unsigned_closure_native(
+        self,
+        successor: &dyn SemanticSuccessor,
+        authorization: &dyn DispatchAuthorization,
+        deadline: Instant,
+        inspect: &mut NativeClosureInspector<'_>,
+        retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    ) -> Result<PendingUnsignedClosure> {
+        self.prepare_unsigned_closure_inner(
+            successor,
+            authorization,
+            deadline,
+            ClosureInspection::Native(inspect),
+            retire,
+        )
+    }
+    fn prepare_unsigned_closure_inner(
+        mut self,
+        successor: &dyn SemanticSuccessor,
+        authorization: &dyn DispatchAuthorization,
+        deadline: Instant,
+        mut inspect: ClosureInspection<'_, '_>,
         mut retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
     ) -> Result<PendingUnsignedClosure> {
         self.check_successor(successor)?;
         authorization.check(self.purpose, deadline)?;
         self.require_fees(authorization.fees())?;
         authorization.claim_body_replacement(successor.target(), deadline)?;
-        self.verify_wallets_for_pending_close(&mut inspect)?;
-        // This is only publication of the exact anchored original authorization, never new Terms.
-        if self.reservation_pending() {
-            self.finish_reserved(&self.operation, true)?;
-        }
-        let history = self.reread()?;
-        history.check_successor(successor)?;
-        if history.closing.is_none() {
-            // Finish only an existing same-body retirement prefix. The exact Published successor
-            // already consumes its original slot; this neither selects Terms nor appends an attempt.
-            history.verify_unsigned_wallets(&mut inspect)?;
-            if let (Some(previous), Some(last)) = (history.predecessor(), history.last()) {
-                if previous.retirement.is_none() {
-                    authorization.check(history.purpose, deadline)?;
-                    successor.revalidate()?;
-                    history.require_current()?;
-                    selection::retire_predecessor(previous, last, &mut inspect, &mut retire)?;
+        let mut phase = ReadPhase::PrepareStart;
+        loop {
+            let next = inspect.prepare(&mut self, phase, successor, authorization, deadline)?;
+            phase = match next {
+                PrepareNext::Reservation => {
+                    // Only the exact anchored original is published, never new Terms.
+                    self.finish_reserved(&self.operation, true)?;
+                    ReadPhase::PrepareAfterReservation
                 }
-            }
-        }
-        let history = history.reread()?;
-        history.check_successor(successor)?;
-        authorization.check(history.purpose, deadline)?;
-        if history.closing.is_none() {
-            let tail = history.inspect_unsigned_tail(&mut inspect)?;
-            let cumulative = history
-                .scope
-                .prior_total()
-                .checked_add(history.reserved_attempt_count())
-                .ok_or_else(|| invalid("body dispatch count overflow"))?;
-            let plan = ClosurePlan {
-                purpose: history.purpose,
-                semantic: history.semantic,
-                scope: history.scope.commitment()?,
-                dispatch: history.dispatch.clone(),
-                successor: successor.target().successor_selection(),
-                tail,
-                cumulative_reserved: u8::try_from(cumulative)
-                    .map_err(|_| invalid("body dispatch count overflow"))?,
+                PrepareNext::Retirement => {
+                    let previous = self
+                        .predecessor()
+                        .ok_or_else(|| invalid("unsigned predecessor absent"))?;
+                    let last = self
+                        .last()
+                        .ok_or_else(|| invalid("unsigned successor absent"))?;
+                    selection::retire_predecessor(
+                        previous,
+                        last,
+                        &mut |attempt| inspect.inspect(attempt),
+                        &mut retire,
+                    )?;
+                    ReadPhase::PrepareAfterRetirement
+                }
+                PrepareNext::Closing(plan) => {
+                    write_record(&self.operation, "closing.nrt", &plan)?;
+                    ReadPhase::PrepareAfterClosing
+                }
+                PrepareNext::Ready => return Ok(PendingUnsignedClosure { history: self }),
             };
-            authorization.check(history.purpose, deadline)?;
-            successor.revalidate()?;
-            history.require_current()?;
-            write_record(&history.operation, "closing.nrt", &plan)?;
-        } else {
-            history.verify_unsigned_closure(successor, &mut inspect)?;
         }
-        let history = history.reread()?;
-        authorization.check(history.purpose, deadline)?;
-        Ok(PendingUnsignedClosure { history })
     }
     fn verify_wallets_for_pending_close(
         &self,
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<()> {
         match &self.closing {
-            Some(plan) => self.verify_wallets_inner(inspect, Some(plan), None),
-            None => self.verify_unsigned_wallets(inspect),
+            Some(plan) => self.verify_wallets_inner(inspect, Some(plan), pass),
+            None => self.verify_unsigned_wallets_with_pass(inspect, pass),
         }
     }
     /// Verify the complete pending or closed transition. None means a valid incomplete closure,
     /// never permission to ignore an existing retired wallet or to resume ordinary dispatch.
+    #[cfg(test)]
     pub(in crate::managed) fn verify_unsigned_closure(
         &self,
         successor: &dyn SemanticSuccessor,
@@ -396,7 +450,7 @@ impl History {
             .ok_or_else(|| invalid("verified unsigned closure lost its closed record"))?;
         let evidence = self.scope.enrollment()?;
         let value = VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(Self::read_retained_with_pass(
+            history: std::rc::Rc::new(Self::read_retained_with_pass(
                 &self.operation,
                 self.purpose,
                 self.semantic,
@@ -426,25 +480,45 @@ impl History {
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<UnsignedClosureVerification> {
         if norito::core::decode_limits_active() {
-            return match self.verify_unsigned_closure_with_pass(successor, inspect, pass)? {
-                Some(value) => Ok(UnsignedClosureVerification::Closed(value)),
-                None => Ok(UnsignedClosureVerification::Pending(self)),
-            };
+            return self
+                .verify_unsigned_closure_with_pass(successor, inspect, pass)?
+                .map_or_else(
+                    || Ok(UnsignedClosureVerification::Pending(self)),
+                    |value| Ok(UnsignedClosureVerification::Closed(value)),
+                );
         }
-        let checked = self.verify_unsigned_closure_wallets(successor, &mut inspect, pass);
-        if matches!(checked, Ok(false)) {
+        let Some(fields) = self.inspect_owned_closure(successor, &mut inspect, pass)? else {
             return Ok(UnsignedClosureVerification::Pending(self));
+        };
+        self.bind_owned_closure(fields, successor, pass)
+    }
+
+    fn inspect_owned_closure(
+        &self,
+        successor: &dyn SemanticSuccessor,
+        inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<Option<ClosureFields>> {
+        let checked = self.verify_unsigned_closure_wallets(successor, inspect, pass);
+        if matches!(checked, Ok(false)) {
+            return Ok(None);
         }
-        // The final tail inspection is a callback too. Read current canonical material only
-        // after it returns. A sealed pure parser pass owns predecessor entry/exit; the
-        // current local handles still close both sides here. Every other caller retains
-        // the whole-graph fences. Ordinary inspection refusal also closes these checks.
+        // Both native wallet calls have returned. Keep the original local handle and
+        // current-record exit even when inspection returned an ordinary error.
         self.revalidate_parser_handles(pass)?;
         let current = self.require_current_with_pass(pass);
         self.revalidate_parser_handles(pass)?;
         current?;
         checked?;
-        let fields = self.closure_fields()?;
+        self.closure_fields().map(Some)
+    }
+
+    fn bind_owned_closure(
+        self,
+        fields: ClosureFields,
+        successor: &dyn SemanticSuccessor,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<UnsignedClosureVerification> {
         let value = fields.bind(self);
         // No callback, wallet inspection, write or authorization action occurs between
         // the current census above and the exact receipt checks below. They use
@@ -473,15 +547,18 @@ impl History {
         inspect: &mut impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<bool> {
-        self.check_successor_with_pass(successor, pass)?;
+        // The private admission constructor performs the actual current census. Its
+        // borrowed token is consumed only after pure successor/binding checks; no wallet
+        // callback or effect intervenes. Active/foreign callers keep both original reads.
+        let current = self.check_successor_for_wallets(successor, pass)?;
         let Some(plan) = &self.closing else {
             // A reserved outer successor may coexist with an interrupted same-body unsigned
             // retirement. Validate that exact prefix read-only; prepare closes it through the
             // sole canonical retire_predecessor owner before publishing a closing plan.
-            self.verify_unsigned_wallets_with_pass(inspect, pass)?;
+            self.verify_unsigned_wallets_after_current(inspect, pass, current)?;
             return Ok(false);
         };
-        self.verify_wallets_inner(&mut *inspect, Some(plan), pass)?;
+        self.verify_wallets_inner_after_current(&mut *inspect, Some(plan), pass, current)?;
         for attempt in &self.attempts {
             require_no_native_effects(attempt)?;
         }
@@ -550,8 +627,15 @@ struct ClosureFields {
 }
 impl ClosureFields {
     fn bind(self, history: History) -> VerifiedUnsignedClosure {
+        // Inherited decoders retain the original owned-record construction and charging.
+        // No mutable scope, currentness verdict or wallet evidence enters the shared records.
+        let history = if norito::core::decode_limits_active() {
+            history
+        } else {
+            history.into_retained_records()
+        };
         VerifiedUnsignedClosure {
-            history: std::sync::Arc::new(history),
+            history: std::rc::Rc::new(history),
             digest: self.digest,
             successor: self.successor,
             cumulative_reserved: self.cumulative_reserved,
@@ -562,25 +646,54 @@ impl ClosureFields {
     }
 }
 impl PendingUnsignedClosure {
+    #[cfg(test)]
     pub(in crate::managed) fn finish(
         self,
         successor: &dyn SemanticSuccessor,
         authorization: &dyn DispatchAuthorization,
         deadline: Instant,
         mut inspect: impl FnMut(&Attempt) -> Result<VerifiedNativePreparation>,
+        retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    ) -> Result<VerifiedUnsignedClosure> {
+        self.finish_inner(
+            successor,
+            authorization,
+            deadline,
+            ClosureInspection::Generic(&mut inspect),
+            retire,
+        )
+    }
+    pub(in crate::managed) fn finish_native(
+        self,
+        successor: &dyn SemanticSuccessor,
+        authorization: &dyn DispatchAuthorization,
+        deadline: Instant,
+        inspect: &mut NativeClosureInspector<'_>,
+        retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
+    ) -> Result<VerifiedUnsignedClosure> {
+        self.finish_inner(
+            successor,
+            authorization,
+            deadline,
+            ClosureInspection::Native(inspect),
+            retire,
+        )
+    }
+    fn finish_inner(
+        self,
+        successor: &dyn SemanticSuccessor,
+        authorization: &dyn DispatchAuthorization,
+        deadline: Instant,
+        mut inspect: ClosureInspection<'_, '_>,
         mut retire: impl FnMut(&Attempt) -> Result<RetiredNativeRequest>,
     ) -> Result<VerifiedUnsignedClosure> {
         authorization.check(self.history.purpose, deadline)?;
         self.history.require_fees(authorization.fees())?;
         authorization.claim_body_replacement(successor.target(), deadline)?;
-        let history =
-            match self
-                .history
-                .into_unsigned_closure_with_pass(successor, &mut inspect, None)?
-            {
-                UnsignedClosureVerification::Closed(value) => return Ok(value),
-                UnsignedClosureVerification::Pending(history) => history,
-            };
+        let mut history = match inspect.verify_into_closure(self.history, successor)? {
+            UnsignedClosureVerification::Closed(value) => return Ok(value),
+            UnsignedClosureVerification::Pending(history) => history,
+        };
         let plan = history
             .closing
             .as_ref()
@@ -598,7 +711,7 @@ impl PendingUnsignedClosure {
             {
                 return Err(invalid("body retirement selected another original wallet"));
             }
-            let value = inspect(last)?;
+            let value = inspect.inspect(last)?;
             if value.phase() != NativePreparationPhase::Retired
                 || value.request_sha256() != Some(request_sha256.as_str())
             {
@@ -607,9 +720,11 @@ impl PendingUnsignedClosure {
                 ));
             }
         }
-        authorization.check(history.purpose, deadline)?;
-        history.check_successor(successor)?;
-        history.verify_wallets_inner(&mut inspect, Some(plan), None)?;
+        inspect.before_closed(&mut history, successor, authorization, deadline)?;
+        let plan = history
+            .closing
+            .as_ref()
+            .ok_or_else(|| invalid("unsigned closing plan absent"))?;
         write_record(
             &history.operation,
             "closed.nrt",
@@ -618,16 +733,10 @@ impl PendingUnsignedClosure {
                 tail: plan.tail.clone(),
             },
         )?;
-        let history = history.reread()?;
-        authorization.check(history.purpose, deadline)?;
-        match history.into_unsigned_closure_with_pass(successor, &mut inspect, None)? {
-            UnsignedClosureVerification::Closed(value) => Ok(value),
-            UnsignedClosureVerification::Pending(_) => {
-                Err(invalid("unsigned body closure was not retained"))
-            }
-        }
+        inspect.after_closed(history, successor, authorization, deadline)
     }
 }
+
 impl ClosurePlan {
     pub(super) fn permits_retired_tail(
         &self,

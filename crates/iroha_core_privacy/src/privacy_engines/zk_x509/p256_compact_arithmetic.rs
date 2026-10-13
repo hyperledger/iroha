@@ -9,6 +9,13 @@ use crate::privacy_engines::zk_x509::private_table::{ClearingVecV1, zeroize_word
 
 /// One immutable native operation; its public kind/modulus remain attached.
 struct CompactOperationV1 {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "retain validated public operation identity with compact witness custody; fixed-row qualification consumes it"
+        )
+    )]
     topology: ZkX509P256ArithmeticTopologyV1,
     expanded: ExpandedOperationV1,
 }

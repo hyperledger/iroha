@@ -75,7 +75,11 @@ fn bootstrap_installs_the_key_block_epoch_until_its_stake_is_released() {
     );
     assert!(!is_aged(&profiles().ton, &memory, &light_client, now));
     assert!(is_aged(&profiles().ton, &memory, &light_client, deadline));
-    assert_eq!(aged_supersessions(&memory, &light_client).len(), 1);
+    assert!(
+        aged_supersession_native(&memory, &light_client, &LcMemory::detached())
+            .unwrap()
+            .is_some()
+    );
     assert!(matches!(
         initialize_light_client_with_profiles(
             &profiles(),
@@ -266,6 +270,29 @@ fn failed_transactions_and_void_events_are_classified() {
 }
 
 #[test]
+fn finalized_proof_binds_the_minter_transaction_without_inventing_an_amount() {
+    let chain = SyntheticTonChainV1::new([5; 32]);
+    let (memory, _) = installed(&chain);
+    let event = SyntheticTonEventV1::Finalized {
+        message_id: [0x73; 32],
+        nonce: 19,
+    };
+    let proof = event_proof(&chain, event.clone(), true);
+    let verified = verify(&memory, &proof, LATER_MS).expect("finalized source proof");
+    assert!(matches!(verified.event, SccpNormalizedEventV1::Finalized {
+        emitter: SccpSourceEmitterV1::Ton(MINTER), message_id, nonce: 19,
+        amount: None, locator: SccpSourceLocatorV1 { source_height: 10, .. },
+    } if message_id == [0x73; 32]));
+    assert_eq!(
+        verify(&memory, &event_proof(&chain, event, false), LATER_MS),
+        Err(TonLcError::Native(TonNativeSourceError::UnsuccessfulTransaction).into())
+    );
+    let mut other = proof;
+    other.minter = [9; 32];
+    assert!(verify(&memory, &other, LATER_MS).is_err());
+}
+
+#[test]
 fn back_links_reach_older_masterchain_blocks() {
     let chain = SyntheticTonChainV1::new([6; 32]);
     let (memory, _) = installed(&chain);
@@ -387,7 +414,8 @@ fn captured_mainnet_key_block_bootstraps_and_its_epoch_verifies_a_signed_block()
         signatures: link.signatures.clone(),
     };
     let (header, _) =
-        ton_open_masterchain_block(block.block_id, &block.header_proof, None).expect("header");
+        crate::ton_native::ton_open_masterchain_block(block.block_id, &block.header_proof, None)
+            .expect("header");
     let now = u64::from(header.gen_utime) * 1_000 + 60_000;
     let bootstrap = crate::light_client::SccpLcBootstrapDataV1::Ton(key_block_bootstrap())
         .to_bootstrap()
@@ -468,4 +496,276 @@ fn captured_mainnet_key_block_bootstraps_and_its_epoch_verifies_a_signed_block()
         verify(&memory, &proof, now),
         Err(TonLcError::BrokenShardWalk { index: 0 }.into())
     );
+}
+
+#[test]
+fn original_pool_refusal_preserves_prepared_ton_proof_for_retry_without_source_clone() {
+    use crate::light_client::prepared::PreparedLcFrameV1;
+    use iroha_allocation::AllocationBudget;
+    let chain = SyntheticTonChainV1::new([0x61; 32]);
+    let (view, _) = installed(&chain);
+    let proof = event_proof(&chain, transfer(), true);
+    let expected = verify(&view, &proof, LATER_MS).unwrap().event;
+    let wire = SccpSourceProofV1::Ton(proof).to_frame().unwrap();
+    let budget = AllocationBudget::new(8 * 1024 * 1024);
+    let prepared = PreparedLcFrameV1::proof(&wire, wire.len(), &budget).unwrap();
+    let retained = budget.reserved_bytes();
+    let SccpSourceProofV1::Ton(input) = prepared.get() else {
+        panic!("TON")
+    };
+    let original = input.transaction.as_ptr();
+    let memory = LcMemory::admitted(&budget, wire.len());
+    let blocked = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained)
+        .unwrap();
+    assert!(matches!(
+        verify_proof_native(&profiles().ton, &view, input, LATER_MS, &memory),
+        Err(SccpLcAttemptErrorV1::Buffer(_))
+    ));
+    assert_eq!(input.transaction.as_ptr(), original);
+    let unrelated = AllocationBudget::new(1024);
+    let unrelated_grant = unrelated.try_reserve_bytes(1024).unwrap();
+    drop(unrelated_grant);
+    assert!(matches!(
+        verify_proof_native(&profiles().ton, &view, input, LATER_MS, &memory),
+        Err(SccpLcAttemptErrorV1::Buffer(_))
+    ));
+    drop(blocked);
+    assert_eq!(budget.reserved_bytes(), retained);
+    let event = verify_proof_native(&profiles().ton, &view, input, LATER_MS, &memory).unwrap();
+    assert_eq!(input.transaction.as_ptr(), original);
+    assert_eq!(event.into_detached(), expected);
+    assert_eq!(
+        budget.reserved_bytes(),
+        retained,
+        "all native graph, roster, signatures and payload scratch have retired"
+    );
+    drop(prepared);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_ton_hops_match_detached_bytes_and_keep_output_custody_until_drop() {
+    use crate::light_client::{
+        prepared::PreparedLcFrameV1,
+        state::admitted::{SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1, SccpLcDeltaReadV1},
+    };
+    use iroha_allocation::AllocationBudget;
+    let chain = SyntheticTonChainV1::new([0x62; 32]);
+    let (view, _) = installed(&chain);
+    let first = chain.key_block(200, 100, 0, 1, T0 + 1000, T0 + 80000, 4);
+    let second = chain.key_block(300, 200, 1, 2, T0 + 2000, T0 + 90000, 4);
+    let input = TonLcAdvanceV1 {
+        hops: vec![first.hop, second.hop],
+    };
+    let lc = view.light_client(NETWORK).unwrap();
+    let expected = apply_advance(&profiles().ton, &view, &lc, &input, LATER_MS).unwrap();
+    let wire = SccpLcAdvanceV1::Ton(input).to_frame().unwrap();
+    let budget = AllocationBudget::new(8 * 1024 * 1024);
+    let prepared = PreparedLcFrameV1::advance(&wire, wire.len(), &budget).unwrap();
+    let source_bytes = budget.reserved_bytes();
+    let SccpLcAdvanceV1::Ton(input) = prepared.get() else {
+        panic!("TON")
+    };
+    let capacity = SccpLcDeltaCapacityV1 {
+        new_sets: 2,
+        superseded_sets: 2,
+        checkpoints: 0,
+        set_bytes: wire.len(),
+    };
+    let memory = LcMemory::admitted(&budget, wire.len());
+    let mut output = SccpLcDeltaBuilderV1::new(capacity, &budget).unwrap();
+    let head = apply_advance_into(
+        &profiles().ton,
+        &view,
+        &lc,
+        input,
+        LATER_MS,
+        &memory,
+        &mut output,
+    )
+    .unwrap();
+    let output = output.finish(head);
+    assert_eq!(output.head(), expected.head);
+    assert_eq!(output.set_count(), expected.new_sets.len());
+    assert_eq!(output.superseded(), expected.superseded_sets);
+    for (index, expected) in expected.new_sets.iter().enumerate() {
+        let actual = output.set(index).unwrap();
+        assert_eq!(actual.set_id, expected.set_id);
+        assert_eq!(actual.set_bytes, expected.set_bytes);
+        assert_eq!(
+            actual.superseded_at_source_ms,
+            expected.superseded_at_source_ms
+        );
+    }
+    assert!(budget.reserved_bytes() > source_bytes);
+    drop(prepared);
+    assert!(
+        budget.reserved_bytes() > 0,
+        "output retains its own actual backing after source retirement"
+    );
+    drop(output);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn ton_bootstrap_original_pool_refusal_retry_and_output_custody() {
+    use crate::light_client::{
+        SccpLcBootstrapDataV1,
+        prepared::PreparedLcFrameV1,
+        state::admitted::{SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1, SccpLcDeltaReadV1},
+    };
+    use iroha_allocation::AllocationBudget;
+    let chain = SyntheticTonChainV1::new([0x71; 32]);
+    let bootstrap = chain.bootstrap(100, 0, T0, UNTIL0);
+    let maximum = 1024 * 1024;
+    assert!(matches!(
+        PreparedLcFrameV1::bootstrap(&bootstrap.bytes, maximum, &AllocationBudget::new(0)),
+        Err(SccpLcAttemptErrorV1::Admission(_))
+    ));
+    let pool = AllocationBudget::new(8 * maximum);
+    let prepared = PreparedLcFrameV1::bootstrap(&bootstrap.bytes, maximum, &pool).unwrap();
+    let source_charge = pool.reserved_bytes();
+    let SccpLcBootstrapDataV1::Ton(input) = prepared.get() else {
+        panic!("TON")
+    };
+    let original = input.config_proof.as_ptr();
+    let expected = verify_bootstrap(&profiles().ton, &params(), input, LATER_MS).unwrap();
+    let mut output = SccpLcDeltaBuilderV1::new(
+        SccpLcDeltaCapacityV1 {
+            new_sets: 1,
+            superseded_sets: 0,
+            checkpoints: 0,
+            set_bytes: maximum,
+        },
+        &pool,
+    )
+    .unwrap();
+    let owned = pool.reserved_bytes();
+    let blocked = pool.try_reserve_bytes(pool.limit_bytes() - owned).unwrap();
+    let memory = LcMemory::admitted(&pool, maximum);
+    for _ in 0..2 {
+        assert!(matches!(
+            verify_bootstrap_into(
+                &profiles().ton,
+                &params(),
+                input,
+                LATER_MS,
+                &memory,
+                &mut output
+            ),
+            Err(SccpLcAttemptErrorV1::Buffer(_))
+        ));
+        assert_eq!(output.set_count(), 0);
+        assert_eq!(input.config_proof.as_ptr(), original);
+        let unrelated = AllocationBudget::new(1024);
+        drop(unrelated.try_reserve_bytes(1024).unwrap());
+    }
+    drop(blocked);
+    assert_eq!(pool.reserved_bytes(), owned);
+    let head = verify_bootstrap_into(
+        &profiles().ton,
+        &params(),
+        input,
+        LATER_MS,
+        &memory,
+        &mut output,
+    )
+    .unwrap();
+    assert_eq!(head, expected.light_client.head);
+    assert_eq!(input.config_proof.as_ptr(), original);
+    let output = output.finish(Some(head));
+    assert_eq!(output.set(0).unwrap(), (&expected.sets[0]).into());
+    let retained = pool.reserved_bytes();
+    drop(prepared);
+    assert_eq!(pool.reserved_bytes(), retained - source_charge);
+    assert!(pool.reserved_bytes() > 0, "canonical epoch remains owned");
+    drop(output);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn ton_evidence_and_freshness_refusal_use_original_pool_and_retry_exact_sources() {
+    use crate::light_client::prepared::PreparedLcEvidencePairV1;
+    use iroha_allocation::AllocationBudget;
+    let chain = SyntheticTonChainV1::new([0x72; 32]);
+    let (view, _) = installed(&chain);
+    let lc = view.light_client(NETWORK).unwrap();
+    let (a, _) = chain.master_block(150, 100, 0, T0 + 500, &chain.genesis_shard(), &[], 4);
+    let shard = chain.shard_block(
+        2,
+        &chain.genesis_shard(),
+        &chain.genesis_shard(),
+        &MINTER,
+        None,
+    );
+    let (b, _) = chain.master_block(150, 100, 0, T0 + 500, &shard.link.block_id, &[], 4);
+    let first = SccpLcEvidenceV1::Ton(TonLcEvidenceV1 { block: a })
+        .to_bytes()
+        .unwrap();
+    let second = SccpLcEvidenceV1::Ton(TonLcEvidenceV1 { block: b })
+        .to_bytes()
+        .unwrap();
+    let expected =
+        verify_equivocation_with_profiles(&profiles(), &view, NETWORK, &first, &second, LATER_MS)
+            .unwrap();
+    let deadline = weak_subjectivity_deadline_ms(&profiles().ton, &view, &lc);
+    let maximum = 1024 * 1024;
+    assert!(matches!(
+        PreparedLcEvidencePairV1::new(
+            first.as_bytes(),
+            second.as_bytes(),
+            maximum,
+            &AllocationBudget::new(0)
+        ),
+        Err(SccpLcAttemptErrorV1::Admission(_))
+    ));
+    let pool = AllocationBudget::new(8 * maximum);
+    let pair =
+        PreparedLcEvidencePairV1::new(first.as_bytes(), second.as_bytes(), maximum, &pool).unwrap();
+    let retained = pool.reserved_bytes();
+    let blocked = pool
+        .try_reserve_bytes(pool.limit_bytes() - retained)
+        .unwrap();
+    let memory = LcMemory::admitted(&pool, maximum);
+    for _ in 0..2 {
+        assert!(matches!(
+            pair.verify(&profiles(), &view, NETWORK, LATER_MS),
+            Err(SccpLcAttemptErrorV1::Buffer(_))
+        ));
+        assert!(matches!(
+            weak_subjectivity_deadline_ms_native(&profiles().ton, &view, &lc, &memory),
+            Err(SccpLcAttemptErrorV1::Admission(_))
+        ));
+        assert!(matches!(
+            aged_supersession_native(&view, &lc, &memory),
+            Err(SccpLcAttemptErrorV1::Admission(_))
+        ));
+        let unrelated = AllocationBudget::new(1024);
+        drop(unrelated.try_reserve_bytes(1024).unwrap());
+    }
+    drop(blocked);
+    assert_eq!(pool.reserved_bytes(), retained);
+    assert_eq!(
+        pair.verify(&profiles(), &view, NETWORK, LATER_MS).unwrap(),
+        expected
+    );
+    assert_eq!(
+        weak_subjectivity_deadline_ms_native(&profiles().ton, &view, &lc, &memory).unwrap(),
+        deadline
+    );
+    assert_eq!(
+        aged_supersession_native(&view, &lc, &memory)
+            .unwrap()
+            .unwrap()
+            .superseded_at_source_ms,
+        u64::from(UNTIL0) * 1000
+    );
+    assert_eq!(
+        pool.reserved_bytes(),
+        retained,
+        "epoch, signatures and BoC scratch retired"
+    );
+    drop(pair);
+    assert_eq!(pool.reserved_bytes(), 0);
 }

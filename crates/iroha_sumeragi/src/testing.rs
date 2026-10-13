@@ -350,6 +350,13 @@ impl FakeSigner {
 }
 
 impl Signer for FakeSigner {
+    fn sign_prepare(
+        &self,
+        context: &crate::crypto::PrepareSigningContext<'_>,
+    ) -> Result<Signature, crate::crypto::SigningError> {
+        self.sign(context.preimage())
+    }
+
     fn public_key(&self) -> &PublicKey {
         &self.key
     }

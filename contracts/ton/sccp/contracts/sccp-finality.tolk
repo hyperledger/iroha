@@ -52,6 +52,7 @@ fun sccpCommitteeRoot(n: int, parts: array<slice>): uint256 {
 
 /// True iff the compressed keys are strictly ascending as byte strings
 /// (`SDLEXCMP`), the canonical order of §3.7. Strict order excludes duplicates.
+@inline_ref
 fun sccpKeysAscend(keys: array<slice>): bool {
     var i = 1;
     val size = keys.size();
@@ -68,6 +69,7 @@ fun sccpKeysAscend(keys: array<slice>): bool {
 /// size, strictly ascending keys and the keccak committee root (§3.7). Throws
 /// `BadCommittee`. The keys are not checked as curve points: their validity
 /// rests on Taira's admission and on the root (§3.8).
+@inline_ref
 fun sccpRequireCommittee(parsed: ParsedKeys, n: int, root: int) {
     assert (sccpIsCommitteeSize(n)) throw SccpErrors.BadCommittee;
     assert (sccpKeysAscend(parsed.keys)) throw SccpErrors.BadCommittee;
@@ -129,6 +131,7 @@ fun XHeader.isRotation(self): bool {
 /// `X[0..109)` and `X[109..221)`. Both cells must be ordinary (`BadSnake`)
 /// and hold exactly 872 bits with one reference and 896 bits with none: any
 /// other shape is an `X` of another length (`BadHeader`, §5.1.3 step 1).
+@inline_ref
 fun sccpOpenX(x: cell): (slice, slice) {
     val head = sccpBeginParseOrdinary(x);
     assert (
@@ -154,6 +157,7 @@ fun sccpCheckpointId(headBytes: slice, tailBytes: slice): uint256 {
 /// `id` is `sccpCheckpointId` of the same slices. Returns the header and
 /// `X.network_id`, which the caller compares when the header is not already
 /// authenticated by a stored checkpoint.
+@inline_ref
 fun sccpReadActiveX(headBytes: slice, tailBytes: slice, id: int): (XHeader, int) {
     var head = headBytes;
     val magic = head.loadUint(128);
@@ -248,6 +252,7 @@ struct Checkpoints {
 }
 
 /// Reads the `^Checkpoints` cell of the minter storage.
+@inline_ref
 fun Checkpoints.load(c: cell): Checkpoints {
     var s = c.beginParse();
     val count = s.loadUint(2);
@@ -277,6 +282,7 @@ fun Checkpoints.load(c: cell): Checkpoints {
 
 /// True iff `c` is the `^Checkpoints` cell of the canonical initial data
 /// (§5.3.1): an ordinary cell of exactly the two bits `count = 0`.
+@inline
 fun Checkpoints.isCanonicalEmpty(c: cell): bool {
     val (s, isExotic) = c.beginParseSpecial();
     if (isExotic | (s.remainingBitsCount() != 2) | (s.remainingRefsCount() != 0)) {
@@ -287,6 +293,7 @@ fun Checkpoints.isCanonicalEmpty(c: cell): bool {
 
 /// The id stored at `height`, or 0 when the height holds no checkpoint.
 @pure
+@inline_ref
 fun Checkpoints.find(self, height: int): int {
     if (height == 0) {
         return 0;
@@ -307,6 +314,7 @@ fun Checkpoints.find(self, height: int): int {
 /// height that is already present is never overwritten. With a free slot the
 /// entry is added; with three stored it enters only above the lowest stored
 /// height, which it evicts. `height` is at least 1.
+@inline_ref
 fun Checkpoints.insert(mutate self, height: int, id: int): bool {
     if ((height == self.h0) | (height == self.h1) | (height == self.h2)) {
         return false;
@@ -348,6 +356,7 @@ fun Checkpoints.insert(mutate self, height: int, id: int): bool {
 
 /// Serializes the `^Checkpoints` cell: `count:uint2` then `count × (height:uint64
 /// id:bits256)` in ascending height order.
+@inline_ref
 fun Checkpoints.toCell(self): cell {
     var b = beginCell().storeUint(self.count, 2);
     if (self.count > 0) {
@@ -424,6 +433,7 @@ fun sccpIsIdentitySignature(signature: slice): bool {
 /// when it was installed, and `instance` is Taira's consensus instance `I`.
 /// Nothing is recorded: the caller publishes the certificate when `fullPath`
 /// is set (step 12), evaluates `sccpViolation` (step 13) and acts.
+@inline_ref
 fun sccpVerifyCertificate(
     cert: cell,
     tairaNetworkId: int,
@@ -553,6 +563,7 @@ fun sccpInitUntilMsIsValid(nowMs: int, untilMs: int): bool {
 ///
 /// `b` is `keccak256(X)`. `sccp_checkpoint` latches on a violation without
 /// throwing; an inline entry point throws `LatchRequired` (§5.3.4 item 6).
+@inline_ref
 fun sccpViolation(x: XHeader, committee: CommitteeState, cps: Checkpoints): (int, int, int) {
     val stored = cps.find(x.height);
     if ((stored != 0) & (stored != x.id)) {
@@ -588,6 +599,7 @@ fun sccpRotationUntilMs(x: XHeader, nowMs: int): int {
 ///
 /// U2 applies to checkpoint references only; it never makes a certificate CUR.
 @pure
+@inline
 fun sccpCheckpointUsable(x: XHeader, committee: CommitteeState): bool {
     if ((x.generation == committee.generation) & (x.committeeRoot == committee.root)) {
         return true;

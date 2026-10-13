@@ -303,7 +303,7 @@ fn bootstrap_original_policy_and_expiry_do_not_reparse_the_live_authority() {
         });
     assert_eq!(opens, 0);
     assert_eq!(parses, 0);
-    let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+    let ((), parses) = crate::localnet::service_authorities::count_profile_validations(|| {
         first.original.validate(&owner.authority).unwrap();
         first.original.policies.validate(&owner.authority).unwrap();
         assert!(profile_expiry(&owner.authority, &first.original).unwrap() > now_ms().unwrap());

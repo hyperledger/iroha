@@ -69,7 +69,11 @@ impl EthereumSource for MemorySource {
             .collect())
     }
 
-    fn event_block(&self, _tx_hash: &[u8; 32]) -> Result<EvmEventBlockV1, BuildError> {
+    fn event_block(
+        &self,
+        _tx_hash: &[u8; 32],
+        _max_proof_bytes: usize,
+    ) -> Result<EvmEventBlockV1, BuildError> {
         self.event
             .clone()
             .ok_or_else(|| BuildError::Unavailable("not mined".into()))
@@ -180,7 +184,11 @@ fn scenario(distance: u64, history: bool) -> Scenario {
             history: history_proofs,
             ..MemorySource::default()
         },
-        replay: LightClientReplayV1::installed(ETH, &initial),
+        replay: LightClientReplayV1::installed(
+            iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+            ETH,
+            &initial,
+        ),
         now,
         anchor: EVENT + distance,
     }
@@ -197,6 +205,7 @@ fn decoded(evidence: &SourceEvidenceV1) -> EthereumSourceProofV1 {
 
 fn build(scenario: &Scenario) -> Result<SourceEvidenceV1, BuildError> {
     build_evidence(
+        &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
         &scenario.source,
         &TX,
         EthereumEventV1::TransferToTaira { log_index: 0 },
@@ -294,6 +303,7 @@ fn beyond_the_windows_evidence_backfills_from_the_checkpoint() {
     // Without a retained checkpoint above the burn nothing anchors it.
     let mut bare = scenario(8_192, true);
     bare.replay = LightClientReplayV1::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
         ETH,
         bare.replay.light_client().expect("installed"),
         bare.replay.sets().expect("sets"),
@@ -313,6 +323,7 @@ fn checkpoint_anchors_serve_a_light_client_without_the_finality_committee() {
         .expect("read")
         .expect("checkpoint at E");
     scenario.replay = LightClientReplayV1::new(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
         ETH,
         light_client,
         scenario.replay.sets().expect("sets"),
@@ -375,7 +386,11 @@ fn advances_step_a_light_client_twelve_periods_behind_under_256_kib() {
         now,
     )
     .expect("the bootstrap committee is still fresh");
-    let mut replay = LightClientReplayV1::installed(ETH, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        ETH,
+        &initial,
+    );
     let budget = AdvanceBudgetV1::for_params(&params(), 262_144);
     // In one piece the advance exceeds the keeper's default budget and used to be dropped.
     let whole = build_advance(
@@ -532,7 +547,11 @@ fn captured_mainnet_responses_build_advances_and_select_ancestry() {
     .expect("bootstrap frame");
     let initial =
         lc::verify_bootstrap(ETH, &params(), &bootstrap, now).expect("captured bootstrap");
-    let mut replay = LightClientReplayV1::installed(ETH, &initial);
+    let mut replay = LightClientReplayV1::installed(
+        iroha_sccp::light_client::profile::SccpChainProfilesV1::latest(),
+        ETH,
+        &initial,
+    );
     let stored = replay.light_client().expect("installed").head.latest_set_id;
     assert_eq!(stored, 1_867);
     let budget = AdvanceBudgetV1::for_params(&params(), 262_144);
@@ -551,7 +570,14 @@ fn captured_mainnet_responses_build_advances_and_select_ancestry() {
         )))
     };
     let event = EthereumEventV1::TransferToTaira { log_index };
-    let evidence = build_evidence(&source, &TX, event, &replay).expect("evidence");
+    let evidence = build_evidence(
+        &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
+        &source,
+        &TX,
+        event,
+        &replay,
+    )
+    .expect("evidence");
     assert!(matches!(
         decoded(&evidence).ancestry,
         EthereumAncestryV1::HistoryContract(_)
@@ -562,7 +588,14 @@ fn captured_mainnet_responses_build_advances_and_select_ancestry() {
     );
     // An endpoint without the state of `E` falls back to the captured header chain.
     let (stateless, _) = mainnet_source(false);
-    let evidence = build_evidence(&stateless, &TX, event, &replay).expect("evidence");
+    let evidence = build_evidence(
+        &iroha_sccp::light_client::profile::SccpChainProfilesV1::latest().ethereum,
+        &stateless,
+        &TX,
+        event,
+        &replay,
+    )
+    .expect("evidence");
     let EthereumAncestryV1::HeaderChain(segment) = decoded(&evidence).ancestry else {
         panic!("a header chain");
     };
@@ -575,3 +608,20 @@ fn captured_mainnet_responses_build_advances_and_select_ancestry() {
         not_sccp()
     );
 }
+
+#[test]
+fn replay_verifies_under_the_selected_profile_instead_of_the_newest_compiled_one() {
+    let mut scenario = scenario(1, false);
+    let evidence = build(&scenario).expect("valid evidence");
+    assert_proves_the_burn(&scenario, &evidence);
+    scenario.replay.profiles.ethereum.supported_until_epoch = 0;
+    assert!(
+        scenario
+            .replay
+            .verify_evidence(&evidence, scenario.now)
+            .is_err(),
+        "committed unsupported horizon must not fall back to the newest compiled profile"
+    );
+}
+
+use iroha_sccp::ethereum_source::mpt_proof;

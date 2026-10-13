@@ -21,9 +21,16 @@ const SUMERAGI_FINALITY_RESPONSE_MAX_BYTES: usize =
 #[derive(Debug)]
 pub struct AuthenticatedFinalityAttestation {
     attestation: iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 }
 
 impl AuthenticatedFinalityAttestation {
+    /// Independently selected root scope used by the exact authenticated SDK read.
+    #[must_use]
+    pub const fn root_scope(&self) -> iroha_data_model::block::consensus::SumeragiRootScope {
+        self.root_scope
+    }
+
     /// Borrow the unchanged authenticated statement, without granting chain or committee trust.
     #[must_use]
     pub fn attestation(&self) -> &iroha_data_model::sumeragi_finality::SumeragiFinalityAttestation {
@@ -320,6 +327,7 @@ impl Client {
     /// Read and authenticate the selected node's fresh current-consensus tip statement.
     /// `expected_scope` comes from the caller's independently authenticated signed genesis.
     /// The caller's independently anchored verifier must authenticate the embedded chain.
+    /// `expected_scope` must be selected from that verifier, never from the returned header.
     ///
     /// # Errors
     /// Bounded transport/codec failure, malformed proof, invalid node signature or wrong request binding.
@@ -383,7 +391,10 @@ impl Client {
             ));
         }
         self.ensure_activation_evidence_deadline()?;
-        Ok(AuthenticatedFinalityAttestation { attestation })
+        Ok(AuthenticatedFinalityAttestation {
+            attestation,
+            root_scope: expected_scope,
+        })
     }
 
     /// Fetch one canonical current proof without choosing a trust root from the response.
@@ -426,6 +437,7 @@ impl Client {
     /// Fetch 1 to 64 consecutive canonical full proofs under this client's original deadline.
     ///
     /// This returns structural evidence, not an authenticated committee or trust root.
+    /// The caller selects `expected_scope` from its independent signed genesis or authenticated root.
     /// Consumers must authenticate the complete history from their independent signed
     /// genesis, which also supplies `expected_scope`. One interval uses the existing response/codec ceiling; it cannot multiply
     /// that ceiling by its row count or fall back to per-height requests.

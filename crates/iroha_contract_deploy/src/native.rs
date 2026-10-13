@@ -343,7 +343,8 @@ pub fn quote_and_resign_transaction(
 ) -> Result<(SignedTransaction, FeeQuoteResponse)> {
     quote_and_resign_transaction_reviewed(client, draft, requested_fee_payment, &mut |_| Ok(()))
 }
-pub(super) fn quote_and_resign_transaction_reviewed(
+/// Review an exact fee quote before signing its unchanged payer and gas-bound intent.
+pub fn quote_and_resign_transaction_reviewed(
     client: &Client,
     draft: &SignedTransaction,
     requested_fee_payment: &FeePaymentIntent,
@@ -368,7 +369,7 @@ pub(super) fn quote_and_resign_transaction_reviewed(
 }
 
 /// Bind fee preflight to the dataspace already selected by native deployment state.
-pub(super) fn validate_quote_route(
+pub fn validate_quote_route(
     quote: &FeeQuoteResponse,
     expected_dataspace: DataSpaceId,
 ) -> Result<()> {

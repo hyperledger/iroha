@@ -16,7 +16,11 @@ fn signature(index: u64, width: usize) -> BlockSignature {
     BlockSignature::new(
         index,
         SignatureOf::from_signature(
-            Signature::try_from_bytes(&vec![index as u8 + 1; width]).unwrap(),
+            Signature::try_from_bytes(&vec![
+                u8::try_from(index).expect("fixture value fits u8") + 1;
+                width
+            ])
+            .unwrap(),
         ),
     )
 }

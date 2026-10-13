@@ -56,6 +56,15 @@ fn retained_import_envelope_accounts_separate_graphs_and_native_merkle_layout() 
 
 #[test]
 fn three_paid_originals_reuse_fifo_without_caching_source_or_outer_admission() {
+    fn limits(allocation: usize) -> norito::DecodeLimits {
+        norito::DecodeLimits::new(
+            1024 * 1024,
+            MAX_CHECKPOINT_BYTES,
+            8 * 1024 * 1024,
+            allocation,
+            64,
+        )
+    }
     let _guard = crate::managed::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let ports = LocalnetPorts::reserve().unwrap();
@@ -153,47 +162,39 @@ fn three_paid_originals_reuse_fifo_without_caching_source_or_outer_admission() {
     malformed.push(0);
     assert_refused(&authority, &malformed, 2);
     assert_refused(&authority, &malformed, 1);
-    let mut validation = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&authority, Some(&mut validation));
-    for image in &images[..3] {
-        imports.decode(image).unwrap();
+    {
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&authority, Some(&mut validation));
+        for image in &images[..3] {
+            imports.decode(image).unwrap();
+        }
+        let original_error = decode_checkpoint(
+            &malformed,
+            authority.config.network_id,
+            authority.config.chain.as_str(),
+        )
+        .unwrap_err()
+        .to_string();
+        let before = attempts(&authority);
+        assert_eq!(
+            imports.decode(&malformed).unwrap_err().to_string(),
+            original_error
+        );
+        assert_eq!(attempts(&authority), before + 2);
+        assert!(
+            authority
+                .effective_checkpoint_cache()
+                .entry
+                .try_lock()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(imports.decode(&images[0]).unwrap(), originals[0]);
     }
-    let original_error = decode_checkpoint(
-        &malformed,
-        authority.config.network_id,
-        authority.config.chain.as_str(),
-    )
-    .unwrap_err()
-    .to_string();
-    let before = attempts(&authority);
-    assert_eq!(
-        imports.decode(&malformed).unwrap_err().to_string(),
-        original_error
-    );
-    assert_eq!(attempts(&authority), before + 2);
-    assert!(
-        authority
-            .effective_checkpoint_cache()
-            .entry
-            .try_lock()
-            .unwrap()
-            .is_empty()
-    );
-    assert_eq!(imports.decode(&images[0]).unwrap(), originals[0]);
-    drop(imports);
-    drop(validation);
 
     // All three warm owners are discarded before the original cumulative admission. The
     // cap-one refusal is real; exact positive success uses the original measured charge.
-    fn limits(allocation: usize) -> norito::DecodeLimits {
-        norito::DecodeLimits::new(
-            1024 * 1024,
-            MAX_CHECKPOINT_BYTES,
-            8 * 1024 * 1024,
-            allocation,
-            64,
-        )
-    }
+
     let baseline = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
     let expected = baseline
         .with(|| {

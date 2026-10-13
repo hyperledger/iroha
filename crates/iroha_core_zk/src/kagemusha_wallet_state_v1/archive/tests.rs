@@ -20,12 +20,12 @@ fn canonical_archive_read_preserves_retired_scope_refusal_and_malformed_custody_
     };
     assert_eq!(
         original.kind(),
-        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
     );
     norito::with_decode_limits_scope(limits, || {
         assert_eq!(
             original.kind(),
-            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
         );
     });
     assert_eq!(decode::<Vec<u8>>(&bytes).unwrap(), value);

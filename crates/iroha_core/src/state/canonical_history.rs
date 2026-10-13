@@ -129,6 +129,12 @@ impl WalkStart {
 }
 
 impl<'a> CanonicalHistorySource<'a> {
+    /// Borrow this exact captured source's physical allocation owner.
+    /// No pool is created, replaced or inferred from a later State view.
+    pub(crate) fn allocation_budget(&self) -> &AllocationBudget {
+        &self.budget
+    }
+
     /// Bind an off-chain walk to the actual caller's original source backing.
     /// The caller keeps this same budget's synchronous codec scope installed.
     pub(crate) fn with_read_budget(mut self, budget: &CanonicalHistoryReadBudget) -> Self {
@@ -262,6 +268,11 @@ impl<'a> CanonicalHistorySource<'a> {
             return Err(missing());
         }
         let storage_error = |error| {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC253"))
+                && matches!(&error, crate::kura::Error::NativeJournalUnavailable(_, _))
+            {
+                return missing();
+            }
             kura_read_attempt_error(error, |error| {
                 // Preserve the existing deterministic diagnostics after classification.
                 let reason = match error {
@@ -510,6 +521,13 @@ impl<'a> CanonicalHistorySource<'a> {
         let invalid = |message: String| {
             ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message))
         };
+        let scope = self
+            .tip
+            .as_ref()
+            .ok_or_else(|| {
+                invalid("canonical history lacks its authenticated native root scope".into())
+            })?
+            .root_scope();
         let mut expected_iroha = start.iroha;
         let mut expected_core = start.core;
         let mut expected_result = start.result;
@@ -550,20 +568,14 @@ impl<'a> CanonicalHistorySource<'a> {
             let receipt = crate::sumeragi::certified_chain::AdmittedCommittedBlock::read(
                 block,
                 source_height,
-                self.tip
-                    .ok_or_else(|| invalid("native execution scope is unavailable".into()))?
-                    .root_scope(),
+                scope,
                 &mut validation,
                 &self.budget,
             )
             .map_err(|error| {
                 error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
             })?;
-            if receipt.core_hash() != expected_core || receipt.result() != expected_result {
-                return Err(invalid(format!(
-                    "native header or R differs from authenticated execution ancestry at {source_height}"
-                )));
-            }
+            Self::require_native_execution_link(&receipt, expected_core, expected_result)?;
             checkpoints.record(
                 source_height,
                 HistoryCheckpoint {
@@ -705,3 +717,22 @@ impl std::iter::FusedIterator for CanonicalHistoryCursor<'_> {}
 
 #[cfg(test)]
 mod admission_tests;
+
+impl CanonicalHistorySource<'_> {
+    /// The shared receipt-to-original-ancestry relation, after canonical hash/height admission.
+    /// These expected values come only from an opaque native tip or its verified child header.
+    pub(crate) fn require_native_execution_link(
+        receipt: &crate::sumeragi::certified_chain::CommittedBlock,
+        expected_core: iroha_sumeragi::types::Hash32,
+        expected_result: iroha_sumeragi::types::Hash32,
+    ) -> Result<(), ExecutionAttemptError<QueryExecutionFail>> {
+        if receipt.core_hash() != expected_core || receipt.result() != expected_result {
+            return Err(QueryExecutionFail::Conversion(format!(
+                "native header or R differs from authenticated execution ancestry at {}",
+                receipt.height()
+            ))
+            .into());
+        }
+        Ok(())
+    }
+}

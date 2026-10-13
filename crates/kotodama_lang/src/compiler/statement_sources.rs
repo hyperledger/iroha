@@ -99,6 +99,38 @@ impl Sources {
     }
 }
 
+/// Partition every emitted function into statement intervals and generated-code gaps.
+pub(super) fn complete_map(
+    functions: &[EmbeddedSourceMapEntryV1],
+    statements: &[EmbeddedSourceMapEntryV1],
+) -> Vec<EmbeddedSourceMapEntryV1> {
+    let mut entries = Vec::new();
+    let mut statements = statements.iter().peekable();
+    for function in functions {
+        let mut cursor = function.pc_start;
+        while let Some(statement) = statements.peek()
+            && statement.pc_start < function.pc_end
+        {
+            let statement = statements.next().expect("peeked statement");
+            debug_assert!(cursor <= statement.pc_start && statement.pc_end <= function.pc_end);
+            if cursor < statement.pc_start {
+                let mut generated = function.clone();
+                generated.pc_start = cursor;
+                generated.pc_end = statement.pc_start;
+                entries.push(generated);
+            }
+            entries.push(statement.clone());
+            cursor = statement.pc_end;
+        }
+        if cursor < function.pc_end {
+            let mut generated = function.clone();
+            generated.pc_start = cursor;
+            entries.push(generated);
+        }
+    }
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,36 +204,4 @@ mod tests {
                 && entry.get("line").and_then(json::Value::as_u64) == Some(3)
         ));
     }
-}
-
-/// Partition every emitted function into statement intervals and generated-code gaps.
-pub(super) fn complete_map(
-    functions: &[EmbeddedSourceMapEntryV1],
-    statements: &[EmbeddedSourceMapEntryV1],
-) -> Vec<EmbeddedSourceMapEntryV1> {
-    let mut entries = Vec::new();
-    let mut statements = statements.iter().peekable();
-    for function in functions {
-        let mut cursor = function.pc_start;
-        while let Some(statement) = statements.peek()
-            && statement.pc_start < function.pc_end
-        {
-            let statement = statements.next().expect("peeked statement");
-            debug_assert!(cursor <= statement.pc_start && statement.pc_end <= function.pc_end);
-            if cursor < statement.pc_start {
-                let mut generated = function.clone();
-                generated.pc_start = cursor;
-                generated.pc_end = statement.pc_start;
-                entries.push(generated);
-            }
-            entries.push(statement.clone());
-            cursor = statement.pc_end;
-        }
-        if cursor < function.pc_end {
-            let mut generated = function.clone();
-            generated.pc_start = cursor;
-            entries.push(generated);
-        }
-    }
-    entries
 }

@@ -1,0 +1,146 @@
+//! Separately built diagnostic worker; generated module paths are source-pinned.
+#![allow(unsafe_code)]
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/arena.rs"]
+mod arena;
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/budget.rs"]
+mod budget;
+#[path = "/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof/examples/resource_contract/native.rs"]
+mod native;
+mod observer;
+mod runtime_identity;
+#[path = "generated_workspace.rs"]
+mod workspace;
+
+use iroha_parliament_ballot_proof::profile::{Role, Row};
+
+#[derive(norito::json::JsonSerialize)]
+struct ControlReport<'a> {
+    control: &'a str,
+    routed_allocations: usize,
+    native: observer::SnapshotReport,
+    runtime: runtime_identity::RuntimeSnapshot,
+    complete_workspace_certificate: bool,
+    profile_qualified: bool,
+}
+#[derive(norito::json::JsonSerialize)]
+struct WorkerReport {
+    worker: workspace::Report,
+    native: observer::SnapshotReport,
+    runtime: runtime_identity::RuntimeSnapshot,
+    complete_workspace_certificate: bool,
+    profile_qualified: bool,
+}
+
+fn usage() -> ! {
+    eprintln!(
+        "native_probe candidate|comparator registration|vote RECORD_FILE [--heap-limit N] [--units N] [--input-bytes N], or --control empty|routed|system|thread|tls|panic"
+    );
+    std::process::exit(3)
+}
+fn main() {
+    if let Err(error) = observer::init() {
+        eprintln!("native observer setup failed: {error}");
+        std::process::exit(75);
+    }
+    // SAFETY: single-threaded setup before worker creation; no dlclose occurs
+    // while dyld lends the image names and headers consumed by capture.
+    let runtime = unsafe { runtime_identity::capture() }.unwrap_or_else(|error| {
+        eprintln!("native runtime identity failed: {error}");
+        std::process::exit(75)
+    });
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.len() == 3 && args[1] == "--control" {
+        let kind = match args[2].to_str() {
+            Some("empty") => 0,
+            Some("routed") => 1,
+            Some("system") => 2,
+            Some("thread") => 3,
+            Some("tls") => 4,
+            Some("panic") => 5,
+            _ => usage(),
+        };
+        let count = workspace::run_probe_control(kind).unwrap_or_else(
+            |native::NativeError(operation, code)| {
+                eprintln!("native control setup failed: {operation} ({code})");
+                std::process::exit(75)
+            },
+        );
+        let snapshot = observer::snapshot().unwrap_or_else(|error| {
+            eprintln!("native observer failed: {error}");
+            std::process::exit(75)
+        });
+        println!(
+            "{}",
+            norito::json::to_json(&ControlReport {
+                control: args[2].to_str().unwrap(),
+                routed_allocations: count,
+                native: snapshot.into_report(),
+                runtime,
+                complete_workspace_certificate: false,
+                profile_qualified: false
+            })
+            .unwrap()
+        );
+        return;
+    }
+    if args.len() < 4 || (args.len() - 4) % 2 != 0 {
+        usage();
+    }
+    let row = match args[1].to_str() {
+        Some("candidate") => Row::Candidate,
+        Some("comparator") => Row::Comparator,
+        _ => usage(),
+    };
+    let role = match args[2].to_str() {
+        Some("registration") => Role::Registration,
+        Some("vote") => Role::Vote,
+        _ => usage(),
+    };
+    let mut options = workspace::Options {
+        row,
+        role,
+        path: std::path::Path::new(&args[3]),
+        heap_limit: arena::HEAP_BYTES,
+        units: budget::VERIFICATION_UNITS,
+        input_bytes: budget::MAX_INPUT_BYTES as u64,
+    };
+    for pair in args[4..].chunks_exact(2) {
+        let value = pair[1]
+            .to_str()
+            .and_then(|x| x.parse::<u64>().ok())
+            .unwrap_or_else(|| usage());
+        match pair[0].to_str() {
+            Some("--heap-limit") => {
+                options.heap_limit = usize::try_from(value).unwrap_or_else(|_| usage())
+            }
+            Some("--units") => options.units = value,
+            Some("--input-bytes") => options.input_bytes = value,
+            _ => usage(),
+        }
+    }
+    let result = workspace::run(options);
+    let snapshot = observer::snapshot().unwrap_or_else(|error| {
+        eprintln!("native observer failed: {error}");
+        std::process::exit(75)
+    });
+    match result {
+        Ok((report, exit)) => {
+            println!(
+                "{}",
+                norito::json::to_json(&WorkerReport {
+                    worker: report,
+                    native: snapshot.into_report(),
+                    runtime,
+                    complete_workspace_certificate: false,
+                    profile_qualified: false
+                })
+                .unwrap()
+            );
+            std::process::exit(exit)
+        }
+        Err(native::NativeError(operation, code)) => {
+            eprintln!("native worker setup failed: {operation} ({code})");
+            std::process::exit(4)
+        }
+    }
+}

@@ -304,7 +304,7 @@ fn read_direct_salt_announcement(
     if !opened_before.is_file()
         || opened_before.nlink() != 1
         || u64::try_from(before.st_dev).ok() != Some(opened_before.dev())
-        || u64::try_from(before.st_ino).ok() != Some(opened_before.ino())
+        || before.st_ino != opened_before.ino()
         || before_len != Some(opened_before.len())
         || opened_before.len() > maximum_bytes
     {
@@ -944,13 +944,11 @@ impl BlindedCidResolver {
                 self.filter_capacity,
             );
         }
-        if let Some(manifest_id) = matched_id {
+        matched_id.map_or(Ok(None), |manifest_id| {
             self.state()
                 .insert_cache_entry(cache_key, manifest_id.clone(), self.cache_capacity);
             Ok(Some(manifest_id))
-        } else {
-            Ok(None)
-        }
+        })
     }
 }
 

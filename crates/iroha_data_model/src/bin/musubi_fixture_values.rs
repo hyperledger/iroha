@@ -181,8 +181,7 @@ fn fixture_instruction<T: JsonDeserialize>(fields: Value) -> T {
 
 fn render_instruction_case<T>(id: &str, value: T) -> Value
 where
-    T: Clone
-        + Debug
+    T: Debug
         + Eq
         + Into<InstructionBox>
         + JsonDeserialize
@@ -206,7 +205,7 @@ where
         norito::core::to_bytes(&concrete_decoded).expect("re-encode concrete instruction frame"),
         concrete_frame
     );
-    let boxed: InstructionBox = value.clone().into();
+    let boxed: InstructionBox = value.into();
     let wire_id = instruction_wire_id(&boxed)
         .expect("every fixture instruction must be registered")
         .to_owned();
@@ -221,7 +220,7 @@ where
             .as_any()
             .downcast_ref::<T>()
             .expect("registered instruction concrete type"),
-        &value
+        &semantic_decoded
     );
     let (instruction_box_pair, pair_flags) = norito::codec::encode_with_header_flags(&boxed);
     assert_eq!(pair_flags, header_flags);
@@ -237,7 +236,7 @@ where
             .as_any()
             .downcast_ref::<T>()
             .expect("bare pair concrete type"),
-        &value
+        &semantic_decoded
     );
     let (reencoded_pair, reencoded_pair_flags) =
         norito::codec::encode_with_header_flags(&pair_decoded);
@@ -255,7 +254,7 @@ where
             .as_any()
             .downcast_ref::<T>()
             .expect("standalone frame concrete type"),
-        &value
+        &semantic_decoded
     );
     assert_eq!(
         norito::core::to_bytes(&standalone_decoded)

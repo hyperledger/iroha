@@ -129,6 +129,33 @@ def test_vendored_foundation_owner_selects_real_http_consumers(
     assert {"irohad_lib", "irohad"} <= set(result.deferred_packages)
 
 
+@pytest.mark.parametrize("package, directory, lane, consumers", (
+    ("aes", "vendor/aes", "foundation", {"aes", "iroha_zkp_vole", "iroha_parliament_ballot_proof", "iroha_sccp_rpc"}),
+    ("iroha_zkp_vole", "crates/iroha_zkp_vole", "execution", {"iroha_zkp_vole", "iroha_parliament_ballot_proof"}),
+    ("iroha_parliament_ballot_proof", "crates/iroha_parliament_ballot_proof", "execution", {"iroha_parliament_ballot_proof"}),
+))
+@pytest.mark.parametrize("relative_path", ("src/lib.rs", "Cargo.toml"))
+def test_current_aes_and_ballot_proof_owners_select_real_consumers(
+    package: str, directory: str, lane: str, consumers: set[str], relative_path: str,
+) -> None:
+    """New proof owners and their AES backend retain their real dependency checks."""
+
+    metadata = rust_ci.load_cargo_metadata(root=ROOT)
+    manifest = rust_ci.load_lane_manifest()
+    assert manifest.package_lane[package] == lane
+    result = rust_ci.classify_paths(
+        [f"{directory}/{relative_path}"], metadata=metadata, manifest=manifest, root=ROOT,
+    )
+    assert result.changed_packages == (package,)
+    assert not result.full
+    assert result.foundation_only == (lane == "foundation")
+    assert consumers <= set(result.impacted_packages)
+    assert package in result.lane_packages[lane]
+    assert {"iroha_zkp_vole", "iroha_parliament_ballot_proof"}.intersection(consumers) <= set(
+        result.lane_packages["execution"]
+    )
+
+
 def test_native_filesystem_owner_selects_real_custody_consumers() -> None:
     """A native custody change selects its actual deployment and storage consumers."""
 

@@ -63,7 +63,7 @@ fn all_images(world: &World) -> Vec<(&'static str, String)> {
     with_world_overlay_fields!(images, world)
 }
 
-fn prepare<'a, A>(journal: DetachedWorld<A>, target: &'a World) -> PreparedWorld<'a, A, ()> {
+fn prepare<A>(journal: DetachedWorld<A>, target: &World) -> PreparedWorld<'_, A, ()> {
     journal
         .try_prepare_publication(target, |_, _| Ok::<_, ()>(()))
         .unwrap_or_else(|(_, error, _)| panic!("World preparation refused: {error:?}"))
@@ -1058,4 +1058,81 @@ fn world_refusal_retains_prefix_callbacks_and_original_shells_through_enclosing_
     assert_eq!(all_images(&world), before);
     assert!(journal.matches_current(&world));
     drop(prepare(journal, &world).abort());
+}
+
+#[test]
+fn generation_publication_reuses_original_refund_control_under_exhausted_pool() {
+    use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    let world = fixture();
+    let mut original = world.block();
+    let record = sample_generation(1);
+    original
+        .sccp_committee_generations
+        .insert(1, record.clone());
+    let journal = capture(original);
+    let budget = world.sccp_committee_generations.allocation_budget();
+    let original_limit = budget.limit_bytes();
+    let reserved = budget.reserved_bytes();
+    // The original refund control already exists; publication must not acquire another.
+    budget.set_limit_bytes(reserved);
+    let prepared = prepare(journal, &world);
+    let published = prepared.publish();
+    drop(published);
+    assert!(budget.reserved_bytes() <= reserved);
+    budget.set_limit_bytes(original_limit);
+    assert_eq!(
+        world
+            .sccp_committee_generations
+            .view()
+            .get(&1)
+            .map(|v| &**v),
+        Some(&record)
+    );
+    assert_all_writers_released(&world);
+}
+
+#[test]
+fn generation_world_busy_retry_keeps_original_current_undo_and_reader() {
+    use crate::smartcontracts::isi::sccp::committee_storage::CommitteeFixtureStorage as _;
+    use crate::smartcontracts::isi::sccp::test_support::sample_generation;
+    let world = fixture();
+    let mut original = world.block();
+    original
+        .sccp_committee_generations
+        .insert(1, sample_generation(1));
+    original.commit();
+    let reader = world.sccp_committee_generations.view();
+    let old = reader.get(&1).unwrap().clone();
+    let competing = capture(world.block());
+    let mut next = world.block();
+    next.sccp_committee_generations.remove(1);
+    next.sccp_committee_generations
+        .insert(2, sample_generation(2));
+    let journal = capture(next);
+    let identity = physical_custody(&journal);
+    let held = prepare(competing, &world);
+    let (journal, error, cleanup) = journal
+        .try_prepare_publication(&world, |_, _| Ok::<_, ()>(()))
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        WorldPublicationError::Field(FieldRefusal {
+            cause: PublicationPreparationError::Busy(_),
+            ..
+        })
+    ));
+    drop(cleanup);
+    assert_eq!(physical_custody(&journal), identity);
+    drop(held);
+    drop(prepare(journal, &world).publish());
+    assert_eq!(reader.get(&1), Some(&old));
+    let snapshot = world.sccp_committee_generations.snapshot();
+    assert!(snapshot.current().get(&1).is_none());
+    assert_eq!(snapshot.current().get(&2).unwrap().generation, 2);
+    assert_eq!(snapshot.revert_map().get(&1).unwrap().as_ref(), Some(&old));
+    assert!(snapshot.revert_map().get(&2).unwrap().is_none());
+    drop(snapshot);
+    assert_all_writers_released(&world);
 }

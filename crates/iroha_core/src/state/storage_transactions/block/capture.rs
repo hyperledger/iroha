@@ -296,6 +296,13 @@ impl<'storage> TransactionsCaptureSlot<'storage> {
 
     /// Transfer only successful original capture, keeping its actual release
     /// separate until every enclosing physical writer/fence has released.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry and abort; preserve the original charged membership journal and physical-release custody"
+        )
+    )]
     pub(crate) fn into_detached(mut self) -> (DetachedTransactionsBlock, MembershipRelease) {
         assert!(!self.released, "membership capture was terminally released");
         match std::mem::replace(&mut self.phase, MembershipCapturePhase::Empty) {
@@ -444,12 +451,26 @@ impl<'storage> TransactionsBlockField<'storage> {
 
     /// Nonblocking physical admission after the enclosing State writer and before
     /// its visibility interval; snapshots acquire those owners in this same order.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry and abort; preserve the original charged membership journal and physical-release custody"
+        )
+    )]
     pub(crate) fn try_prepare_physical(&mut self) -> Result<(), TransactionsBlockError> {
         self.slot.try_prepare_physical()
     }
 
     /// Return temporary tree publication locks to this exact original field after
     /// normal Busy. The admitted identity, staged set and charged cursor stay here.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry and abort; preserve the original charged membership journal and physical-release custody"
+        )
+    )]
     pub(crate) fn release_physical_for_retry(&mut self) {
         let MembershipCapturePhase::Prepared(prepared) = &mut self.slot.phase else {
             panic!("original logically prepared membership");
@@ -495,6 +516,13 @@ impl<'storage> TransactionsBlockField<'storage> {
         self.slot.into_executing()
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect aggregate capture retry and abort; preserve the original charged membership journal and physical-release custody"
+        )
+    )]
     pub(crate) fn into_capture(self) -> TransactionsCaptureSlot<'storage> {
         self.slot.executing();
         self.slot
@@ -520,7 +548,7 @@ impl TransactionsReadOnly for TransactionsBlockField<'_> {
     fn get<Q>(&self, key: &Q) -> Option<Value>
     where
         Key: Borrow<Q>,
-        Q: Hash + Eq + Ord + ?Sized,
+        Q: Ord + ?Sized,
     {
         assert!(!self.slot.released);
         match &self.slot.phase {
@@ -594,7 +622,7 @@ mod publication_capture_phase_tests {
             let storage = TransactionsStorage::new();
             let mut field = TransactionsBlockField::new(storage.block());
             field.insert_block(
-                std::collections::HashSet::from([Key::from_untyped_unchecked(
+                std::collections::BTreeSet::from([Key::from_untyped_unchecked(
                     iroha_crypto::Hash::new(b"original-membership-terminal-phase"),
                 )]),
                 std::num::NonZeroUsize::new(1).unwrap(),

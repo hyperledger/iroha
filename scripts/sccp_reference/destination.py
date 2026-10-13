@@ -17,12 +17,18 @@ real contract computes its lane, payload domain and recipient codec from its
 own chain.
 
 TON's asynchronous bucket and wallet messages are not modelled: a TON finalize
-or void is shown with the outcome its minter-side checks give (`TODO:` the TON
-contract work package models the bucket round trip of §5.3.4). Two names are
-therefore model-only on TON and appear in no TON fixture row: `AlreadyConsumed`
-stands for the bucket's `sccp_already_consumed` or `sccp_range_rejected` reply
-(the minter throws nothing), and `TooManyCertificates` needs a batch that a TON
+or void is shown with the outcome its minter-side checks give; the TON contract
+Acton harness covers the bucket round trip and bounce recovery of §5.3.4,
+including that a bounce never decrements `opCount` and a repeated finalization
+counts again. Two names are therefore model-only on TON and appear in no TON
+fixture row: `AlreadyConsumed` stands for the bucket's `sccp_already_consumed` or
+`sccp_range_rejected` reply (the minter throws nothing), and `TooManyCertificates` needs a batch that a TON
 harness never sends, since one `sccp_checkpoint` message carries one certificate.
+
+`check_ton_burn_payload` separately models the exact ordinary burn wrapper and
+the entire canonical 1..=1024-byte recipient snake admitted by wallet and minter
+before any debit or forwarding. Balances and asynchronous burns remain covered
+by the Acton harness.
 
 Check order of a TON finalize or void (§5.3.4): the minter checks the payload
 and its recipient before it obtains `X`, because the required value depends on
@@ -48,8 +54,7 @@ order, under `error_choices`):
 * on TON every refusal of `BLS_FASTAGGREGATEVERIFY` answers `BadSignature`: a
   stored signer key that is no canonical point, is the identity or lies outside
   G1, an identity aggregate, a `σ` that is no point of G2, and a failed pairing
-  (§5.3.4 item 5; `TODO:` the Acton harness confirms the opcode's per-key
-  checks);
+  (§5.3.4 item 5), as pinned by the Acton harness and the shared fixture rows;
 * a stored checkpoint that is neither of the current generation nor the
   handoff that installed it answers `CommitteeNotAccepted`;
 * `voidFrozen` range failures answer `BadAmount` (EVM) and `BadRange` (TON).
@@ -67,8 +72,8 @@ the two time sums saturate at `2^64 − 1` (`saturating_u64_sum`: a rotation's
 `cur.generation + 1` always fit because X6 bounds both by `2^64 − 2` (§3.6);
 the `voidFrozen` range (`firstNonce + count ≤ 2^64`, §5.1.8) and the supply
 cap are compared without forming a value above the width, by subtraction.
-The two counters never wrap either: `opCount` saturates at `2^64 − 1`
-(`bumped_op_count`, §5.1.1), and a sender's source nonces are `0 ..= 2^64 − 2`,
+The two counters never wrap either: `opCount` only increments and saturates at
+`2^64 − 1` (`bumped_op_count`, §5.1.1); a sender's source nonces are `0 ..= 2^64 − 2`,
 so a stored next nonce of `2^64 − 1` is exhausted (`next_source_nonce`, §5.1.7).
 
 `transferToTaira` (§5.1.7) is not modelled as an entry point: the model keeps no
@@ -80,6 +85,8 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
+
+from .ton_cell import TON_BURN_TO_TAIRA_OP, TonCell, parse_taira_recipient
 
 from .bls12_381 import (
     G1_GENERATOR,
@@ -176,6 +183,17 @@ def void_frozen_range_ok(first_nonce: int, count: int, limit: int) -> bool:
     return 1 <= count <= limit and count - 1 <= U64_MAX - first_nonce
 
 
+def successor_keys_match(keys: list[bytes] | None, root: bytes) -> bool:
+    """The exact, strictly ordered committee stored at a TON pin or key-changing rotation."""
+    return (
+        keys is not None
+        and committee_n_valid(len(keys))
+        and all(len(key) == 48 for key in keys)
+        and all(keys[i] < keys[i + 1] for i in range(len(keys) - 1))
+        and committee_root(keys) == root
+    )
+
+
 def bumped_op_count(op_count: int) -> int:
     """`opCount` after one more counted operation (§5.1.1): `min(opCount + 1, 2^64 − 1)`.
 
@@ -203,6 +221,22 @@ def next_source_nonce(stored: int, expected: int) -> int:
     if expected != stored or stored == U64_MAX:
         raise SccpError("BadNonce", expected=stored)
     return stored + 1
+
+
+def check_ton_burn_payload(payload: TonCell | None) -> bytes:
+    """Validate the full §5.3 burn input before debit or forwarding.
+
+    Missing payload or wrong opcode: BadBurnPayload. Exotic/nonexact wrapper,
+    empty or noncanonical/exotic snake: BadSnake. Above 1024 bytes: BadRecipient.
+    No cell is automatically loaded or resolved as a library reference.
+    """
+    if payload is None:
+        raise SccpError("BadBurnPayload")
+    if payload.exotic or len(payload.bits) != 32 or len(payload.refs) != 1:
+        raise SccpError("BadSnake")
+    if payload.bits != f"{TON_BURN_TO_TAIRA_OP:032b}":
+        raise SccpError("BadBurnPayload")
+    return parse_taira_recipient(payload.refs[0])
 
 
 @dataclass
@@ -379,6 +413,8 @@ class Destination:
             raise ValueError(f"unknown destination flavor {deployment.flavor!r}")
         if deployment.network not in allowed:
             raise ValueError(f"a {deployment.flavor} destination is not deployed on {deployment.network.name}")
+        if deployment.flavor == "ton" and not successor_keys_match(deployment.pin_keys, deployment.pin_root):
+            raise ValueError("a TON deployment stores the canonical keys of its pinned committee root")
         self.d = deployment
         self.state = State(
             root=deployment.pin_root,
@@ -703,12 +739,7 @@ class Destination:
             changed = True
         if x.rotation:
             if self.d.flavor == "ton" and x.next_committee_root != st.root:
-                if (
-                    next_keys is None
-                    or not committee_n_valid(len(next_keys))
-                    or any(next_keys[i] >= next_keys[i + 1] for i in range(len(next_keys) - 1))
-                    or committee_root(next_keys) != x.next_committee_root
-                ):
+                if not successor_keys_match(next_keys, x.next_committee_root):
                     raise SccpError("BadCommittee", "next_keys")
                 st.keys = list(next_keys)
             st.root = x.next_committee_root

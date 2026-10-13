@@ -239,6 +239,10 @@ impl AssociationCount {
     }
 
     /// Replace one exact nested weight while preserving a prior arithmetic failure.
+    #[expect(
+        dead_code,
+        reason = "TODO: connect exact cardinality replacement to retained inventory publication; preserve checked overflow and underflow accounting"
+    )]
     pub(super) fn replace(&mut self, before: Option<u64>, after: Option<u64>) {
         self.0 = self
             .0

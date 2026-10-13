@@ -369,7 +369,7 @@ mod tests {
     use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
     use iroha_torii_shared::da::{DA_QUERY_REQUEST_MAX_BYTES, MAX_DA_QUERY_PAGE_SIZE};
     use std::{
-        collections::BTreeMap,
+        collections::BTreeSet,
         num::{NonZeroU32, NonZeroU64},
     };
     fn checked_random_keypair_with_algorithm(algorithm: Algorithm, context: &str) -> KeyPair {
@@ -518,7 +518,7 @@ mod tests {
         );
     }
     fn nexus_for_records(records: &[DaCommitmentRecord]) -> Nexus {
-        let mut lane_entries = BTreeMap::from([(LaneId::new(0), DaProofScheme::MerkleSha256)]);
+        let mut lane_entries = BTreeSet::from([(LaneId::new(0), DaProofScheme::MerkleSha256)]);
         lane_entries.extend(
             records
                 .iter()
@@ -1262,7 +1262,6 @@ mod tests {
                 lane_id: Some(2),
                 epoch: Some(1),
                 sequence: Some(1),
-                ..DaCommitmentProofRequest::default()
             }),
         )
         .await
@@ -1278,7 +1277,6 @@ mod tests {
                 lane_id: Some(1),
                 epoch: Some(9),
                 sequence: Some(1),
-                ..DaCommitmentProofRequest::default()
             }),
         )
         .await

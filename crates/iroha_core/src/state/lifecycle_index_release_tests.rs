@@ -44,7 +44,7 @@ impl Wake for Probe {
         };
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.odd.fetch_add(
-            usize::from(self.state.state_view_generation() % 2 != 0),
+            usize::from(!self.state.state_view_generation().is_multiple_of(2)),
             Ordering::SeqCst,
         );
         macro_rules! fence {

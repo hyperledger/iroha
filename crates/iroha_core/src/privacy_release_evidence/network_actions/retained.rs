@@ -257,6 +257,11 @@ fn secret_scalar_v1(
 /// Otherwise-valid inputs return
 /// [`PrivacyReleaseEvidenceErrorClassV1::ProtocolUnavailable`] while qROM
 /// qualification remains incomplete.
+///
+/// # Errors
+///
+/// Returns an error if the context or signer is invalid, the amount is zero or the accounts coincide,
+/// the compiled engine is unavailable, or witness construction, proving, or transaction binding fails.
 pub fn build_privacy_release_zk_ace_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     source: AccountId,
@@ -310,7 +315,7 @@ pub fn build_privacy_release_zk_ace_network_action_v1(
         public_balance_scope: iroha_data_model::asset::AssetBalanceScope::Global,
         amount,
         authorization_epoch: policy.authorization_epoch,
-        replay_nullifier: Default::default(),
+        replay_nullifier: iroha_data_model::privacy::PrivacyZkAceReplayNullifierV1::default(),
     };
     let intent = draft_intent_v1(
         &transaction_context,
@@ -348,6 +353,11 @@ pub fn build_privacy_release_zk_ace_network_action_v1(
 ///
 /// Values are restricted to the canonical 32-bit profile and the closed
 /// one-to-eight aggregation bound before any proof allocation.
+///
+/// # Errors
+///
+/// Returns an error for an invalid context, signer, policy, aggregation count, or value range,
+/// or when commitments, the native proof, or the bound transaction cannot be constructed.
 pub fn build_privacy_release_verange_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     asset_definition_id: AssetDefinitionId,
@@ -356,8 +366,8 @@ pub fn build_privacy_release_verange_network_action_v1(
     fixture_seed: [u8; 32],
     private_key: &PrivateKey,
 ) -> Result<PrivacyReleaseVeRangeNetworkActionV1, PrivacyReleaseEvidenceErrorClassV1> {
-    validate_context_and_signer_v1(&transaction_context, private_key)?;
     const MAX_AGGREGATION: usize = 8;
+    validate_context_and_signer_v1(&transaction_context, private_key)?;
     if values.is_empty()
         || values.len() > MAX_AGGREGATION
         || values.iter().any(|value| *value > u64::from(u32::MAX))
@@ -445,6 +455,11 @@ pub fn build_privacy_release_verange_network_action_v1(
 }
 /// Build one transaction-intent-, governed-policy-, and genesis-bound native
 /// Bootle/Lantern presentation.
+///
+/// # Errors
+///
+/// Returns an error if context validation, issuer key generation, issuance storage, credential
+/// issuance, proving, or transaction binding fails, or if replay and rotation invariants disagree.
 pub fn build_privacy_release_bootle_lantern_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     fixture_seed: [u8; 32],
@@ -704,6 +719,11 @@ fn model_pgc_accounts_v1(
 /// `bootstrap_action_index` must be the index at which the caller will place
 /// `BootstrapPrivacyPgcAccountsV1`; release gates normally submit that
 /// governance instruction alone and therefore pass zero.
+///
+/// # Errors
+///
+/// Returns an error if the context, signer, or compiled parameters are invalid, account-table
+/// construction or native proving/verification fails, or bootstrap and payment state roots disagree.
 pub fn build_privacy_release_anonymous_pgc_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     asset_definition_id: AssetDefinitionId,
@@ -712,12 +732,12 @@ pub fn build_privacy_release_anonymous_pgc_network_action_v1(
     fixture_seed: [u8; 32],
     private_key: &PrivateKey,
 ) -> Result<PrivacyReleaseAnonymousPgcNetworkActionV1, PrivacyReleaseEvidenceErrorClassV1> {
-    validate_context_and_signer_v1(&transaction_context, private_key)?;
     const ACCOUNT_COUNT: usize = 16;
     const OPENING_BALANCE: u32 = 100;
     const RECIPIENT_COUNT: usize = 2;
     const SENDER_INDEX: usize = 7;
     const RECIPIENT_INDICES: [usize; RECIPIENT_COUNT] = [2, 12];
+    validate_context_and_signer_v1(&transaction_context, private_key)?;
     let profile = compiled_privacy_profile_v1(
         iroha_data_model::privacy::PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1,
     )
@@ -980,6 +1000,11 @@ fn fcmp_scalar_v1(value: u64) -> [u8; 32] {
 /// Reusing the same `fixture_seed` with a distinct transaction context
 /// re-proves a fresh transaction with the same stable key image, which lets a
 /// network gate distinguish protocol replay from exact transaction replay.
+///
+/// # Errors
+///
+/// Returns an error if context or signer validation, pool bootstrap, output construction,
+/// native proving, or transaction binding fails, or the fixture and proof public inputs disagree.
 pub fn build_privacy_release_fcmp_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     asset_definition_id: AssetDefinitionId,
@@ -1124,6 +1149,11 @@ pub fn build_privacy_release_fcmp_network_action_v1(
 /// Reusing the same pool and fixture seed with a distinct transaction context
 /// preserves the stable note nullifier while re-binding and re-proving the
 /// complete action, enabling protocol-level replay coverage after restart.
+///
+/// # Errors
+///
+/// Returns an error if the context, signer, compiled profile, or pool bootstrap is invalid,
+/// the fixture state root disagrees, or native proving and transaction binding fail.
 pub fn build_privacy_release_ivm_private_note_network_action_v1(
     transaction_context: PrivacyReleaseTransactionContextV1,
     asset_definition_id: AssetDefinitionId,

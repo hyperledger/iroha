@@ -677,7 +677,7 @@ mod canonical_evidence_reader_tests {
         use iroha_data_model::block::CommitCertificate;
         for variant in 0..5 {
             let mut fixture = Fixture::new();
-            let at = if variant == 1 { 0 } else { 1 };
+            let at = usize::from(variant != 1);
             let mut block = (*fixture.blocks[at]).clone();
             let original = block.commit_certificate().unwrap();
             let header = original.consensus_header().to_vec();

@@ -44,13 +44,25 @@ pub struct SccpCommitteePinV1 {
 }
 
 impl SccpCommitteePinV1 {
-    /// Check only the pin's fixed-field shape, without granting generation authority.
+    /// Check the pin's state-independent shape without granting committee authority.
+    ///
+    /// # Errors
+    /// Rejects a zero generation, start height, deadline or committee root.
+    pub fn validate_shape(&self) -> Result<(), super::native::SccpNativeDataError> {
+        use super::native::SccpNativeDataError;
+        if self.generation == 0 || self.start_height == 0 || self.until_ms == 0 {
+            return Err(SccpNativeDataError::ZeroPinCoordinate);
+        }
+        if self.committee_root == [0; 32] {
+            return Err(SccpNativeDataError::ZeroCommitteeRoot);
+        }
+        Ok(())
+    }
+
+    /// Whether all fixed pin coordinates have their required nonzero shape.
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
-        self.generation != 0
-            && self.committee_root != [0; 32]
-            && self.start_height != 0
-            && self.until_ms != 0
+        self.validate_shape().is_ok()
     }
 }
 

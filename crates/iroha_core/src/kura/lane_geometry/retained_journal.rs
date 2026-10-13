@@ -171,9 +171,9 @@ impl RetainedGeometryJournal {
                         && opened.nlink() == 1
                         && rustix::fs::FileType::from_raw_mode(named.st_mode)
                             == rustix::fs::FileType::RegularFile
-                        && named.st_dev as u64 == opened.dev()
-                        && named.st_ino as u64 == opened.ino()
-                        && named.st_nlink as u64 == 1
+                        && crate::kura::unix_device_identity(named.st_dev) == opened.dev()
+                        && named.st_ino == opened.ino()
+                        && named.st_nlink == 1
                     {
                         return Ok(());
                     }

@@ -36,7 +36,7 @@ pub(crate) fn capture_and_submit(
     budget: &iroha_allocation::AllocationBudget,
     tx_hash: Option<Hash>,
     program: ivm::cache_memory::SharedAllocation<u8>,
-    header: Option<iroha_data_model::block::BlockHeader>,
+    header: Option<&iroha_data_model::block::BlockHeader>,
     transport_capabilities: Option<TransportCapabilityResolutionSnapshot>,
     negotiated_capabilities: Option<CapabilityFlags>,
 ) -> bool {
@@ -55,7 +55,7 @@ pub(crate) fn capture_and_submit(
         tx_hash,
         code_hash: vm.code_hash(),
         program,
-        header,
+        header: header.copied(),
         snapshot,
         transport_capabilities,
         negotiated_capabilities,
@@ -1179,9 +1179,11 @@ mod tests {
         let ring = RetryRing::new(4, 2);
         for idx in 0..2 {
             let task = ZkTask {
-                tx_hash: Some(Hash::prehashed([idx as u8; 32])),
+                tx_hash: Some(Hash::prehashed(
+                    [u8::try_from(idx).expect("fixture value fits u8"); 32],
+                )),
                 code_hash: [0xAA; 32],
-                program: vec![idx as u8].into(),
+                program: vec![u8::try_from(idx).expect("fixture value fits u8")].into(),
                 header: None,
                 snapshot: empty_snapshot(),
                 transport_capabilities: None,

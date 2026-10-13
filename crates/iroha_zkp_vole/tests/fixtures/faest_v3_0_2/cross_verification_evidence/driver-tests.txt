@@ -1,0 +1,11 @@
+test_added_and_removed_guard_inputs_reject_but_keep_report (test_cross_verify_upstream.CampaignInputs.test_added_and_removed_guard_inputs_reject_but_keep_report) ... ok
+test_completed_cases_survive_rejected_publication (test_cross_verify_upstream.CampaignInputs.test_completed_cases_survive_rejected_publication) ... ok
+test_fresh_public_test_keys_have_all_twelve_admitted_shapes (test_cross_verify_upstream.CampaignInputs.test_fresh_public_test_keys_have_all_twelve_admitted_shapes) ... ok
+test_invalid_layout_cannot_silently_drop_a_field (test_cross_verify_upstream.CampaignInputs.test_invalid_layout_cannot_silently_drop_a_field) ... ok
+test_mutations_change_exactly_the_named_input_and_cover_boundaries (test_cross_verify_upstream.CampaignInputs.test_mutations_change_exactly_the_named_input_and_cover_boundaries) ... ok
+test_unchanged_inputs_publish_diagnostic_without_qualification (test_cross_verify_upstream.CampaignInputs.test_unchanged_inputs_publish_diagnostic_without_qualification) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.003s
+
+OK

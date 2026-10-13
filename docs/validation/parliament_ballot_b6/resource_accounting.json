@@ -1,0 +1,3459 @@
+{
+  "cases": [
+    {
+      "envelope_budget_after_proof": 101996,
+      "proof_bytes": 160148,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 143360,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 4480,
+        "multiplication_corrections": 880,
+        "opening": 11024,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "registration",
+      "row": "candidate",
+      "test_record_max": 166172,
+      "work_components": {
+        "aes_blocks_conservative": 1872026,
+        "backend_shake_calls_including_mu": 744,
+        "column_bytes": 4490,
+        "conversion_fold_byte_xors": 57175660,
+        "conversion_scratch_payload_max": 40410,
+        "ggm_nodes": 12799,
+        "leaf_slots": 6400,
+        "lifted_column_payload": 1149440,
+        "lifted_row_payload": 1146880,
+        "raw_column_payload": 1113520,
+        "reconstructed_leaves": 6367,
+        "small_vole_max_depth": 8,
+        "volehash_mixed_field_products": 179234,
+        "zkhash_mixed_field_products": 145154
+      }
+    },
+    {
+      "envelope_budget_after_fixed_crypto_fields": 28665,
+      "envelope_budget_after_proof": 29132,
+      "proof_bytes": 233012,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 214016,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 6688,
+        "multiplication_corrections": 880,
+        "opening": 11024,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "vote",
+      "row": "candidate",
+      "test_records": {
+        "1000": 361596,
+        "3": 233980,
+        "500": 297596
+      },
+      "work_components": {
+        "aes_blocks_conservative": 2750672,
+        "backend_shake_calls_including_mu": 744,
+        "column_bytes": 6698,
+        "conversion_fold_byte_xors": 85292332,
+        "conversion_scratch_payload_max": 60282,
+        "ggm_nodes": 12799,
+        "leaf_slots": 6400,
+        "lifted_column_payload": 1714688,
+        "lifted_row_payload": 1712128,
+        "raw_column_payload": 1661104,
+        "reconstructed_leaves": 6367,
+        "small_vole_max_depth": 8,
+        "volehash_mixed_field_products": 267554,
+        "zkhash_mixed_field_products": 217864
+      }
+    },
+    {
+      "envelope_budget_after_proof": 152646,
+      "proof_bytes": 109498,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 94080,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 4480,
+        "multiplication_corrections": 870,
+        "opening": 9664,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "registration",
+      "row": "comparator",
+      "test_record_max": 115522,
+      "work_components": {
+        "aes_blocks_conservative": 18056976,
+        "backend_shake_calls_including_mu": 725,
+        "column_bytes": 4495,
+        "conversion_fold_byte_xors": 552147820,
+        "conversion_scratch_payload_max": 58435,
+        "ggm_nodes": 122879,
+        "leaf_slots": 61440,
+        "lifted_column_payload": 1150720,
+        "lifted_row_payload": 1146880,
+        "raw_column_payload": 1123750,
+        "reconstructed_leaves": 61418,
+        "small_vole_max_depth": 12,
+        "volehash_mixed_field_products": 179234,
+        "zkhash_mixed_field_products": 145154
+      }
+    },
+    {
+      "envelope_budget_after_fixed_crypto_fields": 103603,
+      "envelope_budget_after_proof": 104070,
+      "proof_bytes": 158074,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 140448,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 6688,
+        "multiplication_corrections": 870,
+        "opening": 9664,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "vote",
+      "row": "comparator",
+      "test_records": {
+        "1000": 286658,
+        "3": 159042,
+        "500": 222658
+      },
+      "work_components": {
+        "aes_blocks_conservative": 26532660,
+        "backend_shake_calls_including_mu": 725,
+        "column_bytes": 6703,
+        "conversion_fold_byte_xors": 823369708,
+        "conversion_scratch_payload_max": 87139,
+        "ggm_nodes": 122879,
+        "leaf_slots": 61440,
+        "lifted_column_payload": 1715968,
+        "lifted_row_payload": 1712128,
+        "raw_column_payload": 1675750,
+        "reconstructed_leaves": 61418,
+        "small_vole_max_depth": 12,
+        "volehash_mixed_field_products": 267554,
+        "zkhash_mixed_field_products": 217864
+      }
+    }
+  ],
+  "combined_input_cap": 425984,
+  "complete_certificate": false,
+  "encoding_inventory": {
+    "1000": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 128114,
+      "list_frame_sha3_permutations": 1780,
+      "raw_list": 128000,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 35726,
+      "vote_authorization_digest_frame": 128536,
+      "vote_authorization_digest_sha3_permutations": 1786,
+      "vote_mu_frame": 128506,
+      "vote_test_statement": 128576
+    },
+    "3": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 498,
+      "list_frame_sha3_permutations": 7,
+      "raw_list": 384,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 163342,
+      "vote_authorization_digest_frame": 920,
+      "vote_authorization_digest_sha3_permutations": 13,
+      "vote_mu_frame": 890,
+      "vote_test_statement": 960
+    },
+    "500": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 64114,
+      "list_frame_sha3_permutations": 891,
+      "raw_list": 64000,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 99726,
+      "vote_authorization_digest_frame": 64536,
+      "vote_authorization_digest_sha3_permutations": 897,
+      "vote_mu_frame": 64506,
+      "vote_test_statement": 64576
+    }
+  },
+  "production_terms_remaining": [
+    "Production Norito envelope header/layout/flags and canonical field mappings",
+    "Chain binding, validity-window representation and admission work-stamp encoding",
+    "Registration transaction/signature framing and authenticated seal/list-context encoding",
+    "Complete verifier operation schedule, including framing, CRT and relation arithmetic",
+    "Complete allocation lifetimes, provider scratch, stack and allocator overhead"
+  ],
+  "profile_qualified": false,
+  "schema": "parliament-ballot-b6-resource-accounting-v1",
+  "standalone_symbolic_bounds": {
+    "assumptions": [
+      "Frozen reviewed Rust sources and Rust 1.93.1 Global/Vec allocation policy",
+      "Source/manifests/lock pin identifies the reviewed checkout, not a compiled binary; dependency source integrity follows Cargo package checksums",
+      "Both fixed extended rows, registration fields at caps, vote S in 3..=1000",
+      "64-bit usize; Key<Gf256> size 40 and Tree size at most 24 are explicit layout assumptions",
+      "Input slices already exist; arbitrary caller spare capacity is excluded",
+      "Optional owned record total assumes an allocation with exactly the canonical record length",
+      "Requested allocation sizes only; one AES256 provider Box is an additional symbolic term",
+      "Allocator metadata/rounding/internal temporary storage, stack, compiler spills, globals, code and concurrency excluded",
+      "Abstract source operations remain separate; AES provider internal batching/key schedule costs are not equal to block counts",
+      "Primitive arithmetic/hash/loop counts do not include compiler instructions or price allocator/system calls"
+    ],
+    "cases": [
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 166172,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 5,
+            "capacity_bytes": 8236,
+            "length_bytes": 5946,
+            "sum_requested_bytes": 12410,
+            "with_realloc_overlap_bytes": 12354
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 66,
+                "keys": 409568,
+                "marks": 12799,
+                "retained_statement_and_public": 5632,
+                "return_metadata": 338,
+                "seeds": 204800,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 634059
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 176,
+                "list_digest_concat": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 5808
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1113520,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 7936,
+                "hidden": 66,
+                "labels": 22528,
+                "retained_statement_and_public": 5632,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1150954
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1113520,
+                "lifted": 1149440,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2293834
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1113520,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 5632,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1144458
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 421520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 421520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 421520,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 427152
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 66,
+                "marks": 12799,
+                "retained_statement_and_public": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 18497
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 5632
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 0,
+                "frame_with_realloc": 12354,
+                "mu": 64,
+                "public_list": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 18050
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1147362,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 5632,
+                "selector_products": 0,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1320466
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1149440,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 5632,
+                "rows": 1146880
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2327194
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 338,
+                "columns": 1113520,
+                "commitment_and_copy": 128,
+                "fold_scratch": 40410,
+                "hidden": 66,
+                "retained_statement_and_public": 5632,
+                "seeds": 204800,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 1366038
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 421520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 2327194,
+          "provider_specialized_with_exact_capacity_record": 2493366,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 2327194,
+          "with_exact_capacity_record_excluding_provider": 2493366
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 101872,
+            "clmul64_calls_upper_bound": 10306536,
+            "gf256_add_upper_bound": 772836,
+            "gf256_full_multiply_upper_bound": 597952,
+            "gf256_mul_bit": 151084,
+            "gf256_mul_u64": 108422,
+            "gf256_times_gf768": 6367,
+            "gf768_add": 6367
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 57175660,
+            "conversion_leaf_visits": 6400,
+            "conversion_stack_copy_bytes": 28587830,
+            "correction_byte_xors_upper_bound": 1075200,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2150,
+            "fold_mask_or_windows": 330,
+            "fold_mask_read_window_byte_tests": 7440,
+            "fold_mask_read_windows": 2480,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 7040,
+            "internal_node_tests": 6399,
+            "leaf_hash_slots": 6400,
+            "mark_hidden_parent_visits": 12798,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 290648064,
+            "matrix_column_byte_xors_fixed_tables": 140147152,
+            "matrix_column_tests": 238080,
+            "matrix_vector_output_bit_updates": 6080,
+            "matrix_vector_word_and_xors": 42240,
+            "matrix_vector_word_parities": 6080,
+            "opening_padding_byte_tests_upper_bound": 14656,
+            "revealed_node_parent_visits": 6399,
+            "transpose_bit_updates": 9175040
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 19133,
+            "aes256_input_blocks_upper_bound": 1872026,
+            "aes256_provider_constructions_upper_bound": 19133,
+            "encrypt_slice_calls_upper_bound": 248345,
+            "expanded_output_bytes_upper_bound": 29914214,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 340780,
+            "constraints": 36736,
+            "degree_alignment_multiplications": 192044,
+            "multiplications": 75136,
+            "public_bit_constructions": 79276,
+            "public_list_bit_tests": 0,
+            "witness_fetches": 35968
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 2190,
+              "calls": 1,
+              "keccak_f1600": 17,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 719374,
+              "calls": 33,
+              "keccak_f1600": 5300,
+              "squeezed_bytes": 2112
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 114048,
+              "calls": 704,
+              "keccak_f1600": 1408,
+              "squeezed_bytes": 1408
+            },
+            "challenge_1": {
+              "absorbed_bytes": 144494,
+              "calls": 1,
+              "keccak_f1600": 1064,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 5078,
+              "calls": 1,
+              "keccak_f1600": 38,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 9276,
+        "cold_statement": {
+          "hashes": {
+            "body_digest_sha3_512": {
+              "absorbed_bytes": 4136,
+              "calls": 1,
+              "keccak_f1600": 58,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 6024,
+              "calls": 1,
+              "keccak_f1600": 45,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 168608,
+              "calls": 2,
+              "keccak_f1600": 1240,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "registration_authorization_sha3_512": {
+              "absorbed_bytes": 5975,
+              "calls": 1,
+              "keccak_f1600": 83,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 0,
+          "test_decoder_field_slices": 11,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 128
+        },
+        "ordinary_keccak_f1600_total": 8590,
+        "ordinary_statement": {
+          "hashes": {
+            "body_digest_sha3_512": {
+              "absorbed_bytes": 0,
+              "calls": 0,
+              "keccak_f1600": 0,
+              "squeezed_bytes": 0
+            },
+            "message_shake256": {
+              "absorbed_bytes": 6024,
+              "calls": 1,
+              "keccak_f1600": 45,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 84304,
+              "calls": 1,
+              "keccak_f1600": 620,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "registration_authorization_sha3_512": {
+              "absorbed_bytes": 5975,
+              "calls": 1,
+              "keccak_f1600": 83,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 0,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": "maximum permitted",
+        "role": "registration",
+        "row": "candidate",
+        "seats": null
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 233980,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 1392,
+            "length_bytes": 890,
+            "sum_requested_bytes": 2756,
+            "with_realloc_overlap_bytes": 2088
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 66,
+                "keys": 409568,
+                "marks": 12799,
+                "retained_statement_and_public": 768,
+                "return_metadata": 338,
+                "seeds": 204800,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 629195
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 928
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1661104,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 7936,
+                "hidden": 66,
+                "labels": 22528,
+                "retained_statement_and_public": 768,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1693674
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1661104,
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 768
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3401802
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1661104,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 768,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1687178
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 421520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 421520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 421520,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 421904
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 66,
+                "marks": 12799,
+                "retained_statement_and_public": 768
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 13633
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 768
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 384,
+                "frame_with_realloc": 2088,
+                "mu": 64,
+                "public_list": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3304
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712610,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 768,
+                "selector_products": 120,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1880970
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 768,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3452826
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 338,
+                "columns": 1661104,
+                "commitment_and_copy": 128,
+                "fold_scratch": 60282,
+                "hidden": 66,
+                "retained_statement_and_public": 768,
+                "seeds": 204800,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 1928630
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 421520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 3452826,
+          "provider_specialized_with_exact_capacity_record": 3686806,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 3452826,
+          "with_exact_capacity_record_excluding_provider": 3686806
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 101872,
+            "clmul64_calls_upper_bound": 15270468,
+            "gf256_add_upper_bound": 1161548,
+            "gf256_full_multiply_upper_bound": 894693,
+            "gf256_mul_bit": 225931,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 6367,
+            "gf768_add": 6367
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 85292332,
+            "conversion_leaf_visits": 6400,
+            "conversion_stack_copy_bytes": 42646166,
+            "correction_byte_xors_upper_bound": 1605120,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2150,
+            "fold_mask_or_windows": 330,
+            "fold_mask_read_window_byte_tests": 7440,
+            "fold_mask_read_windows": 2480,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 7040,
+            "internal_node_tests": 6399,
+            "leaf_hash_slots": 6400,
+            "mark_hidden_parent_visits": 12798,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 430829568,
+            "matrix_column_byte_xors_fixed_tables": 207676624,
+            "matrix_column_tests": 238080,
+            "matrix_vector_output_bit_updates": 6080,
+            "matrix_vector_word_and_xors": 42240,
+            "matrix_vector_word_parities": 6080,
+            "opening_padding_byte_tests_upper_bound": 14656,
+            "revealed_node_parent_visits": 6399,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 19133,
+            "aes256_input_blocks_upper_bound": 2750672,
+            "aes256_provider_constructions_upper_bound": 19133,
+            "encrypt_slice_calls_upper_bound": 356584,
+            "expanded_output_bytes_upper_bound": 43972550,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 515080,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 113027,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 3072,
+            "witness_fetches": 54022
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 2190,
+              "calls": 1,
+              "keccak_f1600": 17,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 719374,
+              "calls": 33,
+              "keccak_f1600": 5300,
+              "squeezed_bytes": 2112
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 114048,
+              "calls": 704,
+              "keccak_f1600": 1408,
+              "squeezed_bytes": 1408
+            },
+            "challenge_1": {
+              "absorbed_bytes": 215150,
+              "calls": 1,
+              "keccak_f1600": 1583,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 9660,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 996,
+              "calls": 2,
+              "keccak_f1600": 14,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 968,
+              "calls": 1,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 168608,
+              "calls": 2,
+              "keccak_f1600": 1240,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 920,
+              "calls": 1,
+              "keccak_f1600": 13,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 512,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 9025,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 498,
+              "calls": 1,
+              "keccak_f1600": 7,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 968,
+              "calls": 1,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 84304,
+              "calls": 1,
+              "keccak_f1600": 620,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 920,
+              "calls": 1,
+              "keccak_f1600": 13,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 256,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "candidate",
+        "seats": 3
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 297596,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 128466,
+            "length_bytes": 64506,
+            "sum_requested_bytes": 193367,
+            "with_realloc_overlap_bytes": 192699
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 66,
+                "keys": 409568,
+                "marks": 12799,
+                "retained_statement_and_public": 128000,
+                "return_metadata": 338,
+                "seeds": 204800,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 756427
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 128160
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1661104,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 7936,
+                "hidden": 66,
+                "labels": 22528,
+                "retained_statement_and_public": 128000,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1820906
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1661104,
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3529034
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1661104,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 128000,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1814410
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 421520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 421520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 421520,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 485520
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 66,
+                "marks": 12799,
+                "retained_statement_and_public": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 140865
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 128000
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 64000,
+                "frame_with_realloc": 192699,
+                "mu": 64,
+                "public_list": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 384763
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712610,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 128000,
+                "selector_products": 20000,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2028082
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 128000,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3580058
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 338,
+                "columns": 1661104,
+                "commitment_and_copy": 128,
+                "fold_scratch": 60282,
+                "hidden": 66,
+                "retained_statement_and_public": 128000,
+                "seeds": 204800,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 2055862
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 421520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 3580058,
+          "provider_specialized_with_exact_capacity_record": 3877654,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 3580058,
+          "with_exact_capacity_record_excluding_provider": 3877654
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 101872,
+            "clmul64_calls_upper_bound": 15278420,
+            "gf256_add_upper_bound": 1671967,
+            "gf256_full_multiply_upper_bound": 895190,
+            "gf256_mul_bit": 226925,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 6367,
+            "gf768_add": 6367
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 85292332,
+            "conversion_leaf_visits": 6400,
+            "conversion_stack_copy_bytes": 42646166,
+            "correction_byte_xors_upper_bound": 1605120,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2150,
+            "fold_mask_or_windows": 330,
+            "fold_mask_read_window_byte_tests": 7440,
+            "fold_mask_read_windows": 2480,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 7040,
+            "internal_node_tests": 6399,
+            "leaf_hash_slots": 6400,
+            "mark_hidden_parent_visits": 12798,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 430829568,
+            "matrix_column_byte_xors_fixed_tables": 207676624,
+            "matrix_column_tests": 238080,
+            "matrix_vector_output_bit_updates": 6080,
+            "matrix_vector_word_and_xors": 42240,
+            "matrix_vector_word_parities": 6080,
+            "opening_padding_byte_tests_upper_bound": 14656,
+            "revealed_node_parent_visits": 6399,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 19133,
+            "aes256_input_blocks_upper_bound": 2750672,
+            "aes256_provider_constructions_upper_bound": 19133,
+            "encrypt_slice_calls_upper_bound": 356584,
+            "expanded_output_bytes_upper_bound": 43972550,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 1024505,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 113524,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 512000,
+            "witness_fetches": 55016
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 2190,
+              "calls": 1,
+              "keccak_f1600": 17,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 719374,
+              "calls": 33,
+              "keccak_f1600": 5300,
+              "squeezed_bytes": 2112
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 114048,
+              "calls": 704,
+              "keccak_f1600": 1408,
+              "squeezed_bytes": 1408
+            },
+            "challenge_1": {
+              "absorbed_bytes": 215150,
+              "calls": 1,
+              "keccak_f1600": 1583,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 12779,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 128228,
+              "calls": 2,
+              "keccak_f1600": 1782,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 64584,
+              "calls": 1,
+              "keccak_f1600": 475,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 168608,
+              "calls": 2,
+              "keccak_f1600": 1240,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 64536,
+              "calls": 1,
+              "keccak_f1600": 897,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 127744,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 11260,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 64114,
+              "calls": 1,
+              "keccak_f1600": 891,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 64584,
+              "calls": 1,
+              "keccak_f1600": 475,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 84304,
+              "calls": 1,
+              "keccak_f1600": 620,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 64536,
+              "calls": 1,
+              "keccak_f1600": 897,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 63872,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "candidate",
+        "seats": 500
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 361596,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 256466,
+            "length_bytes": 128506,
+            "sum_requested_bytes": 385367,
+            "with_realloc_overlap_bytes": 384699
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 66,
+                "keys": 409568,
+                "marks": 12799,
+                "retained_statement_and_public": 256000,
+                "return_metadata": 338,
+                "seeds": 204800,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 884427
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 256160
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1661104,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 7936,
+                "hidden": 66,
+                "labels": 22528,
+                "retained_statement_and_public": 256000,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1948906
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1661104,
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 256000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3657034
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1661104,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 256000,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1942410
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 421520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 421520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 421520,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 549520
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 66,
+                "marks": 12799,
+                "retained_statement_and_public": 256000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 268865
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 256000
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 128000,
+                "frame_with_realloc": 384699,
+                "mu": 64,
+                "public_list": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 768763
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712610,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 256000,
+                "selector_products": 40000,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2176082
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1714688,
+                "mask_tags": 320,
+                "persistent_vole": 24922,
+                "retained_statement_and_public": 256000,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3708058
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 338,
+                "columns": 1661104,
+                "commitment_and_copy": 128,
+                "fold_scratch": 60282,
+                "hidden": 66,
+                "retained_statement_and_public": 256000,
+                "seeds": 204800,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 792
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 2183862
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 421520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 3708058,
+          "provider_specialized_with_exact_capacity_record": 4069654,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 3708058,
+          "with_exact_capacity_record_excluding_provider": 4069654
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 101872,
+            "clmul64_calls_upper_bound": 15286420,
+            "gf256_add_upper_bound": 2185467,
+            "gf256_full_multiply_upper_bound": 895690,
+            "gf256_mul_bit": 227925,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 6367,
+            "gf768_add": 6367
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 85292332,
+            "conversion_leaf_visits": 6400,
+            "conversion_stack_copy_bytes": 42646166,
+            "correction_byte_xors_upper_bound": 1605120,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2150,
+            "fold_mask_or_windows": 330,
+            "fold_mask_read_window_byte_tests": 7440,
+            "fold_mask_read_windows": 2480,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 7040,
+            "internal_node_tests": 6399,
+            "leaf_hash_slots": 6400,
+            "mark_hidden_parent_visits": 12798,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 430829568,
+            "matrix_column_byte_xors_fixed_tables": 207676624,
+            "matrix_column_tests": 238080,
+            "matrix_vector_output_bit_updates": 6080,
+            "matrix_vector_word_and_xors": 42240,
+            "matrix_vector_word_parities": 6080,
+            "opening_padding_byte_tests_upper_bound": 14656,
+            "revealed_node_parent_visits": 6399,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 19133,
+            "aes256_input_blocks_upper_bound": 2750672,
+            "aes256_provider_constructions_upper_bound": 19133,
+            "encrypt_slice_calls_upper_bound": 356584,
+            "expanded_output_bytes_upper_bound": 43972550,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 1537005,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 114024,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 1024000,
+            "witness_fetches": 56016
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 2190,
+              "calls": 1,
+              "keccak_f1600": 17,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 719374,
+              "calls": 33,
+              "keccak_f1600": 5300,
+              "squeezed_bytes": 2112
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 114048,
+              "calls": 704,
+              "keccak_f1600": 1408,
+              "squeezed_bytes": 1408
+            },
+            "challenge_1": {
+              "absorbed_bytes": 215150,
+              "calls": 1,
+              "keccak_f1600": 1583,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 15917,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 256228,
+              "calls": 2,
+              "keccak_f1600": 3560,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 128584,
+              "calls": 1,
+              "keccak_f1600": 946,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 168608,
+              "calls": 2,
+              "keccak_f1600": 1240,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 128536,
+              "calls": 1,
+              "keccak_f1600": 1786,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 255744,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 13509,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 128114,
+              "calls": 1,
+              "keccak_f1600": 1780,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 128584,
+              "calls": 1,
+              "keccak_f1600": 946,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 84304,
+              "calls": 1,
+              "keccak_f1600": 620,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 128536,
+              "calls": 1,
+              "keccak_f1600": 1786,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 127872,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "candidate",
+        "seats": 1000
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 115522,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 5,
+            "capacity_bytes": 8236,
+            "length_bytes": 5946,
+            "sum_requested_bytes": 12410,
+            "with_realloc_overlap_bytes": 12354
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 44,
+                "keys": 3932128,
+                "marks": 122879,
+                "retained_statement_and_public": 5632,
+                "return_metadata": 228,
+                "seeds": 1966080,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 6027583
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 176,
+                "list_digest_concat": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 5808
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1123750,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 8000,
+                "hidden": 44,
+                "labels": 22272,
+                "retained_statement_and_public": 5632,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1160706
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1123750,
+                "lifted": 1150720,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2304802
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1123750,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 5632,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1154146
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 418520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 418520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 418520,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 424152
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 44,
+                "marks": 122879,
+                "retained_statement_and_public": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 128555
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 5632
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 0,
+                "frame_with_realloc": 12354,
+                "mu": 64,
+                "public_list": 0,
+                "typed_statement": 5632
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 18050
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1147340,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 5632,
+                "selector_products": 0,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1320444
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1150720,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 5632,
+                "rows": 1146880
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2327932
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 228,
+                "columns": 1123750,
+                "commitment_and_copy": 128,
+                "fold_scratch": 58435,
+                "hidden": 44,
+                "retained_statement_and_public": 5632,
+                "seeds": 1966080,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 3155177
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 418520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 6028543,
+          "provider_specialized_with_exact_capacity_record": 6144065,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 6027583,
+          "with_exact_capacity_record_excluding_provider": 6143105
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 982688,
+            "clmul64_calls_upper_bound": 13829800,
+            "gf256_add_upper_bound": 772836,
+            "gf256_full_multiply_upper_bound": 653003,
+            "gf256_mul_bit": 151084,
+            "gf256_mul_u64": 108422,
+            "gf256_times_gf768": 61418,
+            "gf768_add": 61418
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 552147820,
+            "conversion_leaf_visits": 61440,
+            "conversion_stack_copy_bytes": 276073910,
+            "correction_byte_xors_upper_bound": 1066240,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2280,
+            "fold_mask_or_windows": 220,
+            "fold_mask_read_window_byte_tests": 7500,
+            "fold_mask_read_windows": 2500,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 6960,
+            "internal_node_tests": 61439,
+            "leaf_hash_slots": 61440,
+            "mark_hidden_parent_visits": 122878,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 293248000,
+            "matrix_column_byte_xors_fixed_tables": 142598530,
+            "matrix_column_tests": 238000,
+            "matrix_vector_output_bit_updates": 6072,
+            "matrix_vector_word_and_xors": 42208,
+            "matrix_vector_word_parities": 6072,
+            "opening_padding_byte_tests_upper_bound": 14400,
+            "revealed_node_parent_visits": 61439,
+            "transpose_bit_updates": 9175040
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 184275,
+            "aes256_input_blocks_upper_bound": 18056976,
+            "aes256_provider_constructions_upper_bound": 184275,
+            "encrypt_slice_calls_upper_bound": 2395323,
+            "expanded_output_bytes_upper_bound": 288850198,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 340780,
+            "constraints": 36736,
+            "degree_alignment_multiplications": 192044,
+            "multiplications": 75136,
+            "public_bit_constructions": 79276,
+            "public_list_bit_tests": 0,
+            "witness_fetches": 35968
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 1486,
+              "calls": 1,
+              "keccak_f1600": 11,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 6882996,
+              "calls": 22,
+              "keccak_f1600": 50624,
+              "squeezed_bytes": 1408
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 112752,
+              "calls": 696,
+              "keccak_f1600": 1392,
+              "squeezed_bytes": 1392
+            },
+            "challenge_1": {
+              "absorbed_bytes": 95204,
+              "calls": 1,
+              "keccak_f1600": 702,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 5078,
+              "calls": 1,
+              "keccak_f1600": 38,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 54208,
+        "cold_statement": {
+          "hashes": {
+            "body_digest_sha3_512": {
+              "absorbed_bytes": 4136,
+              "calls": 1,
+              "keccak_f1600": 58,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 6024,
+              "calls": 1,
+              "keccak_f1600": 45,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 167408,
+              "calls": 2,
+              "keccak_f1600": 1232,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "registration_authorization_sha3_512": {
+              "absorbed_bytes": 5975,
+              "calls": 1,
+              "keccak_f1600": 83,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 0,
+          "test_decoder_field_slices": 11,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 128
+        },
+        "ordinary_keccak_f1600_total": 53526,
+        "ordinary_statement": {
+          "hashes": {
+            "body_digest_sha3_512": {
+              "absorbed_bytes": 0,
+              "calls": 0,
+              "keccak_f1600": 0,
+              "squeezed_bytes": 0
+            },
+            "message_shake256": {
+              "absorbed_bytes": 6024,
+              "calls": 1,
+              "keccak_f1600": 45,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 83704,
+              "calls": 1,
+              "keccak_f1600": 616,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "registration_authorization_sha3_512": {
+              "absorbed_bytes": 5975,
+              "calls": 1,
+              "keccak_f1600": 83,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 0,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": "maximum permitted",
+        "role": "registration",
+        "row": "comparator",
+        "seats": null
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 159042,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 1392,
+            "length_bytes": 890,
+            "sum_requested_bytes": 2756,
+            "with_realloc_overlap_bytes": 2088
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 44,
+                "keys": 3932128,
+                "marks": 122879,
+                "retained_statement_and_public": 768,
+                "return_metadata": 228,
+                "seeds": 1966080,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 6022719
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 928
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1675750,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 8000,
+                "hidden": 44,
+                "labels": 22272,
+                "retained_statement_and_public": 768,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1707842
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1675750,
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 768
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3417186
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1675750,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 768,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1701282
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 418520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 418520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 418520,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 418904
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 44,
+                "marks": 122879,
+                "retained_statement_and_public": 768
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 123691
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 768
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 384,
+                "frame_with_realloc": 2088,
+                "mu": 64,
+                "public_list": 384,
+                "typed_statement": 384
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3304
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712588,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 768,
+                "selector_products": 120,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1880948
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 768,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3453564
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 228,
+                "columns": 1675750,
+                "commitment_and_copy": 128,
+                "fold_scratch": 87139,
+                "hidden": 44,
+                "retained_statement_and_public": 768,
+                "seeds": 1966080,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 3731017
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 418520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 6023679,
+          "provider_specialized_with_exact_capacity_record": 6182721,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 6022719,
+          "with_exact_capacity_record_excluding_provider": 6181761
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 982688,
+            "clmul64_calls_upper_bound": 18793732,
+            "gf256_add_upper_bound": 1161548,
+            "gf256_full_multiply_upper_bound": 949744,
+            "gf256_mul_bit": 225931,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 61418,
+            "gf768_add": 61418
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 823369708,
+            "conversion_leaf_visits": 61440,
+            "conversion_stack_copy_bytes": 411684854,
+            "correction_byte_xors_upper_bound": 1591744,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2280,
+            "fold_mask_or_windows": 220,
+            "fold_mask_read_window_byte_tests": 7500,
+            "fold_mask_read_windows": 2500,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 6960,
+            "internal_node_tests": 61439,
+            "leaf_hash_slots": 61440,
+            "mark_hidden_parent_visits": 122878,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 434560000,
+            "matrix_column_byte_xors_fixed_tables": 211271746,
+            "matrix_column_tests": 238000,
+            "matrix_vector_output_bit_updates": 6072,
+            "matrix_vector_word_and_xors": 42208,
+            "matrix_vector_word_parities": 6072,
+            "opening_padding_byte_tests_upper_bound": 14400,
+            "revealed_node_parent_visits": 61439,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 184275,
+            "aes256_input_blocks_upper_bound": 26532660,
+            "aes256_provider_constructions_upper_bound": 184275,
+            "encrypt_slice_calls_upper_bound": 3439429,
+            "expanded_output_bytes_upper_bound": 424461142,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 515080,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 113027,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 3072,
+            "witness_fetches": 54022
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 1486,
+              "calls": 1,
+              "keccak_f1600": 11,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 6882996,
+              "calls": 22,
+              "keccak_f1600": 50624,
+              "squeezed_bytes": 1408
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 112752,
+              "calls": 696,
+              "keccak_f1600": 1392,
+              "squeezed_bytes": 1392
+            },
+            "challenge_1": {
+              "absorbed_bytes": 141572,
+              "calls": 1,
+              "keccak_f1600": 1042,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 54413,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 996,
+              "calls": 2,
+              "keccak_f1600": 14,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 968,
+              "calls": 1,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 167408,
+              "calls": 2,
+              "keccak_f1600": 1232,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 920,
+              "calls": 1,
+              "keccak_f1600": 13,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 512,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 53782,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 498,
+              "calls": 1,
+              "keccak_f1600": 7,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 968,
+              "calls": 1,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 83704,
+              "calls": 1,
+              "keccak_f1600": 616,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 920,
+              "calls": 1,
+              "keccak_f1600": 13,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 256,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "comparator",
+        "seats": 3
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 222658,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 128466,
+            "length_bytes": 64506,
+            "sum_requested_bytes": 193367,
+            "with_realloc_overlap_bytes": 192699
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 44,
+                "keys": 3932128,
+                "marks": 122879,
+                "retained_statement_and_public": 128000,
+                "return_metadata": 228,
+                "seeds": 1966080,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 6149951
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 128160
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1675750,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 8000,
+                "hidden": 44,
+                "labels": 22272,
+                "retained_statement_and_public": 128000,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1835074
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1675750,
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3544418
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1675750,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 128000,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1828514
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 418520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 418520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 418520,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 482520
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 44,
+                "marks": 122879,
+                "retained_statement_and_public": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 250923
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 128000
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 64000,
+                "frame_with_realloc": 192699,
+                "mu": 64,
+                "public_list": 64000,
+                "typed_statement": 64000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 384763
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712588,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 128000,
+                "selector_products": 20000,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2028060
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 128000,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3580796
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 228,
+                "columns": 1675750,
+                "commitment_and_copy": 128,
+                "fold_scratch": 87139,
+                "hidden": 44,
+                "retained_statement_and_public": 128000,
+                "seeds": 1966080,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 3858249
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 418520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 6150911,
+          "provider_specialized_with_exact_capacity_record": 6373569,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 6149951,
+          "with_exact_capacity_record_excluding_provider": 6372609
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 982688,
+            "clmul64_calls_upper_bound": 18801684,
+            "gf256_add_upper_bound": 1671967,
+            "gf256_full_multiply_upper_bound": 950241,
+            "gf256_mul_bit": 226925,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 61418,
+            "gf768_add": 61418
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 823369708,
+            "conversion_leaf_visits": 61440,
+            "conversion_stack_copy_bytes": 411684854,
+            "correction_byte_xors_upper_bound": 1591744,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2280,
+            "fold_mask_or_windows": 220,
+            "fold_mask_read_window_byte_tests": 7500,
+            "fold_mask_read_windows": 2500,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 6960,
+            "internal_node_tests": 61439,
+            "leaf_hash_slots": 61440,
+            "mark_hidden_parent_visits": 122878,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 434560000,
+            "matrix_column_byte_xors_fixed_tables": 211271746,
+            "matrix_column_tests": 238000,
+            "matrix_vector_output_bit_updates": 6072,
+            "matrix_vector_word_and_xors": 42208,
+            "matrix_vector_word_parities": 6072,
+            "opening_padding_byte_tests_upper_bound": 14400,
+            "revealed_node_parent_visits": 61439,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 184275,
+            "aes256_input_blocks_upper_bound": 26532660,
+            "aes256_provider_constructions_upper_bound": 184275,
+            "encrypt_slice_calls_upper_bound": 3439429,
+            "expanded_output_bytes_upper_bound": 424461142,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 1024505,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 113524,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 512000,
+            "witness_fetches": 55016
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 1486,
+              "calls": 1,
+              "keccak_f1600": 11,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 6882996,
+              "calls": 22,
+              "keccak_f1600": 50624,
+              "squeezed_bytes": 1408
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 112752,
+              "calls": 696,
+              "keccak_f1600": 1392,
+              "squeezed_bytes": 1392
+            },
+            "challenge_1": {
+              "absorbed_bytes": 141572,
+              "calls": 1,
+              "keccak_f1600": 1042,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 57532,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 128228,
+              "calls": 2,
+              "keccak_f1600": 1782,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 64584,
+              "calls": 1,
+              "keccak_f1600": 475,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 167408,
+              "calls": 2,
+              "keccak_f1600": 1232,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 64536,
+              "calls": 1,
+              "keccak_f1600": 897,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 127744,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 56017,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 64114,
+              "calls": 1,
+              "keccak_f1600": 891,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 64584,
+              "calls": 1,
+              "keccak_f1600": 475,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 83704,
+              "calls": 1,
+              "keccak_f1600": 616,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 64536,
+              "calls": 1,
+              "keccak_f1600": 897,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 63872,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "comparator",
+        "seats": 500
+      },
+      {
+        "allocation": {
+          "canonical_exact_capacity_record_bytes_optional": 286658,
+          "frame_allocation": {
+            "allocation_or_reallocation_calls": 8,
+            "capacity_bytes": 256466,
+            "length_bytes": 128506,
+            "sum_requested_bytes": 385367,
+            "with_realloc_overlap_bytes": 384699
+          },
+          "phases": {
+            "bavc_reconstruct": {
+              "buffers": {
+                "commitment": 64,
+                "hidden": 44,
+                "keys": 3932128,
+                "marks": 122879,
+                "retained_statement_and_public": 256000,
+                "return_metadata": 228,
+                "seeds": 1966080,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 6277951
+            },
+            "decode_statement": {
+              "buffers": {
+                "field_slices": 160,
+                "list_digest_concat": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 256160
+            },
+            "gate_labels": {
+              "buffers": {
+                "columns": 1675750,
+                "commitment": 64,
+                "delta_words_and_bytes": 64,
+                "heads": 8000,
+                "hidden": 44,
+                "labels": 22272,
+                "retained_statement_and_public": 256000,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1963074
+            },
+            "lift_columns": {
+              "buffers": {
+                "columns": 1675750,
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 256000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3672418
+            },
+            "mask_tags": {
+              "buffers": {
+                "columns": 1675750,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 256000,
+                "two_mask_products": 64
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 1956514
+            },
+            "profile_before_decode": {
+              "buffers": {
+                "profile_compilation_peak": 418520
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 418520
+            },
+            "profile_inside_verify": {
+              "buffers": {
+                "profile_compilation_peak": 418520,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 546520
+            },
+            "raw_proof_decode": {
+              "buffers": {
+                "hidden": 44,
+                "marks": 122879,
+                "retained_statement_and_public": 256000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 378923
+            },
+            "statement_authorization": {
+              "buffers": {
+                "digest_concat": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 256000
+            },
+            "statement_frame_and_mu": {
+              "buffers": {
+                "frame_input_concat": 128000,
+                "frame_with_realloc": 384699,
+                "mu": 64,
+                "public_list": 128000,
+                "typed_statement": 128000
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 768763
+            },
+            "transcript_and_relation": {
+              "buffers": {
+                "challenge_1_and_2": 368,
+                "coefficients_with_realloc": 256,
+                "decoded_masks": 320,
+                "reconstruction": 1712588,
+                "relation_scratch": 166400,
+                "retained_statement_and_public": 256000,
+                "selector_products": 40000,
+                "serialized_d_tilde": 128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 2176060
+            },
+            "transpose_rows": {
+              "buffers": {
+                "lifted": 1715968,
+                "mask_tags": 320,
+                "persistent_vole": 24380,
+                "retained_statement_and_public": 256000,
+                "rows": 1712128
+              },
+              "provider_boxes": 0,
+              "requested_bytes_excluding_provider": 3708796
+            },
+            "vole_conversion": {
+              "buffers": {
+                "bavc_return_metadata": 228,
+                "columns": 1675750,
+                "commitment_and_copy": 128,
+                "fold_scratch": 87139,
+                "hidden": 44,
+                "retained_statement_and_public": 256000,
+                "seeds": 1966080,
+                "selector": 32,
+                "shares": 320,
+                "tree_metadata": 528
+              },
+              "provider_boxes": 1,
+              "requested_bytes_excluding_provider": 3986249
+            }
+          },
+          "process_or_stack_bound": false,
+          "profile_disjoint_subphases": {
+            "crt_and_serialization_with_realloc": 418520,
+            "descriptor_parameters_dimensions_and_frame": 796
+          },
+          "provider_bytes_additive_symbol": "size_of::<selected AES256 provider>() (at most one live Box)",
+          "provider_specialized_requested_bytes_upper_bound": 6278911,
+          "provider_specialized_with_exact_capacity_record": 6565569,
+          "verifier_requested_bytes_upper_bound_excluding_provider": 6277951,
+          "with_exact_capacity_record_excluding_provider": 6564609
+        },
+        "backend": {
+          "arithmetic": {
+            "affine_check_byte_xors": 982688,
+            "clmul64_calls_upper_bound": 18809684,
+            "gf256_add_upper_bound": 2185467,
+            "gf256_full_multiply_upper_bound": 950741,
+            "gf256_mul_bit": 227925,
+            "gf256_mul_u64": 162441,
+            "gf256_times_gf768": 61418,
+            "gf768_add": 61418
+          },
+          "bounded_loops": {
+            "conversion_fold_byte_xors": 823369708,
+            "conversion_leaf_visits": 61440,
+            "conversion_stack_copy_bytes": 411684854,
+            "correction_byte_xors_upper_bound": 1591744,
+            "decode_challenge_bit_tests": 512,
+            "final_challenge_byte_comparisons_upper_bound": 32,
+            "fold_mask_modular_reduction_steps": 2280,
+            "fold_mask_or_windows": 220,
+            "fold_mask_read_window_byte_tests": 7500,
+            "fold_mask_read_windows": 2500,
+            "gate_correction_word_and_xors": 110,
+            "gate_spread_bit_updates": 6960,
+            "internal_node_tests": 61439,
+            "leaf_hash_slots": 61440,
+            "mark_hidden_parent_visits": 122878,
+            "mask_tag_word_xors": 40,
+            "matrix_column_byte_xors_all_bits_bound": 434560000,
+            "matrix_column_byte_xors_fixed_tables": 211271746,
+            "matrix_column_tests": 238000,
+            "matrix_vector_output_bit_updates": 6072,
+            "matrix_vector_word_and_xors": 42208,
+            "matrix_vector_word_parities": 6072,
+            "opening_padding_byte_tests_upper_bound": 14400,
+            "revealed_node_parent_visits": 61439,
+            "transpose_bit_updates": 13697024
+          },
+          "prg": {
+            "aes256_box_allocations_upper_bound": 184275,
+            "aes256_input_blocks_upper_bound": 26532660,
+            "aes256_provider_constructions_upper_bound": 184275,
+            "encrypt_slice_calls_upper_bound": 3439429,
+            "expanded_output_bytes_upper_bound": 424461142,
+            "simultaneously_live_provider_boxes": 1
+          },
+          "relation": {
+            "constraint_system_additions": 1537005,
+            "constraints": 55427,
+            "degree_alignment_multiplications": 289864,
+            "multiplications": 114024,
+            "public_bit_constructions": 118405,
+            "public_list_bit_tests": 1024000,
+            "witness_fetches": 56016
+          },
+          "sponges": {
+            "H0": {
+              "absorbed_bytes": 94,
+              "calls": 1,
+              "keccak_f1600": 1,
+              "squeezed_bytes": 128
+            },
+            "H1_outer": {
+              "absorbed_bytes": 1486,
+              "calls": 1,
+              "keccak_f1600": 11,
+              "squeezed_bytes": 64
+            },
+            "H1_vectors": {
+              "absorbed_bytes": 6882996,
+              "calls": 22,
+              "keccak_f1600": 50624,
+              "squeezed_bytes": 1408
+            },
+            "H4": {
+              "absorbed_bytes": 158,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 16
+            },
+            "H5": {
+              "absorbed_bytes": 112752,
+              "calls": 696,
+              "keccak_f1600": 1392,
+              "squeezed_bytes": 1392
+            },
+            "challenge_1": {
+              "absorbed_bytes": 141572,
+              "calls": 1,
+              "keccak_f1600": 1042,
+              "squeezed_bytes": 264
+            },
+            "challenge_2": {
+              "absorbed_bytes": 7286,
+              "calls": 1,
+              "keccak_f1600": 54,
+              "squeezed_bytes": 104
+            },
+            "challenge_3": {
+              "absorbed_bytes": 410,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 32
+            }
+          }
+        },
+        "cold_keccak_f1600_total": 60670,
+        "cold_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 256228,
+              "calls": 2,
+              "keccak_f1600": 3560,
+              "squeezed_bytes": 128
+            },
+            "message_shake256": {
+              "absorbed_bytes": 128584,
+              "calls": 1,
+              "keccak_f1600": 946,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 167408,
+              "calls": 2,
+              "keccak_f1600": 1232,
+              "squeezed_bytes": 128
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 572,
+              "calls": 2,
+              "keccak_f1600": 8,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 178,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 180,
+              "calls": 2,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 128
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 128536,
+              "calls": 1,
+              "keccak_f1600": 1786,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 255744,
+          "test_decoder_field_slices": 10,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 64
+        },
+        "ordinary_keccak_f1600_total": 58266,
+        "ordinary_statement": {
+          "hashes": {
+            "list_sha3_512": {
+              "absorbed_bytes": 128114,
+              "calls": 1,
+              "keccak_f1600": 1780,
+              "squeezed_bytes": 64
+            },
+            "message_shake256": {
+              "absorbed_bytes": 128584,
+              "calls": 1,
+              "keccak_f1600": 946,
+              "squeezed_bytes": 64
+            },
+            "profile_crt_shake256": {
+              "absorbed_bytes": 83704,
+              "calls": 1,
+              "keccak_f1600": 616,
+              "squeezed_bytes": 64
+            },
+            "profile_descriptor_sha3_512": {
+              "absorbed_bytes": 286,
+              "calls": 1,
+              "keccak_f1600": 4,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_reg_sha3_512": {
+              "absorbed_bytes": 89,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "profile_namespace_vote_sha3_512": {
+              "absorbed_bytes": 90,
+              "calls": 1,
+              "keccak_f1600": 2,
+              "squeezed_bytes": 64
+            },
+            "vote_authorization_sha3_512": {
+              "absorbed_bytes": 128536,
+              "calls": 1,
+              "keccak_f1600": 1786,
+              "squeezed_bytes": 64
+            }
+          },
+          "list_order_byte_comparisons_upper_bound": 127872,
+          "test_decoder_field_slices": 0,
+          "test_decoder_fixed_digest_comparisons_upper_bound": 0
+        },
+        "registration_fields": null,
+        "role": "vote",
+        "row": "comparator",
+        "seats": 1000
+      }
+    ],
+    "complete_production_certificate": false,
+    "instruction_cycle_or_deadline_bound": false,
+    "provider_layout": {
+      "bytes_per_box": 960,
+      "compile_only": true,
+      "receipt": "docs/validation/parliament_ballot_b6/provider-layout.json",
+      "sha256": "0d5aaec576abc3d268bc26a8665c527bd5bcce3acd8649a289b38867b933783b",
+      "targets_and_modes": [
+        [
+          "aarch64-apple-darwin",
+          "accel"
+        ],
+        [
+          "aarch64-apple-darwin",
+          "portable"
+        ],
+        [
+          "aarch64-apple-ios",
+          "accel"
+        ],
+        [
+          "aarch64-apple-ios",
+          "portable"
+        ],
+        [
+          "aarch64-linux-android",
+          "accel"
+        ],
+        [
+          "aarch64-linux-android",
+          "portable"
+        ],
+        [
+          "x86_64-unknown-linux-musl",
+          "accel"
+        ],
+        [
+          "x86_64-unknown-linux-musl",
+          "portable"
+        ]
+      ]
+    },
+    "rust_alloc": {
+      "revision": "01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf",
+      "source_sha256": {
+        "alloc.rs": "cd8a5946b4c44338c451d1bb4c47e3109ea08ae7e3c58397e0879e4fe099572b",
+        "raw_vec/mod.rs": "7f94665b803a970d83f99d3a451a92af6b210baaa8c9685b1f50d265c836f38b",
+        "vec/mod.rs": "98ed44ed3e17e41c6048b2057cdf44443ddb5f7462fbf9c48e7e62fc7ace286e",
+        "vec/spec_extend.rs": "5673f04327502716ba5774e2067f9c1a179290e0cde92fe72ddfc5475ab34396",
+        "vec/spec_from_iter.rs": "584c9018149f930b5cd56ca3ba7a7d70f48583b2dfc32b243926a6ae4cb10566",
+        "vec/spec_from_iter_nested.rs": "f3c1a06f43734a65e102b6a107e2fd5adadd7d94d9a226d6ffe1610d1e7e1466"
+      },
+      "url_prefix": "https://github.com/rust-lang/rust/blob/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/alloc/src/"
+    },
+    "scope": "cold bounded TEST_RECORD decode followed by ordinary standalone verify; ordinary prelude also reported",
+    "sources": {
+      "aggregate_sha256": "85637106cc477d878f5935f559db568dd7450fac3f8edcc3dde04d44b9f30741",
+      "files": {
+        "Cargo.lock": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48",
+        "Cargo.toml": "68762cc6829702719a382b83f1013a241cdb962a5a8459846c429e99c7ae68b6",
+        "crates/iroha_parliament_ballot_proof/Cargo.toml": "1b555b57b3541f5b031378628aaa42c5b78ad86dc36ceee043d023f49a83a3b7",
+        "crates/iroha_parliament_ballot_proof/src/credential.rs": "9cef899f6864c4b8517cab01b66ec66e38e0d5350d7a1ce02cfb889bdca02b34",
+        "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+        "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": "f757f491b81c52563b34e425a9ded20547419200c848c4ad5231ef1fd32374f5",
+        "crates/iroha_parliament_ballot_proof/src/layout.rs": "33db7b2cb59ccebaa557a73ee6db899c3cfa32a288bdc3382384d151fab4c6f0",
+        "crates/iroha_parliament_ballot_proof/src/lib.rs": "503a358e552e53284d8a1c8b15b2df24b2111b766dfaa004f5f4c7091b07604e",
+        "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+        "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+        "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+        "crates/iroha_parliament_ballot_proof/src/sealed_list.rs": "769eb3de9f35211bd80067f1c0669645995d603cce3aa2f0e2818699be834de0",
+        "crates/iroha_parliament_ballot_proof/src/selector.rs": "1d96fee19e79b781434580a00e355048585994c15e9210fdc62c3665ddd37d75",
+        "crates/iroha_parliament_ballot_proof/src/test_codec.rs": "5251b4aa9ac0867986b054c4fad6214654032ecdac8dc411ab9a2da542735cb1",
+        "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+        "crates/iroha_zkp_vole/Cargo.toml": "8923f40e240a57f812939f6e432155064e3a712902652dbc9f77c80442b9227c",
+        "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+        "crates/iroha_zkp_vole/src/codec.rs": "ac354c72e09fb022b1dcb300cf339fa66303abdf76ae5518f7f9e243cc5e5a2f",
+        "crates/iroha_zkp_vole/src/crt.rs": "2a45b530a22d3439678b06121c98c84499a3512652bfb95f78745023f33446e6",
+        "crates/iroha_zkp_vole/src/crt/algo.rs": "d41d00fb74b15ccfa4272d139b11d60b9a01d3aa84c7d4c08048a0d964dc717a",
+        "crates/iroha_zkp_vole/src/crt/bits.rs": "2b4ab26994a3f6debb543c29ace1676233881cca0e59f91351f6966387b52912",
+        "crates/iroha_zkp_vole/src/crt/codec.rs": "9da70396e4e6aa637f8033e95855eeaccae276c10ae4576469da42139349a68a",
+        "crates/iroha_zkp_vole/src/crt/cost.rs": "5daac07b60251bc1c8067b0500017e3e6dc5121e8c81c9922f2eba8394fdb216",
+        "crates/iroha_zkp_vole/src/crt/error.rs": "a5c5f15a28a55ed94604635cb84f3e546af3158c93e579551b3ce58820feabae",
+        "crates/iroha_zkp_vole/src/crt/f4.rs": "c1c164c1591cee3b614adb05112d2d99af93f030026dc7a3e01fd0df0cc6db6e",
+        "crates/iroha_zkp_vole/src/crt/generated.rs": "0426a8ecc21975316132db16e6ddfc0b63836c871eb69173d5f6bf230ffd7f98",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_128f_tables.rs": "9a05abd92ef7a8d097991601c6bac349d401067701434d9807a26b751b6aabfe",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_128s_tables.rs": "8786e2443b58eaeb4a6dcc53ec184011231cdaf718bc2ed1d4fc52d1260b4dd2",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_192f_tables.rs": "a66463944679af082a222aead57d6251262e8ee0531fd6e9dc18f57c2518ed0d",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_192s_tables.rs": "2582017126a093589ef95402cebe68c8e1d4ec8bcadd7e460b7b693662e27d31",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_em_192f_tables.rs": "180b8e52139d916a75b8663adf6ec0f97f843e618b3f85dc2e310cf42766f762",
+        "crates/iroha_zkp_vole/src/crt/generated/faest_em_192s_tables.rs": "c8c922db88dddccf09e4c4e801cc7b7b3e0186df73ea9abb0e7f24d47a4bf685",
+        "crates/iroha_zkp_vole/src/crt/generator.rs": "23ba6267630ee88c5d95737e66e3b216da1c74531310a333adb9812dea91df35",
+        "crates/iroha_zkp_vole/src/crt/gf2poly.rs": "6ab7d628b757c51d7b012d6779694eb60168e4c0d4a01cafd8c169a29bb47e3d",
+        "crates/iroha_zkp_vole/src/crt/linalg.rs": "2769b22f48149eea350f2a913bbe367ab2d0db53c3b27ceea7adb7a374818fa9",
+        "crates/iroha_zkp_vole/src/crt/matrix.rs": "810bad5d8087109e52ce650a5ac596e87e6df8a167cde36b97f24834bbf7281f",
+        "crates/iroha_zkp_vole/src/crt/tables.rs": "77c1197bba8e107fda8e833be0550e98b45825f805d3630c7dbac92810bac3cb",
+        "crates/iroha_zkp_vole/src/faest.rs": "2cb74ee28bdbfc01fe13122c71f3f108c779a56d00913037af543809faaa22a0",
+        "crates/iroha_zkp_vole/src/faest/cipher.rs": "744af4a7bd343e6ec9cc052585505e12b764fe4fab84599f9a39572cd8fc3d2b",
+        "crates/iroha_zkp_vole/src/faest/relation.rs": "fd50765a90875151cf6857c4e9b1c04ffc1e47a51b9ab814c2f2287174cf68b7",
+        "crates/iroha_zkp_vole/src/field.rs": "df65fd59ae7970752ec71c18212e3aee09fc8f498068dff29e3ac23da9d5e3a8",
+        "crates/iroha_zkp_vole/src/field/poly.rs": "b11fd7a04a20614d4780d18a05421c443130a7d554a86579766434b424a880e9",
+        "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+        "crates/iroha_zkp_vole/src/lib.rs": "aeb97c943cd993f7fa721e62c83c3b74d2e53626c8b470d7ebecd2eadc187f02",
+        "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+        "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+        "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+        "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+        "crates/iroha_zkp_vole/src/quicksilver/plain.rs": "0b1e3118e2f24a806e0ea7c21e81ed93ba3d1090b776c85505c89ce296281bb5",
+        "crates/iroha_zkp_vole/src/quicksilver/prover.rs": "85d7e743228f7b808c33c74be1e3a6d3b151d78f75b1c42db7dfd4782aaf5c63",
+        "crates/iroha_zkp_vole/src/quicksilver/verifier.rs": "7b038e8b2aa647d89f06d38bcdf371efb97b4abf6f2edb43585be89609051dfe",
+        "crates/iroha_zkp_vole/src/randomness.rs": "8d57e99b8eb555687ed2c4d82465d7242890e036d35bdca10399ef1bca7ddb26",
+        "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+        "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+        "crates/iroha_zkp_vole/src/variant.rs": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+        "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+        "crates/iroha_zkp_vole/src/vole/bits.rs": "4e41952eb31574505fcf97d02a4f9074035818660958ff3dbf9cf2650749d079",
+        "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+        "rust-toolchain.toml": "b1de581368035db80c693eda64567b0e59252e3584d3749361d837c757b809e7",
+        "vendor/aes/Cargo.toml": "717f1a1a4a0aaaa7f96ef0576ca8c4813e1e69b75ff40fde5edb4fea15b4c048",
+        "vendor/aes/src/armv8.rs": "bc8ff3cae2f799d849105b79091604e1579ae5e8a8fbe19db24c6ccbf48146a4",
+        "vendor/aes/src/armv8/encdec.rs": "54f85c5942fbb384c106321fb54aa06f29ae16be87ebce127fd4932a329a4feb",
+        "vendor/aes/src/armv8/expand.rs": "d40ee141eb7dec4ccb675455ec93fe08a75dfd228bc5339096cfa8d7270ff375",
+        "vendor/aes/src/armv8/hazmat.rs": "f6d722a53ca464b16b1bc9bb7c23a5780510252cbcb059735e2acf656c5b2cbe",
+        "vendor/aes/src/armv8/intrinsics.rs": "3192f65da7cac81f3a48601d950c66c72814fa9cacab9a9d8c8969dbae6b098c",
+        "vendor/aes/src/armv8/test_expand.rs": "7bc04e7fc5bba65f4451c86ba2e80ce98b04faa734f16d28af09660c5623d96a",
+        "vendor/aes/src/autodetect.rs": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+        "vendor/aes/src/hazmat.rs": "120063eea58b8e6b29306ad1181624b0216b8bcb4b6557c0fa458e7bc6c28f0c",
+        "vendor/aes/src/lib.rs": "859930f1e982e3ff026940aa704dc91e492254ac87c709a9b176b231167f36a6",
+        "vendor/aes/src/ni.rs": "15b9a67dbedc3b558ddec063489be4a6607e568afddd8345506be36952fc3bde",
+        "vendor/aes/src/ni/aes128.rs": "88b94c99163b6b82810d7817e02374ddca4086b0896a8ebe183241a604ec92be",
+        "vendor/aes/src/ni/aes192.rs": "156254b46e469a20e09a1cefa22bae2afd9c10e2b68fd2bf40eaf9a05095cdda",
+        "vendor/aes/src/ni/aes256.rs": "f9fba1a4ac1e91fc908f3164460fc531f91cf0b0d015b3463056d0bd97981eae",
+        "vendor/aes/src/ni/hazmat.rs": "eeeb4a8cd92204095ecef3d40e1786dede05b63afba41c9fa3e9b871f40eb6d8",
+        "vendor/aes/src/ni/test_expand.rs": "6ad46711aeb49c21144ea31f801493ab87d3cb19d35bb3610657bfadfa75d044",
+        "vendor/aes/src/ni/utils.rs": "10fe6c0ad778a59cde5cef6cb6bc478cc68d21e28bda9331ced3c26b0a732426",
+        "vendor/aes/src/soft.rs": "3a84211717fdc86a2b0f0d9086f33410bee2ff9be480f50c981980f678a0c2a8",
+        "vendor/aes/src/soft/fixslice32.rs": "c69c0fa430cb62c4d88a13d5c3387202e1962b47978a6a7026bd34789f2d2577",
+        "vendor/aes/src/soft/fixslice64.rs": "b071d85916e4e09da703168eb7cebc2ba4c4ab2b783713b8caf9541742b741e3"
+      }
+    },
+    "tables": {
+      "candidate": {
+        "canonical_words": 10538,
+        "matrices": {
+          "G": {
+            "all_bits_upper_bound": 174592,
+            "columns": 248,
+            "rows": 704,
+            "set_bits": 88281
+          },
+          "W_CRT": {
+            "all_bits_upper_bound": 63488,
+            "columns": 248,
+            "rows": 256,
+            "set_bits": 30584
+          },
+          "W_GATE": {
+            "all_bits_upper_bound": 180224,
+            "columns": 704,
+            "rows": 256,
+            "set_bits": 88020
+          },
+          "W_TREE": {
+            "all_bits_upper_bound": 63488,
+            "columns": 248,
+            "rows": 256,
+            "set_bits": 30807
+          }
+        },
+        "sha256": "a5a17262c1dd1a965a2827f13c9e2fb6413dc81b3fca1ba44f768d33ddf8b59e",
+        "source": "crates/iroha_zkp_vole/src/crt/generated/faest_256f_tables.rs"
+      },
+      "comparator": {
+        "canonical_words": 10463,
+        "matrices": {
+          "G": {
+            "all_bits_upper_bound": 174000,
+            "columns": 250,
+            "rows": 696,
+            "set_bits": 87345
+          },
+          "W_CRT": {
+            "all_bits_upper_bound": 64000,
+            "columns": 250,
+            "rows": 256,
+            "set_bits": 31102
+          },
+          "W_GATE": {
+            "all_bits_upper_bound": 178176,
+            "columns": 696,
+            "rows": 256,
+            "set_bits": 89170
+          },
+          "W_TREE": {
+            "all_bits_upper_bound": 64000,
+            "columns": 250,
+            "rows": 256,
+            "set_bits": 32163
+          }
+        },
+        "sha256": "535e9cc78d848ac6acdb68cbadfd575b23dcc665ac4a8b00ec72a1c73d93f28f",
+        "source": "crates/iroha_zkp_vole/src/crt/generated/faest_256s_tables.rs"
+      }
+    }
+  }
+}

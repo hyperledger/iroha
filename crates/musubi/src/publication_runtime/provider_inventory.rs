@@ -11,7 +11,7 @@ const SET_LIMITS: DecodeLimits = DecodeLimits::new(
     128,
 );
 
-pub(crate) fn parse_attestation_origin(
+pub fn parse_attestation_origin(
     raw: &str,
 ) -> Result<Url, ProductionPublicationConfigurationErrorV1> {
     let invalid = || {
@@ -130,10 +130,15 @@ impl<V> ProductionPublicationRuntimeV1<V> {
                     checkpoint
                         .validate_for(request, generation)
                         .map_err(|_| invalid_set())?;
-                    if checkpoint.archive_id != retained.archive_id
-                        || checkpoint.replication_order != retained.replication_order
-                        || checkpoint.provider_attestation_set_digest != retained.set_digest
-                    {
+                    if (
+                        checkpoint.archive_id,
+                        checkpoint.replication_order,
+                        checkpoint.provider_attestation_set_digest,
+                    ) != (
+                        retained.archive_id,
+                        retained.replication_order,
+                        retained.set_digest,
+                    ) {
                         return Err(invalid_set());
                     }
                     self.validate_anchored_attestation_set_checkpoint(

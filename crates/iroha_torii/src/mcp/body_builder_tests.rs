@@ -164,7 +164,8 @@ fn sponsored_account_tool_descriptors_require_v1_permissions_fee_and_pow_fields(
             .iter()
             .any(|field| field == "permissions")
     );
-    for tool in [iroha_accounts_onboard_prepare_tool()] {
+    {
+        let tool = iroha_accounts_onboard_prepare_tool();
         assert!(
             required_body_fields(tool)
                 .iter()

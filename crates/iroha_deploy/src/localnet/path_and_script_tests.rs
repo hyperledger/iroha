@@ -562,7 +562,8 @@ fn taira_launcher_keeps_consumed_launch_paths_in_either_consumption_order() {
         crate::localnet::localnet_test_helpers::private_tempdir().expect("private localnet root");
     let runtime = root.path().join("runtime");
     let signer_dir = runtime.join(TAIRA_RUNTIME_SIGNER_DIRECTORY);
-    for directory in [&signer_dir] {
+    {
+        let directory = &signer_dir;
         fs::create_dir_all(directory).expect("create private record directory");
     }
     for directory in [&runtime, &signer_dir] {

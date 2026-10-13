@@ -49,7 +49,7 @@ impl Publication {
 }
 
 /// Locked native slot shared by the managed runtime and package command adapter.
-pub(crate) struct DeploymentSlot {
+pub struct DeploymentSlot {
     pub(super) writer: PrivateDirectory,
     lock: File,
     lock_snapshot: FileSnapshot,
@@ -57,7 +57,8 @@ pub(crate) struct DeploymentSlot {
 }
 
 /// Exact inputs already verified by the compiler owner before slot recovery.
-pub(crate) struct RetryRequest<'a> {
+#[derive(Clone, Copy)]
+pub struct RetryRequest<'a> {
     pub code_hash: iroha::crypto::Hash,
     pub alias: &'a ContractAlias,
     pub fee_payment: &'a FeePaymentIntent,
@@ -65,7 +66,7 @@ pub(crate) struct RetryRequest<'a> {
 }
 
 /// Original native plan returned by a fresh retry, optionally after exact recovery.
-pub(crate) struct RetainedDeployment {
+pub struct RetainedDeployment {
     pub preflight: DeploymentPreflight,
     pub journal: PathBuf,
     pub receipt: Option<DeploymentReceipt>,
@@ -242,39 +243,35 @@ impl DeploymentSlot {
             return self.current_journal();
         };
         let candidate_path = self.writer.path().join(&candidate);
-        match self.writer.open_child_optional(&candidate)? {
-            Some(directory) => {
-                self.authenticate(service, &candidate_path)?;
-                directory.revalidate()?;
-                self.write_state(&Publication::Active { journal: candidate })?;
-            }
-            None => {
-                // An absent atomic destination never reached Active, so no slot-owned dispatch
-                // was authorized. Preserve all staging siblings and the exact predecessor.
-                let restored = match previous {
-                    Some(journal) => {
-                        self.authenticate(service, &self.writer.path().join(&journal))?;
-                        Publication::Active { journal }
-                    }
-                    None => Publication::Empty,
-                };
-                self.write_state(&restored)?;
-            }
+        if let Some(directory) = self.writer.open_child_optional(&candidate)? {
+            self.authenticate(service, &candidate_path)?;
+            directory.revalidate()?;
+            self.write_state(&Publication::Active { journal: candidate })?;
+        } else {
+            // An absent atomic destination never reached Active, so no slot-owned dispatch
+            // was authorized. Preserve all staging siblings and the exact predecessor.
+            let restored = match previous {
+                Some(journal) => {
+                    self.authenticate(service, &self.writer.path().join(&journal))?;
+                    Publication::Active { journal }
+                }
+                None => Publication::Empty,
+            };
+            self.write_state(&restored)?;
         }
         self.current_journal()
     }
 
     /// Classify a requested candidate before requiring its path to exist.
     pub(crate) fn admit_resume(&self, service: &DeploymentService, journal: &Path) -> Result<()> {
-        if let Publication::Preparing { candidate, .. } = self.read_state()? {
-            if self.writer.path().join(&candidate) == journal
-                && self.reconcile(service)?.as_deref() != Some(journal)
-            {
-                bail!(
-                    "the original deployment plan was never published; repeat the original deploy command: {}",
-                    journal.display()
-                );
-            }
+        if let Publication::Preparing { candidate, .. } = self.read_state()?
+            && self.writer.path().join(&candidate) == journal
+            && self.reconcile(service)?.as_deref() != Some(journal)
+        {
+            bail!(
+                "the original deployment plan was never published; repeat the original deploy command: {}",
+                journal.display()
+            );
         }
         Ok(())
     }
@@ -491,10 +488,7 @@ pub(super) mod resume_open_test_support {
     }
 
     /// Run one scoped boundary mutation, clearing an unused hook on refusal or unwind.
-    pub(crate) fn with_before_open<R>(
-        hook: impl FnOnce() + 'static,
-        action: impl FnOnce() -> R,
-    ) -> R {
+    pub fn with_before_open<R>(hook: impl FnOnce() + 'static, action: impl FnOnce() -> R) -> R {
         struct Reset;
         impl Drop for Reset {
             fn drop(&mut self) {

@@ -27,7 +27,10 @@ struct Fixture {
     qc: Qc,
 }
 fn fixture() -> Fixture {
-    let fixture = NativeFinalityFixture::new();
+    fixture_from_native(&NativeFinalityFixture::new())
+}
+
+fn fixture_from_native(fixture: &NativeFinalityFixture) -> Fixture {
     let parent = fixture
         .verifier()
         .verify_retained_decision(fixture.genesis_proof())
@@ -807,7 +810,7 @@ fn merged_execution_fixture() -> Fixture {
     let mut builder = BlockBuilder::new(f.executed.header());
     builder.push_transaction(own);
     builder.set_execution_context(Some(context));
-    let proposal = builder.build(Default::default());
+    let proposal = builder.build(iroha_data_model::block::BlockSignatures::default());
     let original_wire = proposal.encode_wire().unwrap();
 
     // Another genuinely signed transaction with a distinct creation time. The
@@ -825,7 +828,7 @@ fn merged_execution_fixture() -> Fixture {
         .expect("append the execution-only lane suffix");
     NativeFinalityFixture::install_network_results(
         &mut executed,
-        vec![Ok(Default::default()), Ok(Default::default())],
+        vec![Ok(Vec::default()), Ok(Vec::default())],
     );
     assert_eq!(executed.merged_entrypoint_count(), 1);
     assert_eq!(executed.external_transactions().len(), 2);
@@ -998,7 +1001,7 @@ fn changed_merged_execution_suffix_cannot_use_the_original_result_certificate() 
         .unwrap();
     NativeFinalityFixture::install_network_results(
         &mut changed,
-        vec![Ok(Default::default()), Ok(Default::default())],
+        vec![Ok(Vec::default()), Ok(Vec::default())],
     );
     changed.set_commit_certificate(f.executed.commit_certificate().cloned());
     assert_eq!(changed.merged_entrypoint_count(), 1);
@@ -1064,3 +1067,6 @@ fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
         );
     }
 }
+
+#[path = "replay_output_tests.rs"]
+mod replay_outputs;

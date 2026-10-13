@@ -10,7 +10,9 @@ use iroha_core::{
     state::{State as CoreState, World},
     telemetry::StateTelemetry,
 };
-use iroha_data_model::block::consensus::{EvidencePenaltyStatus, EvidenceRecord};
+use iroha_data_model::block::consensus::{
+    EvidencePenaltyStatus, EvidenceRecord, RecordedEvidenceV1,
+};
 use iroha_torii::handle_v1_sumeragi_evidence_count;
 use iroha_torii_shared::sumeragi_evidence_api::{
     SUMERAGI_EVIDENCE_COUNT_RESPONSE_MAX_BYTES, SumeragiEvidenceCountResponse,
@@ -73,7 +75,7 @@ async fn evidence_count_endpoint_reports_increase() {
     for (idx, seed) in [0x11u8, 0x22].iter().enumerate() {
         let ev = make_phase_vote_evidence((idx + 1) as u64, *seed);
         let record = EvidenceRecord {
-            evidence: ev,
+            evidence: RecordedEvidenceV1::Native(ev),
             attribution: make_phase_vote_attribution((idx + 1) as u64, *seed),
             recorded_at_height: (idx + 1) as u64,
             recorded_at_view: 0,

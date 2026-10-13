@@ -5121,8 +5121,8 @@ fn validate_completion_submission_authority(
     if observation.provider_owner.as_ref() != Some(current_provider_owner) {
         return Err(ProviderIngestOutboxError::InvalidSigningContext);
     }
-    if &observation.completion_authority
-        != &ProviderIngestCompletionAuthorityObservationV1::Active(current_authority.clone())
+    if observation.completion_authority
+        != ProviderIngestCompletionAuthorityObservationV1::Active(current_authority.clone())
     {
         return Err(ProviderIngestOutboxError::SignerPolicyRollback);
     }

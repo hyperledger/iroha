@@ -21,12 +21,20 @@
 //! instead of paying. Ethereum and BSC advances use HTTP endpoints, TON advances ADNL
 //! liteservers.
 //!
-//! TODO: WP-S3: the keepalive duty (`[sccp.keeper].keepalive`, `keepalive_stagger_ms`, §4.7.4)
-//! on its own schedule, which does no network I/O.
+//! **Progress keepalives** (`[sccp.keeper].keepalive`, §4.7.4) run independently of
+//! remote light clients for heartbeats and reconciliation deadlines. Each current validator
+//! waits its canonical committee stagger (one second per rank for reconciliation), retires
+//! its stale pending carrier, and signs fresh due work with the keeper key.
+//! Parliament item scheduling awaits the authoritative due-work iterator.
 //!
-//! TODO: WP-S6: the watch duty (`[sccp.keeper].watch`) over the registered destinations, and
-//! the L5 feed that also advances a light client whose finalized source time lags the deadline
-//! of a retained, ended generation.
+//! The L5 feed advances a light client whose finalized source time has not passed the
+//! deadline of a retained ended generation. Bounded cursors visit pending generations and
+//! route revisions fairly, without cloning their histories.
+//!
+//! **Destination watch** (`[sccp.keeper].watch`) reads bounded EVM log ranges and TON
+//! transaction pages, including older-history backfill. Discovered certificate bytes pass
+//! the original-state forgery verifier and retained anchor roots before submission. Cursor
+//! storage has a finite allocation pool; local refusal retains the discovery position.
 //!
 //! # Task structure of the light-client duty
 //!
@@ -45,16 +53,30 @@
 //!    `poll_budget` counts as a failed poll; the lane starts no other poll until it returns. A
 //!    build that fails on the data it was served (malformed, inconsistent or incomplete) moves
 //!    the lane's clients to their next endpoints ([`AdvanceSource::rotate_endpoints`]).
-//! 4. **Submit** ([`KeeperHost::submit`]): quote, sign with the keeper key and enqueue the
-//!    advance, fee-exempt on success (§4.19).
+//! 4. **Submit** ([`KeeperHost::submit`]): recheck the original state/profile, verify the
+//!    exact advance with Core admission using the original finite execution pool, then quote,
+//!    sign and enqueue it. A completed invalid proof rotates the endpoint; state/profile
+//!    races and local resource refusal do not. A later enqueue/commit race is not evidence
+//!    against the endpoint. Advances are fee-exempt on success (§4.19).
 //!
 //! A lane polls again `poll_interval` later plus up to a quarter of jitter; each consecutive
 //! failed poll doubles that wait, up to 64 × `poll_interval` ([`Cadence`]).
 //!
-//! TODO(ws34): export the health states as telemetry gauges; they are logged today.
+//! `sccp_keeper_unconfigured` reports local key failure; `sccp_keeper_needs_recovery`
+//! reports each network's frozen or aged light client. `sccp_keeper_poll_success` records
+//! the latest advance and watch poll separately. These observations are not consensus inputs.
 
+#[path = "sccp_keeper/health.rs"]
+mod health;
+
+#[path = "sccp_keeper/keepalive.rs"]
+mod keepalive;
 #[path = "sccp_keeper/key_store.rs"]
 mod key_store;
+#[path = "sccp_keeper/l5.rs"]
+mod l5;
+#[path = "sccp_keeper/watch.rs"]
+mod watch;
 
 use std::{
     sync::Arc,
@@ -67,7 +89,10 @@ use iroha_config::parameters::actual::{SccpKeeper, SccpLightClientKeeper};
 use iroha_core::{
     executor::quote_nexus_fee_admission_draft,
     queue::Queue,
-    smartcontracts::isi::sccp::{light_clients::WorldLightClientView, store},
+    smartcontracts::isi::sccp::{
+        light_clients::{WorldLightClientView, admission_profiles, preverify_keeper_advance},
+        store,
+    },
     state::{State, StateReadOnly, WorldReadOnly},
     tx::AcceptedTransaction,
 };
@@ -81,6 +106,7 @@ use iroha_data_model::{
 };
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_model_base::peer::PeerId;
+use iroha_sccp::light_client::profile::SccpChainProfilesV1;
 use iroha_sccp_rpc::{
     BeaconClient, EvmClient, HttpEndpointKind, HttpTransport, PollBudget,
     builders::{
@@ -123,6 +149,10 @@ pub fn start(
     light_client_config: SccpLightClientKeeper,
     shutdown_signal: ShutdownSignal,
 ) -> Option<Child> {
+    health::Health::Unconfigured(false).report();
+    for network in NETWORKS {
+        health::Health::Recovery(network, false).report();
+    }
     if !config.enabled {
         iroha_logger::info!("SCCP keeper disabled by configuration");
         return None;
@@ -131,6 +161,7 @@ pub fn start(
     let key = match KeyStore::open(&dir).and_then(|store| store.load_or_generate()) {
         Ok(key) => key,
         Err(error) => {
+            health::Health::Unconfigured(true).report();
             iroha_logger::error!(
                 %error,
                 health = "sccp_keeper_unconfigured",
@@ -144,18 +175,55 @@ pub fn start(
         key_dir = %dir.display(),
         "SCCP keeper key loaded"
     );
-    // TODO: WP-S3: start the keepalive duty here when `config.keepalive`, staggered by
-    // `config.keepalive_stagger` per canonical committee index (§4.7.4).
-    // TODO: WP-S6: start the watch duty here when `config.watch`.
     // Seeds the starting endpoints and jitter per node, so validators sharing the compiled
     // endpoint lists spread over them.
     let seed = endpoint_seed(peer.to_string().as_bytes());
-    start_advances(
-        Arc::new(NodeHost { state, queue, key }),
-        light_client_config,
-        seed,
-        shutdown_signal,
-    )
+    let host = Arc::new(NodeHost {
+        state,
+        queue,
+        key,
+        l5_cursors: parking_lot::Mutex::default(),
+    });
+    if !config.keepalive && !config.watch {
+        return start_advances(host, light_client_config, seed, shutdown_signal);
+    }
+    let keepalive_host = keepalive::NodeKeeper {
+        host: Arc::clone(&host),
+        peer: peer.clone(),
+        stagger: config.keepalive_stagger,
+    };
+    let keepalive_enabled = config.keepalive;
+    let watch_enabled = config.watch;
+    let watch_config = light_client_config.clone();
+    let watch_host = Arc::clone(&host);
+    let task = tokio::task::spawn(async move {
+        let advance_shutdown = shutdown_signal.clone();
+        let advances = async move {
+            if light_client_config.enabled {
+                let config = Arc::new(light_client_config);
+                let lanes = build(Arc::clone(&config), seed).await;
+                run(lanes, host, config, advance_shutdown).await;
+            } else {
+                advance_shutdown.receive().await;
+            }
+        };
+        let keepalives = async {
+            if keepalive_enabled {
+                keepalive::run(Arc::new(keepalive_host), shutdown_signal.clone()).await;
+            } else {
+                shutdown_signal.receive().await;
+            }
+        };
+        let watching = async {
+            if watch_enabled {
+                watch::run(watch_host, watch_config, seed, shutdown_signal.clone()).await;
+            } else {
+                shutdown_signal.receive().await;
+            }
+        };
+        tokio::join!(advances, keepalives, watching);
+    });
+    Some(Child::new(task, OnShutdown::Wait(SHUTDOWN_WAIT)))
 }
 
 /// Start the light-client advance duty as a supervised task, or return `None` when it is
@@ -238,6 +306,7 @@ async fn run_lane<H: KeeperHost>(
             succeeded = lane.poll(&host, &config) => succeeded,
             () = shutdown.receive() => return,
         };
+        health::Health::Poll(lane.network, health::Duty::Advance, succeeded).report();
         wait = if succeeded {
             lane.cadence.after_success()
         } else {
@@ -260,6 +329,7 @@ trait AdvanceSource: Send + Sync + 'static {
     /// Any endpoint failure, an inconsistent answer, or nothing to advance yet.
     fn advance(
         &self,
+        profiles: &SccpChainProfilesV1,
         latest_set_id: u64,
         budget: AdvanceBudgetV1,
     ) -> Result<SccpLcAdvanceBytesV1, BuildError>;
@@ -269,45 +339,54 @@ trait AdvanceSource: Send + Sync + 'static {
     fn rotate_endpoints(&self);
 }
 
-impl AdvanceSource for EthereumBuilder {
+impl AdvanceSource for parking_lot::Mutex<EthereumBuilder> {
     fn advance(
         &self,
+        profiles: &SccpChainProfilesV1,
         latest_set_id: u64,
         budget: AdvanceBudgetV1,
     ) -> Result<SccpLcAdvanceBytesV1, BuildError> {
-        SourceChainBuilder::advance(self, latest_set_id, budget)
+        let mut source = self.lock();
+        source.set_profile(profiles.ethereum);
+        SourceChainBuilder::advance(&*source, latest_set_id, budget)
     }
 
     fn rotate_endpoints(&self) {
-        EthereumBuilder::rotate_endpoints(self);
+        EthereumBuilder::rotate_endpoints(&self.lock());
     }
 }
 
-impl AdvanceSource for BscBuilder {
+impl AdvanceSource for parking_lot::Mutex<BscBuilder> {
     fn advance(
         &self,
+        profiles: &SccpChainProfilesV1,
         latest_set_id: u64,
         budget: AdvanceBudgetV1,
     ) -> Result<SccpLcAdvanceBytesV1, BuildError> {
-        SourceChainBuilder::advance(self, latest_set_id, budget)
+        let mut source = self.lock();
+        source.set_profile(profiles.bsc);
+        SourceChainBuilder::advance(&*source, latest_set_id, budget)
     }
 
     fn rotate_endpoints(&self) {
-        BscBuilder::rotate_endpoints(self);
+        BscBuilder::rotate_endpoints(&self.lock());
     }
 }
 
-impl AdvanceSource for TonBuilder {
+impl AdvanceSource for parking_lot::Mutex<TonBuilder> {
     fn advance(
         &self,
+        profiles: &SccpChainProfilesV1,
         latest_set_id: u64,
         budget: AdvanceBudgetV1,
     ) -> Result<SccpLcAdvanceBytesV1, BuildError> {
-        SourceChainBuilder::advance(self, latest_set_id, budget)
+        let mut source = self.lock();
+        source.set_profile(profiles.ton);
+        SourceChainBuilder::advance(&*source, latest_set_id, budget)
     }
 
     fn rotate_endpoints(&self) {
-        TonBuilder::rotate_endpoints(self);
+        TonBuilder::rotate_endpoints(&self.lock());
     }
 }
 
@@ -323,11 +402,15 @@ fn blames_served_data(error: &BuildError) -> bool {
 /// view.
 #[derive(Default)]
 struct Local {
+    /// Exact compiled profiles active for admission of the next committed block.
+    profiles: Option<SccpChainProfilesV1>,
     /// The installed light client of the lane's network.
     light_client: Option<SccpLightClientV1>,
     /// Whether that light client's newest signing set is beyond its weak-subjectivity bound at
     /// the latest committed block time, the time admission checks advances against.
     aged: bool,
+    /// An ended generation still needs this destination to finalize beyond its deadline.
+    l5_lagging: bool,
 }
 
 /// The node services a lane uses. Both calls block and run on blocking workers only.
@@ -342,7 +425,11 @@ trait KeeperHost: Send + Sync + 'static {
     /// # Errors
     ///
     /// When building, quoting, signing, admission or enqueueing fails.
-    fn submit(&self, advance: AdvanceSccpLightClientV1) -> eyre::Result<()>;
+    fn submit(
+        &self,
+        profiles: &SccpChainProfilesV1,
+        advance: AdvanceSccpLightClientV1,
+    ) -> eyre::Result<()>;
 }
 
 /// The node's [`KeeperHost`]: committed state, the local queue and the keeper key.
@@ -353,6 +440,8 @@ struct NodeHost {
     queue: Arc<Queue>,
     /// The node's Ed25519 keeper key; its account is neither registered nor funded.
     key: KeyPair,
+    /// Fair bounded generation/revision scans, independent per network.
+    l5_cursors: parking_lot::Mutex<[l5::Cursor; 3]>,
 }
 
 impl KeeperHost for NodeHost {
@@ -363,18 +452,79 @@ impl KeeperHost for NodeHost {
             return Local::default();
         }
         let light_client = store::light_clients::get(world, &network).copied();
-        // TODO: WP-S6: the L5 feed also reads here whether the light client's finalized source
-        // time lags the deadline of a retained, ended generation (§4.8).
+        let profiles = u64::try_from(view.height())
+            .ok()
+            .and_then(|height| height.checked_add(1))
+            .and_then(|height| admission_profiles(world, height).ok());
         let aged = light_client.is_some()
-            && iroha_sccp::light_client::is_aged(
-                &WorldLightClientView(world),
-                network,
-                view.query_ledger_time_ms(),
-            ) == Ok(true);
-        Local { light_client, aged }
+            && profiles.as_ref().is_some_and(|profiles| {
+                iroha_sccp::light_client::is_aged_with_profiles(
+                    profiles,
+                    &WorldLightClientView(world),
+                    network,
+                    view.query_ledger_time_ms(),
+                ) == Ok(true)
+            });
+        let l5_lagging = light_client.is_some_and(|client| {
+            NETWORKS
+                .iter()
+                .position(|candidate| *candidate == network)
+                .is_some_and(|index| {
+                    self.l5_cursors.lock()[index].lagging(
+                        world,
+                        network,
+                        client.head.latest_finalized.source_time_ms,
+                    )
+                })
+        });
+        Local {
+            profiles,
+            light_client,
+            aged,
+            l5_lagging,
+        }
     }
 
-    fn submit(&self, advance: AdvanceSccpLightClientV1) -> eyre::Result<()> {
+    fn submit(
+        &self,
+        profiles: &SccpChainProfilesV1,
+        advance: AdvanceSccpLightClientV1,
+    ) -> eyre::Result<()> {
+        {
+            let view = self.state.view();
+            let height = u64::try_from(view.height())?
+                .checked_add(1)
+                .ok_or_else(|| eyre::eyre!("keeper admission height overflows"))?;
+            let world = view.world();
+            let current = store::light_clients::get(world, &advance.network)
+                .ok_or_else(|| eyre::eyre!("the light client is no longer installed"))?;
+            eyre::ensure!(
+                advance.expected_state_hash == Some(current.state_hash),
+                "another keeper or committed update changed the original build state"
+            );
+            eyre::ensure!(
+                admission_profiles(world, height)? == *profiles,
+                "the original build profile changed before admission"
+            );
+            eyre::ensure!(
+                current.frozen.is_none()
+                    && !iroha_sccp::light_client::is_aged_with_profiles(
+                        profiles,
+                        &WorldLightClientView(world),
+                        advance.network,
+                        view.query_ledger_time_ms()
+                    )?,
+                "the light client now requires recovery"
+            );
+            let authority = AccountId::new(self.key.public_key().clone());
+            if let Err(error) = preverify_keeper_advance(world, &view, height, &advance, &authority)
+            {
+                if !error.source_data_rejected {
+                    return Err(error.into());
+                }
+                return Err(RejectedSourceAdvance(error).into());
+            }
+        }
         submit_transaction(
             &self.state,
             &self.queue,
@@ -383,6 +533,19 @@ impl KeeperHost for NodeHost {
         )
     }
 }
+
+/// Completed original-state verification refusal of the endpoint's exact advance bytes.
+/// State/profile races and unfinished local resource attempts never use this marker.
+#[derive(Debug)]
+struct RejectedSourceAdvance(
+    iroha_core::smartcontracts::isi::sccp::admission::SccpAdmissionRejectV1,
+);
+impl std::fmt::Display for RejectedSourceAdvance {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+impl std::error::Error for RejectedSourceAdvance {}
 
 /// Quote, sign with the keeper `key` as its own account and enqueue one transaction carrying
 /// `instruction`.
@@ -395,6 +558,17 @@ fn submit_transaction(
     key: &KeyPair,
     instruction: InstructionBox,
 ) -> eyre::Result<()> {
+    submit_transaction_at(state, queue, key, instruction, wall_clock_ms())
+}
+
+/// Submit against the wall-clock sample used for the keeper's local due decision.
+fn submit_transaction_at(
+    state: &State,
+    queue: &Queue,
+    key: &KeyPair,
+    instruction: InstructionBox,
+    creation_time_ms: u64,
+) -> eyre::Result<()> {
     let authority = AccountId::new(key.public_key().clone());
     let mut payload = TransactionBuilder::new(
         *state.network_id_ref(),
@@ -404,6 +578,7 @@ fn submit_transaction(
     .with_instructions([instruction])
     .into_payload()
     .wrap_err("build SCCP transaction")?;
+    payload.creation_time_ms = creation_time_ms;
     let route = queue
         .route_payload_plan_with_state(&payload, state)
         .wrap_err("route SCCP transaction")?;
@@ -465,14 +640,16 @@ fn submit_transaction(
 /// What a lane does with one reading of local state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
+    /// The committed profile cannot be resolved; retry after an operator upgrade.
+    Unavailable,
     /// SCCP absent, or no installed light client: nothing to do.
     Idle,
     /// The light client cannot be advanced until a Parliament `InitializeLightClient`
     /// re-seeds it, so no RPC is spent on it.
     Recovery(Recovery),
-    /// The head is newer than the staleness bound.
+    /// The head is newer than the staleness bound and observed L5 deadlines are covered.
     Fresh,
-    /// The head is stale: build and submit an advance.
+    /// The head is stale or needed for destination progress: build and submit an advance.
     Advance,
 }
 
@@ -490,13 +667,16 @@ fn decide(config: &SccpLightClientKeeper, local: &Local, now_ms: u64) -> Step {
     let Some(light_client) = &local.light_client else {
         return Step::Idle;
     };
+    if local.profiles.is_none() {
+        return Step::Unavailable;
+    }
     if light_client.is_frozen() {
         return Step::Recovery(Recovery::Frozen);
     }
     if local.aged {
         return Step::Recovery(Recovery::Aged);
     }
-    if is_stale(config, light_client, now_ms) {
+    if local.l5_lagging || is_stale(config, light_client, now_ms) {
         Step::Advance
     } else {
         Step::Fresh
@@ -664,7 +844,16 @@ impl Lane {
                 return false;
             }
         };
-        match decide(config, &local, now_ms) {
+        let step = decide(config, &local, now_ms);
+        health::Health::Recovery(network, matches!(step, Step::Recovery(_))).report();
+        match step {
+            Step::Unavailable => {
+                iroha_logger::warn!(
+                    network = profile,
+                    "SCCP keeper: the committed light-client profile is unavailable"
+                );
+                return false;
+            }
             Step::Idle | Step::Fresh => {
                 self.reported_recovery = None;
                 return true;
@@ -690,8 +879,12 @@ impl Lane {
         let Some(light_client) = local.light_client else {
             return true;
         };
+        let Some(profiles) = local.profiles else {
+            return false;
+        };
         let Some(advance) = self
             .build(
+                &profiles,
                 &light_client,
                 advance_budget(config, &light_client),
                 config.poll_budget,
@@ -710,11 +903,17 @@ impl Lane {
         };
         let submitted = {
             let host = Arc::clone(host);
-            join_recoverable(spawn_blocking_recoverable(move || host.submit(instruction))).await
+            join_recoverable(spawn_blocking_recoverable(move || {
+                host.submit(&profiles, instruction)
+            }))
+            .await
         };
         match submitted {
             Ok(Ok(())) => true,
             Ok(Err(error)) => {
+                if error.is::<RejectedSourceAdvance>() {
+                    self.source.rotate_endpoints();
+                }
                 iroha_logger::warn!(
                     ?error,
                     network = profile,
@@ -741,6 +940,7 @@ impl Lane {
     /// the source's endpoints.
     async fn build(
         &mut self,
+        profiles: &SccpChainProfilesV1,
         light_client: &SccpLightClientV1,
         advance_budget: AdvanceBudgetV1,
         poll_budget: Duration,
@@ -749,9 +949,10 @@ impl Lane {
         let source = Arc::clone(&self.source);
         let budget = self.budget.clone();
         let latest = light_client.head.latest_set_id;
+        let profiles = *profiles;
         let mut job: BuildJob = spawn_blocking_recoverable(move || {
             let _poll = budget.start(poll_budget);
-            source.advance(latest, advance_budget)
+            source.advance(&profiles, latest, advance_budget)
         });
         let overdue = poll_budget.saturating_add(poll_budget / 4);
         let joined = match tokio::time::timeout(overdue, &mut job).await {
@@ -804,6 +1005,9 @@ async fn build(config: Arc<SccpLightClientKeeper>, seed: u64) -> Vec<Lane> {
     {
         Ok(lanes) => lanes,
         Err(_panic) => {
+            for network in NETWORKS {
+                health::Health::Poll(network, health::Duty::Advance, false).report();
+            }
             iroha_logger::error!(
                 "SCCP keeper: building the endpoint clients panicked; the keeper stays idle"
             );
@@ -827,11 +1031,14 @@ fn build_lanes(config: &SccpLightClientKeeper, seed: u64) -> Vec<Lane> {
                 budget,
                 Cadence::new(config.poll_interval, lane_seed(seed, network)),
             )),
-            Err(error) => iroha_logger::warn!(
-                %error,
-                network = network.profile_key(),
-                "SCCP keeper: the endpoints are unusable; this network is not kept"
-            ),
+            Err(error) => {
+                health::Health::Poll(network, health::Duty::Advance, false).report();
+                iroha_logger::warn!(
+                    %error,
+                    network = network.profile_key(),
+                    "SCCP keeper: the endpoints are unusable; this network is not kept"
+                );
+            }
         }
     }
     lanes
@@ -850,19 +1057,25 @@ fn build_source(
             .map(|transport| transport.with_budget(budget.clone()))
             .map_err(|error| error.to_string())
     };
+    // Transports are created even before SCCP exists. This initial profile cannot be used:
+    // AdvanceSource replaces it under the same lock with the committed per-poll profile.
+    let inert = SccpChainProfilesV1::genesis();
     Ok(match network {
-        SccpNetworkV1::EthereumMainnet => Arc::new(EthereumBuilder::new(
+        SccpNetworkV1::EthereumMainnet => Arc::new(parking_lot::Mutex::new(EthereumBuilder::new(
+            inert.ethereum,
             BeaconClient::new(http(HttpEndpointKind::EthereumBeacon)?),
             EvmClient::new(http(HttpEndpointKind::EthereumExecution)?),
-        )),
-        SccpNetworkV1::BscMainnet => Arc::new(BscBuilder::new(EvmClient::new(http(
-            HttpEndpointKind::Bsc,
-        )?))),
-        SccpNetworkV1::TonMainnet => Arc::new(TonBuilder::new(
+        ))),
+        SccpNetworkV1::BscMainnet => Arc::new(parking_lot::Mutex::new(BscBuilder::new(
+            inert.bsc,
+            EvmClient::new(http(HttpEndpointKind::Bsc)?),
+        ))),
+        SccpNetworkV1::TonMainnet => Arc::new(parking_lot::Mutex::new(TonBuilder::new(
+            inert.ton,
             LiteClient::from_keeper_config(config, seed)
                 .map_err(|error| error.to_string())?
                 .with_budget(budget.clone()),
-        )),
+        ))),
         SccpNetworkV1::SoraTaira => {
             return Err("Taira has no inbound light client".to_owned());
         }
@@ -964,6 +1177,14 @@ mod fakes {
         }
     }
 
+    #[derive(Default)]
+    enum ProfileObservation {
+        #[default]
+        Genesis,
+        Unavailable,
+        Current(Box<SccpChainProfilesV1>),
+    }
+
     /// A node whose installed light clients are all stale (head at Taira time 0); it records
     /// reads and submissions per network.
     #[derive(Default)]
@@ -972,15 +1193,28 @@ mod fakes {
         reads: Mutex<BTreeMap<&'static str, usize>>,
         submissions: Mutex<Vec<AdvanceSccpLightClientV1>>,
         refusing: AtomicBool,
+        invalid_source: AtomicBool,
+        profiles: Mutex<ProfileObservation>,
     }
 
     impl FakeHost {
+        /// Replace the committed profile observation, including unavailable versions.
+        pub(super) fn set_profiles(&self, profiles: Option<&SccpChainProfilesV1>) {
+            *self.profiles.lock() = profiles.map_or(ProfileObservation::Unavailable, |profiles| {
+                ProfileObservation::Current(Box::new(*profiles))
+            });
+        }
+
         /// Marks the light client of `network` as aged out of its window.
         pub(super) fn set_aged(&self, network: SccpNetworkV1, aged: bool) {
             self.aged.lock().insert(network.profile_key(), aged);
         }
 
         /// Makes the node refuse (or accept again) every submission.
+        pub(super) fn set_invalid_source(&self, invalid: bool) {
+            self.invalid_source.store(invalid, Ordering::SeqCst);
+        }
+
         pub(super) fn set_refusing(&self, refusing: bool) {
             self.refusing.store(refusing, Ordering::SeqCst);
         }
@@ -1008,6 +1242,12 @@ mod fakes {
         fn local(&self, network: SccpNetworkV1) -> Local {
             *self.reads.lock().entry(network.profile_key()).or_default() += 1;
             Local {
+                profiles: match &*self.profiles.lock() {
+                    ProfileObservation::Genesis => Some(*SccpChainProfilesV1::genesis()),
+                    ProfileObservation::Unavailable => None,
+                    ProfileObservation::Current(profiles) => Some(**profiles),
+                },
+                l5_lagging: false,
                 light_client: Some(light_client(network, 0)),
                 aged: self
                     .aged
@@ -1018,7 +1258,19 @@ mod fakes {
             }
         }
 
-        fn submit(&self, advance: AdvanceSccpLightClientV1) -> eyre::Result<()> {
+        fn submit(
+            &self,
+            _profiles: &SccpChainProfilesV1,
+            advance: AdvanceSccpLightClientV1,
+        ) -> eyre::Result<()> {
+            if self.invalid_source.load(Ordering::SeqCst) {
+                let mut rejected =
+                    iroha_core::smartcontracts::isi::sccp::admission::SccpAdmissionRejectV1::new(
+                        "invalid original proof",
+                    );
+                rejected.source_data_rejected = true;
+                return Err(RejectedSourceAdvance(rejected).into());
+            }
             eyre::ensure!(
                 !self.refusing.load(Ordering::SeqCst),
                 "the node refuses the advance"
@@ -1053,6 +1305,7 @@ mod fakes {
     impl AdvanceSource for GatedSource {
         fn advance(
             &self,
+            _profiles: &SccpChainProfilesV1,
             _latest_set_id: u64,
             _budget: AdvanceBudgetV1,
         ) -> Result<SccpLcAdvanceBytesV1, BuildError> {
@@ -1073,6 +1326,7 @@ mod fakes {
         error: Option<fn() -> BuildError>,
         calls: Mutex<Vec<Instant>>,
         budgets: Mutex<Vec<AdvanceBudgetV1>>,
+        profiles: Mutex<Vec<SccpChainProfilesV1>>,
         rotations: AtomicUsize,
     }
 
@@ -1094,6 +1348,7 @@ mod fakes {
                 error,
                 calls: Mutex::new(Vec::new()),
                 budgets: Mutex::new(Vec::new()),
+                profiles: Mutex::new(Vec::new()),
                 rotations: AtomicUsize::new(0),
             }
         }
@@ -1108,6 +1363,11 @@ mod fakes {
             self.budgets.lock().clone()
         }
 
+        /// Exact profile cuts supplied to each build.
+        pub(super) fn profiles(&self) -> Vec<SccpChainProfilesV1> {
+            self.profiles.lock().clone()
+        }
+
         /// How often the endpoints were rotated.
         pub(super) fn rotations(&self) -> usize {
             self.rotations.load(Ordering::SeqCst)
@@ -1117,11 +1377,13 @@ mod fakes {
     impl AdvanceSource for ScriptedSource {
         fn advance(
             &self,
+            profiles: &SccpChainProfilesV1,
             _latest_set_id: u64,
             budget: AdvanceBudgetV1,
         ) -> Result<SccpLcAdvanceBytesV1, BuildError> {
             self.calls.lock().push(Instant::now());
             self.budgets.lock().push(budget);
+            self.profiles.lock().push(*profiles);
             self.error.map_or_else(
                 || Ok(SccpLcAdvanceBytesV1::new(vec![1]).expect("advance bytes")),
                 |error| Err(error()),
@@ -1207,8 +1469,12 @@ mod tests {
         let network = SccpNetworkV1::BscMainnet;
         let bound = config.advance_after_for(light_client(network, 0).params.ws_bound_ms);
         let stale_at = u64::try_from(bound.as_millis()).expect("bound fits");
-        let local =
-            |light_client: Option<SccpLightClientV1>, aged: bool| Local { light_client, aged };
+        let local = |light_client: Option<SccpLightClientV1>, aged: bool| Local {
+            profiles: Some(*SccpChainProfilesV1::genesis()),
+            light_client,
+            aged,
+            l5_lagging: false,
+        };
         let stale = Some(light_client(network, 0));
         assert_eq!(decide(&config, &Local::default(), stale_at), Step::Idle);
         assert_eq!(decide(&config, &local(None, true), stale_at), Step::Idle);
@@ -1216,6 +1482,14 @@ mod tests {
             decide(&config, &local(stale, false), stale_at - 1),
             Step::Fresh
         );
+        let mut unavailable = local(stale, false);
+        unavailable.profiles = None;
+        assert_eq!(decide(&config, &unavailable, stale_at), Step::Unavailable);
+        let mut urgency = local(stale, false);
+        urgency.l5_lagging = true;
+        assert_eq!(decide(&config, &urgency, 0), Step::Advance);
+        urgency.aged = true;
+        assert_eq!(decide(&config, &urgency, 0), Step::Recovery(Recovery::Aged));
         // A stale light client is advanced without any registered key of this node.
         assert_eq!(
             decide(&config, &local(stale, false), stale_at),
@@ -1308,7 +1582,7 @@ mod tests {
     }
 
     /// An empty node: committed state without SCCP and a local queue.
-    fn node() -> (Arc<State>, Arc<Queue>) {
+    pub(super) fn node() -> (Arc<State>, Arc<Queue>) {
         let state = Arc::new(State::new_for_testing(
             World::new(),
             Kura::blank_kura_for_testing(),
@@ -1365,12 +1639,20 @@ mod tests {
 
         // Later starts keep the key, also when only the key is needed.
         assert!(started(&config, SccpLightClientKeeper::default()));
-        assert!(!started(&config, idle()), "no duty is enabled");
+        assert!(
+            started(&config, idle()),
+            "heartbeat duty runs independently"
+        );
+        let mut no_duties = config.clone();
+        no_duties.keepalive = false;
+        assert!(started(&no_duties, idle()), "watch duty runs independently");
+        no_duties.watch = false;
+        assert!(!started(&no_duties, idle()), "no duty is enabled");
         assert_eq!(std::fs::read(&key_file).expect("key file"), key);
 
         // The key is generated even when the light-client duty is off.
         let other = tempfile::tempdir().expect("temporary directory");
-        assert!(!started(&keeper_config(other.path()), idle()));
+        assert!(started(&keeper_config(other.path()), idle()));
         assert!(
             other
                 .path()
@@ -1421,12 +1703,20 @@ mod tests {
             submit_transaction(&state, &queue, &key, InstructionBox::from(advance)).is_err(),
             "an advance on a node without SCCP is refused"
         );
-        let host = NodeHost { state, queue, key };
+        let host = NodeHost {
+            state,
+            queue,
+            key,
+            l5_cursors: parking_lot::Mutex::default(),
+        };
         let local = host.local(SccpNetworkV1::BscMainnet);
         assert!(local.light_client.is_none() && !local.aged);
         assert!(
-            host.submit(empty_advance(SccpNetworkV1::EthereumMainnet))
-                .is_err()
+            host.submit(
+                SccpChainProfilesV1::genesis(),
+                empty_advance(SccpNetworkV1::EthereumMainnet)
+            )
+            .is_err()
         );
     }
 
@@ -1472,7 +1762,8 @@ mod tests {
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     consensus_metadata::handshake_meta_id(),
                     iroha_primitives::json::Json::new(metadata),
-                )));
+                )))
+                .expect("install the signed SCCP handshake fixture");
             block.commit();
         }
         let state = Arc::new(State::new_for_testing(
@@ -1723,6 +2014,69 @@ mod tests {
         assert!(lane.poll(&host, &config).await);
         assert_eq!(source.calls().len(), 2);
         assert_eq!(host.submissions(SccpNetworkV1::BscMainnet), 1);
+    }
+
+    #[tokio::test]
+    async fn completed_original_source_rejection_rotates_without_discrediting_local_refusal() {
+        let host = Arc::new(FakeHost::default());
+        let config = Arc::new(fast_config(25, 1_000));
+        let source = Arc::new(ScriptedSource::new(false));
+        let mut lane = Lane::new(
+            SccpNetworkV1::BscMainnet,
+            shared(&source),
+            PollBudget::new(),
+            Cadence::new(config.poll_interval, 1),
+        );
+        host.set_invalid_source(true);
+        assert!(!lane.poll(&host, &config).await);
+        assert_eq!(source.rotations(), 1);
+        assert_eq!(host.submissions(SccpNetworkV1::BscMainnet), 0);
+        host.set_invalid_source(false);
+        host.set_refusing(true);
+        assert!(!lane.poll(&host, &config).await);
+        assert_eq!(
+            source.rotations(),
+            1,
+            "local refusal must not discredit endpoints"
+        );
+        host.set_refusing(false);
+        assert!(lane.poll(&host, &config).await);
+        assert_eq!(source.rotations(), 1);
+        assert_eq!(host.submissions(SccpNetworkV1::BscMainnet), 1);
+    }
+
+    #[tokio::test]
+    async fn every_build_uses_the_original_poll_profile_and_unavailable_profiles_spend_no_rpc() {
+        let network = SccpNetworkV1::BscMainnet;
+        let host = Arc::new(FakeHost::default());
+        let source = Arc::new(ScriptedSource::new(false));
+        let config = Arc::new(fast_config(10, 1_000));
+        let mut lane = Lane::new(
+            network,
+            shared(&source),
+            PollBudget::new(),
+            Cadence::new(config.poll_interval, 8),
+        );
+        let first = *SccpChainProfilesV1::genesis();
+        let mut second = first;
+        second.bsc.supported_until_ms -= 1;
+        host.set_profiles(Some(&first));
+        assert!(lane.poll(&host, &config).await);
+        host.set_profiles(None);
+        assert!(!lane.poll(&host, &config).await);
+        assert_eq!(
+            source.calls().len(),
+            1,
+            "unresolved committed profile cannot use the initial transport profile"
+        );
+        assert_eq!(host.submissions(network), 1);
+        host.set_profiles(Some(&second));
+        assert!(lane.poll(&host, &config).await);
+        assert_eq!(
+            source.profiles(),
+            vec![first, second],
+            "an activation is observed without rebuilding endpoint clients"
+        );
     }
 
     #[test]

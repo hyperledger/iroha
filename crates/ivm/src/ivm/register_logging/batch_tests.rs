@@ -429,7 +429,7 @@ fn native_delayed_finish_uses_original_batch_and_preserves_every_original_packet
     };
     let plain = run();
     assert!(!IVM::native_register_trace_enabled_for_test());
-    let (traced, count) = IVM::with_native_register_trace_for_test(&run);
+    let (traced, count) = IVM::with_native_register_trace_for_test(run);
     assert!(!IVM::native_register_trace_enabled_for_test());
     assert_eq!(
         (

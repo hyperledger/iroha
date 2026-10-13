@@ -369,7 +369,10 @@ fn validate_payload(
         return Err(Error::Payload);
     };
     if payload.authority != AccountId::new(binding.public_key.clone())
-        || payload.network_id().map(|id| id.as_bytes()) != Some(&binding.network_id)
+        || payload
+            .network_id()
+            .map(iroha_data_model::NetworkId::as_bytes)
+            != Some(&binding.network_id)
         || payload.fee_payment_intent() != approved_fees
         || instructions.len() != 1
         || instructions[0]

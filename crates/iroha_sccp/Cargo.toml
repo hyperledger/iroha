@@ -17,6 +17,7 @@ test-fixtures = [
 ]
 
 [dependencies]
+iroha_allocation = { workspace = true }
 iroha_model_base = { workspace = true, optional = true }
 tiny-keccak = { version = "2.0.2", default-features = false, features = ["keccak"] }
 sha2 = { version = "0.10.9", default-features = false }

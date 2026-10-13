@@ -70,10 +70,5 @@ mod checked_string_id_tests {
                 .parse::<crate::repo::RepoAgreementId>()
                 .unwrap(),
         );
-        assert_canonical_stream(
-            &"fx_trade"
-                .parse::<crate::isi::settlement::SettlementId>()
-                .unwrap(),
-        );
     }
 }

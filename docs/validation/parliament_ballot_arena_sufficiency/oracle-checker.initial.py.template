@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Compare finite source traces with the actual Rust Arena diagnostic oracle.
+
+Python 3.11+, adjacent arena helpers and a locally built arena_trace_replay
+example are required. --oracle must name an executable; this tool never builds
+or runs the verifier. No environment variables or network. Temporary input files
+are removed automatically; --output explicitly saves all traces, raw oracle
+results, hashes and comparisons. Finite allocator parity cannot qualify B6.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import random
+import subprocess
+import tempfile
+
+from check_parliament_ballot_arena_sufficiency import full_trace, source_inventory
+from parliament_ballot_arena_model import Buddy, TraceError
+import parliament_ballot_arena_frontend as frontend
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class ObservedBuddy(Buddy):
+    """Retain each executed request's offset, including one loop iteration."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.offsets = []
+
+    def allocate(self, name, size, alignment):
+        offset = super().allocate(name, size, alignment)
+        self.offsets.append({"id": name, "offset": offset, "size": size, "alignment": alignment})
+        return offset
+
+
+def model_result(trace: dict) -> dict:
+    """Obtain a finite model prediction without hiding a rejected request."""
+    try:
+        model = ObservedBuddy(trace.get("heap_bytes", 32 * 1024 * 1024), trace.get("alignment", 16384), trace.get("limit"))
+        model.replay(trace["events"])
+        report = model.report()
+        report["allocation_offsets"] = model.offsets
+        report["allocations_observed"] = len(model.offsets)
+        return {"accepted": True, "report": report}
+    except (ValueError, TypeError) as error:
+        return {"accepted": False, "failure": str(error)}
+
+
+def compare(expected: dict, returncode: int, stdout: str) -> dict:
+    """Require acceptance parity and exact offsets/counters on accepted traces."""
+    if not expected["accepted"]:
+        # Any process crash is a harness failure, not an allocator rejection.
+        if returncode != 1:
+            raise ValueError(f"expected ordinary oracle rejection (exit1), got {returncode}")
+        return {"accepted": False, "agreement": True}
+    if returncode != 0:
+        raise ValueError(f"expected accepted oracle trace, got exit {returncode}")
+    actual = json.loads(stdout)
+    if actual.get("allocator_trace_passed") is not True or actual.get("profile_qualified") is not False:
+        raise ValueError("oracle status does not match diagnostic scope")
+    keys = ("heap_bytes", "peak_block_bytes", "peak_requested_bytes", "live_exit_block_bytes",
+            "live_exit_requested_bytes", "allocations_observed", "allocations_upper_bound",
+            "restoring_groups_checked", "allocation_offsets")
+    for key in keys:
+        if actual.get(key) != expected["report"][key]:
+            raise ValueError(f"oracle/model mismatch: {key}")
+    return {"accepted": True, "agreement": True, "compared_fields": list(keys)}
+
+
+def random_trace(seed: int) -> dict:
+    """Generate a deterministic valid fragmented schedule, checking native parity later."""
+    rng = random.Random(seed)
+    model = Buddy(4096, 64)
+    events = []
+    for index in range(192):
+        if model.live and rng.randrange(3) == 0:
+            name = rng.choice(list(model.live))
+            model.release(name)
+            events.append({"op": "free", "id": name})
+        else:
+            name = f"random{index}"
+            size, align = rng.randrange(1, 1025), 1 << rng.randrange(7)
+            try:
+                model.allocate(name, size, align)
+            except TraceError:
+                continue
+            events.append({"op": "alloc", "id": name, "size": size, "align": align})
+    for name in tuple(model.live):
+        events.append({"op": "free", "id": name})
+    return {"heap_bytes": 4096, "alignment": 64, "events": events}
+
+
+def cases() -> list[dict]:
+    """Select complete source schedules, rejection boundaries and allocator controls."""
+    rows = []
+    for row in ("candidate", "comparator"):
+        for accel in (False, True):
+            for lengths in ((0,) * 7, (65, 0, 1, 64, 65, 128, 256), frontend.REG_CAPS):
+                rows.append({"name": f"{row}/{accel}/registration/{lengths}",
+                             "trace": {"events": full_trace(row, "registration", lengths=lengths, accel=accel)}})
+            for seats in (3, 500, 1000):
+                rows.append({"name": f"{row}/{accel}/vote/{seats}",
+                             "trace": {"events": full_trace(row, "vote", seats=seats, accel=accel)}})
+        for role, stops in (("registration", frontend.COMMON_STOPS + frontend.REG_STOPS),
+                            ("vote", frontend.COMMON_STOPS + frontend.VOTE_STOPS)):
+            for stop in stops:
+                trace = frontend.frontend_trace(row, role, record_bytes=frontend.MAX_INPUT_BYTES, seats=1000, stop=stop)
+                rows.append({"name": f"{row}/{role}/abstract-stop/{stop}", "trace": {"events": trace["prefix"]}})
+    for seed in range(8):
+        rows.append({"name": f"random/{seed}", "trace": random_trace(seed)})
+    allocations = [{"op": "alloc", "id": str(i), "size": 64, "align": 1} for i in range(8)]
+    fragmentation = allocations + [{"op": "free", "id": str(i)} for i in range(0, 8, 2)] + [{"op": "alloc", "id": "fragmented", "size": 128, "align": 1}]
+    rows += [
+        {"name": "reject/fragmentation", "trace": {"heap_bytes": 512, "events": fragmentation}},
+        {"name": "reject/quota", "trace": {"heap_bytes": 512, "limit": 0, "events": allocations[:1]}},
+        {"name": "reject/alignment", "trace": {"heap_bytes": 512, "alignment": 64, "events": [{"op": "alloc", "id": "x", "size": 1, "align": 128}]}},
+        {"name": "reject/nonrestoring", "trace": {"events": [{"op": "repeat_restoring", "min": 0, "max": 9, "body": allocations[:1]}]}},
+        {"name": "reject/leak", "trace": {"events": allocations[:1]}},
+        {"name": "reject/double-free", "trace": {"events": allocations[:1] + [{"op": "free", "id": "0"}] * 2}},
+    ]
+    return rows
+
+
+def run(oracle: Path, timeout: float = 30) -> dict:
+    """Save exact oracle inputs/results; reject timeout, crashes or any disagreement."""
+    oracle = oracle.resolve(strict=True)
+    sources = source_inventory()
+    oracle_hash = hashlib.sha256(oracle.read_bytes()).hexdigest()
+    observations = []
+    with tempfile.TemporaryDirectory(prefix="ballot-arena-oracle-") as temp:
+        path = Path(temp) / "trace.json"
+        for case in cases():
+            payload = json.dumps(case["trace"], sort_keys=True, separators=(",", ":")) + "\n"
+            path.write_text(payload)
+            expected = model_result(case["trace"])
+            result = subprocess.run([str(oracle), str(path)], text=True, capture_output=True, timeout=timeout)
+            agreement = compare(expected, result.returncode, result.stdout)
+            observations.append({**case, "trace_sha256": hashlib.sha256(payload.encode()).hexdigest(),
+                                 "exit": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+                                 "comparison": agreement})
+    if oracle_hash != hashlib.sha256(oracle.read_bytes()).hexdigest() or source_inventory() != sources:
+        raise ValueError("source or binary changed during oracle campaign")
+    return {"sources": sources, "oracle_path": str(oracle), "oracle_sha256": oracle_hash,
+            "checker_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "cases_checked": len(observations), "accepted": sum(o["comparison"]["accepted"] for o in observations),
+            "finite_allocator_parity_passed": True, "verifier_allocation_trace_measured": False,
+            "complete_workspace_certificate": False, "profile_qualified": False, "observations": observations}
+
+
+def main() -> int:
+    """Run finite native parity diagnostics against an explicitly supplied oracle."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--oracle", required=True, type=Path)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    try:
+        report = run(args.oracle)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        print(json.dumps({"finite_allocator_parity_passed": False, "failure": str(error), "profile_qualified": False}))
+        return 1
+    text = json.dumps(report, sort_keys=True, indent=2) + "\n"
+    if args.output:
+        args.output.write_text(text)
+    else:
+        print(text, end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -220,6 +220,11 @@ impl SiteBinding {
 ///
 /// The returned document is intended to be cached in Torii's immutable app state;
 /// request handling must never reopen the operator-controlled path.
+///
+/// # Errors
+///
+/// Returns an error if the byte limit exceeds the platform address space or
+/// the configured file fails secure loading, bounded decoding, or binding validation.
 pub fn load_configured_site_bindings(
     config: &iroha_config::parameters::actual::SorafsGatewaySiteBindings,
 ) -> Result<Option<SiteBindingsDocument>, String> {
@@ -235,6 +240,11 @@ pub fn load_configured_site_bindings(
     load_site_bindings_file(path, max_bytes, config.max_sites.get()).map(Some)
 }
 /// Load one static-site binding document with explicit resource limits.
+///
+/// # Errors
+///
+/// Returns an error for zero limits, an unsafe path or file, I/O failures,
+/// resource-limit violations, malformed JSON, or invalid site bindings.
 pub fn load_site_bindings_file(
     path: &Path,
     max_bytes: usize,

@@ -6,7 +6,6 @@
 //! exact fee-quoted payload, and only strict durable Torii ingress can expose the resulting signed
 //! transaction.
 
-#![cfg(feature = "app_api")]
 use super::orderbook_worker::{
     OrderbookEnvelopeReconciliationV1, OrderbookFinalizedSnapshotV1, OrderbookGenerationSnapshotV1,
     OrderbookMaintenanceDueV1, OrderbookWorkerActionV1, plan_orderbook_generation,
@@ -73,12 +72,12 @@ const ORDERBOOK_TELEMETRY_EVENT_KIND_COUNT_V1: usize = 8;
 const ORDERBOOK_TELEMETRY_TIER_COUNT_V1: usize = 3;
 const ORDERBOOK_TELEMETRY_SIDE_COUNT_V1: usize = 2;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SorafsOrderbookTransactionForwarderCursorV1 {
+pub struct SorafsOrderbookTransactionForwarderCursorV1 {
     after_sequence: Option<u64>,
     telemetry: SorafsOrderbookFinalizedTelemetryProjectionV1,
 }
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SorafsOrderbookTransactionForwarderScanV1 {
+pub struct SorafsOrderbookTransactionForwarderScanV1 {
     generated: usize,
     generation_replayed: usize,
     generation_deferred: usize,
@@ -492,9 +491,12 @@ fn apply_orderbook_finalized_telemetry_event_page(
                 .map_err(|_| SorafsOrderbookFinalizedTelemetryErrorV1::ArithmeticOverflow)?
         || (page.has_more && page.events.is_empty())
         || page.has_more != page.next_after.is_some()
-        || page
-            .next_after
-            .is_some_and(|cursor| page.events.last().map(|event| event.cursor()) != Some(cursor))
+        || page.next_after.is_some_and(|cursor| {
+            page.events
+                .last()
+                .map(iroha_data_model::sorafs::orderbook::OrderbookFinalizedEventV1::cursor)
+                != Some(cursor)
+        })
     {
         return Err(SorafsOrderbookFinalizedTelemetryErrorV1::InvalidEventPage);
     }
@@ -705,8 +707,9 @@ fn collect_orderbook_finalized_metrics(
                 order
                     .validate()
                     .map_err(|_| SorafsOrderbookFinalizedTelemetryErrorV1::InvalidOrderPage)?;
+                let quantity_exceeds_order = record.remaining_gib > order.quantity_gib;
                 if order.order_id != record.order_id
-                    || record.remaining_gib > order.quantity_gib
+                    || quantity_exceeds_order
                     || order.provider_id
                         != record
                             .provider_id
@@ -865,9 +868,9 @@ fn refresh_sorafs_orderbook_finalized_telemetry(
     let (finalized_cursor, finalized_at_unix) = orderbook_finalized_tip_from_view(&view)
         .ok_or(SorafsOrderbookFinalizedTelemetryErrorV1::FinalizedViewUnavailable)?;
     if !consume_orderbook_finalized_telemetry_events(&view, finalized_cursor, projection)? {
-        state
-            .telemetry
-            .with_metrics(|metrics| metrics.mark_sorafs_orderbook_finalized_projection_unready());
+        state.telemetry.with_metrics(
+            iroha_core::telemetry::Telemetry::mark_sorafs_orderbook_finalized_projection_unready,
+        );
         return Ok(SorafsOrderbookFinalizedTelemetryRefreshV1::CatchingUp);
     }
     let finalized_metrics = collect_orderbook_finalized_metrics(
@@ -1195,7 +1198,7 @@ fn decode_exact_orderbook_signed_transaction(
 /// maintenance operations. When both controls are disabled, retained entries
 /// make zero external progress because no task is spawned. Opening the local
 /// node may still release interrupted signer-only claims back to `Ready`.
-pub(crate) fn spawn_sorafs_orderbook_transaction_forwarder_worker(
+pub fn spawn_sorafs_orderbook_transaction_forwarder_worker(
     state: SharedAppState,
     shutdown_signal: ShutdownSignal,
 ) -> Option<tokio::task::JoinHandle<crate::ToriiCriticalWorkerExit>> {
@@ -1267,7 +1270,7 @@ pub(crate) fn spawn_sorafs_orderbook_transaction_forwarder_worker(
     }
     worker
 }
-pub(crate) async fn run_sorafs_orderbook_transaction_forwarder_scan(
+pub async fn run_sorafs_orderbook_transaction_forwarder_scan(
     state: &SharedAppState,
     cursor: &mut SorafsOrderbookTransactionForwarderCursorV1,
 ) -> SorafsOrderbookTransactionForwarderScanV1 {
@@ -1276,7 +1279,7 @@ pub(crate) async fn run_sorafs_orderbook_transaction_forwarder_scan(
         && state
             .telemetry
             .telemetry()
-            .is_some_and(|telemetry| telemetry.is_enabled())
+            .is_some_and(iroha_core::telemetry::Telemetry::is_enabled)
     {
         match refresh_sorafs_orderbook_finalized_telemetry(state, &mut cursor.telemetry) {
             Ok(SorafsOrderbookFinalizedTelemetryRefreshV1::Published) => {

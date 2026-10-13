@@ -99,7 +99,7 @@ fn activate_reputation_policy(
         por_recorder_authority: authority.clone(),
         dispute_recorder_authority: authority.clone(),
         token_recorder_authority: authority.clone(),
-        stream_token_delivery: Default::default(),
+        stream_token_delivery: iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryTemplateV1::default(),
         max_source_age_ms: 24 * 60 * 60 * 1_000,
     };
     let digest = policy.canonical_digest().expect("reputation policy digest");

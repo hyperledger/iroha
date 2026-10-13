@@ -1,82 +1,7 @@
-//! Scoped canonical trigger readers owned by the actual trigger Set.
-//!
-//! These readers use the same borrowed semantic preimages as the World
-//! projection. Their paired roots remain table-local and non-finalized.
+//! Original malformed-contract custody controls for the production checked reader.
 
 use super::*;
-use crate::state::authority_registry::leaf::{CanonicalTablePairedSnapshot, LeafError, LeafLimits};
-
-impl Set {
-    /// Capture data only after the complete original action inverse validates both images.
-    pub(crate) fn capture_data_authority_table(
-        &self,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
-        self.capture_action_authority_table(ActionTable::Data, limits, budget)
-    }
-    /// Capture pipeline from the same retained ten-owner action relation.
-    pub(crate) fn capture_pipeline_authority_table(
-        &self,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
-        self.capture_action_authority_table(ActionTable::Pipeline, limits, budget)
-    }
-    /// Capture time with unchanged canonical retry policy and retry state bytes.
-    pub(crate) fn capture_time_authority_table(
-        &self,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
-        self.capture_action_authority_table(ActionTable::Time, limits, budget)
-    }
-    /// Capture explicit calls from the same checked original action projection.
-    pub(crate) fn capture_by_call_authority_table(
-        &self,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
-        self.capture_action_authority_table(ActionTable::ByCall, limits, budget)
-    }
-    fn capture_action_authority_table(
-        &self,
-        table: ActionTable,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<CanonicalTablePairedSnapshot, LeafError> {
-        let mut checked = CheckedActions::capture(self, action_source_work(limits), budget)?;
-        let outcome = checked.encode(table, limits);
-        let current = checked.matches_current();
-        drop(checked);
-        if !current? {
-            return Err(TriggerContractError::Publication(
-                mv::PublicationPreparationError::Changed,
-            )
-            .into());
-        }
-        outcome
-    }
-
-    /// Capture original contract bytecode after validating its derived indexes.
-    pub(crate) fn capture_contracts_authority_table(
-        &self,
-        limits: LeafLimits,
-        budget: &iroha_allocation::AllocationBudget,
-    ) -> core::result::Result<CanonicalTablePairedSnapshot, LeafError> {
-        let mut checked = CheckedContracts::capture(self, contract_source_work(limits), budget)?;
-        let outcome = checked.encode(limits);
-        let current = checked.matches_current();
-        drop(checked);
-        if !current? {
-            return Err(TriggerContractError::Publication(
-                mv::PublicationPreparationError::Changed,
-            )
-            .into());
-        }
-        outcome
-    }
-}
+use crate::state::authority_registry::leaf::{LeafError, LeafLimits};
 
 #[cfg(test)]
 mod custody_tests {
@@ -98,16 +23,22 @@ mod custody_tests {
         );
         block.commit();
         let pool = iroha_allocation::AllocationBudget::new(64 * 1024);
-        let result = set.capture_contracts_authority_table(
-            LeafLimits {
-                max_tables: 1,
-                max_rows: 1,
-                max_payload_bytes: 1024,
-                max_ordered_table_bytes: 4096,
-                max_streamed_value_bytes: 4096,
-            },
-            &pool,
-        );
+        let limits = LeafLimits {
+            max_tables: 1,
+            max_rows: 1,
+            max_payload_bytes: 1024,
+            max_ordered_table_bytes: 4096,
+            max_streamed_value_bytes: 4096,
+        };
+        let result = CheckedContracts::capture(&set, contract_source_work(limits), &pool)
+            .map_err(LeafError::from)
+            .and_then(|mut checked| {
+                let outcome = checked.encode(limits);
+                let current = checked.matches_current();
+                drop(checked);
+                assert!(current.expect("original contract source identity"));
+                outcome
+            });
         assert!(
             matches!(result, Err(LeafError::SourceValidation(ref message))
             if message == "trigger contract code hash does not match its original bytecode")

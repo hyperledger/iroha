@@ -163,7 +163,7 @@ mod evidence_resource_tests {
         );
         std::fs::write(&temporary, [1_u8; 9]).unwrap();
         assert!(index_resource_file_usage(&temporary, format, true).is_err());
-        let hash = Kura::fixed_bytes_path_component(Hash::new(b"FASTPQ resource file").as_ref());
+        let hash = hex::encode(Hash::new(b"FASTPQ resource file").as_ref());
         let stable = namespace.join(format!("{hash}.norito"));
         std::fs::write(&stable, []).unwrap();
         let (stable_format, is_temporary) = evidence_resource_kind(&stable, configured)

@@ -140,7 +140,7 @@ impl NativeFixture {
             root.path().join("genesis.json"),
         )
         .unwrap();
-        let _discriminant = staged_genesis_chain_discriminant(&manifest);
+        let discriminant = staged_genesis_chain_discriminant(&manifest);
         let signed = root
             .read(
                 "genesis.signed.nrt",
@@ -216,7 +216,7 @@ impl NativeFixture {
             chain,
             validators,
             signed,
-            _discriminant,
+            _discriminant: discriminant,
             _root: root,
         }
     }
@@ -594,7 +594,7 @@ fn read_response(
             assert_eq!(signed.payload.network_id(), *state.network_id_ref());
             let view = state.view();
             validate_fresh_query_for_client_world_parts(
-                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast(),
+                signed.payload.into_parts().1, manager, view.world(), state.latest_block_header_fast().as_ref(),
                 QueryLimits::from_pipeline(view.pipeline()), &state.ivm_execution_budget(),
             ).unwrap();
             // Validation consumes the request. Execute the same bounded original bytes.
@@ -639,3 +639,6 @@ pub(in crate::managed) fn policy(authority: &ServiceAuthority) -> ReserveAuthori
 #[cfg(test)]
 #[path = "native_fixture/proof_reader_tests.rs"]
 mod proof_reader_tests;
+
+#[path = "native_fixture/signed_recovery_http.rs"]
+pub(in crate::managed) mod signed_recovery_http;

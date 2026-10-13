@@ -343,7 +343,7 @@ pub(crate) fn prepare_configuration(
 fn with_cfg<R>(f: impl FnOnce(&ProverCfg) -> R) -> Option<R> {
     PROVER_CFG.get().map(|lock| {
         let guard = lock.read();
-        f(&*guard)
+        f(&guard)
     })
 }
 pub(crate) fn cfg_enabled() -> bool {
@@ -547,7 +547,7 @@ fn report_id_from_name(name: &str) -> std::io::Result<Option<String>> {
             IoErrorKind::InvalidData,
             format!("ZK prover persistence directory has a non-canonical report id: {name}"),
         ));
-    };
+    }
     Ok(Some(clean))
 }
 fn verify_tracked_prover_directory(
@@ -656,13 +656,7 @@ fn load_or_repair_report_summary_locked(id: &str) -> std::io::Result<Option<Prov
 fn visit_report_summaries_locked(
     mut visitor: impl FnMut(ProverReportSummary) -> std::io::Result<bool>,
 ) -> std::io::Result<()> {
-    visit_report_ids(|id| {
-        if let Some(summary) = load_or_repair_report_summary_locked(&id)? {
-            visitor(summary)
-        } else {
-            Ok(true)
-        }
-    })
+    visit_report_ids(|id| load_or_repair_report_summary_locked(&id)?.map_or(Ok(true), &mut visitor))
 }
 fn prune_stale_report_summaries_locked() -> std::io::Result<usize> {
     let index = report_index_dir();
@@ -1045,7 +1039,7 @@ struct AttachmentSnapshot {
     body_load: AttachmentBodyLoad,
 }
 enum AttachmentSnapshotLoad {
-    Ready(AttachmentSnapshot),
+    Ready(Box<AttachmentSnapshot>),
     DeferredForByteBudget { required_bytes: u64 },
 }
 fn load_attachment_body_with_read_budget(
@@ -1162,7 +1156,7 @@ fn load_attachment_snapshot(
     };
     let snapshot_load = match load_attachment_body_with_read_budget(loc, read_budget)? {
         AttachmentBodyLoadOutcome::Loaded(body_load) => {
-            AttachmentSnapshotLoad::Ready(AttachmentSnapshot { meta, body_load })
+            AttachmentSnapshotLoad::Ready(Box::new(AttachmentSnapshot { meta, body_load }))
         }
         AttachmentBodyLoadOutcome::DeferredForByteBudget { required_bytes } => {
             AttachmentSnapshotLoad::DeferredForByteBudget { required_bytes }
@@ -1749,7 +1743,7 @@ fn cached_successful_proof_report(
             .map(|record| record.circuit_id.clone())
     });
     ProofReportEntry {
-        backend: attachment.backend.to_string(),
+        backend: attachment.backend.clone(),
         ok: true,
         error: None,
         proof_hash: Some(hex::encode(hash_proof(&attachment.proof))),
@@ -2179,7 +2173,7 @@ fn process_attachment_once_at(
         return Ok(None);
     };
     match snapshot {
-        AttachmentSnapshotLoad::Ready(snapshot) => process_attachment_snapshot_at(loc, snapshot),
+        AttachmentSnapshotLoad::Ready(snapshot) => process_attachment_snapshot_at(loc, *snapshot),
         AttachmentSnapshotLoad::DeferredForByteBudget { .. } => {
             unreachable!("the intrinsic body ceiling is a sufficient direct-load read budget")
         }
@@ -2405,10 +2399,12 @@ fn process_attachment_snapshot_at(
         terminal: !retryable,
         retry_not_before_ms: retryable
             .then(|| processed_ms.saturating_add(processing_retry_delay_ms(retry_count))),
-        retry_count: retryable.then_some(retry_count).unwrap_or(0),
-        completed_proof_indices: retryable
-            .then_some(completed_proof_indices)
-            .unwrap_or_default(),
+        retry_count: if retryable { retry_count } else { 0 },
+        completed_proof_indices: if retryable {
+            completed_proof_indices
+        } else {
+            Default::default()
+        },
         processing_context_hash: retryable.then_some(processing_context_hash).flatten(),
     };
     let rep = ProverReport {
@@ -2668,7 +2664,7 @@ async fn run_budgeted_scan_reserved(
             continue;
         };
         let snapshot = match snapshot_load {
-            AttachmentSnapshotLoad::Ready(snapshot) => snapshot,
+            AttachmentSnapshotLoad::Ready(snapshot) => *snapshot,
             AttachmentSnapshotLoad::DeferredForByteBudget { required_bytes } => {
                 let _ = required_bytes;
                 byte_deferred = true;
@@ -3588,16 +3584,17 @@ mod tests {
             error.contains("norito decode error"),
             "unexpected error: {error}"
         );
-        let list = ProofAttachmentList::try_from(vec![attachment.clone(), attachment.clone()])
-            .expect("two attachments are a valid bounded proof list");
-        let list_frame =
-            norito::encode_canonical(&list).expect("canonical proof attachment list bytes");
+        let attachment_list =
+            ProofAttachmentList::try_from(vec![attachment.clone(), attachment.clone()])
+                .expect("two attachments are a valid bounded proof list");
+        let list_frame = norito::encode_canonical(&attachment_list)
+            .expect("canonical proof attachment list bytes");
         assert_eq!(
             decode_proof_attachments("application/x-norito", &list_frame)
                 .expect("canonical binary list must decode"),
             vec![attachment.clone(), attachment.clone()]
         );
-        let list_json = norito::json::to_json(&list).expect("canonical list JSON");
+        let list_json = norito::json::to_json(&attachment_list).expect("canonical list JSON");
         assert_eq!(
             decode_proof_attachments("application/json; charset=UTF-8", list_json.as_bytes())
                 .expect("canonical base64 JSON list must decode"),
@@ -3621,7 +3618,8 @@ mod tests {
         );
         let alternate_list = {
             let _alternate = norito::core::DecodeFlagsGuard::enter(alternate_flags);
-            norito::core::to_bytes(&list).expect("valid alternate-layout attachment list")
+            norito::core::to_bytes(&attachment_list)
+                .expect("valid alternate-layout attachment list")
         };
         assert_ne!(alternate_list, list_frame);
         norito::decode_from_bytes::<ProofAttachmentList>(&alternate_list)
@@ -3645,7 +3643,7 @@ mod tests {
             }),
             ("list", {
                 let mut bytes = Vec::new();
-                norito::serialize_into(&mut bytes, &list, norito::Compression::Zstd)
+                norito::serialize_into(&mut bytes, &attachment_list, norito::Compression::Zstd)
                     .expect("compress attachment list");
                 bytes
             }),
@@ -4331,7 +4329,7 @@ mod tests {
         report.error = Some("é".repeat(REPORT_SUMMARY_ERROR_MAX_BYTES));
         report.content_type = "x".repeat(REPORT_SUMMARY_CONTENT_TYPE_MAX_BYTES + 1);
         report.zk1_tags = Some(
-            (0..(ZK1_MAX_TLV_COUNT + 1))
+            (0..=ZK1_MAX_TLV_COUNT)
                 .map(|index| format!("{index:04}-{}", "x".repeat(REPORT_SUMMARY_TAG_MAX_BYTES)))
                 .collect(),
         );

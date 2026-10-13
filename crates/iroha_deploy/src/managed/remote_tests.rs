@@ -47,12 +47,12 @@ fn profile(seed: u8, floor: u64, url: &str) -> InstalledNetworkProfile {
             .public_key()
             .clone(),
         floor,
-        url.into(),
+        url,
     )
     .unwrap()
 }
 
-fn runtime(root: &Path, profiles: InstalledNetworkProfiles) -> InstalledRuntime {
+fn runtime(root: &Path, profiles: &InstalledNetworkProfiles) -> InstalledRuntime {
     let directory = PrivateDirectory::open_or_create(root).unwrap();
     for binary in ["kagami", "iroha3d"] {
         std::fs::copy(
@@ -178,7 +178,7 @@ fn invalid_or_uninstalled_attachment_requests_have_no_network_generation_side_ef
     let store = ManagedStore::open(&root).unwrap();
     let runtime = runtime(
         &temporary.path().join("bundle"),
-        InstalledNetworkProfiles::new(Vec::new()).unwrap(),
+        &InstalledNetworkProfiles::new(Vec::new()).unwrap(),
     );
     let mut request = DataspaceRequest {
         name: "private".into(),
@@ -220,7 +220,7 @@ fn ordinary_context_has_no_remote_status_but_incomplete_binding_is_an_error() {
     );
     let runtime = runtime(
         &temporary.path().join("bundle"),
-        InstalledNetworkProfiles::new(Vec::new()).unwrap(),
+        &InstalledNetworkProfiles::new(Vec::new()).unwrap(),
     );
     assert!(
         store
@@ -503,7 +503,8 @@ fn attachment_turn_budget_uses_activation_and_bounds_background_retries() {
         .write_atomic(
             ACTIVATION,
             &encode(&Activation {
-                deadline_ms: now_ms().unwrap() + 10 * MAX_ATTACH.as_millis() as u64,
+                deadline_ms: now_ms().unwrap()
+                    + 10 * u64::try_from(MAX_ATTACH.as_millis()).unwrap(),
             })
             .unwrap(),
             PublishMode::Replace,
@@ -1203,7 +1204,7 @@ fn attached_reply_after_foreground_deadline_refuses_without_changing_receipt() {
     let original = status.clone();
     // This is the production decision after blocking IPC: even exact Attached evidence
     // cannot turn a reply after the caller's original cutoff into foreground success.
-    let elapsed = Instant::now() - Duration::from_secs(1);
+    let elapsed = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     assert!(matches!(
         attachment_complete(&status, elapsed),
         Err(Error::ParentProgressDeadline {
@@ -1228,7 +1229,7 @@ fn attached_reply_preserves_terminal_failure_priority_and_exact_completion_gate(
             result: [2; 32],
         },
     });
-    let elapsed = Instant::now() - Duration::from_secs(1);
+    let elapsed = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     for failure in [
         ManagedAttachmentFailure::OperationExpired,
         ManagedAttachmentFailure::OperationRejected,
@@ -1335,7 +1336,7 @@ fn administrative_amx_managed_busy_is_before_origin_signing_and_source_repair() 
     let selected = profile(81, 4, "https://fixture.example/checkpoint");
     let runtime = runtime(
         &temporary.path().join("installed"),
-        InstalledNetworkProfiles::new(vec![selected.clone()]).unwrap(),
+        &InstalledNetworkProfiles::new(vec![selected.clone()]).unwrap(),
     );
     let directory = store
         .publish_attachment(

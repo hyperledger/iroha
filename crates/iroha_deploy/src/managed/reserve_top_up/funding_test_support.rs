@@ -18,7 +18,7 @@ impl ManagedReserveTopUpRequest {
         if current.height() != tip.height()
             || current.context_id() != tip.context_id()
             || current.block_time_ms() != tip.header().creation_time_ms
-            || &current.policy().policy != &intent.policy
+            || current.policy().policy != intent.policy
         {
             return Err(invalid("fixture current cut differs"));
         }
@@ -47,7 +47,7 @@ impl ManagedReserveTopUpRequest {
                 &directory.path().join("transaction"),
             )
             .map_err(|_| invalid("fixture wallet prepare"))?;
-        self.verify_wallet(&directory, &original, options.deadline)
+        self.verify_wallet(directory, &original, options.deadline)
     }
     pub(in crate::managed) fn funding_retain(
         &self,
@@ -58,7 +58,7 @@ impl ManagedReserveTopUpRequest {
         let original = journal::required_original(&directory)?;
         self.validate_original(&original)?;
         let directory = original.directory();
-        let signed = self.verify_wallet(&directory, &original, deadline)?;
+        let signed = self.verify_wallet(directory, &original, deadline)?;
         self.historical_binding(&original, &signed, verifier)?;
         directory.write_atomic(
             "carrier.nrt",

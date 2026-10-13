@@ -45,7 +45,7 @@ fn replication_binding_borrows_original_lifecycle_for_every_valid_variant() {
             &view,
         )
         .unwrap();
-        assert!(std::ptr::eq(observed, &retained.lifecycle));
+        assert!(std::ptr::eq(observed, &raw const retained.lifecycle));
         if let (
             MusubiReplicationOrderLocationLifecycleV1::Retired(left),
             MusubiReplicationOrderLocationLifecycleV1::Retired(right),
@@ -95,10 +95,10 @@ fn active_location_rejects_retired_order_without_copying_historical_providers() 
         let observed =
             validate_replication_order_archive_binding(archive, &location.replication_order, &view)
                 .unwrap();
-        assert!(std::ptr::eq(observed, &retained.lifecycle));
+        assert!(std::ptr::eq(observed, &raw const retained.lifecycle));
         assert!(current_location_providers(&location, &view).is_none());
         assert!(
-            std::ptr::eq(observed, &retained.lifecycle),
+            std::ptr::eq(observed, &raw const retained.lifecycle),
             "failed current-provider read must retain the original historical owner"
         );
     }

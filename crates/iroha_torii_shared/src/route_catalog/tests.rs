@@ -880,7 +880,10 @@ mod tests {
         assert_eq!(sccp::COMMITTEE.path(), "/v1/sccp/committees/{generation}");
         assert!(sccp::ROUTES.contains(&sccp::CURRENT_COMMITTEE));
         assert!(sccp::ROUTES.contains(&sccp::COMMITTEE));
-        assert_eq!(sccp::COMMITTEE_ROTATIONS.path(), "/v1/sccp/committees/rotations");
+        assert_eq!(
+            sccp::COMMITTEE_ROTATIONS.path(),
+            "/v1/sccp/committees/rotations"
+        );
         assert!(sccp::ROUTES.contains(&sccp::COMMITTEE_ROTATIONS));
         for route in CATALOGED_ROUTES {
             for retired in [
@@ -912,6 +915,16 @@ mod tests {
     }
     #[test]
     fn sccp_governance_descriptor_uses_the_canonical_uri() {
+        assert_eq!(
+            sccp::GOVERNANCE_READINESS.path(),
+            "/v1/sccp/governance/readiness"
+        );
+        assert_eq!(
+            sccp::GOVERNANCE_READINESS.stable_route_id(),
+            "sccp.governance.readiness"
+        );
+        assert_eq!(sccp::GOVERNANCE_READINESS.method(), HttpMethod::Get);
+        assert!(CATALOGED_ROUTES.contains(&sccp::GOVERNANCE_READINESS));
         assert_eq!(
             runtime_governance::GOV_PROPOSE_SCCP.path(),
             "/v1/gov/proposals/sccp-route-governance"

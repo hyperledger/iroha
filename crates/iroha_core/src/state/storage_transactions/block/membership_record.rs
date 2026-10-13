@@ -33,7 +33,7 @@ pub(in crate::state) struct MembershipLocation {
 impl MembershipLocation {
     /// Validate a location before retaining or serializing it.
     pub(in crate::state) fn new(generation: NonZeroU64, offset: u64) -> Result<Self, RecordError> {
-        if offset % RECORD_BYTES != 0 || offset.checked_add(RECORD_BYTES).is_none() {
+        if !offset.is_multiple_of(RECORD_BYTES) || offset.checked_add(RECORD_BYTES).is_none() {
             return Err(RecordError::InvalidLocation);
         }
         Ok(Self { generation, offset })
@@ -54,7 +54,7 @@ impl MembershipLocation {
             .offset
             .checked_add(RECORD_BYTES)
             .ok_or(RecordError::InvalidLocation)?;
-        if readable_bytes % RECORD_BYTES != 0 || end > readable_bytes {
+        if !readable_bytes.is_multiple_of(RECORD_BYTES) || end > readable_bytes {
             return Err(RecordError::OutsideReadableExtent);
         }
         Ok(self.offset..end)

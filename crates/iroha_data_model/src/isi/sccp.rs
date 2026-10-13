@@ -1,6 +1,6 @@
 //! SCCP v1 instructions (`specs/sccp.md` §4).
 //!
-//! These are the wire structs of the seven SCCP v1 instructions. Core enforces every SCCP rule;
+//! These are the wire structs of the SCCP v1 instructions. Core enforces every SCCP rule;
 //! the default executor only allows visitors through. Per-chain proofs, advances and evidence
 //! are the bounded opaque wrappers of [`crate::sccp`], decoded by `iroha_sccp::light_client`.
 
@@ -10,6 +10,7 @@ use crate::{
     sccp::{
         inbound::SccpSourceProofBytesV1,
         light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
+        native::SccpAnchorWitnessV1,
         params::SccpParametersV1,
     },
 };
@@ -17,8 +18,11 @@ use iroha_primitives::numeric::Numeric;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
-/// Genesis-only: store the SCCP parameters, create the route escrows and an empty registry
-/// (§4.1).
+/// Authenticated Global signed-genesis only: install SCCP parameters, route escrows and registry.
+///
+/// The same genesis execution's post-execution finalizer installs generation one from the
+/// reconciled original height context before sealing the atomic output (§4.1, G1). This DATA
+/// never grants authority to pre-authored transaction keys or to a later initialization block.
 #[derive(
     Debug,
     Clone,
@@ -45,6 +49,64 @@ pub struct InitializeSccpV1 {
     pub reset_nonce: [u8; 32],
 }
 impl crate::seal::Instruction for InitializeSccpV1 {}
+
+/// Accept a seat or reserve position in the currently drawn pause panel (§4.14.7).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1")]
+#[derive(Copy)]
+pub struct AcceptSccpPausePanelSeatV1 {
+    /// Exact sequence of the seated panel.
+    pub panel_seq: u64,
+}
+impl crate::seal::Instruction for AcceptSccpPausePanelSeatV1 {}
+
+/// Endorse one current-head emergency pause as an eligible panel seat holder (§4.14.7).
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::EndorseSccpFastPauseV1")]
+#[derive(Copy)]
+pub struct EndorseSccpFastPauseV1 {
+    /// Live chain network identity; a signature never crosses resets.
+    pub network_id: crate::NetworkId,
+    /// External route whose transfer activity is paused.
+    pub network: SccpNetworkV1,
+    /// Exact primary or backup panel identifier.
+    pub panel_id: [u8; 32],
+    /// Current `FastHold` subject revision, used as the endorsement nonce.
+    pub head: u64,
+    /// Nonzero public incident digest.
+    pub incident_digest: [u8; 32],
+}
+impl crate::seal::Instruction for EndorseSccpFastPauseV1 {}
 
 /// Lock XOR and record an outbound message to an external network (§4.4).
 #[derive(
@@ -109,6 +171,36 @@ pub struct SubmitSccpInboundMessageV1 {
     pub proof: SccpSourceProofBytesV1,
 }
 impl crate::seal::Instruction for SubmitSccpInboundMessageV1 {}
+
+/// Prove a captured deployment finalized an unrecorded payload during its reconciliation window.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+)]
+#[norito(no_fast_from_json)]
+#[norito(deny_unknown_fields)]
+#[derive(norito::NoritoSchema)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::ProveSccpForgedMintV1")]
+#[norito(decode_from_slice)]
+pub struct ProveSccpForgedMintV1 {
+    /// External destination network.
+    pub network: SccpNetworkV1,
+    /// Quarantined route revision with an open reconciliation window.
+    pub revision: u32,
+    /// Authenticated finalization event and its message-id-bound payload preimage.
+    pub proof: crate::sccp::reconciliation::SccpForgedMintProofV1,
+}
+impl crate::seal::Instruction for ProveSccpForgedMintV1 {}
 
 /// `SettleSccpV1::Inbound` target.
 #[derive(
@@ -335,6 +427,49 @@ pub struct ReportSccpLightClientEquivocationV1 {
 }
 impl crate::seal::Instruction for ReportSccpLightClientEquivocationV1 {}
 
+/// Submit an exact native `CommitQC` certificate claiming an SCCP result Taira never made.
+///
+/// These fixed-size originals are DATA. Core must enforce §§3.8 and 4.9: active live-network
+/// header, retained generation and liability, exact quorum BLS verification, first E1–E4
+/// mismatch, immutable offender attribution and deduplication. A transaction carries no other
+/// instruction; execution failure makes its block invalid (R-EX), not an ordinary paid failure.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1")]
+pub struct SubmitSccpForgeryEvidenceV1 {
+    /// Exact 116-byte `QC_FIXED`, including its signer mask and result-body digest.
+    pub qc: [u8; 116],
+    /// Exact 221-byte SCCP finality header X; never reconstructed from untrusted fields.
+    pub header: [u8; 221],
+    /// Original compressed BLS aggregate signature; syntax alone is not verification.
+    pub aggregate_signature: [u8; 96],
+    /// Original anchor witness, required only for a height in a completed anchor chunk.
+    #[norito(required)]
+    pub anchor: Option<SccpAnchorWitnessV1>,
+}
+impl crate::seal::Instruction for SubmitSccpForgeryEvidenceV1 {}
+
+impl_aos_decode_from_slice!(SubmitSccpForgeryEvidenceV1 {
+    qc: [u8; 116],
+    header: [u8; 221],
+    aggregate_signature: [u8; 96],
+    anchor: Option<SccpAnchorWitnessV1>,
+});
+
 impl_aos_decode_from_slice!(InitializeSccpV1 {
     parameters: SccpParametersV1,
     reset_nonce: [u8; 32],
@@ -406,6 +541,35 @@ mod tests {
 
     #[test]
     fn every_instruction_roundtrips() {
+        check(&AcceptSccpPausePanelSeatV1 {
+            panel_seq: u64::MAX,
+        });
+        check(&EndorseSccpFastPauseV1 {
+            network_id: crate::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
+                crate::block::BlockHeader,
+            >::from_untyped_unchecked(
+                iroha_crypto::Hash::new([7; 32])
+            )),
+            network: ETH,
+            panel_id: [8; 32],
+            head: u64::MAX,
+            incident_digest: [9; 32],
+        });
+        let evidence = SubmitSccpForgeryEvidenceV1 {
+            qc: [0xa1; 116],
+            header: [0xb2; 221],
+            aggregate_signature: [0xc3; 96],
+            anchor: Some(SccpAnchorWitnessV1 {
+                core_hash: [1; 32],
+                result: [0; 32],
+                path: [[2; 32]; 12],
+            }),
+        };
+        check(&evidence);
+        check(&SubmitSccpForgeryEvidenceV1 {
+            anchor: None,
+            ..evidence
+        });
         check(&InitializeSccpV1 {
             parameters: SccpParametersV1::taira_default(),
             reset_nonce: [0x5a; 32],

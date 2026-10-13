@@ -1073,14 +1073,32 @@ fn sccp_event_network(
         SccpEvent::TrustedCheckpointInstalled(ev) => Some(ev.network),
         SccpEvent::RevisionActivationChanged(ev) => Some(ev.network),
         SccpEvent::ControlRecorded(ev) => Some(ev.network),
+        SccpEvent::RevisionForgeryHeld(ev) => Some(ev.network),
+        SccpEvent::RevisionForgeryReleased(ev) => Some(ev.network),
+        SccpEvent::RevisionQuarantined(ev) => Some(ev.network),
+        SccpEvent::ReconciliationOpened(ev) => Some(ev.network),
+        SccpEvent::ForgedMintProven(ev) => Some(ev.network),
+        SccpEvent::ReconciliationSettled(ev) => Some(ev.network),
+        SccpEvent::ReconciledClaimSettled(ev) => Some(ev.network),
+        SccpEvent::InboundStranded(ev) => Some(ev.network),
+        SccpEvent::FastPauseEndorsed(ev) => Some(ev.network),
+        SccpEvent::FastPauseNoResult(ev) => Some(ev.network),
+        SccpEvent::FastPauseEnacted(ev) => Some(ev.network),
+        SccpEvent::FastPauseRetained(ev) => Some(ev.network),
+        SccpEvent::FastPauseCleared(ev) => Some(ev.network),
         SccpEvent::FastPauseLapsed(ev) => Some(ev.network),
-        SccpEvent::BlockCommitted(_)
+        SccpEvent::PausePanelSeated(_)
+        | SccpEvent::PausePanelUnavailable(_)
+        | SccpEvent::PausePanelSeatAccepted(_)
+        | SccpEvent::BlockCommitted(_)
         | SccpEvent::GovernanceEnacted(_)
         | SccpEvent::CommitteeGenerationCreated(_)
         | SccpEvent::GenerationMemberUnslashable(_)
         | SccpEvent::CommitteeResync(_)
         | SccpEvent::GenerationDestinationCleared(_)
-        | SccpEvent::FinalityDegraded(_) => None,
+        | SccpEvent::FinalityDegraded(_)
+        | SccpEvent::ForgeryEvidenceRecorded(_)
+        | SccpEvent::ForgeryOffenderUnslashable(_) => None,
     }
 }
 #[cfg(feature = "transparent_api")]
@@ -2824,8 +2842,90 @@ mod sccp_filter_tests {
     use super::*;
     use crate::{
         bridge::SccpNetworkV1,
-        sccp::events::{SccpBlockCommittedV1, SccpEvent, SccpEventSet, SccpMessageRecordedV1},
+        sccp::{
+            events::{
+                SccpBlockCommittedV1, SccpEvent, SccpEventSet, SccpForgeryEvidenceRecordedV1,
+                SccpForgeryOffenderUnslashableV1, SccpMessageRecordedV1, SccpRevisionForgeryHeldV1,
+                SccpRevisionForgeryReleasedV1, SccpRevisionQuarantinedV1,
+            },
+            native::SccpForgeryRuleV1,
+        },
     };
+
+    #[test]
+    fn reconciliation_events_match_only_their_network_and_high_event_bits() {
+        use crate::sccp::events::*;
+        let network = SccpNetworkV1::TonMainnet;
+        let rows = [
+            (
+                SccpEvent::ReconciliationOpened(SccpReconciliationOpenedV1 {
+                    network,
+                    revision: 1,
+                    opened_at_ms: 1,
+                    closes_at_ms: 2,
+                }),
+                SccpEventSet::ReconciliationOpened,
+            ),
+            (
+                SccpEvent::ForgedMintProven(SccpForgedMintProvenV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 1,
+                }),
+                SccpEventSet::ForgedMintProven,
+            ),
+            (
+                SccpEvent::ReconciliationSettled(SccpReconciliationSettledV1 {
+                    network,
+                    revision: 1,
+                    backing: 1,
+                    forged_supply: 1,
+                }),
+                SccpEventSet::ReconciliationSettled,
+            ),
+            (
+                SccpEvent::ReconciledClaimSettled(SccpReconciledClaimSettledV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 2,
+                    payout: 1,
+                }),
+                SccpEventSet::ReconciledClaimSettled,
+            ),
+            (
+                SccpEvent::InboundStranded(SccpInboundStrandedV1 {
+                    network,
+                    revision: 1,
+                    message_id: [1; 32],
+                    amount: 1,
+                    reason: SccpBounceReasonV1::UndecodableRecipient,
+                }),
+                SccpEventSet::InboundStranded,
+            ),
+        ];
+        for (event, flag) in rows {
+            assert_eq!(sccp_event_network(&event), Some(network));
+            assert!(
+                SccpEventFilter::new()
+                    .for_network(network)
+                    .for_events(flag)
+                    .matches(&event)
+            );
+            assert!(
+                !SccpEventFilter::new()
+                    .for_network(SccpNetworkV1::EthereumMainnet)
+                    .for_events(flag)
+                    .matches(&event)
+            );
+            assert!(
+                !SccpEventFilter::new()
+                    .for_events(SccpEventSet::MessageRecorded)
+                    .matches(&event)
+            );
+        }
+    }
 
     #[test]
     fn fast_pause_lapse_matches_only_its_network_and_event_set() {
@@ -3030,5 +3130,80 @@ mod sccp_filter_tests {
             !filter.replace_account_id(&account(1), &account(2)),
             "SCCP filters carry no account selector"
         );
+    }
+
+    #[test]
+    fn sccp_forgery_filters_distinguish_global_evidence_from_route_holds() {
+        let events = [
+            (
+                SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
+                    evidence_id: [3; 32],
+                    generation: 4,
+                    height: 9,
+                    rule: SccpForgeryRuleV1::E4,
+                    offenders: Vec::new(),
+                }),
+                SccpEventSet::ForgeryEvidenceRecorded,
+                None,
+            ),
+            (
+                SccpEvent::ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1 {
+                    generation: 4,
+                    signer: 0,
+                }),
+                SccpEventSet::ForgeryOffenderUnslashable,
+                None,
+            ),
+            (
+                SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
+                    network: SccpNetworkV1::TonMainnet,
+                    revision: 1,
+                    forgery_floor: 2,
+                    generation: 4,
+                }),
+                SccpEventSet::RevisionForgeryHeld,
+                Some(SccpNetworkV1::TonMainnet),
+            ),
+            (
+                SccpEvent::RevisionForgeryReleased(SccpRevisionForgeryReleasedV1 {
+                    network: SccpNetworkV1::TonMainnet,
+                    revision: 1,
+                    forgery_floor: 5,
+                }),
+                SccpEventSet::RevisionForgeryReleased,
+                Some(SccpNetworkV1::TonMainnet),
+            ),
+            (
+                SccpEvent::RevisionQuarantined(SccpRevisionQuarantinedV1 {
+                    network: SccpNetworkV1::TonMainnet,
+                    revision: 1,
+                    certificate_id: [4; 32],
+                    since_height: 10,
+                }),
+                SccpEventSet::RevisionQuarantined,
+                Some(SccpNetworkV1::TonMainnet),
+            ),
+        ];
+        for (event, event_set, network) in &events {
+            assert_eq!(sccp_event_network(event), *network);
+            assert!(SccpEventFilter::default().matches(event));
+            assert!(SccpEventFilter::new().for_events(*event_set).matches(event));
+            for selected in [SccpNetworkV1::TonMainnet, SccpNetworkV1::EthereumMainnet] {
+                let filter = SccpEventFilter::new()
+                    .for_events(*event_set)
+                    .for_network(selected);
+                assert_eq!(filter.matches(event), *network == Some(selected));
+                assert_eq!(
+                    DataEventFilter::Sccp(filter).matches(&DataEvent::Sccp(event.clone())),
+                    *network == Some(selected)
+                );
+            }
+            for (other, other_set, _) in &events {
+                assert_eq!(
+                    SccpEventFilter::new().for_events(*event_set).matches(other),
+                    event_set == other_set
+                );
+            }
+        }
     }
 }

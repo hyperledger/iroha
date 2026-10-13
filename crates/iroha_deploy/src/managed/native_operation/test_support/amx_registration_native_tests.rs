@@ -119,7 +119,7 @@ fn certified_parent(native: &mut NativeFixture, authority: &ServiceAuthority) ->
 }
 
 /// Lend genuine wallet-produced bytes to attachment custody controls without inventing a proof.
-pub(crate) fn with_signed_amx_preparation(
+pub fn with_signed_amx_preparation(
     inspect: impl FnOnce(&iroha::config::Config, &AmxDataspaceRegistrationRequest, &std::path::Path),
 ) {
     let _resources = crate::managed::native_test_guard();
@@ -249,7 +249,7 @@ fn administrative_amx_native_paid_original_wire_is_registered_and_carrier_reopen
         retained_carrier_execution(
             &reopened,
             authority.config.network_id,
-            &authority.config.chain.to_string(),
+            authority.config.chain.as_ref(),
             &signed
         )
         .unwrap(),
@@ -403,7 +403,7 @@ fn administrative_amx_native_missing_permission_is_authenticated_failure_after_l
     let original = retained_carrier_execution(
         &receipt,
         selected.network_id,
-        &selected.chain.to_string(),
+        selected.chain.as_ref(),
         &signed,
     )
     .unwrap()
@@ -453,7 +453,7 @@ fn administrative_amx_native_missing_permission_is_authenticated_failure_after_l
         retained_carrier_execution(
             &receipt,
             selected.network_id,
-            &selected.chain.to_string(),
+            selected.chain.as_ref(),
             &signed
         )
         .unwrap(),
@@ -470,7 +470,7 @@ fn administrative_amx_native_missing_permission_is_authenticated_failure_after_l
         retained_carrier_execution(
             &receipt,
             selected.network_id,
-            &selected.chain.to_string(),
+            selected.chain.as_ref(),
             &grant
         )
         .is_err()

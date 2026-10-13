@@ -2765,24 +2765,24 @@ fn apply_native_air_tamper(
 #[cfg(feature = "zk-stark")]
 #[derive(Clone, Copy)]
 enum ExecutionNativeAirReplayTamper {
-    OpeningRowPathShape,
-    OpeningRowPathRoot,
-    OpeningFirstFriValue,
+    RowPathShape,
+    RowPathRoot,
+    FirstFriValue,
 }
 #[cfg(feature = "zk-stark")]
 fn execution_native_air_replay_tamper_cases() -> [(ExecutionNativeAirReplayTamper, &'static str); 3]
 {
     [
         (
-            ExecutionNativeAirReplayTamper::OpeningRowPathShape,
+            ExecutionNativeAirReplayTamper::RowPathShape,
             "native BFV AIR opening 0 row Merkle path depth mismatch",
         ),
         (
-            ExecutionNativeAirReplayTamper::OpeningRowPathRoot,
+            ExecutionNativeAirReplayTamper::RowPathRoot,
             "native BFV AIR opening 0 Merkle commitment failed validation",
         ),
         (
-            ExecutionNativeAirReplayTamper::OpeningFirstFriValue,
+            ExecutionNativeAirReplayTamper::FirstFriValue,
             "native BFV AIR FRI query shape failed validation",
         ),
     ]
@@ -2793,7 +2793,7 @@ fn apply_execution_native_air_replay_tamper(
     tamper: ExecutionNativeAirReplayTamper,
 ) {
     match tamper {
-        ExecutionNativeAirReplayTamper::OpeningRowPathShape => {
+        ExecutionNativeAirReplayTamper::RowPathShape => {
             native
                 .proof
                 .air
@@ -2807,7 +2807,7 @@ fn apply_execution_native_air_replay_tamper(
                 .pop()
                 .expect("generated proof carries row Merkle siblings");
         }
-        ExecutionNativeAirReplayTamper::OpeningRowPathRoot => {
+        ExecutionNativeAirReplayTamper::RowPathRoot => {
             let sibling = native
                 .proof
                 .air
@@ -2822,7 +2822,7 @@ fn apply_execution_native_air_replay_tamper(
                 .expect("generated proof carries row Merkle siblings");
             mutate_native_stark_digest(sibling);
         }
-        ExecutionNativeAirReplayTamper::OpeningFirstFriValue => {
+        ExecutionNativeAirReplayTamper::FirstFriValue => {
             let first_opening_index = native
                 .proof
                 .air
@@ -2874,12 +2874,9 @@ fn mutate_full_bootstrap_execution_native_stark_envelope(
     mutate_fhe_native_stark_envelope(&mut proof.proof, mutate);
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 fn sample_full_bootstrap_bfv_native_air_merkle_path(index: u32) -> crate::zk_stark::MerklePath {
     let depth = usize::from(iroha_crypto::fhe_bfv::BFV_FULL_BOOTSTRAP_NATIVE_STARK_FRI_N_LOG2_V1);
-    let mut dirs = vec![0_u8; (depth + 7) / 8];
+    let mut dirs = vec![0_u8; depth.div_ceil(8)];
     for bit_index in 0..depth {
         if ((index >> bit_index) & 1) == 1 {
             dirs[bit_index / 8] |= 1 << (bit_index % 8);
@@ -3096,12 +3093,12 @@ fn sample_duplicate_public_full_bootstrap_bfv_native_air_envelope(
         .get_mut(1)
         .expect("sample carries multiple BFV AIR openings") = replay_opening;
     let opening_indices = bfv_native_air_opening_indices(&native);
-    let mut seen = std::collections::BTreeSet::new();
+    let mut encountered = std::collections::BTreeSet::new();
     assert!(
         opening_indices
             .iter()
             .copied()
-            .any(|index| !seen.insert(index))
+            .any(|index| !encountered.insert(index))
     );
     assert!(bfv_native_air_opening_indices_are_public_only(
         &opening_indices
@@ -3666,10 +3663,11 @@ fn soracloud_fhe_stark_native_envelope_preflight_rejects_text_placeholders() {
     };
     assert_invalid_parameter_contains(err, "placeholder");
     let binary_fragmented_placeholder = b"native verifier metadata\xffoperator your.proof payload";
-    for (label, max_bytes) in [(
-        "FHE full-bootstrap execution",
-        SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
-    )] {
+    {
+        let (label, max_bytes) = (
+            "FHE full-bootstrap execution",
+            SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
+        );
         let Err(err) = validate_soracloud_fhe_stark_native_envelope_bytes(
             label,
             binary_fragmented_placeholder,
@@ -3680,10 +3678,11 @@ fn soracloud_fhe_stark_native_envelope_preflight_rejects_text_placeholders() {
         assert_invalid_parameter_contains(err, "placeholder");
     }
     let marker_split_placeholder = b"native verifier metadata operator your\xffproof payload";
-    for (label, max_bytes) in [(
-        "FHE full-bootstrap execution",
-        SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
-    )] {
+    {
+        let (label, max_bytes) = (
+            "FHE full-bootstrap execution",
+            SORACLOUD_FHE_FULL_BOOTSTRAP_EXECUTION_PROOF_MAX_NATIVE_ENVELOPE_BYTES,
+        );
         let Err(err) = validate_soracloud_fhe_stark_native_envelope_bytes(
             label,
             marker_split_placeholder,
@@ -5354,7 +5353,8 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
     .expect_err("BFV AIR boundary must reject empty commitment root lists");
     assert_invalid_parameter_contains(err, "commitment root count mismatch");
     let mut zero_commitment_root = native.clone();
-    zero_commitment_root.proof.commits.roots[0] = Default::default();
+    zero_commitment_root.proof.commits.roots[0] =
+        iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -5467,7 +5467,7 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
         .air
         .as_mut()
         .expect("sample carries BFV AIR")
-        .trace_root = Default::default();
+        .trace_root = iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -5482,7 +5482,7 @@ fn full_bootstrap_bfv_native_air_boundary_rejects_malformed_opening_shapes() {
         .air
         .as_mut()
         .expect("sample carries BFV AIR")
-        .composition_root = Default::default();
+        .composition_root = iroha_data_model::privacy::GoldilocksDigest384V1::default();
     let err = validate_soracloud_fhe_full_bootstrap_bfv_native_air_boundary(
         label,
         statement_hash,
@@ -10499,8 +10499,6 @@ fn soracloud_fhe_full_bootstrap_execution_hash_only_entrypoint_stays_fail_closed
     assert_invalid_parameter_contains(err, FHE_FULL_BOOTSTRAP_DEDICATED_PROVER_UNAVAILABLE);
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_emits_valid_native_air_proof() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -11854,9 +11852,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_unbound_verifier_key() 
     assert_invalid_parameter_contains(err, "verifier key must match prover input material");
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_prefix_trace_against_artifacts() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -12034,7 +12029,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_proof_key_artifac
     assert_invalid_parameter_contains(err, "artifact bundle digest mismatch");
 }
 #[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_air_binding() {
     let vk_box = sample_fhe_full_bootstrap_execution_vk_box();
@@ -12107,10 +12101,6 @@ fn soracloud_fhe_full_bootstrap_execution_prover_rejects_stale_air_binding() {
     .expect_err("stale AIR evaluation material digest must fail before proof generation");
     assert_invalid_parameter_contains(err, "arithmetic AIR evaluation material digest mismatch");
 }
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
-#[cfg(feature = "zk-stark")]
 #[cfg(feature = "zk-stark")]
 #[test]
 fn soracloud_fhe_full_bootstrap_execution_proof_helper_emits_native_air_proofs() {
@@ -14777,8 +14767,13 @@ fn soracloud_bootstrap_uses_refresh_key() {
         rotation_steps: 0,
         bootstrap_count: 1,
     };
-    let output = execute_soracloud_fhe_job(&params, &evaluation_keys, &job, &[input.clone()])
-        .expect("execute bootstrap job");
+    let output = execute_soracloud_fhe_job(
+        &params,
+        &evaluation_keys,
+        &job,
+        std::slice::from_ref(&input),
+    )
+    .expect("execute bootstrap job");
     assert_ne!(output, input);
     let plaintext =
         decrypt_identifier(&public_parameters, &secret_key, &output).expect("decrypt output");
@@ -21845,7 +21840,7 @@ fn run_soracloud_fhe_job_rejects_binding_only_key_proofs_without_bounded_non_add
         bfv_fresh_bounded_noise_ciphertext_bound(&params).expect("fresh bounded-noise bound");
     let multiply_lhs_payload =
         sample_bounded_noise_fhe_payload(&public_key, &[5, 7], "bounded-mul-input-1");
-    let multiply_rhs_payload =
+    let multiplier_payload =
         sample_bounded_noise_fhe_payload(&public_key, &[3, 4], "bounded-mul-input-2");
     let packed_input_slots = (0..usize::from(params.polynomial_degree))
         .map(|index| u64::try_from(index + 1).expect("slot index fits u64"))
@@ -21875,7 +21870,7 @@ fn run_soracloud_fhe_job_rejects_binding_only_key_proofs_without_bounded_non_add
         ),
         (
             "/state/private/bounded-mul-right",
-            multiply_rhs_payload.clone(),
+            multiplier_payload.clone(),
         ),
         ("/state/private/bounded-packed", packed_payload.clone()),
         (
@@ -21955,7 +21950,7 @@ fn run_soracloud_fhe_job_rejects_binding_only_key_proofs_without_bounded_non_add
     let mut stx = state_block.transaction();
     let mut multiply_job = sample_fhe_job(vec![
         sample_fhe_input_ref("/state/private/bounded-mul-left", &multiply_lhs_payload),
-        sample_fhe_input_ref("/state/private/bounded-mul-right", &multiply_rhs_payload),
+        sample_fhe_input_ref("/state/private/bounded-mul-right", &multiplier_payload),
     ]);
     multiply_job.job_id = "bounded-multiply-job".to_string();
     multiply_job.output_state_key = "/state/private/bounded-multiply-output".to_string();
@@ -23889,7 +23884,8 @@ fn soracloud_uploaded_model_register_rejects_malformed_bundle_manifest_fields()
         },
     ];
     for (index, mutate) in adversarial_mutations.into_iter().enumerate() {
-        let digest = ManifestDigest::new([(0xE6 + index) as u8; 32]);
+        let digest =
+            ManifestDigest::new([u8::try_from(0xE6 + index).expect("fixture value fits u8"); 32]);
         let mut bundle = sample_uploaded_model_bundle("portal", digest);
         mutate(&mut bundle);
         insert_uploaded_model_pin_with_content_length(

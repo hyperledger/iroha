@@ -31,7 +31,7 @@ fn fixture() -> (
         Some(&prepared.peers[0].config_path),
     )
     .unwrap();
-    let genesis = RawGenesisTransaction::from_path(&root.join("genesis.json")).unwrap();
+    let genesis = RawGenesisTransaction::from_path(root.join("genesis.json")).unwrap();
     let signed =
         iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)
             .unwrap();

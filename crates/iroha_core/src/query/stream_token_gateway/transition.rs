@@ -59,11 +59,13 @@ impl<'a, R: GatewayRows> Prepared<'a, R> {
         if !input.policy.operators.contains(&input.execution.authority) {
             return Err(TransitionError::BindingMismatch);
         }
+        let execution_precedes_head =
+            input.execution.recorded_at_unix_ms < input.head.last_execution_unix_ms;
         if input.execution.height == 0
             || input.execution.transaction_hash == [0; 32]
             || input.execution.recorded_at_unix_ms == 0
             || input.execution.recorded_at_unix_ms == u64::MAX
-            || input.execution.recorded_at_unix_ms < input.head.last_execution_unix_ms
+            || execution_precedes_head
             || input.head.acknowledged_through_sequence > input.head.high_water_sequence
             || (input.head.revision == 0 && input.head != GatewayHeadV1::default())
             || (input.head.revision != 0 && input.head.last_execution_unix_ms == 0)
@@ -251,6 +253,10 @@ fn due<R: GatewayRows>(
     Ok(keys)
 }
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the exact admission record is transferred into its delivery result"
+)]
 fn admission_result(row: Record, head: GatewayHeadV1) -> StreamTokenGatewayAdmissionResultV1 {
     let sequence = row.outcome.binding.gateway_sequence;
     StreamTokenGatewayAdmissionResultV1 {
@@ -549,11 +555,11 @@ fn retry_after(start: u64, duration: u64, now: u64) -> Result<u32, TransitionErr
 pub(crate) fn acknowledge<R: GatewayRows>(
     input: TransitionInputs<'_>,
     rows: &R,
-    record: Record,
+    record: &Record,
     reputation_delivery: crate::smartcontracts::isi::sorafs_reputation::stream_token_delivery::DeliveryState,
 ) -> Result<TransitionDelta, TransitionError> {
-    let mut state = Prepared::new(input, rows)?;
     use iroha_data_model::sorafs::reputation::stream_token_delivery::StreamTokenReputationDeliveryDispositionV1 as Disposition;
+    let mut state = Prepared::new(input, rows)?;
     if reputation_delivery.source_digest == [0; 32]
         || matches!(reputation_delivery.disposition, Disposition::Pending)
         || matches!(reputation_delivery.disposition, Disposition::Excluded)
@@ -563,7 +569,7 @@ pub(crate) fn acknowledge<R: GatewayRows>(
     }
     let sequence = record.outcome.binding.gateway_sequence;
     let original = state.admission(sequence)?;
-    if original.record != record {
+    if &original.record != record {
         return Err(TransitionError::Conflict);
     }
     if sequence <= state.head.acknowledged_through_sequence {
@@ -584,7 +590,7 @@ pub(crate) fn acknowledge<R: GatewayRows>(
     state.insert(
         GatewayRowKey::Acknowledgement(sequence),
         GatewayRow::Acknowledgement(AcknowledgementRowV1 {
-            record,
+            record: *record,
             reputation_delivery,
             policy_revision: state.input.policy.qualification.revision,
             execution: state.input.execution.clone(),
@@ -653,13 +659,13 @@ fn terminate_lease<R: GatewayRows>(
 pub(crate) fn release_lease<R: GatewayRows>(
     input: TransitionInputs<'_>,
     rows: &R,
-    record: Record,
+    record: &Record,
 ) -> Result<TransitionDelta, TransitionError> {
     let mut state = Prepared::new(input, rows)?;
     if state
         .admission(record.outcome.binding.gateway_sequence)?
         .record
-        != record
+        != *record
     {
         return Err(TransitionError::Conflict);
     }

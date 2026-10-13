@@ -37,7 +37,7 @@ use sorafs_node::orderbook_transaction_forwarder::{
 /// scan instead of constructing a partial snapshot. A missing receipt therefore
 /// means authoritative absence for the requested receipt identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OrderbookFinalizedSnapshotV1 {
+pub struct OrderbookFinalizedSnapshotV1 {
     /// Finalized tip shared by the policy, status, and receipt queries.
     pub finalized_cursor: OrderbookFinalizedCursorV1,
     /// Finalized block timestamp used for receipt freshness decisions.
@@ -58,7 +58,7 @@ pub(crate) struct OrderbookFinalizedSnapshotV1 {
 }
 /// Result of comparing retained semantic material with finalized ledger state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookSemanticReconciliationV1 {
+pub enum OrderbookSemanticReconciliationV1 {
     /// Finalized policy, authority, and revision still permit the operation.
     Ready(OrderbookFinalizedCursorV1),
     /// The exact uniquely identified receipt committed through any ingress.
@@ -77,7 +77,7 @@ pub(crate) enum OrderbookSemanticReconciliationV1 {
 /// finalized cursor as the semantic snapshot; a containing block's older height/hash is not an
 /// ancestry proof and must not be supplied in its place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookEnvelopeReconciliationV1 {
+pub enum OrderbookEnvelopeReconciliationV1 {
     /// The delivery has no signed bytes yet.
     NotSigned,
     /// The exact transaction remains queued.
@@ -113,7 +113,7 @@ pub(crate) enum OrderbookEnvelopeReconciliationV1 {
 }
 /// Payload-free reason why an entry is intentionally left unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookWorkerDeferReasonV1 {
+pub enum OrderbookWorkerDeferReasonV1 {
     /// A finalized query or exact committed-envelope lookup was unavailable.
     FinalizedStateUnavailable,
     /// The configured injected signer does not own the governed authority.
@@ -127,7 +127,7 @@ pub(crate) enum OrderbookWorkerDeferReasonV1 {
 }
 /// One side effect requested from the supervised orderbook worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookWorkerActionV1 {
+pub enum OrderbookWorkerActionV1 {
     /// Claim durably, then ask the injected external signer.
     ClaimForSigning,
     /// Begin durable submission of the retained exact signed bytes.
@@ -182,7 +182,7 @@ enum FinalizedCursorRelationV1 {
 ///
 /// The snapshot must come from one immutable state view. In particular, the policy and status must
 /// never be assembled from independently advancing queries.
-pub(crate) fn reconcile_orderbook_semantics(
+pub fn reconcile_orderbook_semantics(
     expected_network_id: &NetworkId,
     delivery: &OrderbookTransactionPendingV1,
     retained: &OrderbookTransactionSigningRequestV1,
@@ -294,7 +294,7 @@ pub(crate) fn reconcile_orderbook_semantics(
 /// Exact-envelope outcomes take precedence. If signed bytes exist, semantic
 /// completion is considered only after the exact envelope is proven absent;
 /// pending or unavailable exact status always defers semantic completion.
-pub(crate) fn plan_orderbook_worker_action(
+pub fn plan_orderbook_worker_action(
     expected_network_id: &NetworkId,
     configured_signer_authority: Option<&AccountId>,
     delivery: &OrderbookTransactionPendingV1,
@@ -629,7 +629,7 @@ fn semantic_cursor(
 }
 /// Whether one exact finalized view proves native maintenance is due.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookMaintenanceDueV1 {
+pub enum OrderbookMaintenanceDueV1 {
     /// At least one open order or channel is expired at the finalized time.
     Due,
     /// Every active record in the bounded projection is still live.
@@ -639,7 +639,7 @@ pub(crate) enum OrderbookMaintenanceDueV1 {
 }
 /// Coherent finalized material used only to generate native worker operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OrderbookGenerationSnapshotV1 {
+pub struct OrderbookGenerationSnapshotV1 {
     /// Finalized anchor shared by policy, status, and maintenance projection.
     pub finalized_cursor: OrderbookFinalizedCursorV1,
     /// Finalized block timestamp, or zero when the block body is unavailable.
@@ -653,7 +653,7 @@ pub(crate) struct OrderbookGenerationSnapshotV1 {
 }
 /// Fixed generation validation failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OrderbookGenerationErrorV1 {
+pub enum OrderbookGenerationErrorV1 {
     /// The finalized policy/status snapshot is malformed.
     InvalidSnapshot,
     /// A config-provided instruction bound is invalid.
@@ -665,7 +665,7 @@ pub(crate) enum OrderbookGenerationErrorV1 {
 ///
 /// Expiry maintenance has priority over matching so two worker replicas do not
 /// intentionally submit mutually stale operations for the same revision.
-pub(crate) fn plan_orderbook_generation(
+pub fn plan_orderbook_generation(
     snapshot: &OrderbookGenerationSnapshotV1,
     match_batch_limit: u32,
     maintenance_batch_limit: u32,
@@ -1088,7 +1088,7 @@ mod tests {
             receipt_id: receipt.receipt_id,
             channel_id: receipt.channel_id,
             trade_id: receipt.trade_id,
-            canonical_receipt: instruction.receipt_payload().to_vec(),
+            canonical_receipt: instruction.receipt_payload().clone(),
             admitted_policy_digest: context.policy_record.policy_digest,
             admitted_at_unix: 11,
             recorded_by: retained.authority.clone(),

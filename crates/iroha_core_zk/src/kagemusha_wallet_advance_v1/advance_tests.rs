@@ -37,19 +37,14 @@ fn retiring_capsule(
 ) -> KagemushaWalletRecoveryCapsuleV1 {
     let statement = KagemushaWalletStatementV1 {
         lifecycle: KagemushaWalletLifecycleV1::Retiring,
-        sequence: previous.statement.sequence + 1,
-        predecessor: previous.statement.successor,
+        sequence: previous.body().statement.sequence + 1,
+        predecessor: previous.body().statement.successor,
         successor: commitment(0x31),
         lineage_pending_outgoing_root: field_value(0x39),
         effect: KagemushaWalletEffectV1::Retiring,
-        ..previous.statement
+        ..previous.body().statement
     };
-    capsule_for(
-        f,
-        statement,
-        previous.capsule_digest().expect("digest"),
-        0x33,
-    )
+    capsule_for(f, statement, previous.custody_digest(), 0x33)
 }
 
 fn current(
@@ -99,6 +94,18 @@ impl
         TestOwnerV1.receipt_body(capsule, capsule_digest)
     }
 
+    fn require_completion(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        record: &KagemushaWalletCompletionRecordV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        record
+            .require_capsule(capsule)
+            .map_err(|_| KagemushaWalletProviderErrorV1::Invalid {
+                field: "completion.capsule",
+            })
+    }
+
     fn assemble(
         &self,
         _capsule: &KagemushaWalletRecoveryCapsuleV1,
@@ -126,11 +133,11 @@ fn wallet_advance_v1_advance_g1_capsule_interface() {
     for capsule in [&bootstrap, &next, &retiring] {
         assert_eq!(
             KagemushaWalletAdvanceCapsuleV1::operation_id(capsule),
-            capsule.operation_id
+            capsule.body().operation_id
         );
         assert_eq!(
             KagemushaWalletAdvanceCapsuleV1::head_marker_state(capsule),
-            Ok(capsule.head_marker_state().expect("head"))
+            Ok(capsule.head_marker_state())
         );
         assert_eq!(
             capsule.bound_proof_digest(),
@@ -138,7 +145,7 @@ fn wallet_advance_v1_advance_g1_capsule_interface() {
         );
         assert_eq!(
             capsule.predecessor_commitment(),
-            capsule.statement.predecessor
+            capsule.body().statement.predecessor
         );
     }
     assert!(bootstrap.predecessor_commitment().is_zero());
@@ -159,11 +166,11 @@ fn wallet_advance_v1_advance_g1_capsule_interface() {
         next.capacity_class(),
         KagemushaWalletCapacityClassV1::Cleanup
     );
-    let mut invalid = bootstrap;
+    let mut invalid = bootstrap.body().clone();
     invalid.wallet_id = [0; 32];
-    assert_eq!(
-        KagemushaWalletAdvanceCapsuleV1::head_marker_state(&invalid),
-        Err(KagemushaWalletProviderErrorV1::Invalid { field: "capsule" })
+    assert!(
+        invalid.freeze().is_err(),
+        "invalid body has no head marker state"
     );
 }
 
@@ -173,7 +180,7 @@ fn wallet_advance_v1_advance_expected_head_of_each_phase() {
     let enrollment = f.enrollment_record(BOOT_A);
     let capsule = bootstrap_capsule(&f);
     let selected = enrollment
-        .select(capsule.head_marker_state().expect("head"), BOOT_A)
+        .select(capsule.head_marker_state(), BOOT_A)
         .expect("select");
     let released = selected.release([0xc7; 32], BOOT_A).expect("release");
     let terminal = released
@@ -190,14 +197,14 @@ fn wallet_advance_v1_advance_expected_head_of_each_phase() {
         KagemushaWalletExpectedHeadV1::of(&released),
         Some(KagemushaWalletExpectedHeadV1::Released {
             sequence: 0,
-            head: capsule.statement.successor,
-            capsule_digest: capsule.capsule_digest().expect("digest"),
+            head: capsule.body().statement.successor,
+            capsule_digest: capsule.custody_digest(),
         })
     );
     assert_eq!(KagemushaWalletExpectedHeadV1::of(&terminal), None);
     assert_eq!(
         head_commitment(&released),
-        Some(capsule.statement.successor)
+        Some(capsule.body().statement.successor)
     );
     assert_eq!(head_commitment(&enrollment), None);
 }
@@ -216,7 +223,7 @@ fn wallet_advance_v1_advance_releases_a_chain_with_identical_retries() {
         panic!("released");
     };
     assert!(!resumed);
-    assert_eq!(retained.operation_id, bootstrap.operation_id);
+    assert_eq!(retained.operation_id, bootstrap.body().operation_id);
     assert_eq!(retained.selected_generation, 1);
     assert_eq!(
         retained.frame,
@@ -233,7 +240,7 @@ fn wallet_advance_v1_advance_releases_a_chain_with_identical_retries() {
     retained
         .record
         .receipt
-        .verify(&signer, &bootstrap.statement, &request.proof_digest)
+        .verify(&signer, &bootstrap.body().statement, &request.proof_digest)
         .expect("receipt verifies from the frozen capsule");
     let mut changed_proof = request.proof_digest;
     changed_proof[0] ^= 1;
@@ -241,7 +248,7 @@ fn wallet_advance_v1_advance_releases_a_chain_with_identical_retries() {
         retained
             .record
             .receipt
-            .verify(&signer, &bootstrap.statement, &changed_proof)
+            .verify(&signer, &bootstrap.body().statement, &changed_proof)
             .is_err(),
         "the receipt binds the exact frozen proof"
     );
@@ -279,11 +286,11 @@ fn wallet_advance_v1_advance_releases_a_chain_with_identical_retries() {
     );
     assert_eq!(second.selected_generation, 3);
     assert_eq!(
-        provider.lookup(&slot, &bootstrap.operation_id),
+        provider.lookup(&slot, &bootstrap.body().operation_id),
         Ok(KagemushaWalletLookupV1::Retained(retained.clone()))
     );
     assert_eq!(
-        provider.lookup(&slot, &next.operation_id),
+        provider.lookup(&slot, &next.body().operation_id),
         Ok(KagemushaWalletLookupV1::Retained(Box::new(second.clone())))
     );
     assert_eq!(
@@ -344,7 +351,7 @@ fn wallet_advance_v1_advance_validates_requests_without_writing() {
     let mut second_bootstrap = advance_request(&head, &bootstrap_capsule_variant(&f, 1));
     second_bootstrap.expected = good.expected;
     let Ok(KagemushaWalletLookupV1::Retained(bootstrap_result)) =
-        provider.lookup(&slot, &bootstrap.operation_id)
+        provider.lookup(&slot, &bootstrap.body().operation_id)
     else {
         panic!("bootstrap retained");
     };
@@ -354,11 +361,11 @@ fn wallet_advance_v1_advance_validates_requests_without_writing() {
             retained: bootstrap_result.status()
         })
     );
-    let mut undecodable = good.clone();
-    undecodable.capsule.wallet_id = [0; 32];
-    assert_eq!(
-        provider.advance(&slot, &TestOwnerV1, &undecodable),
-        invalid("capsule")
+    let mut undecodable = good.capsule.body().clone();
+    undecodable.wallet_id = [0; 32];
+    assert!(
+        undecodable.freeze().is_err(),
+        "malformed body cannot reach Advance"
     );
     let mut overflow = good.clone();
     overflow.growth_bytes = u64::MAX;
@@ -417,7 +424,7 @@ fn wallet_advance_v1_advance_operation_identity_rules() {
     device.fs.restart();
     let mut provider = device.open();
     assert_eq!(
-        provider.lookup(&slot, &next.operation_id),
+        provider.lookup(&slot, &next.body().operation_id),
         Ok(KagemushaWalletLookupV1::Unknown),
         "staging without its marker selects nothing"
     );
@@ -430,7 +437,9 @@ fn wallet_advance_v1_advance_operation_identity_rules() {
     ));
     // Changed inputs under a used identity conflict; the retained operation is untouched.
     let mut changed = request.clone();
-    changed.capsule.map_openings = stand_in_map_openings(9);
+    let mut body = changed.capsule.body().clone();
+    body.map_openings = stand_in_map_openings(9);
+    changed.capsule = body.freeze().unwrap().seal([0; 32]).unwrap();
     let retained = released(first.clone());
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &changed),
@@ -450,7 +459,7 @@ fn wallet_advance_v1_advance_operation_identity_rules() {
     for copy in KagemushaWalletCopyV1::BOTH {
         device.fs.place_unsynced(
             &dir,
-            kagemusha_wallet_completion_name_v1(&bootstrap.operation_id, copy).as_str(),
+            kagemusha_wallet_completion_name_v1(&bootstrap.body().operation_id, copy).as_str(),
             b"corrupt",
         );
     }
@@ -462,7 +471,7 @@ fn wallet_advance_v1_advance_operation_identity_rules() {
             &advance_request(&enrollment, &bootstrap)
         ),
         Ok(KagemushaWalletAdvanceOutcomeV1::DeliveryDataLoss {
-            operation_id: bootstrap.operation_id
+            operation_id: bootstrap.body().operation_id
         })
     );
 }
@@ -526,14 +535,14 @@ fn wallet_advance_v1_advance_pending_signing_resumes_the_same_operation() {
     let request = advance_request(&head, &next);
     device.platform.with(|state| state.sign_unavailable = true);
     let pending = Ok(KagemushaWalletAdvanceOutcomeV1::Pending {
-        operation_id: next.operation_id,
+        operation_id: next.body().operation_id,
     });
     assert_eq!(provider.advance(&slot, &TestOwnerV1, &request), pending);
     assert_eq!(provider.advance(&slot, &TestOwnerV1, &request), pending);
     assert_eq!(
-        provider.lookup(&slot, &next.operation_id),
+        provider.lookup(&slot, &next.body().operation_id),
         Ok(KagemushaWalletLookupV1::SelectedUnsigned {
-            capsule_digest: next.capsule_digest().expect("digest")
+            capsule_digest: next.custody_digest()
         })
     );
     // While selected, a competing operation is stale and changed inputs conflict.
@@ -545,12 +554,14 @@ fn wallet_advance_v1_advance_pending_signing_resumes_the_same_operation() {
         ))
     );
     let mut changed = request.clone();
-    changed.capsule.map_openings = stand_in_map_openings(8);
+    let mut body = changed.capsule.body().clone();
+    body.map_openings = stand_in_map_openings(8);
+    changed.capsule = body.freeze().unwrap().seal([0; 32]).unwrap();
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &changed),
         Err(KagemushaWalletProviderErrorV1::OperationIdConflict {
             retained: KagemushaWalletRetainedStatusV1::Selected {
-                capsule_digest: next.capsule_digest().expect("digest")
+                capsule_digest: next.custody_digest()
             }
         })
     );
@@ -667,7 +678,7 @@ fn wallet_advance_v1_advance_refuses_a_capsule_of_another_wallet_before_staging(
     let head = current(&mut provider, &slot);
     let other = wallet_fixture(0x7d);
     let foreign = next_capsule(&other, &bootstrap);
-    assert_ne!(foreign.wallet_id, f.wallet_id());
+    assert_ne!(foreign.body().wallet_id, f.wallet_id());
     let request = advance_request(&head, &foreign);
     let capsules = visible(&device, &kagemusha_wallet_capsules_dir_v1(&slot));
     let signed = device.platform.with(|state| state.sign_calls);
@@ -687,7 +698,7 @@ fn wallet_advance_v1_advance_refuses_a_capsule_of_another_wallet_before_staging(
     assert_eq!(current(&mut provider, &slot), head);
     // The capsule interface refuses it directly as well.
     let selected = head
-        .select(foreign.head_marker_state().expect("head"), BOOT_A)
+        .select(foreign.head_marker_state(), BOOT_A)
         .expect("select");
     assert_eq!(
         KagemushaWalletAdvanceCapsuleV1::require_marker(&foreign, selected.marker()),
@@ -697,7 +708,7 @@ fn wallet_advance_v1_advance_refuses_a_capsule_of_another_wallet_before_staging(
     );
     let own = next_capsule(&f, &bootstrap);
     let selected = head
-        .select(own.head_marker_state().expect("head"), BOOT_A)
+        .select(own.head_marker_state(), BOOT_A)
         .expect("select");
     assert_eq!(
         KagemushaWalletAdvanceCapsuleV1::require_marker(&own, selected.marker()),
@@ -725,7 +736,7 @@ fn wallet_advance_v1_advance_retries_older_operations_while_one_is_pending() {
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &request),
         Ok(KagemushaWalletAdvanceOutcomeV1::Pending {
-            operation_id: next.operation_id
+            operation_id: next.body().operation_id
         })
     );
     assert_eq!(
@@ -754,7 +765,7 @@ fn wallet_advance_v1_advance_retries_older_operations_while_one_is_pending() {
     );
     // A pruned older operation is archived, not stale.
     let tombstone = provider
-        .prune_completion(&slot, &bootstrap.operation_id, 7)
+        .prune_completion(&slot, &bootstrap.body().operation_id, 7)
         .expect("prune");
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &bootstrap_request),
@@ -787,14 +798,14 @@ fn wallet_advance_v1_advance_older_delivery_loss_while_pending() {
     for copy in KagemushaWalletCopyV1::BOTH {
         device.fs.place_unsynced(
             &dir,
-            kagemusha_wallet_completion_name_v1(&bootstrap.operation_id, copy).as_str(),
+            kagemusha_wallet_completion_name_v1(&bootstrap.body().operation_id, copy).as_str(),
             b"corrupt",
         );
     }
     assert_eq!(
         provider.advance(&slot, &TestOwnerV1, &bootstrap_request),
         Ok(KagemushaWalletAdvanceOutcomeV1::DeliveryDataLoss {
-            operation_id: bootstrap.operation_id
+            operation_id: bootstrap.body().operation_id
         })
     );
 }
@@ -884,6 +895,18 @@ impl
         capsule_digest: &[u8; 32],
     ) -> Result<Vec<u8>, KagemushaWalletProviderErrorV1> {
         TestOwnerV1.receipt_body(capsule, capsule_digest)
+    }
+
+    fn require_completion(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        record: &KagemushaWalletCompletionRecordV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        record
+            .require_capsule(capsule)
+            .map_err(|_| KagemushaWalletProviderErrorV1::Invalid {
+                field: "completion.capsule",
+            })
     }
 
     fn assemble(
@@ -1218,6 +1241,120 @@ fn wallet_advance_v1_advance_ballast_helpers() {
         provider.reserve_capacity(KagemushaWalletCapacityClassV1::Growth, 100, 0),
         Ok(false)
     );
+}
+
+/// Probe completion refusal without changing body assembly or signing behavior.
+struct RejectCompletionOwner(bool);
+impl
+    KagemushaWalletTransitionOwnerV1<
+        KagemushaWalletRecoveryCapsuleV1,
+        KagemushaWalletCompletionRecordV1,
+    > for RejectCompletionOwner
+{
+    fn receipt_body(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        digest: &[u8; 32],
+    ) -> Result<Vec<u8>, KagemushaWalletProviderErrorV1> {
+        if self.0 {
+            return Err(KagemushaWalletProviderErrorV1::Invalid {
+                field: "receipt.stall.probe",
+            });
+        }
+        TestOwnerV1.receipt_body(capsule, digest)
+    }
+    fn assemble(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        digest: &[u8; 32],
+        signature: &KagemushaDeviceSignatureV1,
+    ) -> Result<KagemushaWalletCompletionRecordV1, KagemushaWalletProviderErrorV1> {
+        TestOwnerV1.assemble(capsule, digest, signature)
+    }
+    fn require_completion(
+        &self,
+        _: &KagemushaWalletRecoveryCapsuleV1,
+        _: &KagemushaWalletCompletionRecordV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        Err(KagemushaWalletProviderErrorV1::Invalid {
+            field: "completion.join.probe",
+        })
+    }
+}
+
+#[test]
+fn wallet_advance_v1_completion_join_is_required_after_staging_and_before_existing_adoption() {
+    let (device, f, slot) = enrolled_device(ANDROID, 0x82);
+    let mut provider = device.open();
+    let head = current(&mut provider, &slot);
+    let request = advance_request(&head, &bootstrap_capsule(&f));
+    // Selection already committed the operation. A completion refusal keeps it
+    // pending with its exact reason; it must never report rejection or release.
+    assert_eq!(
+        provider.advance(&slot, &RejectCompletionOwner(false), &request),
+        Ok(KagemushaWalletAdvanceOutcomeV1::Pending {
+            operation_id: request.operation_id,
+        })
+    );
+    let refusal = KagemushaWalletProviderErrorV1::Invalid {
+        field: "completion.join.probe",
+    };
+    assert_eq!(provider.pending_reason(&slot), Some(refusal));
+    let signed = device.platform.with(|state| state.sign_calls);
+    assert_eq!(signed, 1);
+    drop(provider);
+    let mut reopened = device.open();
+    assert!(matches!(
+        reopened.status(&slot),
+        Ok(KagemushaWalletSlotStatusV1::Pending(_))
+    ));
+    assert!(matches!(
+        reopened.reconcile(&slot, &RejectCompletionOwner(false)),
+        Ok(KagemushaWalletSlotStatusV1::Pending(_))
+    ));
+    assert_eq!(reopened.pending_reason(&slot), Some(refusal));
+    assert_eq!(
+        device.platform.with(|state| state.sign_calls),
+        signed,
+        "existing completion refusal never signs again"
+    );
+    drop(reopened);
+    let mut recovered = device.open();
+    assert!(matches!(
+        recovered.reconcile(&slot, &TestOwnerV1),
+        Ok(KagemushaWalletSlotStatusV1::Released(_))
+    ));
+    assert_eq!(device.platform.with(|state| state.sign_calls), signed);
+}
+
+#[test]
+fn wallet_advance_v1_retained_retry_requires_completion_join_with_released_or_pending_head() {
+    for pending in [false, true] {
+        let (device, f, slot) = enrolled_device(ANDROID, 0x83);
+        let mut provider = device.open();
+        let head = current(&mut provider, &slot);
+        let bootstrap = bootstrap_capsule(&f);
+        let request = advance_request(&head, &bootstrap);
+        assert!(matches!(
+            provider.advance(&slot, &TestOwnerV1, &request),
+            Ok(KagemushaWalletAdvanceOutcomeV1::Released { .. })
+        ));
+        if pending {
+            let head = current(&mut provider, &slot);
+            let next = advance_request(&head, &next_capsule(&f, &bootstrap));
+            assert!(matches!(
+                provider.advance(&slot, &FailingOwnerV1 { body: false }, &next),
+                Ok(KagemushaWalletAdvanceOutcomeV1::Pending { .. })
+            ));
+        }
+        let signed = device.platform.with(|state| state.sign_calls);
+        assert!(
+            provider
+                .advance(&slot, &RejectCompletionOwner(true), &request)
+                .is_err()
+        );
+        assert_eq!(device.platform.with(|state| state.sign_calls), signed);
+    }
 }
 
 #[test]

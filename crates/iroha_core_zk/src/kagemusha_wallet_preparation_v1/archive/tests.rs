@@ -426,7 +426,7 @@ fn invalid_status_membership_and_receipt_identity_are_not_silently_repaired() {
         successor: status.statement.successor,
         statement_digest: status.statement.statement_digest().unwrap(),
         proof_digest: status.proof_digest,
-        capsule_digest: status.receipt.capsule_digest,
+        capsule_commitment: status.receipt.capsule_commitment,
         payment_digest: status.receipt.payment_digest,
     };
     let receipt_digest = kagemusha_wallet_signed_object_digest_v1(

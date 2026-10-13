@@ -430,8 +430,10 @@ fn admitted_account_policy_limits_the_shared_issuer_and_isolates_quotas() {
         ),
         Err(StreamTokenIssuerError::IssuanceQuotaExceeded { limit: 1, .. })
     ));
-    let mut excessive = TokenOverrides::default();
-    excessive.max_streams = Some(2);
+    let excessive = TokenOverrides {
+        max_streams: Some(2),
+        ..Default::default()
+    };
     assert!(matches!(
         issuer.issue_token(
             subject,
@@ -657,12 +659,15 @@ fn ambiguous_completion_recovers_exact_body_once_and_preserves_reserved_quota() 
         );
         match mode {
             TestSignerMode::Ambiguous => {
-                let issued =
+                let issuance_result =
                     result.expect("read-only recovery of exact immutable completed operation");
-                issued.token.verify(issuer.verifying_key()).unwrap();
+                issuance_result
+                    .token
+                    .verify(issuer.verifying_key())
+                    .unwrap();
                 assert_eq!(
                     signer.signing_payloads.lock().unwrap().as_slice(),
-                    [issued.token.body.signing_payload_bytes().unwrap()]
+                    [issuance_result.token.body.signing_payload_bytes().unwrap()]
                 );
                 assert_eq!(signer.observer_calls.load(Ordering::SeqCst), 4);
             }
@@ -1191,12 +1196,12 @@ fn poisoned_issuance_state_fails_closed() {
     use std::{sync::Arc, thread};
     let issuer = Arc::new(issuer_with_limit(2));
     let poisoner = Arc::clone(&issuer);
-    let poisoned = thread::spawn(move || {
+    let poison_task = thread::spawn(move || {
         let _guard = poisoner.issuance_budgets.lock().expect("issuance lock");
         panic!("poison issuance state");
     })
     .join();
-    assert!(poisoned.is_err(), "poisoning worker must panic");
+    assert!(poison_task.is_err(), "poisoning worker must panic");
     assert!(matches!(
         issuer.issue_token(
             quota_subject("credential-a"),

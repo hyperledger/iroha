@@ -134,6 +134,7 @@ fn stable_bounded_sidecar_read_prepays_exact_raw_buffer_cumulatively() {
 
 #[test]
 fn stable_bounded_sidecar_read_charges_original_commit_marker_before_decode() {
+    const PROBE_LIMIT: usize = 1024 * 1024;
     let root = tempfile::tempdir().expect("create bounded-marker root");
     let mut store = super::BlockStore::new(root.path());
     store.create_files_if_they_do_not_exist().unwrap();
@@ -153,7 +154,6 @@ fn stable_bounded_sidecar_read_charges_original_commit_marker_before_decode() {
     });
     // Measure the real typed marker decoder as well as its raw frame. The test must not
     // invent the current codec's allocation cost or reset the inherited budget per read.
-    const PROBE_LIMIT: usize = 1024 * 1024;
     let exact = norito::with_decode_limits_scope(limits(PROBE_LIMIT), || {
         assert_eq!(store.read_exact_durable_index_count().unwrap(), 0);
         let error = norito::core::reserve_decode_allocation(PROBE_LIMIT).unwrap_err();

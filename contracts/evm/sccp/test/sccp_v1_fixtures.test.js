@@ -15,8 +15,8 @@
 // - `control_v1.json`: every step of every destination-effect scenario, the
 //   rejected controls certified by the model, and every recorded control leaf
 //   of an EVM target applied on its own chain;
-// - `evm_calldata_v1.json`: the `calldata_conformance` entries of
-//   `transferToTaira` and `voidFrozen`.
+// - `evm_calldata_v1.json`: every selector, topic, golden call, view, return
+//   and log, the P4 CREATE2 sample, and every `calldata_conformance` entry.
 //
 // The canonical run is the locked build on the fixtures' own profile
 // (`ethereum-mainnet`, chain id 1). Rows that bind no network also run under
@@ -75,11 +75,9 @@ const CONTEXT = FINALITY.verification_context;
 const EVM_SCENARIOS = TRANSITIONS.scenarios.filter((scenario) => scenario.flavor === "evm");
 const CONTROL_SCENARIOS = CONTROL.destination_effects;
 const PORTABLE_SCENARIOS = EVM_SCENARIOS.filter(r.isProfileIndependent);
-// TODO: (SCCP Rust `evm_abi` step) once `evm_calldata_v1.json` is regenerated for revision 5, replay
-// its golden calls, view returns and logs too, and require the conformance table to hold these two
-// functions only. Until then the file still carries revision 4 calls, which this suite ignores.
-const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen"]);
-const CONFORMANCE = CALLDATA.calldata_conformance.filter((entry) => CONFORMANCE_FUNCTIONS.includes(entry.function));
+const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen", "voidExpired", "voidExpiredFromCheckpoint"]);
+const CONFORMANCE = CALLDATA.calldata_conformance.filter((row) => ["transferToTaira", "voidFrozen"].includes(row.function));
+const NATIVE_VOID_CONFORMANCE = CALLDATA.calldata_conformance.filter((row) => ["voidExpired", "voidExpiredFromCheckpoint"].includes(row.function));
 
 /**
  * Pinned row counts. A regenerated fixture with other counts fails here until
@@ -92,6 +90,8 @@ const ROW_COUNTS = Object.freeze({
   "finality.flavor_specific_certificates": 1,
   "finality.negative_certificates": 53,
   "finality.negative_certificates with an EVM form": 51,
+  "finality.negative_certificates with a TON form": 40,
+  "finality.flavor_specific_certificates with a TON form": 1,
   "finality.headers.valid": 8,
   "finality.headers.invalid": 33,
   "finality_rust.negative_certificates": 1,
@@ -113,8 +113,15 @@ const ROW_COUNTS = Object.freeze({
   "control.controls of an EVM target": 24,
   "control.rejected": 9,
   "control.rejected with a destination outcome": 8,
+  "calldata.selectors": 24,
+  "calldata.events": 8,
+  "calldata.calls": 13,
+  "calldata.views": 15,
+  "calldata.logs": 4,
   "calldata_conformance.transferToTaira": 13,
   "calldata_conformance.voidFrozen": 12,
+  "calldata_conformance.voidExpired": 25,
+  "calldata_conformance.voidExpiredFromCheckpoint": 19,
 });
 
 /** Negative certificates that only the TON flavour can express (`expected.evm` is null). */
@@ -175,8 +182,13 @@ function expectedRows() {
     "bsc/control.controls": controlsOf(BSC),
     "ethereum/transitions.init_bounds": labels(TRANSITIONS.init_bounds),
     "bsc/transitions.init_bounds": labels(TRANSITIONS.init_bounds),
+    "ethereum/calldata.deployment": ["P4"],
+    "ethereum/calldata.calls": labels(CALLDATA.calls),
+    "ethereum/calldata.views": labels(CALLDATA.views),
+    "ethereum/calldata.logs": labels(CALLDATA.logs),
     "ethereum/calldata_conformance": conformance,
     "bsc/calldata_conformance": conformance,
+    "ethereum/native_void_conformance": NATIVE_VOID_CONFORMANCE.map((row) => `${row.function}/${row.label}`),
   };
   for (const run of ["ethereum", "bsc", "dirty"]) {
     for (const [group, groupRows] of CERTIFICATE_GROUPS) rows[`${run}/${group}`] = labels(withEvmForm(groupRows));
@@ -323,6 +335,43 @@ function deployerCalldata(init) {
   return ethers.concat([m.SCCP_EVM_SALT, init]);
 }
 
+/** Rebuild the Rust golden scenario with the independent model's trees and ABI. */
+function rustGoldenScenario() {
+  const scenario = CALLDATA.scenario;
+  const deployment = h.deploymentOf({ ...CALLDATA.deployment, pin: scenario.pin });
+  const certificate = (row) => [row.qc, row.header, row.signature_evm, ethers.concat(row.committee), row.signer_ys];
+  const c100 = certificate(scenario.certificate_100);
+  const c150 = certificate(scenario.certificate_150_rotation);
+  const c200 = certificate(scenario.certificate_200);
+  const transferLeaves = scenario.payloads.map((row) => m.transferLeaf(row.message_id, scenario.destination.destination_word));
+  const control = scenario.control;
+  const controlLeaf = m.controlLeaf({
+    networkId: scenario.taira_network_id, profile: ETHEREUM,
+    destinationWord: scenario.destination.destination_word, revision: scenario.destination.route_revision,
+    nonce: control.control_nonce, track: control.track, parliamentPaused: control.parliament_paused,
+    fastPauseUntilMs: control.fast_pause_until_ms, certificateId: control.certificate_id, effectHash: control.effect_hash,
+  });
+  const leaves = [transferLeaves[1], transferLeaves[2], controlLeaf];
+  const direct = [100n, m.merkleRoot(leaves), 3n, 0n, []];
+  const historical = [100n, m.merkleRoot(leaves), 3n, 1n, m.merklePath(scenario.history_leaves, 1)];
+  const proof1 = [scenario.payloads[1].payload, 0n, m.merklePath(leaves, 0), direct];
+  const proof2 = [scenario.payloads[2].payload, 1n, m.merklePath(leaves, 1), historical];
+  const controlProof = (block) => [control.control_nonce, control.track, control.parliament_paused,
+    control.fast_pause_until_ms, control.certificate_id, control.effect_hash, 2n, m.merklePath(leaves, 2), block];
+  const account = (seed) => ethers.concat(["0x020120", ethers.keccak256(ethers.concat([m.ascii("SCCP/FIXTURE/TAIRA/V1"), m.be(seed, 1)]))]);
+  const recipient = ethers.getAddress(ethers.dataSlice(ethers.keccak256(ethers.concat([m.ascii("SCCP/FIXTURE/EXTERNAL/V1"), "0x02"])), 12));
+  const args = {
+    finalize_direct: [c100, proof1], finalize_historical: [c200, proof2],
+    finalize_checkpoint_direct: [[c100[1]], proof1], finalize_checkpoint_historical: [[c200[1]], proof2],
+    checkpoint_rotation: [[c150]], checkpoint_rotation_and_latest: [[c150, c200]],
+    apply_control_direct: [c100, controlProof(direct)], apply_control_historical: [c200, controlProof(historical)],
+    apply_control_checkpoint: [[c200[1]], controlProof(historical)],
+    void_expired: [1n, c100, proof1], void_expired_checkpoint: [2n, [c200[1]], proof2],
+    void_frozen: [4n, 3n], transfer_to_taira: [account(9), 1_500_000_000n, 0n],
+  };
+  return { scenario, deployment, c100, c150, c200, leaves, transferLeaves, args, account, recipient };
+}
+
 // ---------------------------------------------------------------------------
 // The model against the fixtures (no chain)
 // ---------------------------------------------------------------------------
@@ -337,6 +386,8 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
       "finality.flavor_specific_certificates": FINALITY.flavor_specific_certificates.length,
       "finality.negative_certificates": FINALITY.negative_certificates.length,
       "finality.negative_certificates with an EVM form": withEvmForm(FINALITY.negative_certificates).length,
+      "finality.negative_certificates with a TON form": count(FINALITY.negative_certificates, (row) => row.expected.ton !== null),
+      "finality.flavor_specific_certificates with a TON form": count(FINALITY.flavor_specific_certificates, (row) => row.expected.ton !== null),
       "finality.headers.valid": FINALITY.headers.valid.length,
       "finality.headers.invalid": FINALITY.headers.invalid.length,
       "finality_rust.negative_certificates": FINALITY_RUST.negative_certificates.length,
@@ -358,10 +409,21 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
       "control.controls of an EVM target": count(CONTROL.controls, (row) => row.target !== "ton-mainnet"),
       "control.rejected": CONTROL.rejected.length,
       "control.rejected with a destination outcome": count(CONTROL.rejected, (row) => row.destination !== null),
+      "calldata.selectors": CALLDATA.selectors.length,
+      "calldata.events": CALLDATA.events.length,
+      "calldata.calls": CALLDATA.calls.length,
+      "calldata.views": CALLDATA.views.length,
+      "calldata.logs": CALLDATA.logs.length,
       "calldata_conformance.transferToTaira": count(CONFORMANCE, (entry) => entry.function === "transferToTaira"),
       "calldata_conformance.voidFrozen": count(CONFORMANCE, (entry) => entry.function === "voidFrozen"),
+      "calldata_conformance.voidExpired": count(NATIVE_VOID_CONFORMANCE, (entry) => entry.function === "voidExpired"),
+      "calldata_conformance.voidExpiredFromCheckpoint": count(NATIVE_VOID_CONFORMANCE, (entry) => entry.function === "voidExpiredFromCheckpoint"),
     };
     assert.deepEqual(measured, { ...ROW_COUNTS });
+    assert.deepEqual([...new Set(CALLDATA.calldata_conformance.map((row) => row.function))].sort(), [...CONFORMANCE_FUNCTIONS].sort());
+    for (const rows of [CALLDATA.calls, CALLDATA.views, CALLDATA.logs]) {
+      assert.equal(new Set(labels(rows)).size, rows.length, "Rust calldata labels are unique");
+    }
     // The rows no EVM harness replays are exactly the known ones.
     const tonOnly = FINALITY.negative_certificates.filter((row) => row.expected.evm === null);
     assert.deepEqual(labels(tonOnly), [...TON_ONLY_NEGATIVES]);
@@ -452,9 +514,77 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
       assert.equal(m.committeeRoot(entry.pin.keys), entry.pin.committee_root, `${entry.label}: pinned root`);
       assert.equal(ethers.concat(entry.pin.keys), entry.evm.committee, `${entry.label}: committee bytes`);
     }
-    const keysOf = (label) => pinned.find((entry) => entry.label === label).pin.keys;
     for (const label of ["key_flag_infinity_0xc0", "key_flag_uncompressed", "signer_x_ge_p"]) {
-      assert.equal(m.decompressG1(keysOf(label)[0]), null, `${label}: key 0 is no compressed point below p`);
+      const entry = pinned.find((candidate) => candidate.label === label);
+      const listed = entry.pin.keys;
+      const genuine = m.committee(entry.committee, FINALITY.committees[entry.committee].test_key_indices);
+      // These rows replace one genuine signer key, then sort the listed keys
+      // and remap the signer seats and y witnesses. Discover that replacement
+      // from the row: neither its malformed seat nor its original seat is fixed.
+      const replaced = genuine.keys.filter((key) => !listed.includes(key));
+      const malformed = listed.flatMap((key, index) => genuine.keys.includes(key) ? [] : [{ key, index }]);
+      assert.equal(replaced.length, 1, `${label}: one genuine key was replaced`);
+      assert.equal(malformed.length, 1, `${label}: one malformed key was listed`);
+      const [{ key: badKey, index: badIndex }] = malformed;
+      assert(entry.signer_indices.includes(badIndex), `${label}: the malformed key is a signer`);
+      assert.deepEqual(listed, [...listed].sort(), `${label}: canonical listed-key order`);
+      assert.equal(m.decompressG1(badKey), null, `${label}: key ${badIndex} is no compressed point below p`);
+      const original = ethers.getBytes(replaced[0]);
+      if (label === "key_flag_infinity_0xc0") original[0] |= 0x40;
+      else if (label === "key_flag_uncompressed") original[0] &= 0x7f;
+      else {
+        original[0] = (original[0] & 0xe0) | 0x1f;
+        original.fill(0xff, 1);
+      }
+      assert.equal(ethers.hexlify(original), badKey, `${label}: the recorded key mutation`);
+      const sourceKeys = listed.map((key) => key === badKey ? replaced[0] : key);
+      const sourceSeats = entry.signer_indices.map((index) => genuine.keys.indexOf(sourceKeys[index]));
+      const fields = entry.qc_fixed_fields;
+      const rebuilt = m.buildCertificate({
+        committee: genuine,
+        signerIndices: sourceSeats,
+        header: m.encodeHeader(m.headerFromFixture(entry.header_fields)),
+        instance: CONTEXT.consensus_instance,
+        epoch: fields.epoch,
+        epochContext: fields.epoch_context,
+        view: fields.view,
+        blockHash: fields.block_hash,
+        resultBody: fields.result_body,
+        kind: entry.commit_kind,
+        dst: entry.dst,
+      });
+      const signers = m.signersWord(entry.signer_indices);
+      assert.equal(signers, BigInt(fields.signers), `${label}: remapped signer word`);
+      assert.equal(m.signerBitmap(entry.signer_indices, genuine.n), entry.bitmap, `${label}: remapped bitmap`);
+      const remappedQc = m.encodeQcFixed({ ...m.parseQcFixed(rebuilt.qc), signers });
+      assert.deepEqual({
+        qc: remappedQc,
+        header: rebuilt.header,
+        signature: rebuilt.signature,
+        committee: ethers.concat(listed),
+        // The malformed key deliberately retains its genuine member's y.
+        signerYs: m.signerYs(sourceKeys, entry.signer_indices),
+      }, entry.evm, `${label}: every EVM wire value, including remapped genuine witnesses`);
+      assert.deepEqual({
+        qc_fixed_cell: ethers.dataSlice(remappedQc, 0, FINALITY.constants.qc_fixed_len - 4),
+        signature: m.g2Compressed(rebuilt.meta.sigma),
+        signers: Number(signers),
+        x_head: ethers.dataSlice(rebuilt.header, 0, FINALITY.constants.x_head_len),
+        x_tail: ethers.dataSlice(rebuilt.header, FINALITY.constants.x_head_len),
+      }, entry.ton, `${label}: every TON wire value`);
+      assert.equal(rebuilt.meta.r, entry.r, `${label}: R`);
+      assert.equal(rebuilt.meta.preimage, entry.commit_preimage, `${label}: Commit preimage`);
+      assert.equal(rebuilt.meta.m, entry.m, `${label}: signed message`);
+      assert.equal(m.checkpointId(rebuilt.header), entry.checkpoint_id, `${label}: checkpoint id`);
+      for (const key of listed.filter((key) => key !== badKey)) {
+        const recorded = FINALITY.test_keys.find((candidate) => candidate.pk === key);
+        const point = m.decompressG1(key);
+        assert.equal(m.be(point.y, 48), recorded.pk_y, `${label}: genuine key y`);
+        assert.equal(m.g1Eip2537(point), recorded.pk_eip2537, `${label}: genuine key EIP-2537 form`);
+      }
+      const reason = new RegExp(`committee key ${badIndex} is not a compressed curve point`);
+      assert.throws(() => m.signerYs(listed, entry.signer_indices), reason);
+      assert.throws(() => m.aggregateKey(listed, entry.signer_indices), reason);
     }
     // Two keys shifted by T and −T are outside G1; their y and the unchanged aggregate key are derivable.
     const [shifted] = FINALITY.flavor_specific_certificates;
@@ -611,6 +741,77 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
     assert.equal(m.topic(CONTROL.event_signature), CONTROL.topic_control_applied);
     assert.equal(m.iface.getEvent("SccpControlApplied").topicHash, CONTROL.topic_control_applied);
     assert.equal(BigInt(CONTROL.max_fast_pause_ms), m.MAX_FAST_PAUSE_MS);
+  });
+
+  it("rebuilds every Rust revision-5 calldata, view, log and P4 deployment row", () => {
+    assert.equal(CALLDATA.schema, "iroha.sccp.evm-calldata.v1");
+    assert.match(CALLDATA.spec, /revision 5/);
+    const compiled = h.loadArtifacts();
+    const golden = rustGoldenScenario();
+    const { scenario, deployment, leaves, transferLeaves, args, account, recipient } = golden;
+    const pin = CALLDATA.deployment;
+    assert.equal(pin.network, scenario.destination.target);
+    assert.equal(pin.taira_network_id, scenario.taira_network_id);
+    assert.equal(pin.consensus_instance, scenario.consensus_instance);
+    assert.equal(pin.route_revision, scenario.destination.route_revision);
+    assert.equal(ethers.getAddress(pin.deployer), m.SCCP_EVM_DEPLOYER);
+    assert.equal(pin.salt, m.SCCP_EVM_SALT);
+    assert.equal(ethers.keccak256(compiled.creation), pin.creation_code_hash);
+    assert.equal(m.encodeConstructorArgs(deployment), pin.constructor_args);
+    const init = h.initCode(deployment);
+    assert.equal(ethers.keccak256(init), pin.init_code_hash);
+    assert.equal(m.create2Address(init), ethers.getAddress(pin.address));
+    assert.deepEqual(CALLDATA.selectors.map((row) => row.function).sort(), Object.keys(TRANSITIONS.selectors).sort());
+    for (const row of CALLDATA.selectors) {
+      assert.deepEqual({ signature: row.signature, selector: row.selector }, TRANSITIONS.selectors[row.function]);
+      for (const iface of [m.iface, compiled.iface]) {
+        assert.equal(iface.getFunction(row.function).format("sighash"), row.signature);
+        assert.equal(iface.getFunction(row.function).selector, row.selector);
+      }
+    }
+    assert.deepEqual(CALLDATA.events.map((row) => row.signature).sort(), Object.values(TRANSITIONS.event_topics).map((row) => row.signature).sort());
+    for (const row of CALLDATA.events) {
+      assert.equal(m.iface.getEvent(row.signature).topicHash, row.topic0);
+      assert.equal(compiled.iface.getEvent(row.signature).topicHash, row.topic0);
+    }
+    for (const [field, keys] of [["certificate_100", scenario.committee_g7], ["certificate_150_rotation", scenario.committee_g7], ["certificate_200", scenario.committee_g8]]) {
+      const certificate = scenario[field];
+      const header = m.parseHeader(certificate.header);
+      assert.equal(header.height, BigInt(certificate.height));
+      assert.equal(header.networkId, scenario.taira_network_id);
+      assert.deepEqual(certificate.committee, keys);
+      assert.equal(header.committeeRoot, m.committeeRoot(keys));
+      assert.equal(certificate.signer_ys, m.signerYs(keys, [0, 1, 2]));
+      assert.equal(certificate.signature_evm, m.g2Evm192(m.bls.G2.ProjectivePoint.fromHex(ethers.getBytes(certificate.aggregate_signature))));
+    }
+    assert.equal(scenario.pin.committee_root, m.committeeRoot(scenario.committee_g7));
+    for (const row of scenario.payloads) {
+      assert.equal(row.payload, m.encodePayload(m.outboundFields(ETHEREUM, {
+        nonce: row.nonce, revision: scenario.destination.route_revision, deadlineMs: scenario.deadline_ms,
+        amount: 1_000_000_000n + BigInt(row.nonce), sender: account(1), recipient,
+      })));
+      assert.equal(row.message_id, m.outboundMessageId(scenario.taira_network_id, ETHEREUM, row.payload));
+    }
+    assert.equal(scenario.block_100_root, m.merkleRoot(leaves));
+    assert.deepEqual(scenario.history_leaves, [m.historyLeaf(50n, transferLeaves[0], 1n),
+      m.historyLeaf(100n, m.merkleRoot(leaves), 3n), m.historyLeaf(200n, transferLeaves[3], 1n)]);
+    assert.equal(m.parseHeader(scenario.certificate_100.header).historyRoot, m.historyRoot(scenario.history_leaves.slice(0, 2)));
+    assert.equal(m.parseHeader(scenario.certificate_200.header).historyRoot, m.historyRoot(scenario.history_leaves));
+    assert.deepEqual(labels(CALLDATA.calls).sort(), Object.keys(args).sort());
+    for (const row of CALLDATA.calls) {
+      assert.equal(m.iface.encodeFunctionData(row.function, args[row.label]), row.calldata, row.label);
+      assert.equal(compiled.iface.encodeFunctionData(row.function, args[row.label]), row.calldata, row.label);
+    }
+    const viewArgs = { checkpointHeader: [150n], isConsumed: [300n], transferNonces: [`0x${"55".repeat(20)}`] };
+    assert.deepEqual([...new Set([...CALLDATA.calls, ...CALLDATA.views].map((row) => row.function))].sort(), CALLDATA.selectors.map((row) => row.function).sort());
+    for (const row of CALLDATA.views) {
+      assert.equal(m.iface.encodeFunctionData(row.function, viewArgs[row.function] || []), row.calldata, row.label);
+      assert.equal(compiled.iface.encodeFunctionData(row.function, viewArgs[row.function] || []), row.calldata, row.label);
+    }
+    for (const row of CALLDATA.logs) {
+      const parsed = m.iface.parseLog(row);
+      assert.deepEqual(m.eventLog(parsed.name, parsed.args), { topics: row.topics, data: row.data }, row.label);
+    }
   });
 
   it("declares the selectors, topics and errors of the fixture tables, and so does the compiled contract", () => {
@@ -1651,6 +1852,216 @@ for (const hardfork of HARDFORKS) {
       });
     }
 
+    // -- every Rust golden call, view return, log and P4 deployment ------------
+
+    it("executes every Rust golden entry against the locked revision-5 contract", async () => {
+      const golden = rustGoldenScenario();
+      const { scenario, deployment, c100, c150, c200, recipient } = golden;
+      const chain = await h.Chain.open(ETHEREUM, { hardfork, allowBlocksWithSameTimestamp: true });
+      try {
+        const deployed = await h.deploy(chain, deployment, { at: T0 });
+        assert.equal(deployed.address, ethers.getAddress(CALLDATA.deployment.address));
+        assert.equal(ethers.keccak256(deployed.init), CALLDATA.deployment.init_code_hash);
+        assert.equal(await chain.rpc("eth_getCode", [deployed.address, "latest"]), h.expectedRuntime(h.immutableWords(deployment)));
+        ledger.ran("ethereum/calldata.deployment", "P4");
+        assert.equal(deployed.address, r.addressOfWord(scenario.destination.destination_word));
+        const destination = deployed.destination;
+        const calls = new Map(CALLDATA.calls.map((row) => [row.label, row]));
+        const sender = ethers.getAddress(`0x${"55".repeat(20)}`);
+        const at = T0 + 300n;
+        const raw = (label, options = {}) => destination.raw(calls.get(label).calldata, { at, ...options });
+        const submit = (certificates) => destination.tx("submitCheckpoints", [certificates], { at });
+        const observedLogs = new Map();
+        for (const row of CALLDATA.calls) {
+          await onSnapshot(chain, async () => {
+            const late = ["finalize_historical", "finalize_checkpoint_historical", "apply_control_historical",
+              "apply_control_checkpoint", "void_expired_checkpoint"].includes(row.label);
+            const stored = row.function.endsWith("FromCheckpoint");
+            if (late) await submit(stored ? [c150, c200] : [c150]);
+            else if (stored) await submit([c100]);
+            if (row.function === "transferToTaira") {
+              await raw("finalize_direct");
+              await submit([c150]);
+              await raw("finalize_historical");
+              for (const address of [recipient, sender]) {
+                await chain.rpc("hardhat_setBalance", [address, ethers.toQuantity(10n ** 20n)]);
+                await chain.rpc("hardhat_impersonateAccount", [address]);
+              }
+              await destination.tx("transfer", [sender, 2_000_000_003n], { from: recipient, at });
+            }
+            const callTime = row.function.startsWith("voidExpired") ? BigInt(scenario.deadline_ms) / 1000n + 1n
+              : row.function === "voidFrozen" ? BigInt(scenario.pin.until_ms) / 1000n + 1n : at;
+            const receipt = await destination.raw(row.calldata, { from: row.function === "transferToTaira" ? sender : 0, at: callTime });
+            const logs = destination.logs(receipt);
+            const checkpoints = row.function === "submitCheckpoints";
+            assert.equal(await destination.view("opCount"), checkpoints ? 0n : row.function === "transferToTaira" ? 3n : 1n, row.label);
+            const result = await chain.returnData(receipt);
+            if (row.function.startsWith("finalize")) {
+              const nonce = late ? 2 : 1;
+              assert.equal(result, scenario.payloads[nonce].message_id, row.label);
+              assert.equal(await destination.view("isConsumed", [nonce]), true, row.label);
+              assert.equal(await destination.view("balanceOf", [recipient]), 1_000_000_000n + BigInt(nonce), row.label);
+              assert.equal(await destination.view("totalSupply"), 1_000_000_000n + BigInt(nonce), row.label);
+            } else if (row.function.startsWith("applyControl")) {
+              assert.equal(result, "0x", row.label);
+              assert.equal(await chain.call(destination.address, m.iface.encodeFunctionData("pauseState")), scenario.pause_state_return, row.label);
+            } else if (row.function.startsWith("void")) {
+              assert.equal(result, "0x", row.label);
+              for (const nonce of row.function === "voidFrozen" ? [4, 5, 6] : [late ? 2 : 1]) {
+                assert.equal(await destination.view("isConsumed", [nonce]), true, row.label);
+              }
+              assert.equal(await destination.view("totalSupply"), 0n, row.label);
+            } else if (row.function === "transferToTaira") {
+              const log = CALLDATA.logs.find((entry) => entry.label === "transfer_to_taira");
+              assert.equal(result, log.topics[1], row.label);
+              assert.equal(await destination.view("transferNonces", [sender]), 1n, row.label);
+              assert.equal(await destination.view("balanceOf", [sender]), 500_000_003n, row.label);
+              assert.equal(await destination.view("totalSupply"), 500_000_003n, row.label);
+            } else {
+              assert(checkpoints, `unhandled golden call ${row.label}`);
+              assert.equal(result, "0x", row.label);
+              assert.equal(await destination.view("checkpointHeader", [150]), m.checkpointId(c150[1]), row.label);
+              const committee = await destination.view("committeeState");
+              assert.equal(committee[4], 8n, row.label);
+              assert.equal(committee[3], row.label === "checkpoint_rotation" ? 150n : 200n, row.label);
+            }
+            const selected = { finalize_direct: "certificate_100", void_expired: "voided_expired",
+              void_frozen: "voided_frozen", transfer_to_taira: "transfer_to_taira" }[row.label];
+            if (selected) {
+              const expected = CALLDATA.logs.find((entry) => entry.label === selected);
+              const matching = logs.filter((entry) => entry.topics.every((topic, index) => topic === expected.topics[index]));
+              assert.equal(matching.length, 1, selected);
+              assert.deepEqual(matching[0], { topics: expected.topics, data: expected.data }, selected);
+              observedLogs.set(selected, matching[0]);
+            }
+            ledger.ran("ethereum/calldata.calls", row.label);
+          });
+        }
+        for (const row of CALLDATA.logs) {
+          assert.deepEqual(observedLogs.get(row.label), { topics: row.topics, data: row.data }, row.label);
+          ledger.ran("ethereum/calldata.logs", row.label);
+        }
+        for (const row of CALLDATA.views) {
+          await onSnapshot(chain, async () => {
+            let expected;
+            if (row.function === "committeeState" || row.function === "checkpointHeader") {
+              await raw("checkpoint_rotation");
+              expected = row.function === "committeeState" ? scenario.committee_state_after_rotation
+                : m.iface.encodeFunctionResult(row.function, [m.checkpointId(c150[1])]);
+            } else if (row.function === "pauseState") {
+              await raw("apply_control_direct");
+              expected = scenario.pause_state_return;
+            } else if (row.function === "initialCommittee") {
+              expected = scenario.initial_committee_return;
+            } else {
+              const values = { consensusInstance: scenario.consensus_instance, equivocated: false,
+                maxValidityMs: m.MAX_VALIDITY_MS, isConsumed: false, transferNonces: 0n,
+                tairaNetworkId: scenario.taira_network_id, routeRevision: deployment.routeRevision,
+                maxWrappedSupply: deployment.maxWrappedSupply, mintingPaused: false, controlNonce: 0n, opCount: 0n };
+              assert(Object.hasOwn(values, row.function), `unhandled golden view ${row.function}`);
+              expected = m.iface.encodeFunctionResult(row.function, [values[row.function]]);
+            }
+            assert.equal(await chain.call(destination.address, row.calldata), expected, row.label);
+            ledger.ran("ethereum/calldata.views", row.label);
+          });
+        }
+      } finally {
+        await chain.close();
+      }
+    });
+
+    it("runs the chain-1 corridor continuously at the actual CREATE2 destination", async () => {
+      const { scenario, deployment, recipient } = rustGoldenScenario();
+      const chain = await h.Chain.open(ETHEREUM, { hardfork, allowBlocksWithSameTimestamp: true });
+      try {
+        assert.equal(BigInt(await chain.rpc("eth_chainId", [])), 1n);
+        const { destination, address } = await h.deploy(chain, deployment, { at: T0 });
+        assert.equal(address, ethers.getAddress(CALLDATA.deployment.address));
+        assert.equal(address, r.addressOfWord(scenario.destination.destination_word));
+        const calls = new Map(CALLDATA.calls.map((row) => [row.label, row.calldata]));
+        const at = T0 + 300n;
+        const raw = (label, options = {}) => destination.raw(calls.get(label), { at, ...options });
+        const sender = ethers.getAddress(`0x${"55".repeat(20)}`);
+        await raw("finalize_direct");
+        await raw("checkpoint_rotation");
+        await raw("finalize_historical");
+        assert.equal((await destination.view("committeeState"))[4], 8n);
+        assert.equal(await destination.view("balanceOf", [recipient]), 2_000_000_003n);
+        assert.equal(await destination.view("totalSupply"), 2_000_000_003n);
+        assertRevert(await destination.attempt(calls.get("finalize_historical"), { at }), "AlreadyConsumed", "a duplicate genuine historical mint");
+        for (const account of [recipient, sender]) {
+          await chain.rpc("hardhat_setBalance", [account, ethers.toQuantity(10n ** 20n)]);
+          await chain.rpc("hardhat_impersonateAccount", [account]);
+        }
+        await destination.tx("transfer", [sender, 2_000_000_003n], { from: recipient, at });
+        const burn = await raw("transfer_to_taira", { from: sender });
+        const expected = CALLDATA.logs.find((entry) => entry.label === "transfer_to_taira");
+        assert(destination.logs(burn).some((entry) => entry.data === expected.data
+          && JSON.stringify(entry.topics) === JSON.stringify(expected.topics)));
+        await raw("apply_control_checkpoint");
+        assert.equal(await destination.view("mintingPaused"), true);
+        // Destination pause preserves both the user's return path and expiry recovery.
+        await destination.tx("transferToTaira", [rustGoldenScenario().account(9), 1n, 1n], { from: sender, at });
+        assert.equal(await destination.view("transferNonces", [sender]), 2n);
+        await raw("void_frozen", { at: T0 + 15n * 86_400n });
+        for (const nonce of [1, 2, 4, 5, 6]) assert.equal(await destination.view("isConsumed", [nonce]), true);
+        assert.equal(await destination.view("balanceOf", [sender]), 500_000_002n);
+        assert.equal(await destination.view("totalSupply"), 500_000_002n);
+        assert.equal(await destination.view("opCount"), 6n);
+        assert.equal(await chain.rpc("eth_getCode", [address, "latest"]), h.expectedRuntime(h.immutableWords(deployment)));
+      } finally {
+        await chain.close();
+      }
+    });
+
+    it("dynamic void calldata preserves separate strict decoder and contract verdicts", async () => {
+      const { scenario, deployment, c150, c200 } = rustGoldenScenario();
+      for (const functionName of ["voidExpired", "voidExpiredFromCheckpoint"]) {
+        const { chain, destination } = await r.openDestination({ hardfork, profile: ETHEREUM,
+          deployment, at: T0, relocateTo: r.addressOfWord(scenario.destination.destination_word) });
+        try {
+          const stored = functionName === "voidExpiredFromCheckpoint";
+          const nonce = stored ? 2n : 1n;
+          if (stored) await destination.tx("submitCheckpoints", [[c150, c200]], { at: T0 + 300n });
+          const probes = { heights: [100n, 150n, 200n], nonces: [1n, 2n] };
+          const at = BigInt(scenario.deadline_ms) / 1000n + 1n;
+          const rows = NATIVE_VOID_CONFORMANCE.filter((row) => row.function === functionName);
+          const canonical = rows.find((row) => row.label === "canonical");
+          const before = await destination.state(probes);
+          let expected;
+          await onSnapshot(chain, async () => {
+            const receipt = await destination.raw(canonical.calldata, { at });
+            assert.equal(await destination.view("isConsumed", [nonce]), true);
+            assert.equal(await destination.view("opCount"), 1n);
+            assert.equal(await destination.view("totalSupply"), 0n);
+            expected = { logs: destination.logs(receipt), state: await destination.state(probes),
+              returned: await chain.returnData(receipt) };
+          });
+          for (const row of rows) {
+            const id = `${functionName}/${row.label}`;
+            assert.equal(row.decoder === "accept", row.label === "canonical", `${id}: strict decoder`);
+            assert.equal(ethers.dataSlice(row.calldata, 0, 4), TRANSITIONS.selectors[functionName].selector);
+            await onSnapshot(chain, async () => {
+              const outcome = await destination.attempt(row.calldata, { at });
+              if (row.contract === "accept") {
+                assert(outcome.receipt, `${id}: ${outcome.revert && h.describeRevert(outcome.revert)}`);
+                assert.deepEqual(destination.logs(outcome.receipt), expected.logs, `${id}: exact logs`);
+                assert.deepEqual(await destination.state(probes), expected.state, `${id}: exact state`);
+                assert.equal(await chain.returnData(outcome.receipt), expected.returned, `${id}: return`);
+              } else {
+                assertRevert(outcome, row.contract === "empty" ? null : row.contract, id);
+                assert.equal(await destination.view("isConsumed", [nonce]), false, `${id}: no consumption`);
+                assert.equal(await destination.view("opCount"), 0n, `${id}: no operation`);
+                assert.deepEqual(await destination.state(probes), before, `${id}: refusal preserves state`);
+              }
+            });
+            assert.deepEqual(await destination.state(probes), before, `${id}: restored`);
+            ledger.ran("ethereum/native_void_conformance", id);
+          }
+        } finally { await chain.close(); }
+      }
+    });
+
     // -- evm_calldata_v1.json calldata_conformance ------------------------------
 
     for (const profile of [ETHEREUM, BSC]) {
@@ -1759,7 +2170,9 @@ for (const hardfork of HARDFORKS) {
           "control leaves on their chains": count("ethereum/control.controls", "bsc/control.controls"),
           "spec control leaves": count("ethereum/control.spec_examples"),
           "init bounds": count("ethereum/transitions.init_bounds", "bsc/transitions.init_bounds"),
+          "Rust golden entries": count("ethereum/calldata."),
           "calldata conformance entries": count("ethereum/calldata_conformance", "bsc/calldata_conformance"),
+          "dynamic void conformance entries": count("ethereum/native_void_conformance"),
         },
         {
           "certificates and headers on ethereum": certificates + headers,
@@ -1774,7 +2187,9 @@ for (const hardfork of HARDFORKS) {
           "control leaves on their chains": ROW_COUNTS["control.controls of an EVM target"],
           "spec control leaves": ROW_COUNTS["control.spec_examples"],
           "init bounds": 2 * ROW_COUNTS["transitions.init_bounds"],
+          "Rust golden entries": 1 + ROW_COUNTS["calldata.calls"] + ROW_COUNTS["calldata.views"] + ROW_COUNTS["calldata.logs"],
           "calldata conformance entries": 2 * conformance,
+          "dynamic void conformance entries": ROW_COUNTS["calldata_conformance.voidExpired"] + ROW_COUNTS["calldata_conformance.voidExpiredFromCheckpoint"],
         },
       );
       const total = Object.values(counts).reduce((sum, rows) => sum + rows, 0);

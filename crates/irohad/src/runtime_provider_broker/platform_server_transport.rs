@@ -404,20 +404,20 @@ fn serve_client(
         // lifecycle's second state check closes the race with the
         // shutdown transition; a request that loses that race never
         // reaches a deployment-owned provider method.
-        let Some(_operation_permit) = lifecycle.try_begin_operation() else {
+        let Some(operation_permit) = lifecycle.try_begin_operation() else {
             return Ok(());
         };
         if request.operation == OPERATION_STREAM_TOKEN_OBSERVE_V1 {
             // One original admitted-operation bound, created before any provider
             // qualification/dispatch. Handshake and wire ingress remain separate.
             let deadline = BrokerDeadlineV1::new(observer_operation_timeout)?;
-            let terminate = server_observation::serve(server_observation::Output {
+            let terminate = server_observation::serve(&mut server_observation::Output {
                 state,
                 request: &request,
                 stream: &mut stream,
                 request_frame: &request_frame,
                 admission: &decode_admission,
-                operation_permit: &_operation_permit,
+                operation_permit: &operation_permit,
                 deadline,
             })?;
             if terminate {
@@ -1501,6 +1501,10 @@ impl BrokerSession {
             BrokerDeadlineV1::new(BROKER_IO_TIMEOUT_V1)?,
         )
     }
+    #[expect(
+        clippy::redundant_closure_for_method_calls,
+        reason = "the closure is required to accept every borrowed exchange lifetime; the method item fixes one lifetime"
+    )]
     fn exchange_before(
         &self,
         binding: &ProviderBindingWireV1,

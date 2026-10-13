@@ -526,7 +526,9 @@
   "workflow_kinds": [
     "issuer_bootstrap",
     "dkg",
-    "threshold_opening"
+    "threshold_opening",
+    "native_payment",
+    "amx_relay"
   ],
   "workflow_statuses": [
     {

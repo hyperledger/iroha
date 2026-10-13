@@ -1598,7 +1598,7 @@ impl LaneManifestRegistry {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
-            options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+            options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
         }
         #[cfg(windows)]
         {
@@ -2159,7 +2159,9 @@ impl LaneManifestRegistry {
     ) -> Self {
         if let Some(source_snapshot) = self.source_snapshot.as_ref() {
             let mut rebound = source_snapshot.bind(lane_catalog, governance_catalog);
-            rebound.baseline_source_snapshot = self.baseline_source_snapshot.clone();
+            rebound
+                .baseline_source_snapshot
+                .clone_from(&self.baseline_source_snapshot);
             return rebound;
         }
         let templates = self

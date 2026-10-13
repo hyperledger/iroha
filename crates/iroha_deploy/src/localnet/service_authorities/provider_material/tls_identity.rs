@@ -148,7 +148,7 @@ pub(super) fn validate_retained(
     for (name, certificate) in [(CA_KEY, root), (LEAF_KEY, leaf)] {
         let secret = directory.read(name, MAX_DER)?;
         ensure!(
-            unique.insert(validate_key(certificate, &secret)?),
+            unique.insert(validate_key(certificate, secret)?),
             "retained provider TLS key is not distinct"
         );
     }

@@ -1062,7 +1062,7 @@ mod parliament_tle_release_tests {
                 retained_public_session,
                 retained_roster.clone(),
                 1,
-                Default::default(),
+                iroha_config::parameters::actual::ParliamentTleKeyLifecycle::default(),
             )
             .expect("install deadline-retained TLE snapshot fixture");
 
@@ -1080,7 +1080,7 @@ mod parliament_tle_release_tests {
                 active_public_session,
                 active_roster.clone(),
                 2,
-                Default::default(),
+                iroha_config::parameters::actual::ParliamentTleKeyLifecycle::default(),
             )
             .expect("install active TLE snapshot fixture");
 
@@ -1215,7 +1215,7 @@ mod parliament_tle_release_tests {
                         retained_public,
                         active_roster.clone(),
                         1,
-                        Default::default(),
+                        iroha_config::parameters::actual::ParliamentTleKeyLifecycle::default(),
                     )
                     .expect_err("a substituted frozen roster must fail")
                     .contains("public state")
@@ -1227,7 +1227,7 @@ mod parliament_tle_release_tests {
                         pending_public,
                         active_roster,
                         0,
-                        Default::default(),
+                        iroha_config::parameters::actual::ParliamentTleKeyLifecycle::default(),
                     )
                     .expect_err("overlapping historical activation must fail"),
                 "invalid TLE fixture lifecycle: UnknownSession"

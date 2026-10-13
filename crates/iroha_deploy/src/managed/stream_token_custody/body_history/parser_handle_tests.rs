@@ -259,6 +259,13 @@ fn sealed_parser_bounds_handle_censuses_and_closes_original_owners_on_every_resu
 
     #[cfg(unix)]
     {
+        impl Drop for Permissions {
+            fn drop(&mut self) {
+                std::fs::set_permissions(&self.0, self.1.clone()).unwrap();
+            }
+        }
+        struct Permissions(std::path::PathBuf, std::fs::Permissions);
+        use std::os::unix::fs::PermissionsExt as _;
         let first_attempt = history.bodies[0].directory.path().join("attempts/0001");
         let later_attempt = history.bodies[1].directory.path().join("attempts/0001");
         assert!(first_attempt.is_dir() && later_attempt.is_dir());
@@ -355,13 +362,7 @@ fn sealed_parser_bounds_handle_censuses_and_closes_original_owners_on_every_resu
         }
 
         // Permissions on the original older attempt are also a native custody failure.
-        use std::os::unix::fs::PermissionsExt as _;
-        struct Permissions(std::path::PathBuf, std::fs::Permissions);
-        impl Drop for Permissions {
-            fn drop(&mut self) {
-                std::fs::set_permissions(&self.0, self.1.clone()).unwrap();
-            }
-        }
+
         let restore = Permissions(
             first_attempt.clone(),
             std::fs::metadata(&first_attempt).unwrap().permissions(),

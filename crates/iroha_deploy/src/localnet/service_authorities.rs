@@ -409,6 +409,7 @@ impl ProviderServiceInventory {
             .find(|entry| entry.role == role)
             .ok_or_else(|| Error::Invalid("original provider service role is absent".into()))
     }
+    #[cfg(test)]
     pub(crate) fn native_transaction_signer_authorities<'a>(
         &'a self,
         network: &'a NetworkServiceInventory,
@@ -422,6 +423,7 @@ impl ProviderServiceInventory {
     }
 }
 /// Borrowed original native roles; full profile and current native eligibility remain required.
+#[cfg(test)]
 pub(crate) struct NativeTransactionSignerAuthorities<'a> {
     pub(crate) proof_outcome: &'a StreamTokenAuthority,
     pub(crate) repair: &'a StreamTokenAuthority,
@@ -738,8 +740,10 @@ pub(super) fn generate(
             provider_id,
             &selected[0].1.account_id,
             &network,
-            &mut unique,
-            &mut tls_keys,
+            provider_material::ProviderKeyInventory {
+                unique: &mut unique,
+                tls_keys: &mut tls_keys,
+            },
         )?;
         let compliance = compliance_material::GeneratedCompliance::generate(
             &selected_directory,
@@ -1151,8 +1155,7 @@ pub(super) fn validate_signed_profile(
     #[cfg(all(test, sumeragi_deploy_mutation = "DEP7"))]
     let metadata = {
         let _ = metadata;
-        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block)
-            .map_err(|_| invalid())?
+        iroha_genesis::signed_genesis_consensus_metadata(block).map_err(|_| invalid())?
     };
     if metadata.sumeragi_context.root_scope.dataspace_id().as_u64() != prepared.context.dataspace_id
         || (metadata.sumeragi_context.root_scope == SumeragiRootScope::Global
@@ -1467,11 +1470,14 @@ pub(crate) fn count_profile_validations<T>(action: impl FnOnce() -> T) -> (T, us
 
 // Exact original role allocation: one canonical XOR mint of the owner-derived quantity.
 // Requiring a matching mint alone would permit a second oversized mint to hide the mismatch.
-fn validate_genesis_funding<'a>(
+fn validate_genesis_funding<'a, Instructions>(
     expected: &std::collections::BTreeMap<AccountId, Quantity>,
     reserves: &StreamTokenReserveAccounts,
-    instructions: impl IntoIterator<Item = &'a InstructionBox>,
-) -> crate::managed::Result<()> {
+    instructions: Instructions,
+) -> crate::managed::Result<()>
+where
+    Instructions: IntoIterator<Item = &'a InstructionBox>,
+{
     let invalid = || Error::Invalid("invalid original service genesis funding".into());
     let mut funded = BTreeSet::new();
     for instruction in instructions {
@@ -1480,14 +1486,13 @@ fn validate_genesis_funding<'a>(
             if account == &reserves.custody || account == &reserves.treasury {
                 return Err(invalid());
             }
-            if let Some(amount) = expected.get(account) {
-                if mint.destination()
+            if let Some(amount) = expected.get(account)
+                && (mint.destination()
                     != &AssetId::new(localnet_xor_asset_definition_id(), account.clone())
                     || mint.object() != amount
-                    || !funded.insert(account.clone())
-                {
-                    return Err(invalid());
-                }
+                    || !funded.insert(account.clone()))
+            {
+                return Err(invalid());
             }
         }
     }
@@ -1727,7 +1732,7 @@ pub(crate) fn capture_retained(
                     grant.destination() != account || grant.object() != permission
                 });
                 if matches!(
-                    grant.object().name().as_ref(),
+                    grant.object().name(),
                     "CanOperateSorafsStreamTokenGateway" | "CanCheckSorafsStreamTokenGateway"
                 ) {
                     return Err(invalid());

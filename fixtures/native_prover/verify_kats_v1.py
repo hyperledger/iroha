@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Independent check of fixtures/native_prover/kats_v1.json.
 
-The fixture is generated from the vendored halo2 stack by
-`crates/iroha_plonk_oracle/tests/native_prover_kats.rs`. This script re-derives
-what it can with the Python standard library only, so the vectors stay checkable
-after the vendored stack is deleted:
+The fixture was captured from the historical vendored halo2 stack by
+`crates/iroha_plonk_oracle/tests/native_prover_kats.rs` before both were deleted.
+This maintained script independently re-derives the following values with the
+Python standard library only; it does not invoke the retired prover:
 
 - Pasta point decompression for every recorded point;
 - `ParamsIPA` byte lengths;
@@ -89,7 +89,7 @@ def decompress(hex_value: str, base: int) -> tuple[int, int] | None:
 
 
 class Sponge:
-    """snark-verifier native Poseidon sponge over the plain permutation."""
+    """Historical snark-verifier sponge rules over a plain integer permutation."""
 
     def __init__(self, document: dict, field: str) -> None:
         constants = document["poseidon_constants"]

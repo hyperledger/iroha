@@ -36,15 +36,7 @@ fn resident_prepare(
         .into_checked(&view)
         .expect("the original input is not applied");
     let height = state_view_height_for_routing(&view).checked_add(1).unwrap();
-    let mut access = EagerAdmissionStateAccess::new(
-        view.world(),
-        &view.nexus,
-        &view.pipeline,
-        &view.zk().gas,
-        &view,
-        height,
-        view.query_ledger_time_ms(),
-    );
+    let mut access = EagerAdmissionStateAccess::new(&view, height, view.query_ledger_time_ms());
     queue
         .prepare_checked_for_enqueue(
             checked,

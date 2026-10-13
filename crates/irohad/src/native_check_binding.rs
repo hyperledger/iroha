@@ -26,7 +26,7 @@ use iroha_core::query::{
 };
 
 /// Metadata from the original move-only Core attempt; this exposes no signing recipe.
-pub(crate) trait CheckFailure: Sized {
+pub trait CheckFailure: Sized {
     /// Whether this failure is an unfinished local attempt.
     fn retryable(&self) -> bool;
     /// Absolute original preparation deadline.
@@ -34,7 +34,7 @@ pub(crate) trait CheckFailure: Sized {
 }
 
 /// Purpose-specific binding continuation; verification supplies its own fresh-clock closure.
-pub(crate) trait BindingFailure: CheckFailure {
+pub trait BindingFailure: CheckFailure {
     /// Successfully bound Check owned by Core.
     type Pending;
     /// Continue only the same signed attempt.
@@ -89,7 +89,7 @@ verification_failure!(
 );
 
 /// Completed outcomes only: an unfinished local refusal cannot escape through this enum.
-pub(crate) enum CheckTermination<F> {
+pub enum CheckTermination<F> {
     /// Completed rejection or non-local codec failure, preserving its original details.
     Terminal(F),
     /// Local service lifetime ended; this is not a transaction rejection.
@@ -97,14 +97,14 @@ pub(crate) enum CheckTermination<F> {
 }
 
 /// Continue local binding refusals with bounded backoff until the original deadline.
-pub(crate) fn complete_binding<F: BindingFailure>(
+pub fn complete_binding<F: BindingFailure>(
     attempt: Result<F::Pending, F>,
 ) -> Result<F::Pending, CheckTermination<F>> {
     complete_binding_waiting(attempt, |_, delay| std::thread::sleep(delay))
 }
 
 /// The same continuation with a service-owned wait callback; custody stays borrowed while waiting.
-pub(crate) fn complete_binding_waiting<F: BindingFailure>(
+pub fn complete_binding_waiting<F: BindingFailure>(
     attempt: Result<F::Pending, F>,
     wait: impl FnMut(&F, Duration),
 ) -> Result<F::Pending, CheckTermination<F>> {
@@ -115,7 +115,7 @@ pub(crate) fn complete_binding_waiting<F: BindingFailure>(
 ///
 /// The closure consumes the original failure, recovers its pending Check and samples a fresh
 /// clock inside verification. Core has released every view and publication lease before Err.
-pub(crate) fn complete_check<T, F: CheckFailure>(
+pub fn complete_check<T, F: CheckFailure>(
     attempt: Result<T, F>,
     retry: impl FnMut(F) -> Result<T, F>,
 ) -> Result<T, CheckTermination<F>> {
@@ -125,7 +125,7 @@ pub(crate) fn complete_check<T, F: CheckFailure>(
 }
 
 /// Shared continuation engine; its clock and wait are supplied by the local service.
-pub(crate) fn complete_check_with<T, F: CheckFailure>(
+pub fn complete_check_with<T, F: CheckFailure>(
     mut attempt: Result<T, F>,
     mut retry: impl FnMut(F) -> Result<T, F>,
     mut now: impl FnMut() -> Instant,

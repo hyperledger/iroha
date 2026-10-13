@@ -679,3 +679,7 @@ original UTC, Nexus fee or round authorization. Cancellation preserves originals
 for read-only recovery. Native pin pricing is separate from those Nexus ceilings.
 The concrete storage backend, complete three-provider publication and physical
 Queue allocation qualification remain required before activating this path.
+
+The supervised native AMX relay uses explicitly funded account routes and the
+existing durable workflow journal. Its configuration, trust pins and current
+Prepared delivery boundary are specified in [native AMX relay](../../specs/native_amx_relay.md).

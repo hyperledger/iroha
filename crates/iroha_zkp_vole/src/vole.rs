@@ -115,9 +115,10 @@ use crate::{
     bavc::{self, BavcError},
     crt::{CrtError, CrtTables},
     field::{FieldError, LambdaField},
-    hash::{HashError, Namespace, h5_in},
+    hash::{HashError, Namespace, h5_as},
     params::{IV_BYTES, ProofParams, SecurityLevel, VoleParams},
     prg::{Prg, PrgError},
+    variant::Binding,
 };
 
 /// Tweak of the generator of the high parts `u_hi^(m)` of the mask values:
@@ -700,13 +701,11 @@ pub fn commit_with_tables(
     commit_in(Namespace::REFERENCE, params, tables, root, iv)
 }
 
-/// `VOLECommit(r, iv)` with an explicit table set and every random-oracle call
-/// (`H_0`, `H_1`, `H_5`) evaluated inside `namespace`.
+/// `VOLECommit(r, iv)` in the FAEST construction inside `namespace`; see
+/// [`commit_as`].
 ///
 /// # Errors
-/// * [`VoleError::TableMismatch`] unless `tables` has the row's `lambda`, `tau`,
-///   `w_grind`, `n_mult` and tree degrees;
-/// * [`BavcError::InvalidLength`] (wrapped) unless `root` is `lambda / 8` bytes.
+/// As [`commit_as`].
 pub fn commit_in(
     namespace: Namespace<'_>,
     params: &ProofParams,
@@ -714,9 +713,33 @@ pub fn commit_in(
     root: &[u8],
     iv: &[u8; IV_BYTES],
 ) -> Result<Commitment, VoleError> {
+    commit_as(namespace, Binding::Faest, params, tables, root, iv)
+}
+
+/// `VOLECommit(r, iv)` with an explicit table set and every random-oracle call
+/// (`H_0`, `H_1`, `H_5`) evaluated inside `namespace`, under `binding`.
+///
+/// The binding selects the construction of the vector commitment
+/// ([`bavc::commit_as`]) and of `H_5` ([`h5_as`]) together: with
+/// [`Binding::Extended`] the leaves are affine-checked and every gate label is
+/// hashed with the salt. The salt enters nothing else here.
+///
+/// # Errors
+/// * [`VoleError::TableMismatch`] unless `tables` has the row's `lambda`, `tau`,
+///   `w_grind`, `n_mult` and tree degrees;
+/// * [`BavcError::Variant`] (wrapped) where the construction is not defined;
+/// * [`BavcError::InvalidLength`] (wrapped) unless `root` is `lambda / 8` bytes.
+pub fn commit_as(
+    namespace: Namespace<'_>,
+    binding: Binding<'_>,
+    params: &ProofParams,
+    tables: &CrtTables<'_>,
+    root: &[u8],
+    iv: &[u8; IV_BYTES],
+) -> Result<Commitment, VoleError> {
     let layout = Layout::new(params, tables)?;
     let (lb, ell_bytes) = (layout.lb, layout.ell_bytes);
-    let tree = bavc::commit_in(namespace, &layout.vole, root, iv)?;
+    let tree = bavc::commit_as(namespace, binding.construction(), &layout.vole, root, iv)?;
 
     let mut columns = layout.new_columns()?;
     let mut u = Zeroizing::new(vec![0u8; ell_bytes]);
@@ -765,8 +788,24 @@ pub fn commit_in(
         let shifted = &mut shifted[..lb];
         shifted.copy_from_slice(label);
         xor_into(shifted, &u);
-        let h0 = h5_in(namespace, layout.level, iv, number, label, layout.n_mask)?;
-        let h1 = h5_in(namespace, layout.level, iv, number, shifted, layout.n_mask)?;
+        let h0 = h5_as(
+            namespace,
+            layout.level,
+            binding,
+            iv,
+            number,
+            label,
+            layout.n_mask,
+        )?;
+        let h1 = h5_as(
+            namespace,
+            layout.level,
+            binding,
+            iv,
+            number,
+            shifted,
+            layout.n_mask,
+        )?;
         spread(&mut gates, gate_words, gate, h0);
         spread(&mut differences, gate_words, gate, h0 ^ h1);
     }
@@ -904,7 +943,7 @@ pub fn reconstruct_with_tables(
 pub struct Opening<'a> {
     /// `chall_3`, `lambda / 8` bytes.
     pub challenge: &'a [u8],
-    /// `decom_I`, [`bavc::decommitment_bytes`] bytes.
+    /// `decom_I`, [`bavc::decommitment_bytes_as`] bytes.
     pub decommitment: &'a [u8],
     /// `c_1 || ... || c_{tau - 1}`, [`corrections_bytes`] bytes.
     pub corrections: &'a [u8],
@@ -912,8 +951,24 @@ pub struct Opening<'a> {
     pub mult_corrections: &'a [u8],
 }
 
+/// `VOLEReconstruct` in the FAEST construction inside `namespace`; see
+/// [`reconstruct_as`].
+///
+/// # Errors
+/// As [`reconstruct_as`].
+pub fn reconstruct_in(
+    namespace: Namespace<'_>,
+    params: &ProofParams,
+    tables: &CrtTables<'_>,
+    opening: &Opening<'_>,
+    iv: &[u8; IV_BYTES],
+) -> Result<Reconstruction, VoleError> {
+    reconstruct_as(namespace, Binding::Faest, params, tables, opening, iv)
+}
+
 /// `VOLEReconstruct` with an explicit table set and every random-oracle call
-/// (`H_0`, `H_1`, `H_5`) evaluated inside `namespace`.
+/// (`H_0`, `H_1`, `H_5`) evaluated inside `namespace`, under `binding` (the
+/// construction of the vector commitment and of `H_5`, as in [`commit_as`]).
 ///
 /// This is a verifier entry point: every input is untrusted and public.
 ///
@@ -924,11 +979,12 @@ pub struct Opening<'a> {
 /// * [`VoleError::NonZeroPadding`] if a bit of `mult_corrections` at or above
 ///   `n_mult` in a row is set (no standard row has such bits);
 /// * the rejections of [`bavc::decode_challenge`] (wrong challenge length,
-///   grinding bits set) and of [`bavc::reconstruct_in`] (wrong decommitment
-///   length, too many node keys, non-zero padding), wrapped in
-///   [`VoleError::Bavc`].
-pub fn reconstruct_in(
+///   grinding bits set) and of [`bavc::reconstruct_as`] (construction not
+///   defined on the row, wrong decommitment length, too many node keys, non-zero
+///   padding), wrapped in [`VoleError::Bavc`].
+pub fn reconstruct_as(
     namespace: Namespace<'_>,
+    binding: Binding<'_>,
     params: &ProofParams,
     tables: &CrtTables<'_>,
     opening: &Opening<'_>,
@@ -955,7 +1011,14 @@ pub fn reconstruct_in(
     )?;
     check_padding(layout.n_mult, mult_corrections)?;
     let hidden = bavc::decode_challenge(&layout.vole, challenge)?;
-    let opened = bavc::reconstruct_in(namespace, &layout.vole, decommitment, &hidden, iv)?;
+    let opened = bavc::reconstruct_as(
+        namespace,
+        binding.construction(),
+        &layout.vole,
+        decommitment,
+        &hidden,
+        iv,
+    )?;
     // `Delta'`: the grinding bits are zero, so the challenge is the selector.
     let mut selector = vec![0u64; layout.delta_words()];
     load_words(&mut selector, challenge);
@@ -1004,7 +1067,15 @@ pub fn reconstruct_in(
     let mut gates = vec![0u64; layout.n_mask * gate_words];
     for (gate, label) in labels.chunks_exact(lb).enumerate() {
         let number = u32::try_from(gate).map_err(|_| VoleError::TooLarge { what: "gate index" })?;
-        let hashed = h5_in(namespace, layout.level, iv, number, label, layout.n_mask)?;
+        let hashed = h5_as(
+            namespace,
+            layout.level,
+            binding,
+            iv,
+            number,
+            label,
+            layout.n_mask,
+        )?;
         spread(&mut gates, gate_words, gate, hashed);
     }
     // `gamma_e = <G[e], Delta'>` selects the correction of gate `e`.
@@ -1138,7 +1209,7 @@ mod tests {
         let seed = root(&params);
         let plain = commit(&params, &seed, &IV).expect("commit");
         let first = [0x77u8; 77];
-        let mut seen = vec![(
+        let mut observed_commitments = vec![(
             plain.commitment().to_vec(),
             plain.mult_corrections().to_vec(),
             plain.v_masks().to_vec(),
@@ -1170,16 +1241,16 @@ mod tests {
             assert_eq!(foreign.q(), opened.q());
             assert_ne!(foreign.q_masks(), opened.q_masks());
             assert_ne!(foreign.commitment(), opened.commitment());
-            seen.push((
+            observed_commitments.push((
                 commitment.commitment().to_vec(),
                 commitment.mult_corrections().to_vec(),
                 commitment.v_masks().to_vec(),
             ));
         }
         for (left, right) in [(0, 1), (0, 2), (1, 2)] {
-            assert_ne!(seen[left].0, seen[right].0);
-            assert_ne!(seen[left].1, seen[right].1);
-            assert_ne!(seen[left].2, seen[right].2);
+            assert_ne!(observed_commitments[left].0, observed_commitments[right].0);
+            assert_ne!(observed_commitments[left].1, observed_commitments[right].1);
+            assert_ne!(observed_commitments[left].2, observed_commitments[right].2);
         }
         // The wrappers are reference mode.
         let again = commit_with_tables(&params, tables, &seed, &IV).expect("commit");

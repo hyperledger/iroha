@@ -369,7 +369,7 @@ pub fn trusted_contract_intent(
 fn validate_trusted_intent(
     artifact: &[u8],
     intent: &ContractCallDraftIntent,
-    payload: &Option<Value>,
+    payload: Option<&Value>,
     allow_operation_tag: bool,
 ) -> Result<()> {
     if let Some(value) = payload {
@@ -380,13 +380,13 @@ fn validate_trusted_intent(
         intent.invocation.contract_address.clone(),
         &intent.invocation.entrypoint,
         payload
-            .clone()
+            .cloned()
             .unwrap_or_else(|| Value::Object(norito::json::Map::new())),
         false,
     )?;
     let key = operation_metadata_key();
     if intent.invocation != expected.invocation
-        || &canonical_payload != payload
+        || canonical_payload.as_ref() != payload
         || (!allow_operation_tag && intent.metadata.get(&key).is_some())
         || !intent
             .metadata
@@ -665,7 +665,12 @@ impl ContractCallService {
         if let Some(payload) = &request.payload {
             admit_arguments(payload)?;
         }
-        validate_trusted_intent(&request.artifact, &request.intent, &request.payload, false)?;
+        validate_trusted_intent(
+            &request.artifact,
+            &request.intent,
+            request.payload.as_ref(),
+            false,
+        )?;
         let verified = ivm_artifact_admission::verify_contract_artifact(&request.artifact)?;
         let permission = required_permission(&verified, &request.intent)?;
         request.fee_payment.validate()?;
@@ -1111,7 +1116,7 @@ fn validate_plan(prepared: &PreparedContractCall, config: &Config) -> Result<()>
         return Err(eyre!("call artifact is not canonical hex"));
     }
     let verified = ivm_artifact_admission::verify_contract_artifact(&artifact)?;
-    validate_trusted_intent(&artifact, &plan.intent, &plan.payload, true)?;
+    validate_trusted_intent(&artifact, &plan.intent, plan.payload.as_ref(), true)?;
     let permission = required_permission(&verified, &plan.intent)?;
     operation_metadata(plan)?;
     plan.requested_fee.validate()?;

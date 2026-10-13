@@ -240,10 +240,10 @@ fn canonical_frame_bare_payload_and_json_roundtrip() {
     );
 
     let payload = bare(&value);
-    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    let flags_guard = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
     let (decoded, used) = SignedAttachmentsV1::decode_from_slice(&payload).expect("bare decode");
     assert_eq!((decoded, used), (value.clone(), payload.len()));
-    drop(_flags);
+    drop(flags_guard);
 
     let json = norito::json::to_json(&value).expect("json");
     assert_eq!(json, format!("\"{}\"", STANDARD.encode(&framed)));
@@ -1344,8 +1344,9 @@ fn carrier_accessors_return_the_wrapped_attachments() {
 #[test]
 fn malformed_and_misdeclared_carriers_are_rejected() {
     let wrapped = attachment("vk_a", vec![1, 2, 3]);
-    let valid =
-        bound(SignedAttachmentPlanV1::transaction_proofs(&[wrapped.clone()]).expect("plan"));
+    let valid = bound(
+        SignedAttachmentPlanV1::transaction_proofs(std::slice::from_ref(&wrapped)).expect("plan"),
+    );
 
     // Bytes that are not a canonical proof attachment.
     let mut garbage = valid.clone();

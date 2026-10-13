@@ -99,7 +99,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -110,8 +110,7 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0)
     );
@@ -119,15 +118,13 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .map(|(_, err)| format!("{err:?}"));
     let (_, rejection) = valid_block
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("batch rejection");
     assert!(
         matches!(
@@ -334,7 +331,7 @@ ledger::account::set_metadata(
         .sign(payer_keypair.private_key())
         .unpack(|_| {});
     let (mut state_block, state_block_recorder) =
-        crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+        crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
             .expect("original writer-first component execution");
     let valid = block
         .validate_and_record_transactions(&mut state_block, state_block_recorder)
@@ -343,8 +340,7 @@ ledger::account::set_metadata(
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .map(|(_, error)| error)
         .expect("the gas-capped contract call must fail");
     let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = error else {
@@ -464,7 +460,7 @@ fn successful_live_batches_accumulate_parent_block_gas() {
         .sign(keypair.private_key())
         .unpack(|_| {});
         let (mut state_block, state_block_recorder) =
-            crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+            crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
                 .expect("original writer-first component execution");
         state_block.gas_limit_per_block = expected_gas;
         let valid = block

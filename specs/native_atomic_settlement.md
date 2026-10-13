@@ -14,7 +14,25 @@ Expiry is inclusive: execution at the signed height is allowed; execution at
 a greater height fails. A successful receipt permanently occupies the business
 identifier, so the same identifier cannot execute a second time.
 
-`AtomicSettlementMovements` contains 2 through 255 movements. Each movement is
+`SettlementId` is the structured pair `{ owner: AccountId, reference: Name }`.
+The owner is an explicitly signed participating debit owner; a single movement
+therefore uses its payer. All native Atomic, DvP, PvP and FX receipt writers
+enforce this namespace. FX uses the signing source payer, never the protocol
+reserve owner. Equal references belonging to different owners are independent.
+The network scopes the ledger, so durable client/customer-credit keys include
+both `NetworkId` and this complete `SettlementId`.
+
+The reference identifies the original business instruction independently of
+amount, asset, recipient, expiry, gateway identity or transaction nonce. Reusing
+it with changed terms remains a conflict; hashing the complete terms to produce
+a fresh identifier would defeat business uniqueness. Native JSON uses the
+closed owner/reference object. CLI text and JSON map keys require exactly
+`reference$canonical_account`. Bare-name IDs and string-valued native JSON have
+no decoder fallback in this first release.
+
+`AtomicSettlementMovements` contains 1 through 255 movements. A single payment
+uses the same consent, business-identifier uniqueness and immutable receipt
+rules as a multi-payment batch. Each movement is
 an exact source `AssetId`, a canonical domainless recipient `AccountId`, and a
 positive `Quantity`. The destination has the source's asset definition and
 explicit balance scope. Account aliases, ambient lane context and an asset's
@@ -60,6 +78,17 @@ execute locally; multiple scopes or any Global balance require the universal
 coordinator. Direct instructions and `SettlementInstructionBox::Atomic` resolve
 to the same routes, fee operation and execution checks.
 
+A direct one-instruction, one-movement `SettleAtomic` carrier with namespace
+owner equal to source owner and signed authority, on the same network, checks
+for an existing receipt before fee admission and metering. Its new carrier is
+rejected with typed `ValidationFail::SettlementReplay`: `AlreadySettled` for
+the same intent, or `ConflictingIntent` for changed terms, plus the original
+block height/hash locator. Both classifications leave the original receipt
+unchanged and produce no second monetary effect or fee. Expiry does not prevent
+recovering an already committed original. Composite and delegated carriers
+retain ordinary execution and rejection fee policy. A duplicate rejection is
+not a newly successful settlement.
+
 ## Receipt and query boundary
 
 `SettlementDetails::Atomic` stores the complete validated
@@ -73,10 +102,45 @@ The FX outcome has two resolved movements and a mandatory
 `FxCorridorPricingContext`; pricing context does not duplicate movement data.
 These records use the ordinary schema generator and canonical Norito codecs.
 
-`FindSettlementReceiptById` is a singular, read-only query under the existing
-AllLedger permission class. Missing receipts fail without inserting state.
+`FindSettlementReceiptById` is a singular, read-only query scoped to the exact
+payer in its settlement ID. The registered payer can read its own receipt;
+another reader needs the existing exact `CanReadAccountData` grant for that payer
+or `CanReadAllLedgerData`. Missing receipts return the typed
+`FindError::SettlementReceipt` with the exact owner/reference identity without
+inserting state. Torii preserves it as HTTP 404 with code
+`query_settlement_receipt_not_found` and the same typed selector in
+`details.query_settlement_receipt_not_found`. The SDK requires matching code,
+status and selector; generic errors and messages are never absence. This remains
+a query observation, not proof that a pending payment cannot execute later.
 The singular-query output owner checks source, frame and allocation limits
 before cloning the value. A returned receipt cannot mutate retained history.
+The query's ID is the same structured owner/reference JSON object.
+
+The Rust SDK's opaque `VerifiedPaymentReceipt` joins exact signed native terms
+to the existing genesis-rooted `VerifiedSumeragiBlock` successful-output verifier.
+`verify` additionally requires the independently retained exact signed carrier
+hash; `verify_recovered` selects an original carrier by independently retained
+complete intent and authenticates its signed hash through the same verifier.
+An untrusted replay locator merely locates candidate evidence. It grants no
+receipt authority. Both operations bind source buckets, recipients, quantities,
+reference metadata and the actual authenticated Nexus fee receipt or explicit
+absence, and need no block after the payment's own certified carrier. PipelineGas
+carriers are unsupported until their fee outcomes have an authenticated receipt.
+Decoded evidence must be verified again on resume; the opaque verified type
+cannot be deserialized. Customer credit still needs the application's durable
+uniqueness transaction keyed by the network and owner-qualified settlement ID.
+
+`PaymentInbox` provides that boundary through the existing durable
+`WorkflowStorage` compare-and-store owner. One record contains the immutable
+customer-credit entry and its pending notification; recording it is the credit,
+not permission to perform a second non-idempotent balance increment. The bank
+independently selects the customer and exact destination bucket. A changed
+mapping, fee-bound receipt digest or original transaction conflicts with the
+existing entry. Concurrent or uncertain writes are recovered under the same key.
+Notification acknowledgement changes only the pending flag, and delivery may
+repeat using the same network/business key. Restart requires fresh verification
+of the original evidence: decoding an inbox record grants no payment authority.
+The SDK refuses process-local storage for this operation.
 
 ## Matched benchmark workload
 
@@ -132,3 +196,22 @@ synthetic accounting fixtures do not establish any performance result.
 TODO: Complete compilation, focused native tests and the admitted network
 campaign on one settled source candidate. Until then this specification records
 the proposed contract, not a passed release gate or a measured performance claim.
+
+## Linked full returns
+
+The Rust `NativePaymentFullReturnRequest` consumes an opaque verified original
+single Global payment and reverses its exact destination/source buckets and full
+principal. A domain-separated hash of the original network, scoped settlement ID
+and successful signed transaction derives one receiver-owned return ID. Independent
+gateways therefore address the same return obligation; existing consensus
+settlement uniqueness prevents a second full return through this operation.
+The return signs typed metadata binding the original network, ID, successful hash
+and complete intent hash. Its own expiry and exact fee authorization remain
+independently supplied. `NativePaymentReturnOperation` reuses `NativePaymentOperation`
+and its durable journal; `VerifiedPaymentReturn` retains both independently verified
+successful receipts. The original settlement is never reversed or marked rejected.
+An ISO lifecycle report alone cannot construct the linked verified return.
+
+This API is full-return only. Ordinary reverse payments with other IDs are not
+verified linked returns. Partial-return APIs remain absent until consensus owns
+an allowance that enforces cumulative returned principal at most the original.

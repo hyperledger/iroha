@@ -9,6 +9,8 @@ mod sumeragi_wake;
 pub(crate) use sumeragi_wake::SumeragiQueueRegistration;
 use sumeragi_wake::SumeragiQueueReservation;
 use sumeragi_wake::SumeragiQueueWake;
+mod forgery_ingress;
+pub use forgery_ingress::ForgeryIngressError;
 mod resident_owner;
 use resident_owner::{QueueResidentLedger, QueuedTransaction};
 mod router;
@@ -113,7 +115,7 @@ pub(crate) use router::{
 #[cfg(test)]
 use std::sync::mpsc;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     num::{NonZeroU64, NonZeroUsize},
     str::FromStr,
@@ -130,7 +132,7 @@ use tokio::{
 pub(crate) mod policy_route;
 type EntrypointHash = HashOf<TransactionEntrypoint>;
 use crate::smartcontracts::isi::sccp::admission::{
-    SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpExemptBlockBudgetV1, SccpPendingClaimErrorV1,
+    SccpAdmissionKeysV1, SccpExemptBlockBudgetV1, SccpExemptClassV1, SccpPendingClaimErrorV1,
     SccpPendingIndexV1,
 };
 #[cfg(test)]
@@ -443,6 +445,8 @@ pub struct Queue {
     /// Admission keys of every queued fee-exempt SCCP transaction (`specs/sccp.md` §4.19),
     /// maintained atomically with `txs` under `push_remove_lock`.
     pending_sccp_exempt: parking_lot::Mutex<SccpPendingIndexV1>,
+    /// Node-wide SCCP seen triples and pairing bucket, shared by every ingress handle.
+    forgery_ingress: parking_lot::Mutex<Option<forgery_ingress::ForgeryIngressState>>,
     /// Authoritative cached routing plan per entrypoint hash.
     routing_plans: DashMap<EntrypointHash, RoutingPlan>,
     /// Cached encoded length per queued transaction hash.
@@ -977,6 +981,8 @@ impl BackpressureHandle {
 pub enum Error {
     /// Local admission did not complete: {0}
     Deferred(crate::execution_attempt::ExecutionDeferred),
+    /// Native SCCP forgery ingress did not admit this attempt: {0}
+    SccpForgeryIngress(ForgeryIngressError),
     /// Queue is full
     Full,
     /// Queue latency budget is saturated
@@ -1104,8 +1110,9 @@ trait QueueAdmissionStateAccess {
     /// (`specs/sccp.md` §4.19).
     fn sccp_exempt_admission(
         &mut self,
+        queue: &Queue,
         transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1>;
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error>;
     fn manifest_authority_eligible_lanes(
         &mut self,
         lane_id: LaneId,
@@ -1129,44 +1136,31 @@ trait QueueAdmissionStateAccess {
         lane_alias: &str,
     ) -> Result<Vec<iroha_model_base::domain::DomainId>, Error>;
 }
-struct EagerAdmissionStateAccess<'view, W: WorldReadOnly> {
-    world: &'view W,
-    nexus: &'view Nexus,
-    pipeline: &'view Pipeline,
-    zk_gas: &'view ConfidentialGas,
-    /// Committed state SCCP exempt pre-verification reads beyond World: the live `NetworkId`
-    /// and the committed block time.
-    sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
+struct EagerAdmissionStateAccess<'view, 'state> {
+    /// The actual committed observation shared by ordinary and native admission.
+    view: &'view StateView<'state>,
     next_block_height: u64,
     ledger_time_ms: u64,
 }
-impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
-    const fn new<'view>(
-        world: &'view W,
-        nexus: &'view Nexus,
-        pipeline: &'view Pipeline,
-        zk_gas: &'view ConfidentialGas,
-        sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
+impl EagerAdmissionStateAccess<'_, '_> {
+    const fn new<'view, 'state>(
+        view: &'view StateView<'state>,
         next_block_height: u64,
         ledger_time_ms: u64,
-    ) -> EagerAdmissionStateAccess<'view, W> {
+    ) -> EagerAdmissionStateAccess<'view, 'state> {
         EagerAdmissionStateAccess {
-            world,
-            nexus,
-            pipeline,
-            zk_gas,
-            sccp_view,
+            view,
             next_block_height,
             ledger_time_ms,
         }
     }
 }
-impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, W> {
+impl QueueAdmissionStateAccess for EagerAdmissionStateAccess<'_, '_> {
     fn authority_exists(&mut self, authority: &AccountId) -> bool {
-        self.world.accounts().get(authority).is_some()
+        self.view.world().accounts().get(authority).is_some()
     }
     fn verification_gas(&mut self) -> ConfidentialGas {
-        *self.zk_gas
+        self.view.zk.gas
     }
     fn check_includable_transaction(
         &mut self,
@@ -1178,8 +1172,8 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         >,
     > {
         crate::sumeragi::payload::check_includable_transaction(
-            self.world,
-            &self.nexus.dataspace_catalog,
+            self.view.world(),
+            &self.view.nexus.dataspace_catalog,
             self.ledger_time_ms,
             self.next_block_height,
             transaction,
@@ -1187,14 +1181,64 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     }
     fn sccp_exempt_admission(
         &mut self,
+        queue: &Queue,
         transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
+        use crate::smartcontracts::isi::sccp::{admission::SccpExemptClassV1, fees};
+        crate::smartcontracts::isi::sccp::fast_pause::admit(
+            self.view.world(),
+            *self.view.network_id(),
+            transaction.payload(),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
+                    reason: error.to_string(),
+                },
+            )?,
+        )
+        .map_err(|error| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: error.to_string(),
+        })?;
+        let keepalive = crate::smartcontracts::isi::sccp::keepalive::admit(
+            self.view.world(),
+            transaction.payload(),
+            self.next_block_height,
+            u64::try_from(queue.time_source.get_unix_time().as_millis()).unwrap_or(u64::MAX),
+        )
+        .map_err(|reject| Error::NexusFeeAdmissionRejected {
+            code: FeeRejectionCode::OperationNotAllowed,
+            reason: reject.to_string(),
+        })?;
+        if keepalive.is_some() {
+            return Ok(keepalive);
+        }
+        if matches!(
+            fees::exempt_class(
+                self.view.world(),
+                transaction.payload(),
+                crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                    |error| Error::AdmissionInvariant {
+                        reason: error.to_string()
+                    }
+                )?,
+            ),
+            Some(SccpExemptClassV1::ForgeryEvidence)
+        ) {
+            return queue.admit_forgery(self.view, transaction).map(Some);
+        }
         crate::smartcontracts::isi::sccp::admission::classify(
-            self.world,
-            self.sccp_view,
+            self.view.world(),
+            self.view,
             self.next_block_height,
             transaction,
         )
+        .map_err(|reject| match reject.deferred {
+            Some(original) => Error::Deferred(original),
+            None => Error::NexusFeeAdmissionRejected {
+                code: FeeRejectionCode::OperationNotAllowed,
+                reason: reject.to_string(),
+            },
+        })
     }
     fn manifest_authority_eligible_lanes(
         &mut self,
@@ -1204,7 +1248,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         crate::state::nexus_manifest_authority_eligible_lanes_at_height(
             lane_id,
             dataspace_id,
-            self.nexus,
+            &self.view.nexus,
             self.next_block_height,
         )
     }
@@ -1216,17 +1260,17 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     ) -> Result<Option<FeeAdmissionReservation>, Error> {
         queue.recheck_external_nexus_fee_admission(
             tx,
-            self.world,
-            self.nexus,
-            self.pipeline,
-            self.zk_gas,
+            self.view.world(),
+            &self.view.nexus,
+            &self.view.pipeline,
+            &self.view.zk.gas,
             self.next_block_height,
             route_dataspace_id,
-            self.sccp_view
-                .sccp_committed_time_ms()
-                .map_err(|error| Error::AdmissionInvariant {
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(self.view).map_err(
+                |error| Error::AdmissionInvariant {
                     reason: error.to_string(),
-                })?,
+                },
+            )?,
         )
     }
     fn extract_lane_identity_metadata(
@@ -1235,7 +1279,12 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         dataspace_id: DataSpaceId,
         lane_alias: &str,
     ) -> Result<(Option<UniversalAccountId>, Vec<String>), Error> {
-        Queue::extract_lane_identity_metadata(self.world, authority, dataspace_id, lane_alias)
+        Queue::extract_lane_identity_metadata(
+            self.view.world(),
+            authority,
+            dataspace_id,
+            lane_alias,
+        )
     }
     fn extract_lane_authority_domains(
         &mut self,
@@ -1243,7 +1292,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
         lane_alias: &str,
     ) -> Result<Vec<iroha_model_base::domain::DomainId>, Error> {
         Queue::extract_lane_authority_domains(
-            self.world,
+            self.view.world(),
             authority,
             lane_alias,
             self.ledger_time_ms,
@@ -1251,6 +1300,77 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     }
 }
 impl Queue {
+    /// Retain a fresh, still-due Keepalive or retire this authority's obsolete pending source.
+    /// The normal removal owner releases its pending index, routing and fee reservations.
+    /// # Errors
+    /// Preserves unavailable due-work observations; no missing Parliament result is false.
+    pub fn has_fresh_pending_keepalive(
+        &self,
+        view: &StateView<'_>,
+        authority: &AccountId,
+        wall_ms: u64,
+    ) -> Result<bool, crate::smartcontracts::isi::sccp::keepalive::DueWorkUnavailable> {
+        use crate::smartcontracts::isi::sccp::keepalive;
+        let _guard = self.push_remove_lock.lock();
+        let holder = self.pending_sccp_exempt.lock().keepalive_holder(authority);
+        let Some(hash) = holder else {
+            return Ok(false);
+        };
+        let Some(queued) = self.txs.get(&hash) else {
+            return Err(keepalive::DueWorkUnavailable);
+        };
+        let Some(signed) = Self::sccp_signed_transaction(queued.as_accepted().entrypoint()) else {
+            return Err(keepalive::DueWorkUnavailable);
+        };
+        let candidate = signed
+            .payload()
+            .creation_time_ms
+            .checked_add(1)
+            .ok_or(keepalive::DueWorkUnavailable)?;
+        let next_height = u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        let clock =
+            keepalive::clock_parameters(view.world()).map_err(|_| keepalive::DueWorkUnavailable)?;
+        let stale = keepalive::needs_fresh_carrier(candidate, wall_ms, clock.due_work_max_lag_ms);
+        let retain = !stale && keepalive::due(view.world(), next_height, candidate)?;
+        drop(queued);
+        if !retain {
+            self.remove_pending_hash_locked(hash, None);
+        }
+        Ok(retain)
+    }
+
+    /// Whether any authority already supplies a fresh, provably-due signed shared carrier.
+    /// Missing due observations grant no exemption and do not prevent a keeper from supplying
+    /// its own independently due carrier. This local read never modifies another authority.
+    pub fn has_any_fresh_pending_keepalive(&self, view: &StateView<'_>, wall_ms: u64) -> bool {
+        use crate::smartcontracts::isi::sccp::keepalive;
+        let Ok(clock) = keepalive::clock_parameters(view.world()) else {
+            return false;
+        };
+        let _guard = self.push_remove_lock.lock();
+        let pending = self.pending_sccp_exempt.lock();
+        let height = u64::try_from(view.height())
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        pending.keepalive_holders().any(|hash| {
+            let Some(queued) = self.txs.get(&hash) else {
+                return false;
+            };
+            let Some(signed) = Self::sccp_signed_transaction(queued.as_accepted().entrypoint())
+            else {
+                return false;
+            };
+            let Some(candidate) = signed.payload().creation_time_ms.checked_add(1) else {
+                return false;
+            };
+            signed.payload().creation_time_ms <= wall_ms
+                && !keepalive::needs_fresh_carrier(candidate, wall_ms, clock.due_work_max_lag_ms)
+                && keepalive::due(view.world(), height, candidate) == Ok(true)
+        })
+    }
+
     /// Return the configured retained-byte budget for the queue.
     pub fn max_retained_bytes(&self) -> NonZeroU64 {
         self.max_retained_bytes
@@ -1367,6 +1487,11 @@ impl Queue {
     }
 
     /// Admit an ordered batch, reporting the first failure after publishing its accepted prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first transaction whose routing-plan validation or queue
+    /// admission fails, after retaining the previously accepted prefix.
     pub fn push_batch_with_lane_with_state_and_routing_plans(
         &self,
         txs: Vec<(AcceptedTransaction<'static>, RoutingPlan)>,
@@ -1511,6 +1636,10 @@ impl Queue {
         tx.entrypoint_bytes()
     }
     /// Quarantine an empty queue while startup authenticates its State.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the queue already contains pending transactions.
     pub fn enter_emergency_fast_startup(&self) -> std::io::Result<()> {
         let _guard = self.push_remove_lock.lock();
         if self.active_len() != 0 {
@@ -2503,6 +2632,7 @@ impl Queue {
                 tx_hashes: ArrayQueue::new(capacity.get()),
                 txs: DashMap::new(),
                 pending_sccp_exempt: parking_lot::Mutex::new(SccpPendingIndexV1::default()),
+                forgery_ingress: parking_lot::Mutex::new(None),
                 txs_per_user: DashMap::new(),
                 routing_plans: DashMap::new(),
                 tx_encoded_len: DashMap::new(),
@@ -2632,8 +2762,9 @@ impl Queue {
     ) -> bool {
         let binding = self.sumeragi_wake.lock();
         match binding.as_ref() {
-            Some(SumeragiQueueWake::Reserved { budget, .. })
-            | Some(SumeragiQueueWake::Node { budget, .. }) => budget.same_pool(original),
+            Some(
+                SumeragiQueueWake::Reserved { budget, .. } | SumeragiQueueWake::Node { budget, .. },
+            ) => budget.same_pool(original),
             Some(SumeragiQueueWake::Retired { .. }) | None => false,
             #[cfg(test)]
             Some(SumeragiQueueWake::Probe(_)) => true,
@@ -2999,7 +3130,8 @@ impl Queue {
                 }
                 Ok(false) => {}
                 Err(reason) => {
-                    pending_status_fault.get_or_insert((tx_ref.hash_as_entrypoint(), reason));
+                    pending_status_fault
+                        .get_or_insert_with(|| (tx_ref.hash_as_entrypoint(), reason));
                 }
             }
         }
@@ -3052,7 +3184,7 @@ impl Queue {
             cursor.next_index = 0;
         }
         let start = cursor.next_index;
-        let mut seen = HashSet::with_capacity(remaining.min(age_ring.len().saturating_sub(start)));
+        let mut seen = BTreeSet::new();
         let mut sccp_budget = SccpExemptBlockBudgetV1::new(state_view.world());
         let pending = age_ring
             .iter()
@@ -3060,10 +3192,10 @@ impl Queue {
             .take(remaining)
             .filter_map(|(hash, enqueued_at)| {
                 if !seen.insert(*hash)
-                    || !self
+                    || self
                         .queued_tx_enqueued_at_ms
                         .get(hash)
-                        .is_some_and(|row| *row == *enqueued_at)
+                        .is_none_or(|row| *row != *enqueued_at)
                 {
                     return None;
                 }
@@ -3071,17 +3203,20 @@ impl Queue {
                 if tx.is_in_blockchain(state_view) || self.is_expired(tx.as_accepted()) {
                     return None;
                 }
-                // Eligibility is judged against the committed parent World, exactly as block
-                // validation counts it (`specs/sccp.md` §4.19).
-                sccp_budget
-                    .admit(
-                        crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
-                            state_view.world(),
-                            tx.as_accepted().entrypoint(),
-                            sccp_committed_time_ms,
-                        ),
-                    )
-                    .then(|| tx.value().clone())
+                let class = crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint(
+                    state_view.world(),
+                    tx.as_accepted().entrypoint(),
+                    sccp_committed_time_ms,
+                );
+                // A forgery claim can become genuine/duplicate while remaining in Queue.
+                // Preserve all such candidates in this bounded window: only the global
+                // selector, after original-parent verification, may spend its quota.
+                // They are universal/global inputs, never native-lane work.
+                (matches!(
+                    class,
+                    Some(SccpExemptClassV1::ForgeryEvidence | SccpExemptClassV1::Keepalive)
+                ) || sccp_budget.admit(class))
+                .then(|| tx.value().clone())
             })
             .collect::<Vec<_>>();
         cursor.next_index = start.saturating_add(remaining).min(age_ring.len());
@@ -3353,6 +3488,11 @@ impl Queue {
     ///
     /// This is used by Torii ingress proxying to compute the authoritative lane
     /// before deciding whether the request can be executed locally.
+    ///
+    /// # Errors
+    ///
+    /// Propagates routing-policy, stale-plan, unavailable-route, and original
+    /// resource-deferral errors from [`Self::route_plan_with_state`].
     pub fn route_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3365,6 +3505,12 @@ impl Queue {
     ///
     /// This is used by Torii, gossip, and block proposal paths to preserve native AMX
     /// participant legs alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if retained transaction identity or routing plans are
+    /// stale, current policy cannot resolve an executable route, or an original
+    /// state resource defers resolution.
     pub fn route_plan_with_state(
         &self,
         tx: &AcceptedTransaction<'_>,
@@ -3425,6 +3571,11 @@ impl Queue {
     /// Resolve the complete routing plan for an exact unsigned payload.
     ///
     /// Native AMX participant legs are retained alongside the coordinator route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if policy or authoritative targets cannot resolve a
+    /// valid admitted route, including original state-resource deferrals.
     pub fn route_payload_plan_with_state(
         &self,
         payload: &TransactionPayload,
@@ -3611,15 +3762,7 @@ impl Queue {
                     reason: "admission height overflows".to_owned(),
                 },
             })?;
-        let mut access = EagerAdmissionStateAccess::new(
-            view.world(),
-            &view.nexus,
-            &view.pipeline,
-            &view.zk.gas,
-            view,
-            height,
-            view.query_ledger_time_ms(),
-        );
+        let mut access = EagerAdmissionStateAccess::new(view, height, view.query_ledger_time_ms());
         let prepared = self.prepare_checked_for_enqueue(
             checked,
             routing_plan,
@@ -3722,14 +3865,11 @@ impl Queue {
         // pays the ordinary fee below; only an eligible transaction that fails pre-verification
         // is rejected here (`specs/sccp.md` §4.19).
         let sccp_exempt = Self::sccp_signed_transaction(checked.as_accepted().entrypoint())
-            .map(|transaction| state_access.sccp_exempt_admission(transaction))
+            .map(|transaction| state_access.sccp_exempt_admission(self, transaction))
             .transpose()
-            .map_err(|reject| Failure {
+            .map_err(|err| Failure {
                 tx: checked.as_accepted().clone().into(),
-                err: Error::NexusFeeAdmissionRejected {
-                    code: FeeRejectionCode::OperationNotAllowed,
-                    reason: reject.to_string(),
-                },
+                err,
             })?
             .flatten();
         let lane_id = routing_decision.lane_id;
@@ -4242,7 +4382,10 @@ impl Queue {
                 self.tx_gas_cost.insert(hash, proposal_gas_cost);
                 self.track_expiry_hash(hash);
                 if let Some(authority) = authority {
-                    self.apply_per_user_tx_count_increments(HashMap::from([(authority, 1)]));
+                    self.txs_per_user
+                        .entry(authority)
+                        .and_modify(|count| *count = count.saturating_add(1))
+                        .or_insert(1);
                 }
                 #[cfg(feature = "telemetry")]
                 self.record_teu_enqueue_locked(
@@ -4864,17 +5007,6 @@ impl Queue {
         self.txs_per_user
             .get(account_id)
             .map_or(0, |count| *count.value())
-    }
-    fn apply_per_user_tx_count_increments(&self, increments: HashMap<AccountId, usize>) {
-        for (account_id, delta) in increments {
-            if delta == 0 {
-                continue;
-            }
-            self.txs_per_user
-                .entry(account_id)
-                .and_modify(|count| *count = count.saturating_add(delta))
-                .or_insert(delta);
-        }
     }
     #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
     fn publish_backpressure_state(&self, queued: usize, telemetry: Option<&StateTelemetry>) {
@@ -5899,9 +6031,9 @@ pub mod tests {
             cfg: Config,
             time_source: &TimeSource,
             router: Arc<dyn LaneRouter>,
-            routes: &[(LaneId, DataSpaceId)],
+            route_bindings: &[(LaneId, DataSpaceId)],
         ) -> Self {
-            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(routes);
+            let (lane_catalog, dataspace_catalog) = Self::test_catalogs_for_routes(route_bindings);
             let mut queue = Self::from_config_with_router_limits_and_catalogs(
                 cfg,
                 tokio::sync::broadcast::Sender::new(1),
@@ -6281,8 +6413,10 @@ pub mod tests {
             ],
         )
         .expect("lane catalog");
-        let mut nexus = Nexus::default();
-        nexus.lane_catalog = lane_catalog.clone();
+        let mut nexus = Nexus {
+            lane_catalog: lane_catalog.clone(),
+            ..Default::default()
+        };
         nexus.routing_policy.default_lane = retired_lane;
         nexus.routing_policy.default_dataspace = DataSpaceId::UNIVERSAL;
         let NexusRoutingFixture {
@@ -7002,12 +7136,16 @@ pub mod tests {
             policy_lane,
             dataspace,
         )));
-        let mut routes = vec![(policy_lane, dataspace)];
+        let mut route_bindings = vec![(policy_lane, dataspace)];
         if conflicting_lane_is_active {
-            routes.push((conflicting_lane, dataspace));
+            route_bindings.push((conflicting_lane, dataspace));
         }
-        let queue =
-            Queue::test_with_router_for_routes(config_factory(), time_source, router, &routes);
+        let queue = Queue::test_with_router_for_routes(
+            config_factory(),
+            time_source,
+            router,
+            &route_bindings,
+        );
 
         let (primary, primary_keypair) = gen_account_in("wonderland");
         let (secondary, _) = gen_account_in("wonderland");
@@ -7057,7 +7195,7 @@ pub mod tests {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         queue.install_test_router_metadata_for_nexus(&nexus);
-        let mut state = if autoscale_lane.is_some() {
+        let state = if autoscale_lane.is_some() {
             // Deliberately model a future lane that production startup refuses.
             let state = State::new(
                 world_with_test_domains(),
@@ -7076,7 +7214,7 @@ pub mod tests {
             )
         };
         for authority in [&primary, &secondary, &outsider, &conflicting_validator] {
-            register_test_authority(&mut state, authority);
+            register_test_authority(&state, authority);
         }
 
         let policy_metadata_key =
@@ -7089,7 +7227,6 @@ pub mod tests {
                     metadata_key: Some(policy_metadata_key.clone()),
                     allowed_ids: Some(BTreeSet::from([RUNTIME_UPGRADE_ALLOWED_ID.to_owned()])),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -7405,15 +7542,7 @@ pub mod tests {
         let state_view = state.view();
         #[cfg(feature = "telemetry")]
         let telemetry_handle = state_view.telemetry;
-        let mut state_access = EagerAdmissionStateAccess::new(
-            state_view.world(),
-            &state_view.nexus,
-            &state_view.pipeline,
-            &state_view.zk.gas,
-            &state_view,
-            1,
-            0,
-        );
+        let mut state_access = EagerAdmissionStateAccess::new(&state_view, 1, 0);
         let err = match queue.prepare_checked_for_enqueue(
             CheckedTransaction::new_unchecked(tx),
             RoutingPlan::single(RoutingDecision::new(LaneId::new(1), DataSpaceId::UNIVERSAL)),
@@ -8561,7 +8690,6 @@ pub mod tests {
                     metadata_key: None,
                     allowed_ids: None,
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -8639,7 +8767,6 @@ pub mod tests {
                     metadata_key: Some(metadata_key.clone()),
                     allowed_ids: Some(allowed_ids),
                 }),
-                ..GovernanceHooks::default()
             },
             ..GovernanceRules::default()
         };
@@ -9029,6 +9156,7 @@ pub mod tests {
         include!("queue/resident_owner_tests.rs");
     }
     include!("queue/current_admission_tests.rs");
+    include!("queue/keepalive_tests.rs");
     include!("queue/domain_admission_tests.rs");
     include!("queue/resource_contract_tests.rs");
     #[test]
@@ -9051,92 +9179,103 @@ pub mod tests {
     fn bounded_pending_snapshot_caps_fee_exempt_sccp_transactions() {
         use crate::smartcontracts::isi::sccp::{
             admission::{self, SccpExemptClassV1},
-            test_support::sample_route,
+            inbound::{SccpProvenInboundV1, record_proven},
+            recipients, store,
+            test_support::{ONE_XOR, funded_xor_state, header, install_value_route},
         };
         use iroha_data_model::{
-            IntoKeyValue,
             account::AccountAddress,
             bridge::SccpNetworkV1,
             isi::sccp::SettleSccpV1,
-            sccp::{
-                inbound::{
-                    SccpInboundRecordV1, SccpInboundStatusV1, SccpPendingReasonV1,
-                    SccpSourceLocatorV1,
-                },
-                registry::SccpRouteActivationV1,
-            },
+            sccp::{inbound::SccpSourceLocatorV1, registry::SccpRouteActivationV1},
         };
         use iroha_sccp::v1::payload::SccpTransferPayloadV1;
 
-        const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
-        /// 10 XOR in Taira units, above the self-claim fee.
-        const AMOUNT: u128 = 10_000_000_000;
-        // Two recipients each hold one pending inbound message that can settle, so each
-        // recipient's own settle is an eligible fee-exempt self-claim (`specs/sccp.md` §4.12.4).
-        let recipients = [0x71_u8, 0x72].map(|seed| {
-            KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("recipient key")
+        let network = SccpNetworkV1::EthereumMainnet;
+        let recipients = [0x51_u8, 0x52].map(|seed| {
+            KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+                .expect("deterministic recipient")
         });
-        let message_ids = [[0x71_u8; 32], [0x72; 32]];
-        let mut world = world_with_test_domains();
         let alice = AccountId::new(ALICE_KEYPAIR.public_key().clone());
-        for account in recipients
-            .iter()
-            .map(|keys| AccountId::new(keys.public_key().clone()))
-            .chain([alice])
+        let mut state = funded_xor_state(&alice, 1_000 * ONE_XOR);
+        let mut messages = Vec::new();
         {
-            let (id, value) = Account::new(account.clone())
-                .build(&account)
-                .into_key_value();
-            world.accounts.insert(id, value);
-        }
-        {
-            let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
-            parameters.max_exempt_transactions_per_block = 1;
-            let mut world = world.block();
-            *world.sccp_parameters.get_mut() = Some(parameters);
-            let mut route = sample_route(NETWORK);
-            let revision = route.revisions.get_mut(&1).expect("revision 1");
-            revision.activation = SccpRouteActivationV1::Bidirectional;
-            revision.liability = 2 * AMOUNT;
-            world.sccp_routes.insert(NETWORK, route);
-            for (keys, message_id) in recipients.iter().zip(message_ids) {
-                let recipient =
-                    AccountAddress::from_account_id(&AccountId::new(keys.public_key().clone()))
+            let mut block = state.block(header(1));
+            {
+                let mut stx = block.transaction();
+                stx.world
+                    .parameters
+                    .get_mut()
+                    .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+                        iroha_data_model::block::consensus::SumeragiRootScope::Global,
+                    ))
+                    .expect("original signed global routing metadata");
+                install_value_route(
+                    &mut stx,
+                    network,
+                    1,
+                    SccpRouteActivationV1::Bidirectional,
+                    1_000 * ONE_XOR,
+                );
+                // These already-proven fixture messages exercise admission and selection,
+                // not source-chain proof verification or actual token settlement.
+                let mut route = store::routes::get(&*stx.world, &network)
+                    .cloned()
+                    .expect("installed route");
+                route.revisions.get_mut(&1).expect("revision").liability = 100 * ONE_XOR;
+                store::routes::insert(&mut stx, network, route).expect("backing liability");
+                let mut parameters = store::parameters::get(&*stx.world).clone().expect("SCCP");
+                parameters.max_exempt_transactions_per_block = 1;
+                parameters.enabled = false;
+                store::parameters::set(&mut stx, Some(parameters.clone()));
+                for (nonce, signer) in recipients.iter().enumerate() {
+                    let recipient = AccountId::new(signer.public_key().clone());
+                    recipients::ensure_registered(&mut stx, &recipient).expect("recipient");
+                    let recipient_bytes = AccountAddress::from_account_id(&recipient)
                         .and_then(|address| address.canonical_bytes())
                         .expect("recipient address");
-                let payload = SccpTransferPayloadV1::inbound(
-                    NETWORK,
-                    u64::from(message_id[0]),
-                    1,
-                    AMOUNT,
-                    vec![0x44; 20],
-                    recipient,
-                )
-                .and_then(|payload| payload.encode())
-                .expect("inbound payload");
-                world.sccp_inbound_messages.insert(
-                    message_id,
-                    SccpInboundRecordV1 {
-                        network: NETWORK,
-                        revision: 1,
-                        payload,
-                        source_locator: SccpSourceLocatorV1 {
-                            source_height: 7,
-                            block_hash: message_id,
-                            index_in_block: 0,
+                    let nonce = u64::try_from(nonce).expect("two recipients");
+                    let payload = SccpTransferPayloadV1::inbound(
+                        network,
+                        nonce,
+                        1,
+                        10 * ONE_XOR,
+                        vec![0x44; 20],
+                        recipient_bytes,
+                    )
+                    .expect("inbound payload");
+                    let message_id = payload
+                        .message_id(stx.network_id().as_bytes())
+                        .expect("message id");
+                    record_proven(
+                        &mut stx,
+                        SccpProvenInboundV1 {
+                            network,
+                            revision: 1,
+                            payload: payload.encode().expect("payload bytes"),
+                            amount: 10 * ONE_XOR,
+                            message_id,
+                            source_locator: SccpSourceLocatorV1 {
+                                source_height: nonce + 100,
+                                block_hash: [7; 32],
+                                index_in_block: 0,
+                            },
+                            fee_due: 0,
                         },
-                        proven_at_height: 1,
-                        fee_due: 0,
-                        status: SccpInboundStatusV1::pending(SccpPendingReasonV1::Disabled),
-                    },
-                );
+                    )
+                    .expect("pending proven message");
+                    messages.push(message_id);
+                }
+                parameters.enabled = true;
+                store::parameters::set(&mut stx, Some(parameters));
+                stx.apply();
             }
-            world.commit();
+            block
+                .commit_world_overlay_for_testing()
+                .expect("committed parent World");
         }
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world, kura, query_handle);
-        let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
+        install_single_validator_topology_for_queue_test(&mut state, 0x68);
+        let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(2_000));
         let queue = Arc::new(Queue::test(config_factory(), &time_source));
         let accepted = |keypair: &KeyPair, instructions: Vec<InstructionBox>| {
             let transaction = TransactionBuilder::new_with_time_source(
@@ -9158,16 +9297,16 @@ pub mod tests {
             )
             .expect("signed queue input accepted")
         };
-        // Concurrent claims come from distinct recipients; an account may retain only one
-        // pending self-claim under the SCCP admission contract.
+        // Concurrent self-claims have distinct authenticated recipients and message ids.
+        // Both pass the real committed-state classifier; no admission override is used.
         let transactions = vec![
             accepted(
                 &recipients[0],
-                vec![SettleSccpV1::inbound(message_ids[0]).into()],
+                vec![SettleSccpV1::inbound(messages[0]).into()],
             ),
             accepted(
                 &recipients[1],
-                vec![SettleSccpV1::inbound(message_ids[1]).into()],
+                vec![SettleSccpV1::inbound(messages[1]).into()],
             ),
             accepted(
                 &ALICE_KEYPAIR,
@@ -9469,7 +9608,10 @@ pub mod tests {
             crate::tx::exact_signed_transaction_hash(committed.entrypoint()),
             None
         );
-        assert_eq!(SignedTransaction::from(revealed.clone()), signed);
+        assert_eq!(
+            revealed.clone().into_entrypoint(),
+            revealed.entrypoint().clone()
+        );
         assert_eq!(revealed.creation_time(), external.creation_time());
         assert_eq!(revealed.time_to_live(), external.time_to_live());
         assert_eq!(committed.creation_time(), Duration::ZERO);

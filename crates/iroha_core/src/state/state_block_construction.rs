@@ -5,6 +5,10 @@ use super::*;
 impl State {
     /// Prepare metadata while the exact acquired writers remain jointly armed.
     /// The finish continuation receives an already armed executing owner.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     pub(super) fn construct_acquired_block<'state, R>(
         &'state self,
         acquired: canonical_runtime::AcquiredRuntimeBlock<'state>,
@@ -120,7 +124,7 @@ impl State {
         pending_public_lane_slash_observability = Some(Vec::new());
         #[cfg(feature = "zk-preverify")]
         {
-            zk_dedup = Some(Default::default());
+            zk_dedup = Some(crate::zk::DedupCache::default());
         }
         // Every take below is checked while the joint owner is still armed.
         // The finishing closure borrows each Option, including metadata and the
@@ -180,7 +184,6 @@ impl State {
                 .into_fields();
             let block = StateBlock::from_fields(StateBlockFields {
                 local_storage_refusal: None,
-                sccp_begin_failure: None,
                 _ivm_refunds: pipeline_ivm_prepared_cache
                     .as_ref()
                     .expect("prepared State input")

@@ -251,9 +251,9 @@ fn canonical_output_repeat_validation_is_deterministic() {
         .sign(iroha_test_samples::ALICE_KEYPAIR.private_key())
         .unpack(|_| {});
     let replay: SignedBlock = new_block2.into();
-    let (mut sb2, sb2_recorder) = ValidBlock::start_component_execution(&replay, state)
+    let (mut sb2, replay_recorder) = ValidBlock::start_component_execution(&replay, state)
         .expect("original recorder before replay");
-    let vb2 = ValidBlock::validate_unchecked(replay, &mut sb2, sb2_recorder).unpack(|_| {});
+    let vb2 = ValidBlock::validate_unchecked(replay, &mut sb2, replay_recorder).unpack(|_| {});
     assert_eq!(
         vb2.as_ref().execution_outputs(),
         first_outputs.as_slice(),

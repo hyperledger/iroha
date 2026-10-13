@@ -27,17 +27,16 @@ fn failure(error: IssuerError) -> Response {
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     let mut response = (status, "enrollment operation unavailable or rejected").into_response();
-    if let Some((name, value)) = outcome.map(|outcome| outcome.header()) {
+    if let Some((name, value)) =
+        outcome.map(iroha_torii_shared::kagemusha_enrollment::EnrollmentServiceOutcomeV1::header)
+    {
         if let Ok(value) = HeaderValue::from_str(&value) {
             response.headers_mut().insert(name, value);
         }
     }
     response
 }
-pub(crate) async fn handler(
-    State(app): State<crate::SharedAppState>,
-    request: Request<Body>,
-) -> Response {
+pub async fn handler(State(app): State<crate::SharedAppState>, request: Request<Body>) -> Response {
     let mut response = handle(app, request).await.unwrap_or_else(failure);
     response.headers_mut().insert(
         axum::http::header::CACHE_CONTROL,

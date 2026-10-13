@@ -276,12 +276,22 @@ impl PublicationDeferral {
     pub fn allocation_refusal(&self) -> Option<&iroha_allocation::AllocationRefusal> {
         match self {
             Self::Execution(original) => original.allocation_refusal(),
-            Self::StateStorage(crate::state::StateStorageAdmissionError::World(
-                mv::storage::AdmittedStorageError::Allocation(original),
-            ))
-            | Self::StateStorage(crate::state::StateStorageAdmissionError::NativeAmx(
-                crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original),
-            ))
+            Self::StateStorage(
+                crate::state::StateStorageAdmissionError::World(
+                    mv::storage::AdmittedStorageError::Allocation(original),
+                )
+                | crate::state::StateStorageAdmissionError::SccpForgery(
+                    crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                        mv::storage::AdmittedStorageError::Allocation(original),
+                    ),
+                )
+                | crate::state::StateStorageAdmissionError::NativeAmx(
+                    crate::sumeragi::amx::NativeAmxAdmissionError::Admission(original),
+                )
+                | crate::state::StateStorageAdmissionError::SccpEvidence(
+                    crate::state::EvidencePreparationError::Admission(original),
+                ),
+            )
             | Self::EvidencePreparation(crate::state::EvidencePreparationError::Admission(
                 original,
             ))
@@ -404,7 +414,8 @@ pub trait Executor: Send {
     /// Execute `block` (hash `block_hash`) on its parent's post-state: the applied state or a
     /// cached post-state. `None` if that post-state is not held (not an error: the driver parks
     /// the request until the parent is applied or executed, O4). A `Valid` post-state is kept
-    /// until the block is applied or discarded.
+    /// until the block is applied or discarded. `certified` is the core's authenticated
+    /// PrepareQC/lock indication, forwarded unchanged; only local clock guards may use it.
     ///
     /// # Errors
     /// An unfinished local attempt transfers its exact owner to the driver's retained job.
@@ -413,6 +424,7 @@ pub trait Executor: Send {
         &mut self,
         block: &AvailableBody,
         block_hash: &Hash32,
+        certified: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError>;
     /// Drop the post-states of the blocks at `height` other than `keep`.
     fn discard(&mut self, height: u64, keep: &[Hash32]);
@@ -539,7 +551,7 @@ mod tests {
         let clock = SystemClock::default();
         let a = clock.now();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        assert!(clock.now() >= a + 1);
+        assert!(clock.now() > a);
     }
 
     #[test]

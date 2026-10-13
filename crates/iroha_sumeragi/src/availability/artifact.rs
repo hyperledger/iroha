@@ -945,6 +945,13 @@ mod tests {
         calls: std::sync::atomic::AtomicUsize,
     }
     impl Signer for CountingSigner<'_> {
+        fn sign_prepare(
+            &self,
+            context: &crate::crypto::PrepareSigningContext<'_>,
+        ) -> Result<Signature, crate::crypto::SigningError> {
+            self.sign(context.preimage())
+        }
+
         fn public_key(&self) -> &crate::types::PublicKey {
             self.inner.public_key()
         }
@@ -1029,6 +1036,13 @@ mod tests {
         attempts: std::sync::Mutex<Vec<Vec<u8>>>,
     }
     impl Signer for RefuseOnceSigner<'_> {
+        fn sign_prepare(
+            &self,
+            context: &crate::crypto::PrepareSigningContext<'_>,
+        ) -> Result<Signature, crate::crypto::SigningError> {
+            self.sign(context.preimage())
+        }
+
         fn public_key(&self) -> &crate::types::PublicKey {
             self.inner.public_key()
         }

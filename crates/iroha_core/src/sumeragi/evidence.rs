@@ -59,6 +59,9 @@ pub(crate) enum EvidenceAdmissionError {
     /// Original process capacity refused preparation.
     #[error(transparent)]
     Preparation(#[from] EvidencePreparationError),
+    /// Original private restore-map owner; never reconstructed from diagnostic text.
+    #[error(transparent)]
+    Storage(#[from] crate::state::sccp_forgery_custody::ForgeryStorageError),
 }
 impl From<super::evidence_history::NativeEvidenceError> for EvidenceAdmissionError {
     fn from(error: super::evidence_history::NativeEvidenceError) -> Self {
@@ -123,11 +126,15 @@ fn horizon(world: &(impl WorldReadOnly + ?Sized)) -> Result<Option<u64>, Evidenc
 /// Borrowed lifecycle fields shared by canonical fixture claims and actual World owners.
 /// This observation grants neither funding nor evidence authority.
 pub(crate) trait EvidenceLifecycleRecord {
+    fn material(&self) -> &iroha_data_model::block::consensus::RecordedEvidenceV1;
     fn attribution(&self) -> &EvidenceAttribution;
     fn penalty_status(&self) -> EvidencePenaltyStatus;
     fn recorded_at_height(&self) -> u64;
 }
 impl EvidenceLifecycleRecord for EvidenceRecord {
+    fn material(&self) -> &iroha_data_model::block::consensus::RecordedEvidenceV1 {
+        &self.evidence
+    }
     fn attribution(&self) -> &EvidenceAttribution {
         &self.attribution
     }
@@ -139,6 +146,9 @@ impl EvidenceLifecycleRecord for EvidenceRecord {
     }
 }
 impl EvidenceLifecycleRecord for crate::state::RetainedEvidenceRecord {
+    fn material(&self) -> &iroha_data_model::block::consensus::RecordedEvidenceV1 {
+        &self.evidence
+    }
     fn attribution(&self) -> &EvidenceAttribution {
         &self.attribution
     }
@@ -149,9 +159,43 @@ impl EvidenceLifecycleRecord for crate::state::RetainedEvidenceRecord {
         self.recorded_at_height
     }
 }
+/// Select only Native lifecycle material; a closed matching SCCP record has its own
+/// permanent dedup owner. This is structural dispatch, never evidence admission.
+fn native_lifecycle_evidence(
+    record: &(impl EvidenceLifecycleRecord + ?Sized),
+) -> Result<Option<&Evidence>, EvidenceAdmissionError> {
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    match (record.material(), record.attribution().scope) {
+        (RecordedEvidenceV1::Native(proof), EvidenceScope::Root | EvidenceScope::Lane(_)) => {
+            Ok(Some(proof))
+        }
+        (
+            RecordedEvidenceV1::SccpForgery(material),
+            EvidenceScope::SccpGeneration { generation },
+        ) if generation == material.generation
+            && material.validate_shape().is_ok()
+            && record.attribution().height == material.start_height
+            && record.attribution().safety_violation
+            && record.attribution().offenders.len() == material.offenders.len()
+            && record
+                .attribution()
+                .offenders
+                .iter()
+                .zip(&material.offenders)
+                .all(|(a, b)| a.signer == b.signer && a.lane_stake.is_none()) =>
+        {
+            Ok(None)
+        }
+        _ => Err(invalid(
+            "retained evidence material and lifecycle scope differ",
+        )),
+    }
+}
+
 /// Terminal root reports remain replay fences through their signed offence horizon. Lane
 /// reports retain their exact original incarnation until strictly after retirement admission
 /// closes; a native subject height never supplies this root-clock pruning boundary.
+/// Closed SCCP records are permanent under SCCP §4.11, including after Applied.
 pub(crate) fn committed_evidence_record_is_prunable(
     world: &(impl WorldReadOnly + ?Sized),
     record: &(impl EvidenceLifecycleRecord + ?Sized),
@@ -161,6 +205,9 @@ pub(crate) fn committed_evidence_record_is_prunable(
     if !record.penalty_status().is_terminal() {
         return Ok(false);
     }
+    if native_lifecycle_evidence(record)?.is_none() {
+        return Ok(false);
+    }
     let Some(parameters) = world.sumeragi_npos_parameters()? else {
         return Ok(false);
     };
@@ -168,6 +215,12 @@ pub(crate) fn committed_evidence_record_is_prunable(
         return Ok(false);
     }
     Ok(match record.attribution().scope {
+        EvidenceScope::SccpGeneration { .. } => {
+            // Closed SCCP returned above; mismatched material is rejected by dispatch.
+            return Err(invalid(
+                "retained evidence material and lifecycle scope differ",
+            ));
+        }
         EvidenceScope::Root => {
             height.saturating_sub(record.attribution().height)
                 > parameters.evidence_horizon_blocks()
@@ -208,15 +261,18 @@ pub(crate) fn committed_evidence_capacity(
     let mut count = 0usize;
     let mut bytes = Some(0);
     for (_, record) in world.consensus_evidence().iter() {
+        let Some(proof) = record.native_evidence() else {
+            continue;
+        };
         count = count.saturating_add(1);
-        if evidence_encoded_len(&record.evidence) > MAX_EVIDENCE_ADMISSION_BYTES {
+        if evidence_encoded_len(proof) > MAX_EVIDENCE_ADMISSION_BYTES {
             bytes = None;
             break;
         }
         bytes = bytes.and_then(|total| {
             checked_evidence_byte_sum(
                 total,
-                [evidence_encoded_len(&record.evidence)],
+                [evidence_encoded_len(proof)],
                 MAX_COMMITTED_EVIDENCE_BYTES,
             )
         });
@@ -355,9 +411,11 @@ impl AdmittedEvidence {
         )
     }
     fn native_frame(&self) -> Option<&[u8]> {
-        self.body
-            .as_ref()
-            .map(|body| body.canonical().evidence.native_frame())
+        self.body.as_ref().and_then(|body| {
+            body.canonical()
+                .native_evidence()
+                .map(Evidence::native_frame)
+        })
     }
     pub(crate) fn record(
         &self,
@@ -370,7 +428,12 @@ impl AdmittedEvidence {
             .body
             .as_ref()
             .ok_or(EvidencePreparationError::Invariant)?;
-        if body.canonical().evidence.native_frame() != proof.native_frame() {
+        if body
+            .canonical()
+            .native_evidence()
+            .map(Evidence::native_frame)
+            != Some(proof.native_frame())
+        {
             return Err(EvidencePreparationError::Invariant);
         }
         Ok(crate::state::RetainedEvidenceRecord::from_body(
@@ -405,15 +468,60 @@ pub(crate) fn validate_persisted_records(state: &State) -> Result<(), EvidenceAd
     restoration::validate(state)
 }
 
+/// Preserve the original resource owner when startup reconstructs a fresh State.
+/// A local admission refusal cannot be turned into an invalid snapshot verdict.
+pub(crate) fn restoration_failure(
+    error: EvidenceAdmissionError,
+) -> crate::state::MergeLedgerCommitError {
+    use crate::{
+        execution_attempt::ExecutionAttemptError as Attempt,
+        state::{MergeLedgerCommitError as Restore, StateStorageAdmissionError},
+    };
+    match error {
+        EvidenceAdmissionError::Policy(Attempt::Deferred(original))
+        | EvidenceAdmissionError::History(Attempt::Deferred(original))
+        | EvidenceAdmissionError::Source(Attempt::Deferred(original)) => {
+            Restore::ExecutionDeferred(original)
+        }
+        EvidenceAdmissionError::Preparation(EvidencePreparationError::OriginalHistoryPending) => {
+            Restore::ExecutionObservationChanged
+        }
+        EvidenceAdmissionError::Preparation(EvidencePreparationError::Invariant) => {
+            Restore::ExecutionStatePublication("restored evidence preparation invariant".into())
+        }
+        EvidenceAdmissionError::Preparation(original) => {
+            Restore::StateStorageAdmission(StateStorageAdmissionError::SccpEvidence(original))
+        }
+        EvidenceAdmissionError::Source(Attempt::Rejected(original))
+            if original.kind() == std::io::ErrorKind::WouldBlock
+                || original.kind() == std::io::ErrorKind::Interrupted =>
+        {
+            Restore::ExecutionObservationChanged
+        }
+        EvidenceAdmissionError::Storage(original) => {
+            Restore::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(original))
+        }
+        other => {
+            Restore::ExecutionStatePublication(format!("restored evidence is invalid: {other}"))
+        }
+    }
+}
+
 fn validate_persisted_records_inner(
     view: &StateView<'_>,
     restored: &restoration::RestorationRead,
 ) -> Result<(), EvidenceAdmissionError> {
+    restored.validate_sccp()?;
     let capacity = committed_evidence_capacity(view.world());
     if capacity.record_capacity_exceeded || capacity.byte_capacity_exceeded {
         return Err(invalid("restored evidence exceeds canonical capacity"));
     }
-    if view.world().consensus_evidence().iter().next().is_none() {
+    if !view
+        .world()
+        .consensus_evidence()
+        .iter()
+        .any(|(_, record)| record.native_evidence().is_some())
+    {
         return Ok(());
     }
     let parameters = view
@@ -423,14 +531,29 @@ fn validate_persisted_records_inner(
     let committed_height =
         u64::try_from(view.height()).map_err(|_| invalid("restored height overflows"))?;
     for (key, record) in view.world().consensus_evidence().iter() {
-        if *key != evidence_key(&record.evidence) {
+        if matches!(
+            (&record.evidence, record.attribution.scope),
+            (
+                iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(_),
+                iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
+            )
+        ) {
+            // Complete original current/undo SCCP history was authenticated above.
+            continue;
+        }
+        let proof = record
+            .native_evidence()
+            .ok_or_else(|| invalid("SCCP material cannot enter native restoration"))?;
+        if *key != evidence_key(proof) {
             return Err(invalid("restored proof key differs"));
         }
         let root;
         let verified = match record.attribution.scope {
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. } => {
+                return Err(invalid("SCCP material cannot enter native restoration"));
+            }
             iroha_data_model::block::consensus::EvidenceScope::Root => {
-                let native = record
-                    .evidence
+                let native = proof
                     .decode_native()
                     .map_err(EvidenceAdmissionError::from)?;
                 root = super::evidence_history::verify_from_state(view, &native, |_, _| Ok(()))?;
@@ -446,6 +569,9 @@ fn validate_persisted_records_inner(
             ));
         }
         let within_original_lifetime = match record.attribution.scope {
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. } => {
+                return Err(invalid("SCCP material cannot enter native restoration"));
+            }
             iroha_data_model::block::consensus::EvidenceScope::Root => {
                 record.attribution.height < record.recorded_at_height
                     && record.recorded_at_height - record.attribution.height
@@ -494,7 +620,7 @@ fn validate_persisted_records_inner(
                     effects
                         .evidence_admissions
                         .iter()
-                        .any(|proof| proof == &record.evidence)
+                        .any(|original| original == proof)
                 })
         {
             return Err(invalid(
@@ -529,7 +655,10 @@ fn validate_persisted_records_inner(
             return Err(invalid("restored penalty lifecycle is impossible"));
         }
         for (other_key, other) in view.world().consensus_evidence().iter() {
-            if other_key < key && shares_offender(&record.attribution, &other.attribution) {
+            if other_key < key
+                && other.native_evidence().is_some()
+                && shares_offender(&record.attribution, &other.attribution)
+            {
                 return Err(invalid(
                     "restored evidence duplicates original signer accountability",
                 ));
@@ -702,7 +831,7 @@ pub(crate) fn observe(
         return Ok(false);
     }
     super::evidence_history::verify_from_state(&view, native, |_, _| Ok(()))?;
-    if generation != state.state_view_generation() || generation % 2 != 0 {
+    if generation != state.state_view_generation() || !generation.is_multiple_of(2) {
         return Ok(false);
     }
     let mut pending = state.native_pending_evidence.lock();
@@ -871,7 +1000,7 @@ impl PreparedStakingEffects<'_> {
         if !std::ptr::eq(self.state, original)
             || self.generation != generation
             || original.state_view_generation() != generation
-            || generation % 2 != 0
+            || !generation.is_multiple_of(2)
             || self.header != block.header()
             || self.tip != state.native_execution_tip()
             || self.effects_hash != block.npos_consensus_effects().map(HashOf::new)
@@ -954,7 +1083,7 @@ pub(crate) fn prepare<'state>(
             .map_err(EvidencePreparationError::from)
             .map_err(BlockValidationError::EvidencePreparation)?
     };
-    if state.state_view_generation() != generation || generation % 2 != 0 {
+    if state.state_view_generation() != generation || !generation.is_multiple_of(2) {
         return Err(BlockValidationError::LocalStorageRecoveryRequired {
             reason: "native evidence parent changed during pristine preparation".into(),
         });
@@ -995,6 +1124,9 @@ fn classify(error: EvidenceAdmissionError) -> crate::block::BlockValidationError
         EvidenceAdmissionError::Preparation(error) => {
             BlockValidationError::EvidencePreparation(error)
         }
+        EvidenceAdmissionError::Storage(original) => BlockValidationError::StateStorageAdmission(
+            crate::state::StateStorageAdmissionError::SccpForgery(original),
+        ),
         EvidenceAdmissionError::Source(
             crate::execution_attempt::ExecutionAttemptError::Deferred(local),
         ) => BlockValidationError::ExecutionDeferred(local),
@@ -1027,3 +1159,61 @@ mod codec_tests;
 
 #[cfg(test)]
 mod lifecycle_tests;
+
+#[cfg(test)]
+mod storage_classification_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_classification_keeps_original_storage_capacity_and_busy_owners() {
+        use crate::{
+            block::BlockValidationError,
+            state::{
+                StateStorageAdmissionError,
+                sccp_forgery_custody::{ForgeryStorageError, OffenceStorage},
+            },
+        };
+        use mv::storage::{AdmittedBlockError, AdmittedStorageError};
+        let pool = AllocationBudget::new(1);
+        let occupied = pool.try_reserve_bytes(1).unwrap();
+        let capacity = pool.try_reserve_bytes(1).unwrap_err();
+        let storage =
+            ForgeryStorageError::Storage(AdmittedStorageError::Allocation(capacity.clone()));
+        let BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
+            kept,
+        )) = classify(EvidenceAdmissionError::Storage(storage.clone()))
+        else {
+            panic!("original capacity owner");
+        };
+        assert_eq!(kept, storage);
+        let ForgeryStorageError::Storage(AdmittedStorageError::Allocation(kept)) = kept else {
+            unreachable!()
+        };
+        assert_eq!(kept, capacity);
+        drop(occupied);
+        let store = OffenceStorage::try_new_admitted(AllocationBudget::new(1 << 20)).unwrap();
+        let busy = store
+            .try_with_admitted_block(|_| {
+                let failure = store
+                    .try_with_admitted_block(|_| Ok::<_, AdmittedStorageError>(()))
+                    .unwrap_err();
+                match failure {
+                    AdmittedBlockError::Admission(original) => {
+                        Ok::<_, AdmittedStorageError>(original)
+                    }
+                    AdmittedBlockError::Callback(_) => panic!("writer conflict precedes callback"),
+                }
+            })
+            .unwrap();
+        assert!(matches!(busy, AdmittedStorageError::Busy { .. }));
+        let original = ForgeryStorageError::Storage(busy);
+        let BlockValidationError::StateStorageAdmission(StateStorageAdmissionError::SccpForgery(
+            kept,
+        )) = classify(EvidenceAdmissionError::Storage(original.clone()))
+        else {
+            panic!("original writer owner");
+        };
+        assert_eq!(kept, original);
+        assert!(store.view().is_empty());
+    }
+}

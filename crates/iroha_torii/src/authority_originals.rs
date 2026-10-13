@@ -29,7 +29,7 @@ struct RequestOriginalOwner {
 }
 
 /// Canonical POST authentication covers the actual body; API-token alone is insufficient.
-pub(super) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
     request: axum::http::Request<Body>,
@@ -54,7 +54,7 @@ fn unavailable() -> Error {
 }
 
 fn target(method: &Method, uri: &Uri, headers: &HeaderMap) -> Result<(), Error> {
-    if method != &Method::POST
+    if method != Method::POST
         || uri.path() != NATIVE_AUTHORITY_ORIGINALS_ROUTE_V1
         || uri.query().is_some()
     {
@@ -89,7 +89,7 @@ fn authenticate_body(
     body: &[u8],
 ) -> Result<AccountId, Error> {
     let authentication_owner =
-        match crate::history_producer::HistoryProducerOwner::authentication_read(&app) {
+        match crate::history_producer::HistoryProducerOwner::authentication_read(app) {
             Ok(owner) => owner,
             Err(error) => {
                 return Err(error);
@@ -100,9 +100,7 @@ fn authenticate_body(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     )?

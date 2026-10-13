@@ -653,8 +653,10 @@ fn fee_reward_claim_refuses_currency_substitution_and_stale_credit() {
             binding.validator_lane_id,
         )
         .unwrap();
-        let mut params = SumeragiNposParameters::default();
-        params.xor_asset_definition_id = binding.ds_asset_id.clone();
+        let params = SumeragiNposParameters {
+            xor_asset_definition_id: binding.ds_asset_id.clone(),
+            ..Default::default()
+        };
         stx.world
             .parameters
             .get_mut()

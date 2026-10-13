@@ -81,13 +81,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         after: &ReleasedStep,
     ) -> Result<Option<FoldSeed>, Error> {
-        let capsule = valid(after.frozen.capsule.capsule_digest())?;
+        let capsule = after.frozen.capsule.custody_digest();
         if manifest
             .capsule_sources
             .get(&mut self.archive, &capsule)?
             .is_none()
         {
-            if after.frozen.capsule.kind == KagemushaWalletOperationKindV1::Bootstrap
+            if after.frozen.capsule.body().kind == KagemushaWalletOperationKindV1::Bootstrap
                 || manifest
                     .capsule_plans
                     .get(&mut self.archive, &capsule)?
@@ -150,25 +150,25 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         valid(fold.record.to_canonical_bytes())?;
         let r = &fold.record;
         let public = &r.lineage.public;
-        if r.first_sequence != c.statement.sequence
-            || r.sequence != c.statement.sequence
-            || r.head != c.statement.successor
-            || r.capsule_digest != valid(c.capsule_digest())?
+        if r.first_sequence != c.body().statement.sequence
+            || r.sequence != c.body().statement.sequence
+            || r.head != c.body().statement.successor
+            || r.capsule_digest != c.custody_digest()
             || r.scheme_id != self.scheme_id
             || r.wallet_id != self.wallet_id
-            || public.credential_digest != c.statement.credential_digest
+            || public.credential_digest != c.body().statement.credential_digest
             || public.payment_key != step.frozen.credential.body.payment_key
-            || public.relation_id != c.statement.relation_id
-            || public.lifecycle != c.statement.lifecycle
-            || public.policy_epoch != c.successor_state.core.policy_epoch
-            || public.enabled_controls != c.successor_state.core.enabled_controls
-            || (fold.burned && c.kind != KagemushaWalletOperationKindV1::Receive)
+            || public.relation_id != c.body().statement.relation_id
+            || public.lifecycle != c.body().statement.lifecycle
+            || public.policy_epoch != c.body().successor_state.core.policy_epoch
+            || public.enabled_controls != c.body().successor_state.core.enabled_controls
+            || (fold.burned && c.body().kind != KagemushaWalletOperationKindV1::Receive)
         {
             return Err(Error::WitnessLost("fold head binding"));
         }
         if self
             .verified_folds
-            .get(&c.statement.sequence)
+            .get(&c.body().statement.sequence)
             .map(Vec::as_slice)
             != Some(bytes)
         {
@@ -177,7 +177,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         // Only the most recently used Ω is cached; history must not accumulate in RAM.
         self.verified_folds.clear();
         self.verified_folds
-            .insert(c.statement.sequence, bytes.to_vec());
+            .insert(c.body().statement.sequence, bytes.to_vec());
         Ok(fold)
     }
     pub(super) fn read_fold(&mut self, step: &ReleasedStep) -> Result<Option<RecordedFold>, Error> {
@@ -192,7 +192,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             token.check()?;
         }
         let (_, manifest) = self.manifest()?;
-        let sequence = step.frozen.capsule.statement.sequence;
+        let sequence = step.frozen.capsule.body().statement.sequence;
         let expected = manifest
             .folds
             .get(&mut self.archive, &manifest::sequence_key(sequence))?;
@@ -222,12 +222,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         burned: bool,
     ) -> Result<(), Error> {
         let c = &step.frozen.capsule;
-        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.statement.effect {
+        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.body().statement.effect {
             tree.record(
                 store,
                 &KagemushaWalletCreditDigestLeafV1 {
                     credit_id,
-                    payment_digest: c.payment_digest,
+                    payment_digest: c.body().payment_digest,
                     burned,
                 },
             )?;
@@ -264,7 +264,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .archive
                 .get(
                     ArchiveKey::Checkpoint {
-                        sequence: c.statement.sequence,
+                        sequence: c.body().statement.sequence,
                         ordinal,
                     },
                     layout.record_limit()?,
@@ -273,7 +273,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             let checkpoint: Checkpoint = archive::decode(&bytes)?;
             if checkpoint.ordinal != ordinal
                 || checkpoint.previous != previous
-                || checkpoint.capsule_digest != valid(c.capsule_digest())?
+                || checkpoint.capsule_digest != c.custody_digest()
                 || checkpoint.predecessor_fold != predecessor_fold
                 || checkpoint.layout != layout
                 || checkpoint.proof.len()
@@ -398,7 +398,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 }
                 let checkpoint = Checkpoint {
                     layout,
-                    capsule_digest: valid(step.frozen.capsule.capsule_digest())?,
+                    capsule_digest: step.frozen.capsule.custody_digest(),
                     predecessor_fold: predecessor
                         .as_ref()
                         .map(KagemushaWalletFoldRecordV1::fold_digest)
@@ -432,7 +432,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if let Some(seed) = &seed {
                     let mut view =
                         seed.view(&mut self.archive, predecessor_step.as_ref(), &step)?;
-                    match step.frozen.capsule.kind {
+                    match step.frozen.capsule.body().kind {
                         KagemushaWalletOperationKindV1::Receive => {
                             view.credit_record(burned)?;
                         }
@@ -473,8 +473,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     wallet_id: self.wallet_id,
                     first_sequence: sequence,
                     sequence,
-                    head: c.statement.successor,
-                    capsule_digest: valid(c.capsule_digest())?,
+                    head: c.body().statement.successor,
+                    capsule_digest: c.custody_digest(),
                     lineage,
                 };
                 let bytes = archive::encode(&RecordedFold { record, burned })?;
@@ -544,7 +544,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         let status = KagemushaWalletCreditStatusV1 {
             version: 1,
-            statement: step.frozen.capsule.statement.clone(),
+            statement: step.frozen.capsule.body().statement.clone(),
             proof_digest: valid(step.frozen.capsule.proof_digest())?,
             receipt: step.retained.record.receipt,
             lineage: fold.record.lineage,

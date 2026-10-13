@@ -16,7 +16,7 @@ use crate::kagemusha::kagemusha_wallet_v1::{
 };
 
 /// One mutation of a recovery capsule.
-type CapsuleMutation = fn(&mut KagemushaWalletRecoveryCapsuleV1);
+type CapsuleMutation = fn(&mut KagemushaWalletRecoveryBodyV1);
 
 fn android() -> IdentityFixture {
     identity_fixture(KagemushaWalletEvidenceKindV1::AndroidKeyMintTee, 0x65)
@@ -96,7 +96,7 @@ fn capsule_with(
         &payment_digest,
     )
     .expect("output");
-    KagemushaWalletRecoveryCapsuleV1 {
+    KagemushaWalletRecoveryBodyV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
         scheme_id: credential.body.scheme_id,
         wallet_id: credential.body.wallet_id,
@@ -114,6 +114,10 @@ fn capsule_with(
         retained_inputs: retained_for(kind),
         output,
     }
+    .freeze()
+    .expect("valid frozen body")
+    .seal([0; 32])
+    .expect("deterministic test opening")
 }
 
 /// Capsule of `statement` with the generic stand-ins: Ω(pred) exactly when the operation
@@ -153,37 +157,37 @@ fn complete(
     credential: &KagemushaWalletCredentialV1,
     capsule: &KagemushaWalletRecoveryCapsuleV1,
 ) -> (KagemushaWalletReceiptV1, KagemushaWalletPackageV1) {
-    let digest = capsule.capsule_digest().expect("capsule digest");
+    let digest = capsule.receipt_commitment();
     let proof_digest = capsule.proof_digest().expect("proof digest");
     let signer = KagemushaWalletReceiptSignerV1::from_credential(credential).expect("signer");
     let body = KagemushaWalletReceiptBodyV1::derive(
         &signer,
-        &capsule.statement,
+        &capsule.body().statement,
         &proof_digest,
         digest,
-        capsule.payment_digest,
+        capsule.body().payment_digest,
     )
     .expect("receipt body");
     let receipt = KagemushaWalletReceiptV1::sign(
         credential,
-        &capsule.statement,
+        &capsule.body().statement,
         &proof_digest,
         digest,
-        capsule.payment_digest,
+        capsule.body().payment_digest,
         raw_output(&f.payment, &body.signing_message()),
     )
     .expect("receipt");
     let package = KagemushaWalletPackageV1::new(
-        capsule.statement,
-        capsule.predecessor_lineage.clone(),
-        capsule.step_proof.clone(),
+        capsule.body().statement,
+        capsule.body().predecessor_lineage.clone(),
+        capsule.body().step_proof.clone(),
         receipt,
     );
     (receipt, package)
 }
 
 /// Bootstrap capsule bound to `f`'s generation-0 enrollment marker.
-fn bootstrap_capsule(f: &IdentityFixture) -> KagemushaWalletRecoveryCapsuleV1 {
+pub(super) fn bootstrap_capsule(f: &IdentityFixture) -> KagemushaWalletRecoveryCapsuleV1 {
     let statement = KagemushaWalletStatementV1 {
         effect: enrollment_marker(f)
             .bootstrap_effect()
@@ -309,6 +313,7 @@ fn kagemusha_wallet_v1_enrollment_marker_and_bootstrap_effect() {
     );
     // The Bootstrap statement binding this marker runs under the credential.
     bootstrap_capsule(&f)
+        .body()
         .statement
         .validate_for_credential(&f.credential)
         .expect("bootstrap statement");
@@ -368,7 +373,7 @@ fn kagemusha_wallet_v1_enrollment_marker_and_bootstrap_effect() {
     };
     assert_invalid(wallet.validate(), "marker.wallet_id");
     let head = marker
-        .successor(bootstrap_capsule(&f).head_marker_state().expect("head"))
+        .successor(bootstrap_capsule(&f).head_marker_state())
         .expect("head marker");
     assert_invalid(head.bootstrap_effect(), "marker.state");
 }
@@ -379,12 +384,12 @@ fn kagemusha_wallet_v1_marker_generations_follow_the_provider_contract() {
     let enrollment = enrollment_marker(&f);
     let bootstrap = bootstrap_capsule(&f);
     let head0 = enrollment
-        .successor(bootstrap.head_marker_state().expect("head"))
+        .successor(bootstrap.head_marker_state())
         .expect("bootstrap head");
     head0
         .require_capsule(&bootstrap)
         .expect("bootstrap capsule");
-    let bootstrap_digest = bootstrap.capsule_digest().expect("digest");
+    let bootstrap_digest = bootstrap.custody_digest();
     let next = capsule_for(
         &f.credential,
         &transition_statement(&f, 1, 0, KagemushaWalletLifecycleV1::Active, send_effect()),
@@ -392,11 +397,11 @@ fn kagemusha_wallet_v1_marker_generations_follow_the_provider_contract() {
         bootstrap_digest,
     );
     let head1 = head0
-        .successor(next.head_marker_state().expect("head"))
+        .successor(next.head_marker_state())
         .expect("next head");
     head1.require_capsule(&next).expect("next capsule");
     assert_invalid(head1.require_capsule(&bootstrap), "marker.capsule");
-    let next_digest = next.capsule_digest().expect("digest");
+    let next_digest = next.custody_digest();
     let deleted = head1
         .successor(KagemushaWalletMarkerStateV1::Terminal {
             reason: KagemushaWalletTerminalReasonV1::CustodyDeleted,
@@ -412,14 +417,14 @@ fn kagemusha_wallet_v1_marker_generations_follow_the_provider_contract() {
 
     // Disallowed transitions.
     assert_invalid(
-        enrollment.successor(next.head_marker_state().expect("head")),
+        enrollment.successor(next.head_marker_state()),
         "marker.state",
     );
     assert_invalid(
         head0.successor(KagemushaWalletMarkerStateV1::Head {
             sequence: 1,
-            operation_id: next.operation_id,
-            head: next.statement.successor,
+            operation_id: next.body().operation_id,
+            head: next.body().statement.successor,
             capsule_digest: next_digest,
             predecessor_capsule_digest: [0x43; 32],
         }),
@@ -474,8 +479,8 @@ fn kagemusha_wallet_v1_marker_generations_follow_the_provider_contract() {
     let mut unlinked = head1;
     unlinked.state = KagemushaWalletMarkerStateV1::Head {
         sequence: 1,
-        operation_id: next.operation_id,
-        head: next.statement.successor,
+        operation_id: next.body().operation_id,
+        head: next.body().statement.successor,
         capsule_digest: next_digest,
         predecessor_capsule_digest: [0; 32],
     };
@@ -487,7 +492,7 @@ fn kagemusha_wallet_v1_marker_generations_follow_the_provider_contract() {
         let mut incomplete = head1;
         incomplete.state = KagemushaWalletMarkerStateV1::Head {
             sequence: 1,
-            operation_id: next.operation_id,
+            operation_id: next.body().operation_id,
             head,
             capsule_digest: next_digest,
             predecessor_capsule_digest: bootstrap_digest,
@@ -634,21 +639,21 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
         stand_in_proof(64),
         [0x64; 32],
     );
-    capsule.validate().expect("capsule");
+    capsule.body().validate().expect("capsule");
     assert_eq!(
         capsule.proof_digest().expect("digest"),
         kagemusha_wallet_proof_digest_v1(
             KagemushaWalletOperationKindV1::Receive,
             None,
-            &capsule.step_proof
+            &capsule.body().step_proof
         )
         .expect("digest")
     );
-    assert_eq!(capsule.predecessor_lineage(), None);
-    let frame = capsule.to_canonical_bytes().expect("frame");
+    assert_eq!(capsule.body().predecessor_lineage(), None);
+    let frame = capsule.to_canonical_bytes();
     assert!(frame.len() <= KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1);
     assert_eq!(
-        capsule.capsule_digest().expect("digest"),
+        capsule.custody_digest(),
         kagemusha_wallet_digest_v1(Role::Capsule, &frame)
     );
     assert_eq!(
@@ -661,17 +666,21 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
         Err(KagemushaWalletValidationErrorV1::SchemeMismatch { .. })
     ));
     assert_eq!(
-        capsule.head_marker_state().expect("head"),
+        capsule.head_marker_state(),
         KagemushaWalletMarkerStateV1::Head {
             sequence: 3,
-            operation_id: capsule.operation_id,
-            head: capsule.statement.successor,
-            capsule_digest: capsule.capsule_digest().expect("digest"),
+            operation_id: capsule.body().operation_id,
+            head: capsule.body().statement.successor,
+            capsule_digest: capsule.custody_digest(),
             predecessor_capsule_digest: [0x64; 32],
         }
     );
-    bootstrap_capsule(&f).validate().expect("bootstrap capsule");
+    bootstrap_capsule(&f)
+        .body()
+        .validate()
+        .expect("bootstrap capsule");
 
+    let capsule = capsule.body().clone();
     let mutations: [(CapsuleMutation, &str); 25] = [
         (
             |capsule| capsule.kind = KagemushaWalletOperationKindV1::Load,
@@ -798,6 +807,10 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
         let mut mutated = capsule.clone();
         mutate(&mut mutated);
         assert_invalid(mutated.validate(), field);
+        assert!(
+            mutated.freeze().is_err(),
+            "immutable owner must reject {field}"
+        );
     }
     let mut with_lineage = capsule.clone();
     with_lineage.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
@@ -807,7 +820,7 @@ fn kagemusha_wallet_v1_recovery_capsule_rules() {
         ),
     };
     assert_invalid(with_lineage.validate(), "lineage.slot");
-    let mut bootstrap = bootstrap_capsule(&f);
+    let mut bootstrap = bootstrap_capsule(&f).body().clone();
     bootstrap.predecessor_capsule_digest = [0x6b; 32];
     assert_invalid(bootstrap.validate(), "capsule.predecessor_capsule_digest");
     let mut version = capsule;
@@ -823,7 +836,9 @@ fn kagemusha_wallet_v1_capsule_consumes_the_recorded_lineage() {
     let f = android();
     let statement =
         transition_statement(&f, 3, 0, KagemushaWalletLifecycleV1::Active, send_effect());
-    let capsule = capsule_for(&f.credential, &statement, stand_in_proof(64), [0x64; 32]);
+    let capsule = capsule_for(&f.credential, &statement, stand_in_proof(64), [0x64; 32])
+        .body()
+        .clone();
     capsule.validate().expect("send capsule");
     let lineage = capsule.predecessor_lineage().expect("Ω(pred)").clone();
     assert_eq!(
@@ -955,24 +970,20 @@ fn kagemusha_wallet_v1_completion_record_rebuilds_the_output() {
         "completion.credential",
     );
     // The released Payment must carry the capsule's Ω(pred).
-    let mut other_lineage = send.clone();
+    let mut other_lineage = send.body().clone();
     if let KagemushaWalletLineageSlotV1::Present { lineage } =
         &mut other_lineage.predecessor_lineage
     {
         lineage.proof.push(0);
     }
-    assert!(
-        send_record
-            .verify(&m.payer.credential, &other_lineage)
-            .is_err()
-    );
+    assert!(other_lineage.freeze().is_err());
 
     // Record and capsule bindings.
     let mut other_receipt = record.clone();
-    other_receipt.receipt.capsule_digest = [0x73; 32];
+    other_receipt.receipt.capsule_commitment = [0x73; 32];
     assert_invalid(
-        other_receipt.validate(),
-        "completion.receipt.capsule_digest",
+        other_receipt.require_capsule(&capsule),
+        "completion.receipt.capsule_commitment",
     );
     let mut other_operation = record.clone();
     other_operation.receipt.operation_id = field_value(0x74);
@@ -990,7 +1001,7 @@ fn kagemusha_wallet_v1_completion_record_rebuilds_the_output() {
         &f.credential,
         &transition_statement(&f, 1, 0, KagemushaWalletLifecycleV1::Active, send_effect()),
         stand_in_proof(16),
-        capsule.capsule_digest().expect("digest"),
+        capsule.custody_digest(),
     );
     assert_invalid(
         record.verify(&f.credential, &next),
@@ -1019,9 +1030,9 @@ fn kagemusha_wallet_v1_completion_record_rebuilds_the_output() {
         "completion.output",
     );
     // A capsule whose descriptor names another output.
-    let mut redirected = capsule.clone();
+    let mut redirected = capsule.body().clone();
     redirected.output.digest = [0x75; 32];
-    assert!(record.verify(&f.credential, &redirected).is_err());
+    assert!(redirected.freeze().is_err());
     let mut version = record;
     version.version = 2;
     assert!(matches!(
@@ -1108,4 +1119,58 @@ fn kagemusha_wallet_v1_fold_record_binds_one_lineage_per_head() {
         oversized.to_canonical_bytes(),
         Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { .. })
     ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_completion_binds_private_wrapper_and_public_receipt_together() {
+    let f = android();
+    let original = bootstrap_capsule(&f);
+    let (receipt, package) = complete(&f, &f.credential, &original);
+    let output = norito::encode_canonical(&package).unwrap();
+    let record =
+        KagemushaWalletCompletionRecordV1::new(&original, receipt, output.clone()).unwrap();
+    record.verify(&f.credential, &original).unwrap();
+    let mut opening = [0; 32];
+    opening[0] = 1;
+    let changed = original
+        .body()
+        .clone()
+        .freeze()
+        .unwrap()
+        .seal(opening)
+        .unwrap();
+    assert_eq!(changed.body(), original.body());
+    assert_invalid(
+        record.require_capsule(&changed),
+        "completion.capsule_digest",
+    );
+    assert!(record.verify(&f.credential, &changed).is_err());
+    let mut substituted = record.clone();
+    substituted.capsule_digest = changed.custody_digest();
+    assert_invalid(
+        substituted.require_capsule(&changed),
+        "completion.receipt.capsule_commitment",
+    );
+    assert!(KagemushaWalletCompletionRecordV1::new(&changed, receipt, output).is_err());
+    substituted.receipt.capsule_commitment = changed.receipt_commitment();
+    substituted.require_capsule(&changed).unwrap();
+    // A format-valid pair of identifiers is not receipt signature authority.
+    let signer = KagemushaWalletReceiptSignerV1::from_credential(&f.credential).unwrap();
+    assert!(
+        substituted
+            .receipt
+            .verify(
+                &signer,
+                &changed.body().statement,
+                &changed.proof_digest().unwrap()
+            )
+            .is_err()
+    );
+    assert!(substituted.verify(&f.credential, &changed).is_err());
+    let marker = enrollment_marker(&f)
+        .successor(original.head_marker_state())
+        .unwrap();
+    marker.require_capsule(&original).unwrap();
+    assert_invalid(marker.require_capsule(&changed), "marker.capsule");
+    assert_eq!(record.output, norito::encode_canonical(&package).unwrap());
 }

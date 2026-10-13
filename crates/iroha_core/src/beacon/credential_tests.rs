@@ -851,6 +851,21 @@ fn decode_budget_scales_with_the_frame_and_rejects_empty_or_oversized_bytes() {
 
 #[test]
 fn borrowed_credential_encoding_keeps_the_exact_canonical_layout_and_sealed_graph() {
+    #[derive(NoritoSerialize)]
+    struct RuntimeGlobalBeaconShareCredentialRefV1<'a> {
+        public_session: PayloadRef<'a, GlobalThresholdBeaconKeySessionV1>,
+        signer_index: u16,
+        components: PayloadRef<'a, ConsensusThresholdSecretScalarTripleV1>,
+    }
+    #[derive(NoritoSerialize, norito::NoritoSchema)]
+    #[norito_schema(
+        name = "iroha_core::beacon::credential::RuntimeGlobalBeaconSignerCredentialWireV1",
+        frame = "iroha.runtime_provider_broker.v1.consensus_threshold.global_beacon_signer_credential"
+    )]
+    struct RuntimeGlobalBeaconSignerCredentialRefV1<'a> {
+        header: PayloadRef<'a, ConsensusThresholdCredentialHeaderV1>,
+        sessions: Vec<RuntimeGlobalBeaconShareCredentialRefV1<'a>>,
+    }
     let credential_budget = crate::beacon::fixtures::fixture_budget();
     let network = network_id(0xD1);
     let fixture = seat_fixture(network, 0xD2, 4, &credential_budget);
@@ -874,21 +889,6 @@ fn borrowed_credential_encoding_keeps_the_exact_canonical_layout_and_sealed_grap
         norito::encode_canonical(&owned).unwrap().as_slice(),
         bytes.as_slice()
     );
-    #[derive(NoritoSerialize)]
-    struct RuntimeGlobalBeaconShareCredentialRefV1<'a> {
-        public_session: PayloadRef<'a, GlobalThresholdBeaconKeySessionV1>,
-        signer_index: u16,
-        components: PayloadRef<'a, ConsensusThresholdSecretScalarTripleV1>,
-    }
-    #[derive(NoritoSerialize, norito::NoritoSchema)]
-    #[norito_schema(
-        name = "iroha_core::beacon::credential::RuntimeGlobalBeaconSignerCredentialWireV1",
-        frame = "iroha.runtime_provider_broker.v1.consensus_threshold.global_beacon_signer_credential"
-    )]
-    struct RuntimeGlobalBeaconSignerCredentialRefV1<'a> {
-        header: PayloadRef<'a, ConsensusThresholdCredentialHeaderV1>,
-        sessions: Vec<RuntimeGlobalBeaconShareCredentialRefV1<'a>>,
-    }
     let borrowed = RuntimeGlobalBeaconSignerCredentialRefV1 {
         header: PayloadRef(&owned.header),
         sessions: owned
@@ -963,8 +963,8 @@ fn imported_credential_graph_retains_original_credits_until_its_last_owner_drops
 
 #[test]
 fn credential_import_preserves_original_pool_refusal_and_can_retry_after_release() {
-    let credential_budget = crate::beacon::fixtures::fixture_budget();
     use iroha_allocation::AllocationRefusal;
+    let credential_budget = crate::beacon::fixtures::fixture_budget();
     let network = network_id(0xD5);
     let fixture = seat_fixture(network, 0xD6, 4, &credential_budget);
     let inventory = provisioning(&fixture, 1);

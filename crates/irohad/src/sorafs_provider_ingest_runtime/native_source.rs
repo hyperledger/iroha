@@ -328,12 +328,11 @@ fn response_matches_request(
     request: &SorafsAssignedSourceRequestV1,
 ) -> bool {
     match (response, request.chunk_index) {
-        (ProviderSourceResponseV1::Metadata(header), None)
-            if header.provider_id == request.target_provider
+        (ProviderSourceResponseV1::Metadata(header), None) => {
+            let provider_matches = header.provider_id == request.target_provider;
+            provider_matches
                 && header.order_id == request.order_id
-                && header.assignment_revision == request.assignment_revision =>
-        {
-            true
+                && header.assignment_revision == request.assignment_revision
         }
         (ProviderSourceResponseV1::Chunk(upload), Some(index)) if upload.index == index => true,
         _ => false,
@@ -459,7 +458,7 @@ mod tests {
             payload_digest: *blake3::hash(&bytes).as_bytes(),
             chunks: vec![PublisherSourceChunkV1 {
                 offset: 0,
-                length: bytes.len() as u32,
+                length: u32::try_from(bytes.len()).expect("fixture chunk fits u32"),
                 digest: *blake3::hash(&bytes).as_bytes(),
             }],
             files: Vec::new(),

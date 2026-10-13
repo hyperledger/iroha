@@ -1,0 +1,38 @@
+{
+  "checked_at_utc": "2026-10-13T04:45:41.741646+00:00",
+  "scope": "Final document/artifact checks; not a whole-workspace pass or cryptographic qualification. Source reconstruction and original campaign failures remain in their own receipts.",
+  "cross_verification": {
+    "verified_archive_manifest_files": 27,
+    "positive_corpus_records": 24,
+    "parameter_sets": 12,
+    "signature_lengths_and_sha256_verified": true,
+    "successful_recovery_verifier_calls": 84,
+    "negative_recovery_calls": 0,
+    "original_publication_rejected": true
+  },
+  "scoped_rustfmt": {
+    "command": [
+      "cargo",
+      "+1.93.1",
+      "fmt",
+      "-p",
+      "iroha_parliament_ballot_proof",
+      "-p",
+      "iroha_zkp_vole",
+      "--",
+      "--check"
+    ],
+    "exit": 0
+  },
+  "local_markdown_links": {
+    "documents": 7,
+    "resolved": 103
+  },
+  "driver_tests": {
+    "documented_unittest_command": "python3.11 -m unittest discover -s crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2 -p test_cross_verify_upstream.py -v",
+    "passed": 6,
+    "exit": 0,
+    "alternate_pytest_invocation": "Repository pytest collection does not expose this standalone fixture directory on sys.path; it failed to import cross_verify_upstream. The documented unittest discovery command passes without changing source."
+  },
+  "production_qualified": false
+}

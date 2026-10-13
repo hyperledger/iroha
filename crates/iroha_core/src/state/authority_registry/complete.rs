@@ -423,7 +423,7 @@ mod tests {
             .expect("authentic alias path")
             .is_some()
         );
-        let mut canonical_rows = vec![
+        let mut canonical_rows = [
             (
                 norito::codec::encode_adaptive(&first_alias),
                 norito::codec::encode_adaptive(&first_owner),

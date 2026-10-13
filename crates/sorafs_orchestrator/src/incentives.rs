@@ -119,7 +119,7 @@ pub enum RewardConfigError {
         /// Location of the metrics log file.
         path: PathBuf,
         /// Underlying error.
-        source: MetricsLogError,
+        source: MetricsLogOpenError,
     },
 }
 /// Computes relay reward instructions given epoch metrics and bonding state.

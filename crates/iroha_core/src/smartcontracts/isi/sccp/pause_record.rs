@@ -21,6 +21,9 @@ use norito::{
 };
 use std::{alloc::Layout, fmt, ops::Deref};
 
+mod draft;
+pub(crate) use draft::{FastPauseDraft, FastPauseRoundDraft, PausePanelDraft};
+
 /// Structural rejection stays distinct from original local allocation refusal.
 #[derive(Debug, thiserror::Error)]
 pub enum PauseRecordError {
@@ -268,6 +271,7 @@ impl RetainedSccpFastPause {
         Self::demand(source)?.total_bytes::<SccpFastPauseV1>()
     }
     /// Admit one structurally valid DTO under the original execution pool.
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &SccpFastPauseV1,
         budget: &AllocationBudget,
@@ -341,6 +345,7 @@ impl RetainedSccpPausePanel {
     pub(crate) fn admission_demand(source: &SccpPausePanelV1) -> Result<usize, PauseRecordError> {
         Self::demand(source)?.total_bytes::<PausePanelBody>()
     }
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &SccpPausePanelV1,
         budget: &AllocationBudget,
@@ -407,6 +412,7 @@ impl RetainedSccpFastPauseRound {
     ) -> Result<usize, PauseRecordError> {
         Self::demand(source)?.total_bytes::<FastPauseRoundBody>()
     }
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &SccpFastPauseRoundV1,
         budget: &AllocationBudget,

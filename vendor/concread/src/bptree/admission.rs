@@ -1770,11 +1770,11 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "admission_tests.rs"]
 mod tests;
 
-#[cfg(all(test, not(feature = "dhat-heap"), not(miri)))]
+#[cfg(all(test, not(miri)))]
 #[path = "owned_footprint_tests.rs"]
 mod owned_footprint_tests;
 

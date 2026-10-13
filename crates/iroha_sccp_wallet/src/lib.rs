@@ -5,23 +5,21 @@
 //! is involved. It holds:
 //!
 //! - `pure`: network-free verification of proof bundles, rotation chains and
-//!   Parliament controls against the destination's own state, and destination
+//!   Parliament/fast-pause controls against independently observed native destination state, and destination
 //!   transaction encodings (EVM calldata and EIP-1559 signing; TON),
 //!   exportable to SDK bridges;
-//! - `config`: the file-only `[sccp]` table (endpoint lists, timeouts, pinned
-//!   deployments per Taira `NetworkId`), kept in its own file beside the
-//!   client config until the `iroha` client config root nests it;
+//! - `config`: the canonical nested `[sccp]` client table (endpoint lists, timeouts,
+//!   pinned deployments per Taira `NetworkId`), retained from the original client parse;
 //! - `journal`: the resumable journal keyed by `NetworkId`, built on
 //!   `iroha_operation_journal`.
 //!
 //! This crate is never linked into `irohad`; the `sccp_wallet` layer in
 //! `ci/dependency_budget.json` enforces that boundary.
 //!
-//! TODO(ws51): add the resumable outbound (§7.1), inbound (§7.2) and refund
-//! (§7.3) flows, which verify every piece of evidence before paying and
-//! journal it before submitting anything, with a shared flow driver and
-//! resume logic.
+//! - `flow`: typed transfers, deployment and maintenance transitions, exact-byte dispatch and
+//!   original observation before an explicit identical-byte rebroadcast. Signing keys remain runtime-only.
 
 pub mod config;
+pub mod flow;
 pub mod journal;
 pub mod pure;

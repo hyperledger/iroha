@@ -106,7 +106,7 @@ pub(super) fn validate_private_tree(path: &Path, executables: &[&Path]) -> Resul
 }
 
 /// Sync every validated private file and directory before publishing a completed generation.
-pub(crate) fn sync_private_tree(path: &Path) -> Result<()> {
+pub fn sync_private_tree(path: &Path) -> Result<()> {
     let root = PrivateDirectory::open(path)?;
     let mut pending = vec![(root.path().to_path_buf(), false)];
     let mut count = 0;

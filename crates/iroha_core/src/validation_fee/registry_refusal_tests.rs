@@ -58,6 +58,7 @@ fn signed_runtime(
 #[test]
 fn signed_fee_subject_read_keeps_scope_refusal_distinct_from_inactive_treasury() {
     signed_runtime(|stx, binding, _, _| {
+        const CEILING: usize = 8 * 1024 * 1024;
         let run = || {
             validate_treasury_payout_binding_contract_subject(
                 binding,
@@ -71,7 +72,6 @@ fn signed_fee_subject_read_keeps_scope_refusal_distinct_from_inactive_treasury()
         let prefix = || {
             validate_network_xor_asset(stx.world(), &binding.xor_asset_id).unwrap();
         };
-        const CEILING: usize = 8 * 1024 * 1024;
         let prefix_bytes = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, CEILING, 32),
             || {

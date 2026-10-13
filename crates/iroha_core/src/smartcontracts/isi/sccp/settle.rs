@@ -23,7 +23,7 @@ use super::{
     Error, escrow, leaves,
     outbound::{self, OutboundRecordArgsV1},
     recipients::{self, SccpRecipientClassV1},
-    store,
+    reconciliation, reconciliation_store, store,
 };
 use crate::state::{StateTransaction, WorldReadOnly};
 use iroha_data_model::{
@@ -33,11 +33,12 @@ use iroha_data_model::{
     sccp::{
         events::{
             SccpBounceReasonV1, SccpEvent, SccpInboundBouncedV1, SccpInboundLiabilityShortfallV1,
-            SccpInboundReleasedV1, SccpOutboundRefundedV1, SccpOutboundStrandedV1,
-            SccpRecipientRegisteredV1,
+            SccpInboundReleasedV1, SccpInboundStrandedV1, SccpOutboundRefundedV1,
+            SccpOutboundStrandedV1, SccpRecipientRegisteredV1,
         },
         inbound::{
-            SccpBounceStatusV1, SccpInboundRecordV1, SccpInboundStatusV1, SccpPendingReasonV1,
+            SccpBounceStatusV1, SccpInboundRecordV1, SccpInboundSettledV1, SccpInboundStatusV1,
+            SccpPendingReasonV1,
         },
         outbound::{SccpOutboundStatusV1, SccpStatusHeightV1},
         registry::SccpRouteActivationV1,
@@ -67,7 +68,8 @@ pub(super) fn adjust_pending(
     Ok(())
 }
 
-/// Add `delta` to `liability(revision)` of `network`.
+/// Add `delta` to `liability(revision)` of `network` in test fixtures.
+#[cfg(test)]
 pub(super) fn adjust_liability(
     state_transaction: &mut StateTransaction<'_, '_>,
     network: SccpNetworkV1,
@@ -225,7 +227,29 @@ pub fn settle_inbound(
     }
     let payload = SccpTransferPayloadV1::decode(&record.payload)
         .map_err(|error| refuse(format_args!("stored payload: {error}")))?;
-    let amount = payload.amount;
+    let face_amount = payload.amount;
+    let reconciled =
+        reconciliation::claim_payout(world, network, revision, face_amount, liability)?;
+    let amount = reconciled.unwrap_or(face_amount);
+    if reconciled == Some(0) {
+        adjust_pending(state_transaction, (network, revision), -1, 0)?;
+        let height = state_transaction._curr_block.height().get();
+        set_inbound_status(
+            state_transaction,
+            message_id,
+            record,
+            SccpInboundStatusV1::Released(SccpInboundSettledV1 { height, payout: 0 }),
+        )?;
+        reconciliation::claim_settled(
+            state_transaction,
+            network,
+            revision,
+            message_id,
+            face_amount,
+            0,
+        )?;
+        return Ok(true);
+    }
     if liability < amount {
         state_transaction
             .world
@@ -246,7 +270,8 @@ pub fn settle_inbound(
             false,
         );
     }
-    match recipients::classify_recipient(state_transaction, &payload.recipient.bytes) {
+    let changed = match recipients::classify_recipient(state_transaction, &payload.recipient.bytes)
+    {
         SccpRecipientClassV1::Creditable {
             account,
             registered,
@@ -257,17 +282,37 @@ pub fn settle_inbound(
             amount,
             (account, registered),
         ),
-        SccpRecipientClassV1::Uncreditable { reason, .. } => {
-            bounce_inbound(state_transaction, message_id, record, &payload, reason)
-        }
+        SccpRecipientClassV1::Uncreditable { reason, .. } => bounce_inbound(
+            state_transaction,
+            message_id,
+            record,
+            &payload,
+            amount,
+            reason,
+        ),
         SccpRecipientClassV1::Undecodable => bounce_inbound(
             state_transaction,
             message_id,
             record,
             &payload,
+            amount,
             SccpBounceReasonV1::UndecodableRecipient,
         ),
+    }?;
+    if cfg!(all(test, sumeragi_core_mutation = "HC290"))
+        || store::inbound_messages::get(&*state_transaction.world, &message_id)
+            .is_some_and(|record| !record.status.is_pending())
+    {
+        reconciliation::claim_settled(
+            state_transaction,
+            network,
+            revision,
+            message_id,
+            face_amount,
+            amount,
+        )?;
     }
+    Ok(changed)
 }
 
 /// Release the inbound message `message_id` of `amount` Taira units to the creditable
@@ -322,14 +367,17 @@ fn release_inbound(
     for (to, value, _) in credits {
         escrow::release(state_transaction, network, &to, value, message_id)?;
     }
-    adjust_liability(state_transaction, network, revision, -to_i128(amount)?)?;
+    debit_liability(state_transaction, network, revision, amount)?;
     adjust_pending(state_transaction, (network, revision), -1, 0)?;
     let height = state_transaction._curr_block.height().get();
     set_inbound_status(
         state_transaction,
         message_id,
         record,
-        SccpInboundStatusV1::Released(SccpStatusHeightV1 { height }),
+        SccpInboundStatusV1::Released(SccpInboundSettledV1 {
+            height,
+            payout: amount,
+        }),
     )?;
     state_transaction
         .world
@@ -378,9 +426,10 @@ fn bounce_inbound(
     message_id: [u8; 32],
     record: SccpInboundRecordV1,
     payload: &SccpTransferPayloadV1,
+    amount: u128,
     reason: SccpBounceReasonV1,
 ) -> Result<bool, Error> {
-    let (network, revision, amount) = (record.network, record.revision, payload.amount);
+    let (network, revision) = (record.network, record.revision);
     let height = state_transaction._curr_block.height().get();
     if leaves::leaf_count_at(&*state_transaction.world, height)
         >= leaves::MAX_LEAVES_PER_BLOCK as usize
@@ -400,6 +449,33 @@ fn bounce_inbound(
         amount,
         state_transaction.block_unix_timestamp_ms(),
     );
+    if store::routes::get(&*state_transaction.world, &network)
+        .and_then(|route| route.revisions.get(&bounce_revision))
+        .is_some_and(|target| target.quarantine.is_some())
+    {
+        escrow::strand(state_transaction, network, amount)?;
+        debit_liability(state_transaction, network, revision, amount)?;
+        adjust_pending(state_transaction, (network, revision), -1, 0)?;
+        set_inbound_status(
+            state_transaction,
+            message_id,
+            record,
+            SccpInboundStatusV1::Stranded(SccpInboundSettledV1 {
+                height,
+                payout: amount,
+            }),
+        )?;
+        state_transaction
+            .world
+            .emit_events(Some(SccpEvent::InboundStranded(SccpInboundStrandedV1 {
+                message_id,
+                network,
+                revision,
+                amount,
+                reason,
+            })));
+        return Ok(true);
+    }
     let escrow_account = store::routes::get(&*state_transaction.world, &network)
         .map(|route| route.escrow.clone())
         .ok_or_else(|| refuse("the route is unknown"))?;
@@ -413,20 +489,18 @@ fn bounce_inbound(
     // Plan before any effect. The source sender is a valid account of the route's own codec,
     // so a plan that fails is an invariant violation, never a partial bounce.
     let planned = outbound::plan(state_transaction, &args)?;
-    adjust_liability(state_transaction, network, revision, -to_i128(amount)?)?;
-    adjust_liability(
-        state_transaction,
-        network,
-        bounce_revision,
-        to_i128(amount)?,
-    )?;
+    debit_liability(state_transaction, network, revision, amount)?;
+    credit_liability(state_transaction, network, bounce_revision, amount)?;
     let bounce_message_id = outbound::write_planned(state_transaction, &args, planned)?;
     adjust_pending(state_transaction, (network, revision), -1, 0)?;
     set_inbound_status(
         state_transaction,
         message_id,
         record,
-        SccpInboundStatusV1::Bounced(SccpBounceStatusV1 { bounce_message_id }),
+        SccpInboundStatusV1::Bounced(SccpBounceStatusV1 {
+            bounce_message_id,
+            payout: amount,
+        }),
     )?;
     state_transaction
         .world
@@ -442,16 +516,51 @@ fn bounce_inbound(
     Ok(true)
 }
 
-fn to_i128(amount: u128) -> Result<i128, Error> {
-    i128::try_from(amount).map_err(|_| refuse("amount out of range"))
+fn change_liability(
+    state: &mut StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    revision: u32,
+    amount: u128,
+    increase: bool,
+) -> Result<(), Error> {
+    let mut route = store::routes::get(&*state.world, &network)
+        .cloned()
+        .ok_or_else(|| refuse("unknown route"))?;
+    let record = route
+        .revisions
+        .get_mut(&revision)
+        .ok_or_else(|| refuse("unknown revision"))?;
+    record.liability = if increase {
+        record.liability.checked_add(amount)
+    } else {
+        record.liability.checked_sub(amount)
+    }
+    .ok_or_else(|| refuse("liability out of range"))?;
+    store::routes::insert(state, network, route)?;
+    Ok(())
+}
+fn debit_liability(
+    state: &mut StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    revision: u32,
+    amount: u128,
+) -> Result<(), Error> {
+    change_liability(state, network, revision, amount, false)
+}
+fn credit_liability(
+    state: &mut StateTransaction<'_, '_>,
+    network: SccpNetworkV1,
+    revision: u32,
+    amount: u128,
+) -> Result<(), Error> {
+    change_liability(state, network, revision, amount, true)
 }
 
 /// The bounce target revision: the route's `Bidirectional` revision when its cap has room,
 /// else the inbound revision itself (§4.12.5).
 ///
 /// Destination-only pauses do not block a bounce: §4.12.5 skips outbound steps 1–6.
-/// TODO: WP-S6: consult actual quarantine/forgery State and strand a quarantined fallback
-/// once that owner exists. No synthetic quarantine authority is supplied here.
+/// A permanently quarantined fallback strands instead of recording another outbound message.
 fn bounce_target(
     world: &(impl WorldReadOnly + ?Sized),
     network: SccpNetworkV1,
@@ -462,7 +571,8 @@ fn bounce_target(
     store::routes::get(world, &network)
         .and_then(|route| route.bidirectional_revision())
         .filter(|live| {
-            !super::hold::taira(world, network, live.revision, Some(timestamp_ms))
+            live.quarantine.is_none()
+                && !super::hold::taira(world, network, live.revision, Some(timestamp_ms))
                 && live
                     .liability
                     .checked_add(amount)
@@ -478,9 +588,6 @@ pub enum SccpRefundOutcomeV1 {
     /// not settleable or held on Taira, the release movement refuses the credit now, or the void releases no value
     /// inline to this sender (its inline release budget is spent, or the sender is a multisig
     /// account).
-    ///
-    /// TODO(ws41): the voided record keeps only `refund_pending: bool`, so the hold reason is
-    /// not recorded; the `Voided` status reshaping (WP7) should carry it.
     Held {
         /// Whether the attempt still changed state (it registered the absent sender).
         changed: bool,
@@ -504,6 +611,27 @@ impl SccpRefundOutcomeV1 {
     pub const fn is_held(self) -> bool {
         matches!(self, Self::Held { .. })
     }
+}
+
+/// Persist the single typed reason a voided refund remains pending.
+fn hold_refund(
+    state: &mut StateTransaction<'_, '_>,
+    message_id: [u8; 32],
+    mut record: iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1,
+    reason: SccpPendingReasonV1,
+    changed: bool,
+) -> Result<SccpRefundOutcomeV1, Error> {
+    let SccpOutboundStatusV1::Voided(ref mut status) = record.status else {
+        return Err(refuse("refund is not voided"));
+    };
+    let reason_changed = status.refund_pending != Some(reason);
+    if reason_changed {
+        status.refund_pending = Some(reason);
+        store::outbound_messages::insert(state, message_id, record)?;
+    }
+    Ok(SccpRefundOutcomeV1::Held {
+        changed: changed || reason_changed,
+    })
 }
 
 /// Attempt the refund of the voided outbound message `message_id` (§4.16), emit the events of
@@ -555,18 +683,35 @@ pub(super) fn refund(
     let enabled = store::parameters::get(world)
         .as_ref()
         .is_some_and(|params| params.enabled);
-    let (activation, _) =
+    let (activation, liability) =
         activation(world, network, revision).ok_or_else(|| refuse("the revision is unknown"))?;
-    if !enabled
-        || !activation.settles()
-        || super::hold::taira(
-            world,
-            network,
-            revision,
-            Some(state_transaction.block_unix_timestamp_ms()),
-        )
-    {
-        return Ok(SccpRefundOutcomeV1::Held { changed: false });
+    let hold = if !enabled {
+        Some(SccpPendingReasonV1::Disabled)
+    } else if !activation.settles() {
+        Some(SccpPendingReasonV1::RevisionNotSettleable)
+    } else if super::hold::taira(
+        world,
+        network,
+        revision,
+        Some(state_transaction.block_unix_timestamp_ms()),
+    ) {
+        Some(SccpPendingReasonV1::Held)
+    } else {
+        None
+    };
+    if let Some(reason) = hold {
+        return hold_refund(state_transaction, message_id, record, reason, false);
+    }
+    // Refunds always retain full face value. A later void may exceed the liability
+    // still available after reconciliation, in which case it remains pending.
+    if liability < amount {
+        return hold_refund(
+            state_transaction,
+            message_id,
+            record,
+            SccpPendingReasonV1::LiabilityShortfall,
+            false,
+        );
     }
     let target = if escrow::is_escrow(world, &record.sender) {
         None
@@ -582,7 +727,13 @@ pub(super) fn refund(
     let height = state_transaction._curr_block.height().get();
     let outcome = if let Some((account, registered)) = target {
         if !may_release {
-            return Ok(SccpRefundOutcomeV1::Held { changed: false });
+            return hold_refund(
+                state_transaction,
+                message_id,
+                record,
+                SccpPendingReasonV1::RefundDeferred,
+                false,
+            );
         }
         let registered_now =
             !registered && recipients::ensure_registered(state_transaction, &account)?;
@@ -594,9 +745,13 @@ pub(super) fn refund(
             }));
         }
         if escrow::precheck_release(state_transaction, network, &account, amount).is_err() {
-            return Ok(SccpRefundOutcomeV1::Held {
-                changed: registered_now,
-            });
+            return hold_refund(
+                state_transaction,
+                message_id,
+                record,
+                SccpPendingReasonV1::CreditRefused,
+                registered_now,
+            );
         }
         escrow::release(state_transaction, network, &account, amount, message_id)?;
         record.status = SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height });
@@ -621,8 +776,9 @@ pub(super) fn refund(
         }));
         SccpRefundOutcomeV1::Stranded
     };
-    adjust_liability(state_transaction, network, revision, -to_i128(amount)?)?;
+    debit_liability(state_transaction, network, revision, amount)?;
     adjust_pending(state_transaction, (network, revision), 0, -1)?;
+    reconciliation_store::sub_pending_refund(state_transaction, (network, revision), amount)?;
     store::outbound_messages::insert(state_transaction, message_id, record)?;
     Ok(outcome)
 }

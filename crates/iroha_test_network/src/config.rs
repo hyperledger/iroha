@@ -2338,7 +2338,7 @@ mod tests {
         divergent_zk.gas.per_proof_byte = 1_000;
         divergent_zk.pipa_r.max_proof_bytes = 1;
         // A local resource, which a node may set.
-        divergent_zk.trace.verifier_worker_threads = 1;
+        divergent_zk.trace.worker_threads = 1;
         let mut divergent_pipeline = default_pipeline.clone();
         divergent_pipeline.overlay_max_instructions = 1;
         divergent_pipeline.query_max_fetch_size = 1;
@@ -2403,7 +2403,7 @@ mod tests {
             view.zk.pipa_r.max_proof_bytes,
             default_zk.pipa_r.max_proof_bytes
         );
-        assert_eq!(view.zk.trace.verifier_worker_threads, 1);
+        assert_eq!(view.zk.trace.worker_threads, 1);
         assert_eq!(
             view.pipeline.overlay_max_instructions,
             default_pipeline.overlay_max_instructions

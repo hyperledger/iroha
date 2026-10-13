@@ -6,7 +6,6 @@
 //! injected qualified runtime signer sees only an exact fee-quoted payload, while only Torii's strict
 //! durable ingress can expose the resulting signed transaction.
 
-#![cfg(feature = "app_api")]
 use super::reserve_worker::{
     ReserveEnvelopeReconciliationV1, ReserveFinalizedSnapshotV1, ReserveWorkerActionV1,
     plan_reserve_worker_action, reconcile_reserve_semantics,
@@ -69,13 +68,13 @@ const RESERVE_LIFECYCLE_STAGE_COUNT_V1: usize = 5;
 const RESERVE_MOVEMENT_STATUS_COUNT_V1: usize = 3;
 const RESERVE_RECONCILED_STATUS_COUNT_V1: usize = 2;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SorafsReserveTransactionForwarderCursorV1 {
+pub struct SorafsReserveTransactionForwarderCursorV1 {
     after_sequence: Option<u64>,
     after_provider_id: Option<ProviderId>,
     telemetry: SorafsReserveFinalizedTelemetryProjectionV1,
 }
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SorafsReserveTransactionForwarderScanV1 {
+pub struct SorafsReserveTransactionForwarderScanV1 {
     generated: usize,
     generation_replayed: usize,
     generation_deferred: usize,
@@ -521,9 +520,12 @@ fn apply_reserve_finalized_telemetry_event_page(
                 .map_err(|_| SorafsReserveFinalizedTelemetryErrorV1::ArithmeticOverflow)?
         || (page.has_more && page.events.is_empty())
         || page.has_more != page.next_after.is_some()
-        || page
-            .next_after
-            .is_some_and(|cursor| page.events.last().map(|event| event.cursor()) != Some(cursor))
+        || page.next_after.is_some_and(|cursor| {
+            page.events
+                .last()
+                .map(iroha_data_model::sorafs::reserve::ReserveFinalizedEventV1::cursor)
+                != Some(cursor)
+        })
     {
         return Err(SorafsReserveFinalizedTelemetryErrorV1::InvalidEventPage);
     }
@@ -721,9 +723,9 @@ fn refresh_sorafs_reserve_finalized_telemetry(
     let finalized_cursor = reserve_finalized_cursor_from_view(&view)
         .ok_or(SorafsReserveFinalizedTelemetryErrorV1::FinalizedViewUnavailable)?;
     if !consume_reserve_finalized_telemetry_events(&view, finalized_cursor, projection)? {
-        state
-            .telemetry
-            .with_metrics(|metrics| metrics.mark_sorafs_reserve_finalized_projection_unready());
+        state.telemetry.with_metrics(
+            iroha_core::telemetry::Telemetry::mark_sorafs_reserve_finalized_projection_unready,
+        );
         return Ok(SorafsReserveFinalizedTelemetryRefreshV1::CatchingUp);
     }
     let provider_metrics = collect_reserve_finalized_provider_metrics(&view, finalized_cursor)?;
@@ -834,7 +836,7 @@ fn reserve_provider_id(retained: &ReserveTransactionReconciliationV1) -> Option<
         .request
         .operation
         .provider_id()
-        .or_else(|| match &retained.projection {
+        .or(match &retained.projection {
             ReserveTransactionProjectionV1::Registration { .. } => None,
             ReserveTransactionProjectionV1::Provider { account }
             | ReserveTransactionProjectionV1::MovementDecision { account, .. }
@@ -1027,7 +1029,7 @@ fn decode_exact_reserve_signed_transaction(
 /// suppresses generation of new worker-owned operations. When both controls are disabled, retained
 /// entries stay durable but make zero external progress because no task is spawned. Opening the
 /// local node may still release interrupted signer-only claims back to `Ready`.
-pub(crate) fn spawn_sorafs_reserve_transaction_forwarder_worker(
+pub fn spawn_sorafs_reserve_transaction_forwarder_worker(
     state: SharedAppState,
     shutdown_signal: ShutdownSignal,
 ) -> Option<tokio::task::JoinHandle<crate::ToriiCriticalWorkerExit>> {
@@ -1099,7 +1101,7 @@ pub(crate) fn spawn_sorafs_reserve_transaction_forwarder_worker(
     }
     worker
 }
-pub(crate) async fn run_sorafs_reserve_transaction_forwarder_scan(
+pub async fn run_sorafs_reserve_transaction_forwarder_scan(
     state: &SharedAppState,
     cursor: &mut SorafsReserveTransactionForwarderCursorV1,
 ) -> SorafsReserveTransactionForwarderScanV1 {
@@ -2199,7 +2201,9 @@ mod tests {
             finalized_reserve_event(2, 1, 1, SorafsReserveLedgerEventKind::ProviderRegistered),
             finalized_reserve_event(3, 2, 0, SorafsReserveLedgerEventKind::MovementRequested),
         ];
-        let first_after = first_events.last().map(|event| event.cursor());
+        let first_after = first_events
+            .last()
+            .map(iroha_data_model::sorafs::reserve::ReserveFinalizedEventV1::cursor);
         let first = ReserveFinalizedEventPageV1 {
             finalized_cursor,
             events: first_events,
@@ -2225,7 +2229,10 @@ mod tests {
             .expect("second finalized event page");
         assert_eq!(
             projection.after_event,
-            second.events.last().map(|event| event.cursor())
+            second
+                .events
+                .last()
+                .map(iroha_data_model::sorafs::reserve::ReserveFinalizedEventV1::cursor)
         );
         assert_eq!(projection.custody_counts, [0, 1, 0]);
         assert_eq!(projection.reconciled_counts, [1, 0]);

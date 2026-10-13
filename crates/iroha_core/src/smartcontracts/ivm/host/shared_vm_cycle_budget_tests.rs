@@ -11,17 +11,17 @@ mod shared_vm_cycle_budget_tests {
         let caller = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku CycleCaller { view fn main() authorize(anyone) -> int { return 0; } }
-"#,
+",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku CycleCallee { view fn value() authorize(anyone) -> int { return 42; } }
-"#,
+",
             1,
         );
         let run = |budget: &ivm::VmCycleBudget| {
@@ -29,7 +29,7 @@ seiyaku CycleCallee { view fn value() authorize(anyone) -> int { return 42; } }
                 &state,
                 &authority,
                 &caller,
-                &callee,
+                &target_contract,
                 "value",
                 Json::new(()),
                 1_000_000,
@@ -81,15 +81,15 @@ seiyaku CycleCallee { view fn value() authorize(anyone) -> int { return 42; } }
         let caller = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku CycleCaller { view fn main() authorize(anyone) -> int { return 0; } }
-"#,
+",
             0,
         );
-        let callee = install_contract(
+        let target_contract = install_contract(
             &state,
             &authority,
-            r#"
+            r"
 seiyaku CycleFailure { permission AssetOps;
   error enum Failure { Refused = 1 }
   state int counter;
@@ -100,7 +100,7 @@ seiyaku CycleFailure { permission AssetOps;
     return 0;
   }
 }
-"#,
+",
             1,
         );
         grant_asset_ops_to_account(&state, &authority, caller.subject_id());
@@ -115,7 +115,7 @@ seiyaku CycleFailure { permission AssetOps;
                     &state,
                     &authority,
                     &caller,
-                    &callee,
+                    &target_contract,
                     "fail_after_write",
                     Json::new(()),
                     1_000_000,

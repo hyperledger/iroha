@@ -49,7 +49,7 @@ impl HttpTransport for Transport {
 }
 
 struct Fixture {
-    _temporary: tempfile::TempDir,
+    temporary: tempfile::TempDir,
     attachment: PrivateDirectory,
     bootstrap: AuthenticatedBootstrap,
     spec: PrivateRootSpec,
@@ -125,7 +125,7 @@ impl Fixture {
         let transport =
             CheckpointTransport::with_client(PublicHttpClient::with_transport(raw.clone()));
         Self {
-            _temporary: temporary,
+            temporary,
             attachment,
             bootstrap,
             spec,
@@ -358,7 +358,7 @@ fn managed_amx_sources_feed_real_private_staging_and_exact_retained_generation()
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::new();
     let sources = fixture.retain(true).unwrap();
-    let child = fixture._temporary.path().join("private");
+    let child = fixture.temporary.path().join("private");
     let ports = crate::managed::LocalnetPorts::reserve().unwrap();
     let prepared = crate::localnet::prepare_private_root_with_amx_at(
         "private",

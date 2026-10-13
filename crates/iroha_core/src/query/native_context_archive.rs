@@ -131,6 +131,7 @@ struct Projection<'a> {
     lanes: LaneStateRef<'a>,
     ordinary_writes: OrdinaryWritesRef<'a>,
     casting_bindings: CastingBindingsRef<'a>,
+    sccp_delta: &'a [u8],
 }
 impl norito::NoritoSchema for Projection<'_> {
     fn nominal_name() -> String {
@@ -315,11 +316,23 @@ impl NativeContextArchive {
                 "complete values differ from original R proof",
             ));
         }
+        // Stream only the original overlay. The buffer and final archive frame are
+        // admitted by this same original pool; no uncharged Vec clone is introduced.
+        let sccp_delta = capture_sccp_delta(&overlay.world, &self.budget, self.maximum.get())?;
+        crate::smartcontracts::isi::sccp::witness::require_exact_delta(
+            executed.header().height().get(),
+            sccp_delta.as_slice(),
+            &witness.writes,
+        )
+        .map_err(|_| {
+            NativeContextArchiveError::Source("SCCP delta differs from original witness")
+        })?;
         let projection = Projection {
             carrier_height: result.get().commitment().height,
             carrier_hash: executed.hash(),
             lanes: LaneStateRef(lanes),
             ordinary_writes: OrdinaryWritesRef(&witness.writes),
+            sccp_delta: sccp_delta.as_slice(),
             casting_bindings: CastingBindingsRef(
                 overlay.captured_parliament_casting_bindings().ok_or(
                     NativeContextArchiveError::Source("original casting leaves are absent"),
@@ -354,7 +367,7 @@ impl NativeContextArchive {
                 .ordinary_writes
                 .0
                 .iter()
-                .any(|write| prepared_intents::is_prepared_key_prefix(&write.key)),
+                .any(|write| prepared_intents::is_relay_key_prefix(&write.key)),
         })
     }
 
@@ -439,6 +452,42 @@ impl NativeContextArchive {
     }
 }
 
+fn capture_sccp_delta(
+    world: &crate::state::WorldBlock<'_>,
+    budget: &AllocationBudget,
+    maximum: usize,
+) -> Result<ChargedBuffer<u8>, NativeContextArchiveError> {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or(std::io::ErrorKind::InvalidData)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut length = Count(0);
+    world.write_sccp_execution_delta(&mut length)?;
+    if length.0 > maximum {
+        return Err(NativeContextArchiveError::Limit {
+            maximum,
+            actual: length.0,
+        });
+    }
+    let mut bytes = ChargedBuffer::new(length.0, budget)?;
+    world.write_sccp_execution_delta(&mut BufferWriter(&mut bytes))?;
+    if bytes.as_slice().len() != length.0 {
+        return Err(NativeContextArchiveError::Source(
+            "SCCP delta changed during capture",
+        ));
+    }
+    Ok(bytes)
+}
+
 struct BufferWriter<'a>(&'a mut ChargedBuffer<u8>);
 impl Write for BufferWriter<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -457,6 +506,7 @@ struct RecordName {
 }
 impl RecordName {
     fn new(height: u64, hash: HashOf<BlockHeader>, staged: bool) -> Self {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut out = Self {
             bytes: [0; 90],
             len: 0,
@@ -474,7 +524,6 @@ impl RecordName {
         out.len += 20;
         out.bytes[out.len] = b'-';
         out.len += 1;
-        const HEX: &[u8; 16] = b"0123456789abcdef";
         for byte in hash.as_ref() {
             out.bytes[out.len] = HEX[usize::from(byte >> 4)];
             out.bytes[out.len + 1] = HEX[usize::from(byte & 15)];
@@ -509,6 +558,7 @@ fn open_directory(store_root: &Path, create: bool) -> io::Result<(File, File)> {
 #[cfg(unix)]
 fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
     use rustix::fs::{AtFlags, Mode, OFlags};
+    use std::os::unix::fs::MetadataExt as _;
     if create {
         match rustix::fs::mkdirat(
             &root,
@@ -527,11 +577,10 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
         Mode::empty(),
     )?);
     let entry = rustix::fs::statat(&root, "native-contexts", AtFlags::SYMLINK_NOFOLLOW)?;
-    use std::os::unix::fs::MetadataExt as _;
     let actual = directory.metadata()?;
     if !actual.is_dir()
-        || entry.st_dev as u64 != actual.dev()
-        || entry.st_ino as u64 != actual.ino()
+        || crate::kura::unix_device_identity(entry.st_dev) != actual.dev()
+        || entry.st_ino != actual.ino()
     {
         return Err(io::Error::other(
             "native context directory identity changed",
@@ -647,7 +696,9 @@ fn verify_named_file(directory: &File, name: &str, file: &File) -> io::Result<()
     use std::os::unix::fs::MetadataExt as _;
     let named = rustix::fs::statat(directory, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)?;
     let opened = file.metadata()?;
-    if named.st_dev as u64 != opened.dev() || named.st_ino as u64 != opened.ino() {
+    if crate::kura::unix_device_identity(named.st_dev) != opened.dev()
+        || named.st_ino != opened.ino()
+    {
         return Err(io::Error::other("native context record identity changed"));
     }
     Ok(())

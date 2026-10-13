@@ -366,10 +366,10 @@ fn kura_budget_check_scales_with_pending_depth() {
 fn store_block_rejects_when_storage_exceeds_budget() {
     let temp_dir = TempDir::new().expect("create temp dir");
     let mut blocks = NativeBlocks::new();
-    let block1 = blocks.next();
-    let block2 = blocks.next();
-    let block1_required = Kura::block_required_bytes(&block1).expect("block1 required bytes");
-    let block2_required = Kura::block_required_bytes(&block2).expect("block2 required bytes");
+    let first_block = blocks.next();
+    let second_block = blocks.next();
+    let block1_required = Kura::block_required_bytes(&first_block).expect("block1 required bytes");
+    let block2_required = Kura::block_required_bytes(&second_block).expect("block2 required bytes");
     let kura_cfg = kura_config_for_dir(&temp_dir, BLOCKS_IN_MEMORY);
     let (mut kura, _) =
         Kura::open_test_kura_with_configured_lane_config(&kura_cfg, &RuntimeLaneConfig::default())
@@ -383,9 +383,9 @@ fn store_block_rejects_when_storage_exceeds_budget() {
     Arc::get_mut(&mut kura)
         .expect("exclusive kura handle")
         .max_disk_usage_bytes = baseline.saturating_add(block1_required.max(block2_required));
-    kura.store_block(block1).expect("store first block");
+    kura.store_block(first_block).expect("store first block");
     let err = kura
-        .store_block(block2)
+        .store_block(second_block)
         .expect_err("stored bytes should exceed budget");
     assert!(
         matches!(err, Error::StorageBudgetExceeded { .. }),

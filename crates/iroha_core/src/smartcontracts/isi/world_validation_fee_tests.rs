@@ -677,6 +677,11 @@ fn verified_fee_sponsor_registration_fixture(
         fee_sponsor_vault_source_state_root,
     };
 
+    use fastpq_prover::gadgets::public_transfer_statement::{
+        PublicTransferLimits, TransferSmtBuildLimits, materialize_quantity_public_transfers,
+        public_claims_from_transcripts,
+    };
+    static PROOFS: VerifiedFeeSponsorProofFixtures = VerifiedFeeSponsorProofFixtures::new();
     let source_dataspace_id = DataSpaceId::new(7);
     let asset_definition_id: AssetDefinitionId = "66owaQmAQMuHxPzxUN3bqZ6FJfDa"
         .parse()
@@ -768,8 +773,8 @@ fn verified_fee_sponsor_registration_fixture(
         from_balance_after: Quantity::zero(),
         to_balance_before: Quantity::zero(),
         to_balance_after: verified_allocation.clone(),
-        from_smt_witness: Default::default(),
-        to_smt_witness: Default::default(),
+        from_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
+        to_smt_witness: iroha_data_model::fastpq::TransferSmtWitness::default(),
     };
     let digest =
         fastpq_prover::gadgets::transfer::compute_poseidon_digest(&delta, &source_tx_commitment);
@@ -781,10 +786,6 @@ fn verified_fee_sponsor_registration_fixture(
         ),
         poseidon_preimage_digest: Some(digest),
     }];
-    use fastpq_prover::gadgets::public_transfer_statement::{
-        PublicTransferLimits, TransferSmtBuildLimits, materialize_quantity_public_transfers,
-        public_claims_from_transcripts,
-    };
     let limits = PublicTransferLimits::default();
     let public = public_claims_from_transcripts(&transcripts, limits).expect("exact funding claim");
     let materialized = {
@@ -842,7 +843,6 @@ fn verified_fee_sponsor_registration_fixture(
         Some(proof_expiry),
     )
     .expect("bind verified fee sponsor proof metadata");
-    static PROOFS: VerifiedFeeSponsorProofFixtures = VerifiedFeeSponsorProofFixtures::new();
     let proof = PROOFS.get_or_produce(&batch, &binding, || {
         crate::unit_test_support::prove_axt_bound_batch_when_available(&batch, &binding)
     });
@@ -2417,9 +2417,9 @@ fn install_retained_validation_fee_unregister_fixture(
             .map(validation_fee_unregister_account)
             .collect(),
         max_sbd_per_attempt_minor: 1000,
-        max_sbd_per_day_minor: 100000,
+        max_sbd_per_day_minor: 100_000,
         min_interval_ms: 60000,
-        max_source_age_ms: 300000,
+        max_source_age_ms: 300_000,
         max_slippage_bps: 100,
         validator_lane_id: iroha_model_base::topology::LaneId::new(0),
         min_reward_claim_xor_minor: 1,
@@ -2447,8 +2447,8 @@ fn install_retained_validation_fee_unregister_fixture(
         proposal_operator: ALICE_ID.clone(),
         policy: ValidationFeePolicyV1 {
             retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-            effective_from_ms: 1793451600000,
-            notice_published_at_ms: 1790859600000,
+            effective_from_ms: 1_793_451_600_000,
+            notice_published_at_ms: 1_790_859_600_000,
             schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
             network_id: network_id.clone(),
             policy_version: 1,
@@ -2492,8 +2492,8 @@ fn install_retained_validation_fee_unregister_fixture(
 
     let custody_policy = ValidationFeePolicyV1 {
         retail_schedule: iroha_data_model::validation_fee::RetailFeeScheduleV1::default(),
-        effective_from_ms: 1793451600000,
-        notice_published_at_ms: 1790859600000,
+        effective_from_ms: 1_793_451_600_000,
+        notice_published_at_ms: 1_790_859_600_000,
         schema_version: VALIDATION_FEE_POLICY_SCHEMA_VERSION,
         network_id,
         policy_version: 1,
@@ -3047,6 +3047,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
     }
     let mut fixture = None;
     chain.setup_world_at(60_000, |transaction| {
+        const CEILING: usize = 1 << 20;
         crate::validation_fee::tests::register_bound_payout_time_trigger(
             transaction,
             &binding,
@@ -3080,7 +3081,6 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
             )
             .expect("the complete committed NPoS currency read succeeds");
         };
-        const CEILING: usize = 1 << 20;
         let prefix_bytes = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, CEILING, 32),
             || {
@@ -3102,7 +3102,7 @@ fn signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome() {
             prefix_bytes,
             32,
         );
-        norito::with_decode_limits_scope(limits, || prefix());
+        norito::with_decode_limits_scope(limits, &prefix);
         let producer_refusal = norito::with_decode_limits_scope(limits, || {
             prefix();
             crate::smartcontracts::code::fetch_bound_contract_record(

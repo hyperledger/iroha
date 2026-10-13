@@ -39,16 +39,18 @@ fn observed(
     retained: Option<&History>,
 ) -> (Result<History>, parse_digest_tests::Counts) {
     let counter = parse_digest_tests::Counter::begin();
-    let result = match retained {
-        Some(prior) => History::read_retained(
-            &fixture.operation,
-            Purpose::ReservePolicy,
-            fixture.semantic,
-            &HistoryScope::FixedBody,
-            prior,
-        ),
-        None => fixture.history(),
-    };
+    let result = retained.map_or_else(
+        || fixture.history(),
+        |prior| {
+            History::read_retained(
+                &fixture.operation,
+                Purpose::ReservePolicy,
+                fixture.semantic,
+                &HistoryScope::FixedBody,
+                prior,
+            )
+        },
+    );
     (result, counter.finish())
 }
 
@@ -88,9 +90,15 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
         .unwrap();
     let wallet = std::fs::read(shared.attempts[2].wallet_path().join("preparation.json")).unwrap();
     let mut reopened = fixture.history().unwrap();
-    reopened.root = Some(PrivateDirectory::open(reopened.root.as_ref().unwrap().path()).unwrap());
-    for attempt in &mut reopened.attempts {
-        attempt.directory = PrivateDirectory::open(attempt.directory.path()).unwrap();
+    {
+        // This fresh parser result owns its records; retained immutable predecessors stay sealed.
+        let HistoryRecordsOwner::Owned(records) = &mut reopened.records else {
+            panic!("the fresh parser must own its records");
+        };
+        records.root = Some(PrivateDirectory::open(records.root.as_ref().unwrap().path()).unwrap());
+        for attempt in &mut records.attempts {
+            attempt.directory = PrivateDirectory::open(attempt.directory.path()).unwrap();
+        }
     }
     // Independently reopened owners share no native Arc prefix with the selected root.
     let (fallback, counts) = observed(&fixture, Some(&reopened));
@@ -175,7 +183,7 @@ fn fresh_parse_tree_keeps_shared_and_reopened_rows_lazy_refusals_and_exact_sourc
     drop(extra);
     std::fs::remove_dir(root.path().join("0042")).unwrap();
     let original_middle = root.path().join("0002");
-    let held_middle = fixture._temporary.path().join("held-middle");
+    let held_middle = fixture.temporary.path().join("held-middle");
     std::fs::rename(&original_middle, &held_middle).unwrap();
     let (refused, counts) = observed(&fixture, None);
     assert!(

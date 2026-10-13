@@ -1,0 +1,152 @@
+{
+  "scope": "Compile-only target-specific layout evidence; no target code executed; not physical x86 testing or a heap/stack/allocator certificate.",
+  "production_qualified": false,
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)\nbinary: rustc\ncommit-hash: 01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf\ncommit-date: 2026-02-11\nhost: aarch64-apple-darwin\nrelease: 1.93.1\nLLVM version: 21.1.8",
+  "dependencies": "Every probe package version and registry checksum matches the measured root lock; aes is the vendored source.",
+  "source_sha256": {
+    "vendor/aes/src/armv8/encdec.rs": "54f85c5942fbb384c106321fb54aa06f29ae16be87ebce127fd4932a329a4feb",
+    "vendor/aes/src/armv8/expand.rs": "d40ee141eb7dec4ccb675455ec93fe08a75dfd228bc5339096cfa8d7270ff375",
+    "vendor/aes/src/armv8/hazmat.rs": "f6d722a53ca464b16b1bc9bb7c23a5780510252cbcb059735e2acf656c5b2cbe",
+    "vendor/aes/src/armv8/intrinsics.rs": "3192f65da7cac81f3a48601d950c66c72814fa9cacab9a9d8c8969dbae6b098c",
+    "vendor/aes/src/armv8/test_expand.rs": "7bc04e7fc5bba65f4451c86ba2e80ce98b04faa734f16d28af09660c5623d96a",
+    "vendor/aes/src/armv8.rs": "bc8ff3cae2f799d849105b79091604e1579ae5e8a8fbe19db24c6ccbf48146a4",
+    "vendor/aes/src/autodetect.rs": "ba7f24607973e4bb6dd07e100f70e0cf2a04e0b083020085b8d4865f02405f41",
+    "vendor/aes/src/hazmat.rs": "120063eea58b8e6b29306ad1181624b0216b8bcb4b6557c0fa458e7bc6c28f0c",
+    "vendor/aes/src/lib.rs": "859930f1e982e3ff026940aa704dc91e492254ac87c709a9b176b231167f36a6",
+    "vendor/aes/src/ni/aes128.rs": "88b94c99163b6b82810d7817e02374ddca4086b0896a8ebe183241a604ec92be",
+    "vendor/aes/src/ni/aes192.rs": "156254b46e469a20e09a1cefa22bae2afd9c10e2b68fd2bf40eaf9a05095cdda",
+    "vendor/aes/src/ni/aes256.rs": "f9fba1a4ac1e91fc908f3164460fc531f91cf0b0d015b3463056d0bd97981eae",
+    "vendor/aes/src/ni/hazmat.rs": "eeeb4a8cd92204095ecef3d40e1786dede05b63afba41c9fa3e9b871f40eb6d8",
+    "vendor/aes/src/ni/test_expand.rs": "6ad46711aeb49c21144ea31f801493ab87d3cb19d35bb3610657bfadfa75d044",
+    "vendor/aes/src/ni/utils.rs": "10fe6c0ad778a59cde5cef6cb6bc478cc68d21e28bda9331ced3c26b0a732426",
+    "vendor/aes/src/ni.rs": "15b9a67dbedc3b558ddec063489be4a6607e568afddd8345506be36952fc3bde",
+    "vendor/aes/src/soft/fixslice32.rs": "c69c0fa430cb62c4d88a13d5c3387202e1962b47978a6a7026bd34789f2d2577",
+    "vendor/aes/src/soft/fixslice64.rs": "b071d85916e4e09da703168eb7cebc2ba4c4ab2b783713b8caf9541742b741e3",
+    "vendor/aes/src/soft.rs": "3a84211717fdc86a2b0f0d9086f33410bee2ff9be480f50c981980f678a0c2a8",
+    "vendor/aes/Cargo.toml": "717f1a1a4a0aaaa7f96ef0576ca8c4813e1e69b75ff40fde5edb4fea15b4c048",
+    "docs/validation/parliament_ballot_b6/provider-layout.rs": "c9edcd0a910c4120d52e5e38d4c1f07283abf4a16b5e896613ffde46023cbaad",
+    "docs/validation/parliament_ballot_b6/provider-layout-Cargo.toml.template": "c3b7e5bf118f2e458650388764e60035994dc9261d5f9002515538227633d881",
+    "docs/validation/parliament_ballot_b6/provider-layout-Cargo.lock.template": "83523c1d3e1e5862106eea8a8b659ca6d32e13f788aea76838e81d57a2a4c182"
+  },
+  "targets": [
+    {
+      "target": "aarch64-apple-darwin",
+      "mode": "portable",
+      "bytes": {
+        "AUTO_ALIGN": 8,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "2adffc442b0188cdfc7f2852fe1dc3e81e1ef4d5f7162a18bd934f36a8470ffd",
+      "llvm_ir_file": "provider-layout-aarch64-apple-darwin-portable.ll.txt"
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "mode": "accel",
+      "bytes": {
+        "AUTO_ALIGN": 16,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "b7ff228cdb630b44062727c4736813f20bb3a389bac4ad83df3816210e77f024",
+      "llvm_ir_file": "provider-layout-aarch64-apple-darwin-accel.ll.txt"
+    },
+    {
+      "target": "aarch64-apple-ios",
+      "mode": "portable",
+      "bytes": {
+        "AUTO_ALIGN": 8,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "72e461dc5b74a1c18408195ce4818714d58444294244daa1e05e18c3e7e7e953",
+      "llvm_ir_file": "provider-layout-aarch64-apple-ios-portable.ll.txt"
+    },
+    {
+      "target": "aarch64-apple-ios",
+      "mode": "accel",
+      "bytes": {
+        "AUTO_ALIGN": 16,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "fc3c67665eed5ea6245a5c6566f6960eb4ed0a03036e4cab687537cdab59dc32",
+      "llvm_ir_file": "provider-layout-aarch64-apple-ios-accel.ll.txt"
+    },
+    {
+      "target": "aarch64-linux-android",
+      "mode": "portable",
+      "bytes": {
+        "AUTO_ALIGN": 8,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "925e33478b5825a92b9bd63c0cfc3bf91404dbd9021069697de81bfc5d189a60",
+      "llvm_ir_file": "provider-layout-aarch64-linux-android-portable.ll.txt"
+    },
+    {
+      "target": "aarch64-linux-android",
+      "mode": "accel",
+      "bytes": {
+        "AUTO_ALIGN": 16,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "e05b902fc9addb3a01f122c107aebb5e5410b0d819a2f762e536bad0b3d6bb0a",
+      "llvm_ir_file": "provider-layout-aarch64-linux-android-accel.ll.txt"
+    },
+    {
+      "target": "x86_64-unknown-linux-musl",
+      "mode": "portable",
+      "bytes": {
+        "AUTO_ALIGN": 8,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "45282456b59cde5ea4dac5354ed322984d82ea334082b2b379b6179a7696116e",
+      "llvm_ir_file": "provider-layout-x86_64-unknown-linux-musl-portable.ll.txt"
+    },
+    {
+      "target": "x86_64-unknown-linux-musl",
+      "mode": "accel",
+      "bytes": {
+        "AUTO_ALIGN": 16,
+        "AUTO_SIZE": 960,
+        "SOFT_ALIGN": 8,
+        "SOFT_SIZE": 960
+      },
+      "llvm_ir_sha256": "549ec7337c4db74198939024a9fe2db5b01399e7d12777abec4d34928efcea7d",
+      "llvm_ir_file": "provider-layout-x86_64-unknown-linux-musl-accel.ll.txt"
+    }
+  ],
+  "maximum_simultaneous_verifier_provider_boxes": 1,
+  "lifetime_basis": [
+    "bavc::expand_node creates a temporary PRG consumed by fill and dropped at statement end",
+    "LeafCommitter::commit owns one local generator; its affine hashing creates no nested generator",
+    "vole::convert::Instance::fold, called by convert_to_vole_hidden, creates and drops one temporary PRG per revealed leaf sequentially"
+  ],
+  "command_template": [
+    "cargo",
+    "+1.93.1",
+    "rustc",
+    "--offline",
+    "--locked",
+    "--lib",
+    "--release",
+    "--target",
+    "<target>",
+    "--target-dir",
+    "pinned-target",
+    "<--features accel only for accel mode>",
+    "--",
+    "--emit=llvm-ir=<output>"
+  ],
+  "rustflags": "No RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS or CARGO_TARGET_DIR environment overrides."
+}

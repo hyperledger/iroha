@@ -297,7 +297,7 @@ impl Harness {
             })
             .collect::<TestResult<Vec<_>>>()?;
         for (filename, pin) in &pins {
-            fs::copy(installed.join(&filename), binaries.path().join(&filename))?;
+            fs::copy(installed.join(filename), binaries.path().join(filename))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt as _;
@@ -474,7 +474,7 @@ impl Harness {
             "fixture".into(),
             release_key.public_key().clone(),
             1,
-            format!("{}fixture/checkpoint.nrt", ingress_roots[0]),
+            &format!("{}fixture/checkpoint.nrt", ingress_roots[0]),
         )?])?;
         let profile_path = &self.profiles;
         PrivateDirectory::open(profile_path.parent().unwrap())?.write_atomic(
@@ -512,7 +512,7 @@ impl Harness {
         );
         let registration = child_prepared.load_private_registration()?;
         let registered =
-            self.verify_record(&prepared, &parent_config, &node_peers, &mut verifier, &up)?;
+            Self::verify_record(&prepared, &parent_config, &node_peers, &mut verifier, &up)?;
         ensure!(
             registered.record.anchor.registration() == &registration,
             "parent registered different private genesis authority"
@@ -762,7 +762,7 @@ impl Harness {
             );
             thread::sleep(Duration::from_millis(100));
         };
-        let anchored_record = self.verify_record(
+        let anchored_record = Self::verify_record(
             &prepared,
             &parent_config,
             &node_peers,
@@ -796,7 +796,7 @@ impl Harness {
             &package_artifact.bytes,
             listener_token.as_slice(),
         ]);
-        let needles: Vec<&[u8]> = needles.iter().map(|bytes| bytes.as_slice()).collect();
+        let needles: Vec<&[u8]> = needles.iter().map(std::vec::Vec::as_slice).collect();
         let captured = assert_absent(&self.root.path().join("tls/public-requests.bin"), &needles)?;
         ensure!(
             captured > 0,
@@ -814,7 +814,6 @@ impl Harness {
     }
 
     fn verify_record(
-        &self,
         prepared: &PreparedLocalnet,
         config: &Config,
         peers: &[PeerId],
@@ -867,10 +866,10 @@ impl Harness {
                 Err(error) => failures.push(format!("{name}: {error}")),
             }
         }
-        if let Some(ingress) = self.ingress.as_mut() {
-            if ingress.stop().is_err() {
-                failures.push("TLS controller shutdown was not confirmed".into());
-            }
+        if let Some(ingress) = self.ingress.as_mut()
+            && ingress.stop().is_err()
+        {
+            failures.push("TLS controller shutdown was not confirmed".into());
         }
         ensure!(
             failures.is_empty(),
@@ -1487,7 +1486,7 @@ fn assert_absent(path: &Path, needles: &[&[u8]]) -> TestResult<u64> {
     ensure!(overlap < 16 * 1024 * 1024, "artifact privacy scan bound");
     let mut retained = Vec::new();
     let mut read = 0_u64;
-    let mut chunk = [0; 64 * 1024];
+    let mut chunk = vec![0; 64 * 1024].into_boxed_slice();
     loop {
         let length = file.read(&mut chunk)?;
         if length == 0 {
@@ -1737,7 +1736,7 @@ fn privacy_scan_checks_chunk_boundaries_and_rejects_empty_evidence() {
     assert!(assert_absent(&file, &[]).is_err());
     assert_absent(&file, &[b"not present"]).unwrap();
     let needles = privacy_needles(&[CANARY.as_bytes()]);
-    let needles: Vec<&[u8]> = needles.iter().map(|bytes| bytes.as_slice()).collect();
+    let needles: Vec<&[u8]> = needles.iter().map(std::vec::Vec::as_slice).collect();
     fs::write(&file, BASE64.encode(CANARY)).unwrap();
     assert!(assert_absent(&file, &needles).is_err());
 }

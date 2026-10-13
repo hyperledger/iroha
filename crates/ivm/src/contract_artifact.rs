@@ -97,7 +97,7 @@ impl PreparedContract {
             ContractArtifactError::invalid("executable stream offset exceeds artifact length")
         })?;
         let literal_table = decode_literal_table(
-            artifact.as_ref(),
+            artifact,
             verified.header_len,
             verified.literal_section(),
             SyscallPolicy::AbiV1,

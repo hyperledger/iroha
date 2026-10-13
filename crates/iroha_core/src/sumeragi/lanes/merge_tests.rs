@@ -132,7 +132,7 @@ impl LaneTransactions for NoTransactions {
         _: u64,
         _: usize,
         _: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
         Ok(Vec::new())
     }
 }
@@ -262,6 +262,7 @@ impl Fixture {
             store.clone(),
             Arc::clone(&self.crypto),
             self.chain.state().ivm_execution_budget(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original lane recovery: {error}"));
@@ -299,7 +300,7 @@ impl Fixture {
         drop(authored.codeword);
         let block = authored.body;
         let block_hash = block.hash(&*self.crypto);
-        let outcome = executor.execute(&block, &block_hash);
+        let outcome = executor.execute(&block, &block_hash, false);
         let Ok(Some(ExecOutcome::Valid(result))) = outcome else {
             panic!("original lane execution must succeed: {outcome:?}");
         };
@@ -800,7 +801,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        control_witness: Default::default(),
+        control_witness: iroha_sumeragi::types::ControlWitness::default(),
     };
     // The negative changes only the global cadence; availability uses the original
     // chain's authenticated schedule, proposer custody and State allocation pool.
@@ -831,6 +832,8 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         &header,
         &bytes,
         state,
+        None,
+        None,
     )
     .unpack(|event| events.push(event))
     .err()

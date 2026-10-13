@@ -167,8 +167,8 @@ impl PreparedMusubiArchiveFetchConfigV1 {
                 account,
                 key_pair,
                 chain_id,
-                discovery,
                 local_transports,
+                discovery,
             })),
         })
     }
@@ -212,15 +212,14 @@ impl AccountRegistryV1 {
             .map(|original| original.authenticate_current(&authority))
             .transpose()
             .map_err(|_| control_integrity("MUSUBI_ARCHIVE_LOCAL_TRANSPORT_MISMATCH"))?;
-        let base_url = match &local_transport {
-            Some(selected) => selected.base_url().clone(),
-            None => {
-                let origin = authority
-                    .policy()
-                    .https_origin()
-                    .map_err(|_| control_integrity("MUSUBI_ARCHIVE_PROVIDER_ORIGIN_INVALID"))?;
-                parse_gateway_base_url(&format!("{origin}/"))?
-            }
+        let base_url = if let Some(selected) = &local_transport {
+            selected.base_url().clone()
+        } else {
+            let origin = authority
+                .policy()
+                .https_origin()
+                .map_err(|_| control_integrity("MUSUBI_ARCHIVE_PROVIDER_ORIGIN_INVALID"))?;
+            parse_gateway_base_url(&format!("{origin}/"))?
         };
         Ok(ResolvedAccountProviderV1 {
             authority,
@@ -491,7 +490,12 @@ mod tests {
                 account,
                 config.key_pair.clone(),
                 discovery.clone(),
-                std::array::from_fn(|slot| local_intent(&config, slot as u8)),
+                std::array::from_fn(|slot| {
+                    local_intent(
+                        &config,
+                        u8::try_from(slot).expect("three provider slots fit u8"),
+                    )
+                }),
                 timeout,
             )
         };
@@ -517,7 +521,7 @@ mod tests {
             Some((config.chain.as_str(), &config.account))
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
-        let mut client = selected.build_client().unwrap();
+        let client = selected.build_client().unwrap();
         assert!(client.providers.is_empty());
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(
@@ -557,7 +561,10 @@ mod tests {
             PreparedMusubiArchiveFetchConfigV1::from_generated_local_account_registry(
                 wrong,
                 discovery.clone(),
-                std::array::from_fn(|slot| local_intent(&config, slot as u8)),
+                std::array::from_fn(|slot| local_intent(
+                    &config,
+                    u8::try_from(slot).expect("three provider slots fit u8")
+                )),
                 Duration::from_secs(1)
             )
             .is_err()
@@ -572,7 +579,10 @@ mod tests {
             PreparedMusubiArchiveFetchConfigV1::from_generated_local_account_registry(
                 wrong,
                 discovery.clone(),
-                std::array::from_fn(|slot| local_intent(&config, slot as u8)),
+                std::array::from_fn(|slot| local_intent(
+                    &config,
+                    u8::try_from(slot).expect("three provider slots fit u8")
+                )),
                 Duration::from_secs(1)
             )
             .is_err()
@@ -580,7 +590,12 @@ mod tests {
         let prepared = PreparedMusubiArchiveFetchConfigV1::from_generated_local_account_registry(
             config.clone(),
             discovery,
-            std::array::from_fn(|slot| local_intent(&config, slot as u8)),
+            std::array::from_fn(|slot| {
+                local_intent(
+                    &config,
+                    u8::try_from(slot).expect("three provider slots fit u8"),
+                )
+            }),
             Duration::from_secs(1),
         )
         .unwrap();
@@ -640,7 +655,12 @@ mod tests {
             Err(MusubiArchiveDiscoveryErrorV1::Rejected)
         });
         for duplicate in 0..3 {
-            let mut originals = std::array::from_fn(|slot| local_intent(&config, slot as u8));
+            let mut originals = std::array::from_fn(|slot| {
+                local_intent(
+                    &config,
+                    u8::try_from(slot).expect("three provider slots fit u8"),
+                )
+            });
             originals[(duplicate + 1) % 3] = originals[duplicate].clone();
             assert!(
                 PreparedMusubiArchiveFetchConfigV1::from_generated_local_account_registry(
@@ -664,8 +684,16 @@ mod tests {
                 } else {
                     selected.chain = "different-original-transport-chain".parse().unwrap();
                 }
-                let mut originals = std::array::from_fn(|index| local_intent(&config, index as u8));
-                originals[slot] = local_intent(&selected, slot as u8);
+                let mut originals = std::array::from_fn(|index| {
+                    local_intent(
+                        &config,
+                        u8::try_from(index).expect("three provider slots fit u8"),
+                    )
+                });
+                originals[slot] = local_intent(
+                    &selected,
+                    u8::try_from(slot).expect("three provider slots fit u8"),
+                );
                 assert!(
                     PreparedMusubiArchiveFetchConfigV1::from_generated_local_account_registry(
                         config.clone(),
@@ -890,8 +918,8 @@ mod tests {
                 Duration::from_secs(10),
                 Duration::from_secs(10),
             ),
-            sorafs_anonymity_policy: Default::default(),
-            sorafs_rollout_phase: Default::default(),
+            sorafs_anonymity_policy: iroha_service_model::soranet::AnonymityPolicy::default(),
+            sorafs_rollout_phase: iroha_service_model::soranet::RolloutPhase::default(),
         }
     }
     #[test]

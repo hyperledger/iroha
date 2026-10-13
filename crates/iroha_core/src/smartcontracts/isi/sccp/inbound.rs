@@ -21,9 +21,11 @@ use iroha_data_model::{
         registry::SccpRouteActivationV1,
     },
 };
+#[cfg(test)]
+use iroha_sccp::v1::payload::SccpTransferPayloadV1;
 use iroha_sccp::{
-    light_client::proof::{SccpNormalizedEventV1, SccpVerifiedProofV1},
-    v1::{network::domain, payload::SccpTransferPayloadV1},
+    light_client::{prepared::SccpNativeEventV1, proof::SccpNormalizedEventV1},
+    v1::{hashes, network::domain, payload::SccpTransferPayloadRefV1},
 };
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
@@ -31,6 +33,7 @@ fn refuse(reason: impl core::fmt::Display) -> Error {
 }
 
 /// Return the Taira recipient `AccountId` of an inbound `payload` (codec 3), if it decodes.
+#[cfg(test)]
 #[must_use]
 pub fn recipient_account(payload: &SccpTransferPayloadV1) -> Option<AccountId> {
     AccountAddress::from_canonical_bytes(&payload.recipient.bytes)
@@ -47,8 +50,8 @@ pub fn decode_inbound_payload(
     network: iroha_data_model::bridge::SccpNetworkV1,
     revision: u32,
     bytes: &[u8],
-) -> Result<SccpTransferPayloadV1, Error> {
-    let payload = SccpTransferPayloadV1::decode(bytes)
+) -> Result<SccpTransferPayloadRefV1<'_>, Error> {
+    let payload = SccpTransferPayloadRefV1::decode(bytes)
         .map_err(|error| refuse(format_args!("payload: {error}")))?;
     if payload.source_domain != domain(network)
         || payload.dest_domain != 0
@@ -64,19 +67,21 @@ pub fn decode_inbound_payload(
 
 /// Check that the verified proof's event is the burn of `payload` by `deployment`
 /// (§4.12.1 step 4, §4.12.2): a transfer event carrying the payload's message id, sender,
-/// nonce and hash.
+/// nonce and hash. `expected_hash` is the hash of the exact canonical bytes from which
+/// `payload` borrows; verification does not materialize or re-encode those fields.
 ///
 /// # Errors
 ///
 /// Fails when the event is not a transfer to Taira of this payload from this deployment.
 pub fn bind_transfer_event(
-    verified: &SccpVerifiedProofV1,
+    event: &SccpNativeEventV1,
     deployment: &iroha_data_model::sccp::deployment::SccpDeploymentV1,
-    payload: &SccpTransferPayloadV1,
+    payload: &SccpTransferPayloadRefV1<'_>,
     message_id: &[u8; 32],
+    expected_hash: &[u8; 32],
 ) -> Result<iroha_data_model::sccp::inbound::SccpSourceLocatorV1, Error> {
     let mismatch = || refuse("the proven event does not match the payload");
-    match &verified.event {
+    match event {
         SccpNormalizedEventV1::TransferToTaira {
             emitter,
             message_id: event_message_id,
@@ -85,20 +90,18 @@ pub fn bind_transfer_event(
             payload_hash,
             locator,
         } => {
-            let expected_hash = payload
-                .payload_hash()
-                .map_err(|error| refuse(format_args!("payload: {error}")))?;
             if !emitter.matches(deployment)
                 || event_message_id != message_id
-                || *sender != payload.sender
+                || sender.codec() != payload.sender.codec
+                || sender.bytes() != payload.sender.bytes
                 || *nonce != payload.nonce
-                || *payload_hash != expected_hash
+                || payload_hash != expected_hash
             {
                 return Err(mismatch());
             }
             Ok(*locator)
         }
-        SccpNormalizedEventV1::Void { .. } => {
+        SccpNormalizedEventV1::Void { .. } | SccpNormalizedEventV1::Finalized { .. } => {
             Err(refuse("the proof does not prove a transfer to Taira"))
         }
     }
@@ -130,11 +133,11 @@ fn executes_exempt_self_claim(
 fn proof_fee_due(
     state_transaction: &StateTransaction<'_, '_>,
     authority: &AccountId,
-    payload: &SccpTransferPayloadV1,
+    payload: &SccpTransferPayloadRefV1<'_>,
     fee: u128,
 ) -> u128 {
     if executes_exempt_self_claim(state_transaction, authority)
-        && recipient_account(payload).as_ref() == Some(authority)
+        && AccountAddress::matches_account_id_bytes(authority, payload.recipient.bytes)
     {
         self_claim_fee_due(fee, payload.amount)
     } else {
@@ -165,9 +168,11 @@ pub fn charge_self_claim_fee(
     let fee = store::parameters::get(world)
         .as_ref()
         .map_or(0, |params| params.inbound_self_claim_fee);
-    let Some(amount) = SccpTransferPayloadV1::decode(&record.payload)
+    let Some(amount) = SccpTransferPayloadRefV1::decode(&record.payload)
         .ok()
-        .filter(|payload| recipient_account(payload).as_ref() == Some(authority))
+        .filter(|payload| {
+            AccountAddress::matches_account_id_bytes(authority, payload.recipient.bytes)
+        })
         .map(|payload| payload.amount)
     else {
         return Ok(());
@@ -222,28 +227,37 @@ pub fn execute_submit_inbound(
         .map(|record| record.deployment.clone())
         .ok_or_else(|| refuse(format_args!("revision {revision} does not accept proofs")))?;
     let payload = decode_inbound_payload(network, revision, &instruction.payload)?;
-    let message_id = payload
-        .message_id(state_transaction.network_id().as_bytes())
+    let lane = payload
+        .lane_bytes(state_transaction.network_id().as_bytes())
         .map_err(|error| refuse(format_args!("payload: {error}")))?;
+    let payload_hash = hashes::payload_hash(&instruction.payload);
+    let message_id = hashes::message_id(&lane, &payload_hash);
     if store::inbound_messages::contains(world, &message_id) {
         return Err(refuse("the message is already proven"));
     }
     let verified =
         light_clients::verify_source_proof(state_transaction, network, &instruction.proof)?;
-    let source_locator = bind_transfer_event(&verified, &deployment, &payload, &message_id)?;
+    let source_locator = bind_transfer_event(
+        &verified.event,
+        &deployment,
+        &payload,
+        &message_id,
+        &payload_hash,
+    )?;
     let fee_due = proof_fee_due(
         state_transaction,
         authority,
         &payload,
         params.inbound_self_claim_fee,
     );
+    let amount = payload.amount;
     record_proven(
         state_transaction,
         SccpProvenInboundV1 {
             network,
             revision,
             payload: instruction.payload,
-            amount: payload.amount,
+            amount,
             message_id,
             source_locator,
             fee_due,
@@ -335,11 +349,81 @@ mod tests {
         let bytes = payload.encode().expect("encode");
         assert_eq!(
             decode_inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &bytes).expect("decode"),
-            payload
+            payload.as_borrowed()
         );
         decode_inbound_payload(SccpNetworkV1::EthereumMainnet, 2, &bytes).expect_err("revision");
         decode_inbound_payload(SccpNetworkV1::BscMainnet, 1, &bytes).expect_err("network");
         assert_eq!(recipient_account(&payload), Some(authority(1)));
+    }
+
+    #[test]
+    fn inbound_borrowing_preserves_source_bytes_hashes_and_decode_errors() {
+        let recipient = authority(1);
+        let network_id = [0x5a; 32];
+        for network in iroha_sccp::v1::network::EXTERNAL_NETWORKS {
+            let sender = if network == SccpNetworkV1::TonMainnet {
+                let mut bytes = vec![0; 4];
+                bytes.extend_from_slice(&[0x44; 32]);
+                bytes
+            } else {
+                vec![0x44; 20]
+            };
+            let owned = SccpTransferPayloadV1::inbound(
+                network,
+                3,
+                1,
+                2_000_000_000,
+                sender,
+                address_bytes(&recipient),
+            )
+            .unwrap();
+            let bytes = owned.encode().unwrap();
+            let borrowed = decode_inbound_payload(network, 1, &bytes).unwrap();
+            assert_eq!(borrowed, owned.as_borrowed());
+            for field in [
+                borrowed.sender.bytes,
+                borrowed.recipient.bytes,
+                borrowed.route_id.as_bytes(),
+            ] {
+                let offset = (field.as_ptr() as usize)
+                    .checked_sub(bytes.as_ptr() as usize)
+                    .expect("field borrows the original payload");
+                assert!(offset + field.len() <= bytes.len());
+            }
+            let hash = hashes::payload_hash(&bytes);
+            assert_eq!(hash, owned.payload_hash().unwrap());
+            assert_eq!(
+                hashes::message_id(&borrowed.lane_bytes(&network_id).unwrap(), &hash),
+                owned.message_id(&network_id).unwrap()
+            );
+            assert!(AccountAddress::matches_account_id_bytes(
+                &recipient,
+                borrowed.recipient.bytes
+            ));
+            assert!(!AccountAddress::matches_account_id_bytes(
+                &authority(2),
+                borrowed.recipient.bytes
+            ));
+            for end in 0..bytes.len() {
+                let expected = SccpTransferPayloadV1::decode(&bytes[..end]).unwrap_err();
+                assert_eq!(
+                    decode_inbound_payload(network, 1, &bytes[..end])
+                        .unwrap_err()
+                        .to_string(),
+                    refuse(format_args!("payload: {expected}")).to_string()
+                );
+            }
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            let expected = SccpTransferPayloadV1::decode(&trailing).unwrap_err();
+            assert_eq!(
+                decode_inbound_payload(network, 1, &trailing)
+                    .unwrap_err()
+                    .to_string(),
+                refuse(format_args!("payload: {expected}")).to_string()
+            );
+            assert_eq!(bytes, owned.encode().unwrap(), "source remains unchanged");
+        }
     }
 
     #[test]
@@ -361,19 +445,24 @@ mod tests {
             address: [0x11; 20],
             runtime_code_hash: [0x22; 32],
         });
-        let transfer = |emitter: [u8; 20], nonce: u64| SccpVerifiedProofV1 {
-            event: SccpNormalizedEventV1::TransferToTaira {
-                emitter: SccpSourceEmitterV1::Evm(emitter),
-                message_id,
-                sender: payload.sender.clone(),
-                nonce,
-                payload_hash: payload.payload_hash().expect("hash"),
-                locator,
-            },
-            checkpoints: Vec::new(),
+        let transfer = |emitter: [u8; 20], nonce: u64| SccpNormalizedEventV1::TransferToTaira {
+            emitter: SccpSourceEmitterV1::Evm(emitter),
+            message_id,
+            sender: iroha_sccp::light_client::prepared::SccpSourceSenderV1::Evm(
+                payload.sender.bytes.as_slice().try_into().unwrap(),
+            ),
+            nonce,
+            payload_hash: payload.payload_hash().expect("hash"),
+            locator,
         };
-        let bind = |verified: &SccpVerifiedProofV1, id: &[u8; 32]| {
-            bind_transfer_event(verified, &deployment, &payload, id)
+        let bind = |verified: &SccpNativeEventV1, id: &[u8; 32]| {
+            bind_transfer_event(
+                verified,
+                &deployment,
+                &payload.as_borrowed(),
+                id,
+                &payload.payload_hash().unwrap(),
+            )
         };
         assert_eq!(
             bind(&transfer([0x11; 20], payload.nonce), &message_id).expect("bound"),
@@ -382,18 +471,38 @@ mod tests {
         bind(&transfer([0x12; 20], payload.nonce), &message_id).expect_err("another contract");
         bind(&transfer([0x11; 20], payload.nonce + 1), &message_id).expect_err("another nonce");
         bind(&transfer([0x11; 20], payload.nonce), &[0x5b; 32]).expect_err("another message");
-        let void = SccpVerifiedProofV1 {
-            event: SccpNormalizedEventV1::Void {
-                emitter: SccpSourceEmitterV1::Evm([0x11; 20]),
-                kind: SccpVoidKindV1::Expired,
-                first_nonce: payload.nonce,
-                count: 1,
-                message_id_or_zero: message_id,
-                locator,
-            },
-            checkpoints: Vec::new(),
+        let mut different_hash = transfer([0x11; 20], payload.nonce);
+        if let SccpNormalizedEventV1::TransferToTaira { payload_hash, .. } = &mut different_hash {
+            payload_hash[0] ^= 1;
+        }
+        bind(&different_hash, &message_id).expect_err("another payload hash");
+        let mut different_sender = transfer([0x11; 20], payload.nonce);
+        if let SccpNormalizedEventV1::TransferToTaira { sender, .. } = &mut different_sender {
+            *sender = iroha_sccp::light_client::prepared::SccpSourceSenderV1::Evm([0x45; 20]);
+        }
+        bind(&different_sender, &message_id).expect_err("another sender");
+        if let SccpNormalizedEventV1::TransferToTaira { sender, .. } = &mut different_sender {
+            *sender = iroha_sccp::light_client::prepared::SccpSourceSenderV1::Ton([0x44; 36]);
+        }
+        bind(&different_sender, &message_id).expect_err("another sender codec");
+        let void = SccpNormalizedEventV1::Void {
+            emitter: SccpSourceEmitterV1::Evm([0x11; 20]),
+            kind: SccpVoidKindV1::Expired,
+            first_nonce: payload.nonce,
+            count: 1,
+            message_id_or_zero: message_id,
+            locator,
         };
         let error = bind(&void, &message_id).expect_err("a void is not a transfer");
+        assert!(error.to_string().contains("transfer to Taira"), "{error}");
+        let finalized = SccpNormalizedEventV1::Finalized {
+            emitter: SccpSourceEmitterV1::Evm([0x11; 20]),
+            message_id,
+            nonce: payload.nonce,
+            amount: Some(payload.amount),
+            locator,
+        };
+        let error = bind(&finalized, &message_id).expect_err("a mint is not a transfer");
         assert!(error.to_string().contains("transfer to Taira"), "{error}");
     }
 
@@ -414,24 +523,30 @@ mod tests {
         let recipient = authority(1);
         let payload = inbound_payload(1, address_bytes(&recipient));
         assert_eq!(
-            proof_fee_due(&stx, &recipient, &payload, 10),
+            proof_fee_due(&stx, &recipient, &payload.as_borrowed(), 10),
             0,
             "a recipient paying the ordinary fee is not charged twice"
         );
         assert_eq!(
-            proof_fee_due(&stx, &authority(2), &payload, 10),
+            proof_fee_due(&stx, &authority(2), &payload.as_borrowed(), 10),
             0,
             "a relayer owes nothing"
         );
         stx.sccp_exempt_self_claim = Some(recipient.clone());
-        assert_eq!(proof_fee_due(&stx, &recipient, &payload, 10), 10);
         assert_eq!(
-            proof_fee_due(&stx, &authority(2), &payload, 10),
+            proof_fee_due(&stx, &recipient, &payload.as_borrowed(), 10),
+            10
+        );
+        assert_eq!(
+            proof_fee_due(&stx, &authority(2), &payload.as_borrowed(), 10),
             0,
             "the marker names another authority"
         );
         let to_other = inbound_payload(1, address_bytes(&authority(3)));
-        assert_eq!(proof_fee_due(&stx, &recipient, &to_other, 10), 0);
+        assert_eq!(
+            proof_fee_due(&stx, &recipient, &to_other.as_borrowed(), 10),
+            0
+        );
         assert!(executes_exempt_self_claim(&stx, &recipient));
     }
 

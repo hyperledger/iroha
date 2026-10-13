@@ -26,7 +26,7 @@ use sorafs_node::reserve_transaction_forwarder::{
 /// scan rather than synthesize an incomplete snapshot. `None` therefore means
 /// that the queried record is authoritatively absent at `finalized_cursor`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReserveFinalizedSnapshotV1 {
+pub struct ReserveFinalizedSnapshotV1 {
     /// Finalized block anchor shared by every field.
     pub finalized_cursor: ReserveFinalizedCursorV1,
     /// Current-chain hash resolved at the retained baseline height.
@@ -48,7 +48,7 @@ pub(crate) struct ReserveFinalizedSnapshotV1 {
 }
 /// Result of comparing retained semantic material with finalized ledger state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReserveSemanticReconciliationV1 {
+pub enum ReserveSemanticReconciliationV1 {
     /// Finalized state still exactly matches the retained signing preconditions.
     Ready(ReserveFinalizedCursorV1),
     /// The exact semantic operation was committed through any ingress.
@@ -62,7 +62,7 @@ pub(crate) enum ReserveSemanticReconciliationV1 {
 }
 /// Observation of the exact retained signed transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReserveEnvelopeReconciliationV1 {
+pub enum ReserveEnvelopeReconciliationV1 {
     /// The delivery has no signed bytes yet.
     NotSigned,
     /// The exact transaction remains queued as of the supplied finalized view.
@@ -98,7 +98,7 @@ pub(crate) enum ReserveEnvelopeReconciliationV1 {
 }
 /// Payload-free reason why one worker entry is intentionally left unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReserveWorkerDeferReasonV1 {
+pub enum ReserveWorkerDeferReasonV1 {
     /// A finalized query or committed-block lookup was unavailable.
     FinalizedStateUnavailable,
     /// The configured runtime signer does not own the retained exact authority.
@@ -112,7 +112,7 @@ pub(crate) enum ReserveWorkerDeferReasonV1 {
 }
 /// One side-effect requested from the supervised reserve worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReserveWorkerActionV1 {
+pub enum ReserveWorkerActionV1 {
     /// Claim the operation durably, then ask the injected external signer.
     ClaimForSigning,
     /// Begin durable submission of the already retained exact signed bytes.
@@ -169,7 +169,7 @@ enum FinalizedCursorRelationV1 {
 /// after a cross-peer duplicate submission. Rent, lifecycle, draw, and repayment operations
 /// intentionally require exact transaction reconciliation because their revision identity alone
 /// cannot prove which payload changed the provider account.
-pub(crate) fn reconcile_reserve_semantics(
+pub fn reconcile_reserve_semantics(
     expected_chain_id: &ChainId,
     delivery: &ReserveTransactionPendingV1,
     retained: &ReserveTransactionReconciliationV1,
@@ -225,7 +225,7 @@ pub(crate) fn reconcile_reserve_semantics(
 ///
 /// Exact committed-envelope results take precedence over semantic projection changes. This is what
 /// allows restart reconciliation after Torii's transient pipeline cache has expired.
-pub(crate) fn plan_reserve_worker_action(
+pub fn plan_reserve_worker_action(
     expected_chain_id: &ChainId,
     configured_signer_authority: Option<&AccountId>,
     delivery: &ReserveTransactionPendingV1,

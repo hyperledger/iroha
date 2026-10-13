@@ -369,7 +369,7 @@ fn same_original_template_bound_to_distinct_actual_networks_refuses_catalog_and_
     ));
     let ack_payload = GatewayComplianceAcknowledgementPayloadV1 {
         version: GATEWAY_COMPLIANCE_ACK_VERSION_V1,
-        gateway_id: gateway_label(0).into(),
+        gateway_id: gateway_label(0),
         catalog_digest: digest_a,
         observed_at_unix: a.issued_at_unix() + 1,
         accepted: true,

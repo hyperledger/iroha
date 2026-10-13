@@ -5,8 +5,8 @@
 //! carries its own liability, nonces and activation state.
 
 use super::{
-    control::SCCP_FIRST_CONTROL_NONCE_V1,
-    deployment::{SccpCommitteePinV1, SccpDeploymentV1},
+    control::SCCP_FIRST_CONTROL_NONCE_V1, deployment::SccpCommitteePinV1,
+    deployment::SccpDeploymentV1, native::SccpQuarantineV1,
 };
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, account::AccountId, bridge::SccpNetworkV1,
@@ -116,8 +116,8 @@ impl SccpRouteActivationV1 {
 
 /// One route revision (§4.14.1).
 ///
-/// Each revision retains the exact immutable committee pin checked at registration. The pin
-/// is data, not standalone authority: current generation/finality verification remains required.
+/// Decoding these fields does not authorize registration: Core must enforce the complete
+/// native pin, destination deployment and launch-gate checks (§4.14.3 P0–P5).
 #[derive(
     Debug,
     Clone,
@@ -143,10 +143,10 @@ pub struct SccpRouteRevisionV1 {
     pub revision: u32,
     /// Bound destination deployment.
     pub deployment: SccpDeploymentV1,
-    /// Original committee pin of the destination deployment.
-    pub initial_committee: SccpCommitteePinV1,
     /// §3.4 destination word of the deployment.
     pub destination_word: [u8; 32],
+    /// Independently authenticated initial native committee (§4.14.3 P1–P5).
+    pub initial_committee: SccpCommitteePinV1,
     /// Activation state.
     pub activation: SccpRouteActivationV1,
     /// Set by a proven frozen void (§4.16).
@@ -165,13 +165,17 @@ pub struct SccpRouteRevisionV1 {
     pub next_outbound_nonce: u64,
     /// Taira height of the enacted `RegisterRoute`.
     pub registered_at_height: u64,
+    /// Lowest generation whose forgery still holds this revision (§4.10).
+    pub forgery_floor: u64,
+    /// Permanent Parliament quarantine, retained even after reconciliation.
+    #[norito(required)]
+    pub quarantine: Option<SccpQuarantineV1>,
     /// Whether the revision ever left `Staged`; `RemoveStaged` requires `false`.
     pub ever_activated: bool,
 }
 
 impl SccpRouteRevisionV1 {
-    /// Build a freshly registered `Staged` revision from the exact P1–P5-checked pin.
-    /// This data constructor does not authenticate a pin or bypass the registration launch gate.
+    /// Build a freshly registered `Staged` revision.
     #[must_use]
     pub fn staged(
         revision: u32,
@@ -193,7 +197,21 @@ impl SccpRouteRevisionV1 {
             liability: 0,
             next_outbound_nonce: 0,
             registered_at_height,
+            forgery_floor: initial_committee.generation,
+            quarantine: None,
             ever_activated: false,
+        }
+    }
+
+    /// Return the exact forgery-hold predicate from §4.10.
+    ///
+    /// This does not account for reconciliation, pause, quarantine or global disablement;
+    /// consumers must apply those independent gates and may not treat `false` as permission.
+    #[must_use]
+    pub const fn forgery_held(&self, max_generation: Option<u64>) -> bool {
+        match max_generation {
+            Some(generation) => generation >= self.forgery_floor,
+            None => false,
         }
     }
 
@@ -305,6 +323,15 @@ mod tests {
         })
     }
 
+    fn pin() -> SccpCommitteePinV1 {
+        SccpCommitteePinV1 {
+            generation: 7,
+            committee_root: [0xa5; 32],
+            start_height: 11,
+            until_ms: 90_000,
+        }
+    }
+
     fn revision(number: u32, activation: SccpRouteActivationV1) -> SccpRouteRevisionV1 {
         SccpRouteRevisionV1 {
             activation,
@@ -312,12 +339,7 @@ mod tests {
             ..SccpRouteRevisionV1::staged(
                 number,
                 evm(u8::try_from(number).expect("small")),
-                crate::sccp::deployment::SccpCommitteePinV1 {
-                    generation: 1,
-                    committee_root: [0x44; 32],
-                    start_height: 1,
-                    until_ms: 1_801_209_600_000,
-                },
+                pin(),
                 10_000,
                 50,
             )
@@ -403,28 +425,8 @@ mod tests {
     #[test]
     fn staged_revision_defaults() {
         let deployment = evm(9);
-        let staged = SccpRouteRevisionV1::staged(
-            2,
-            deployment,
-            crate::sccp::deployment::SccpCommitteePinV1 {
-                generation: 1,
-                committee_root: [0x44; 32],
-                start_height: 1,
-                until_ms: 1_801_209_600_000,
-            },
-            1_000,
-            99,
-        );
+        let staged = SccpRouteRevisionV1::staged(2, deployment, pin(), 1_000, 99);
         assert_eq!(staged.revision, 2);
-        assert_eq!(
-            staged.initial_committee,
-            SccpCommitteePinV1 {
-                generation: 1,
-                committee_root: [0x44; 32],
-                start_height: 1,
-                until_ms: 1_801_209_600_000
-            }
-        );
         assert_eq!(staged.destination_word, deployment.destination_word());
         assert_eq!(staged.activation, SccpRouteActivationV1::Staged);
         assert_eq!(staged.next_control_nonce, 1);
@@ -434,6 +436,9 @@ mod tests {
         assert!(!staged.destination_paused);
         assert!(!staged.ever_activated);
         assert_eq!(staged.registered_at_height, 99);
+        assert_eq!(staged.initial_committee, pin());
+        assert_eq!(staged.forgery_floor, pin().generation);
+        assert_eq!(staged.quarantine, None);
         assert_eq!(staged.headroom(), 1_000);
         let over = SccpRouteRevisionV1 {
             liability: 2_000,
@@ -489,18 +494,10 @@ mod tests {
         roundtrip(&route);
         assert_rejects_unknown_field(&route, &[]);
         assert_rejects_unknown_field(&route, &["revisions", "1"]);
-        assert_rejects_unknown_field(&route, &["revisions", "1", "initial_committee"]);
         // The roster pin of the attestation transport is not a field of a revision.
         let mut value =
             norito::json::to_value(&revision(1, SccpRouteActivationV1::Staged)).expect("value");
         let object = value.as_object_mut().expect("object");
-        assert!(object.contains_key("initial_committee"));
-        let mut missing = object.clone();
-        missing.remove("initial_committee");
-        assert!(
-            norito::json::from_value::<SccpRouteRevisionV1>(norito::json::Value::Object(missing))
-                .is_err()
-        );
         assert!(!object.contains_key("initial_roster_generation"));
         assert!(!object.contains_key("initial_roster_digest"));
         object.insert(
@@ -513,6 +510,34 @@ mod tests {
         assert!(
             json.contains(&format!("\"stranded\":\"{}\"", u128::MAX)),
             "{json}"
+        );
+    }
+    #[test]
+    fn forgery_hold_is_exact_and_quarantine_is_independent() {
+        let mut revision = SccpRouteRevisionV1::staged(1, evm(7), pin(), 1_000, 99);
+        assert!(!revision.forgery_held(None));
+        assert!(!revision.forgery_held(Some(6)));
+        assert!(revision.forgery_held(Some(7)));
+        assert!(revision.forgery_held(Some(8)));
+        revision.forgery_floor = 9;
+        assert!(!revision.forgery_held(Some(8)));
+        revision.quarantine = Some(SccpQuarantineV1 {
+            certificate_id: [9; 32],
+            since_height: 101,
+        });
+        let quarantine = revision.quarantine;
+        revision.forgery_floor = u64::MAX;
+        assert!(!revision.forgery_held(Some(u64::MAX - 1)));
+        assert!(revision.forgery_held(Some(u64::MAX)));
+        assert_eq!(revision.quarantine, quarantine);
+        roundtrip(&revision);
+        assert_rejects_unknown_field(&revision, &["initial_committee"]);
+        assert_rejects_unknown_field(&revision, &["quarantine"]);
+        let mut old = norito::json::to_value(&revision).expect("JSON");
+        old.as_object_mut().unwrap().remove("initial_committee");
+        assert!(
+            norito::json::from_json::<SccpRouteRevisionV1>(&norito::json::to_json(&old).unwrap())
+                .is_err()
         );
     }
 }

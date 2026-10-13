@@ -182,7 +182,7 @@ fn routed_read_typed_json_candidate_uses_only_transient_merge_phases() {
         .inspect_typed_json_candidate::<String, _, _>(
             &candidate,
             "valid test string expected",
-            |value| <String as norito::json::JsonDeserialize>::json_from_value(value),
+            <String as norito::json::JsonDeserialize>::json_from_value,
             |decoded| {
                 assert_eq!(decoded, "typed candidate");
                 Ok(())
@@ -199,7 +199,7 @@ fn routed_read_typed_json_candidate_uses_only_transient_merge_phases() {
             .inspect_typed_json_candidate::<String, _, _>(
                 &candidate,
                 "valid test string expected",
-                |value| <String as norito::json::JsonDeserialize>::json_from_value(value),
+                <String as norito::json::JsonDeserialize>::json_from_value,
                 |_| Ok(()),
             )
             .is_err(),
@@ -211,7 +211,7 @@ fn routed_read_typed_json_candidate_uses_only_transient_merge_phases() {
         .inspect_typed_json_candidate::<String, _, _>(
             &candidate,
             "valid test string expected",
-            |value| <String as norito::json::JsonDeserialize>::json_from_value(value),
+            <String as norito::json::JsonDeserialize>::json_from_value,
             |_| Ok(()),
         )
         .expect_err("candidate allocation must honor the transient decode phase");

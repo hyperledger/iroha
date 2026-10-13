@@ -38,8 +38,6 @@ use iroha_config::parameters::actual::{
 };
 #[cfg(any(test, feature = "bench"))]
 use iroha_crypto::KeyPair;
-#[cfg(feature = "sm-ffi-openssl")]
-use iroha_crypto::sm::OpenSslProvider;
 #[cfg(feature = "sm")]
 use iroha_crypto::sm::{Sm2PublicKey, SmIntrinsicPolicy};
 use iroha_crypto::{Algorithm, Hash, HashOf, PublicKey, blake2::Blake2b512};
@@ -226,7 +224,7 @@ use sha2::{Digest as Sha2Digest, Sha256};
 
 use std::{
     cell::OnceCell,
-    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Write,
     mem,
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
@@ -341,6 +339,8 @@ mod committed_transaction_context;
 mod da_hydration;
 mod exec_witness_capture;
 mod kagemusha_load_entrypoint;
+mod sccp_forgery_entrypoint;
+pub(crate) mod sccp_pause_entrypoint;
 /// Original local owners and completed errors from witness capture.
 pub use exec_witness_capture::WitnessCaptureError;
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -368,7 +368,6 @@ mod fastpq_rejection_tail;
 mod fastpq_source_quota_tests;
 pub(crate) mod native_maintenance;
 mod prepared_transfer_transcript;
-mod replay_outputs;
 pub use fastpq_source_inventory::FastpqSourceInventoryV1;
 mod lane_authority;
 mod native_execution_projection;
@@ -443,7 +442,7 @@ mod checked_keypair_tests {
         }
     }
 }
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 use crate::beacon::{
     GlobalThresholdBeaconError, ValidatedGlobalThresholdBeaconSessionV1,
     verify_finalized_global_threshold_beacon_pulse_v1,
@@ -694,7 +693,7 @@ pub fn verify_threshold_key_lifecycle_certificate_v1(
             .is_some_and(|session_id| session_id == [0; 32])
         || certificate.transcript_hash == [0; 32]
         || certificate.public_state.len() > THRESHOLD_KEY_LIFECYCLE_PUBLIC_STATE_MAX_BYTES_V1
-        || installing != !certificate.public_state.is_empty()
+        || installing == certificate.public_state.is_empty()
     {
         return Err(ThresholdKeyLifecycleCertificateErrorV1::InvalidShape);
     }
@@ -707,7 +706,7 @@ pub fn verify_threshold_key_lifecycle_certificate_v1(
     }
     let committee_size = u16::try_from(ordered_roster.len())
         .map_err(|_| ThresholdKeyLifecycleCertificateErrorV1::InvalidShape)?;
-    if ordered_roster.is_empty() || (ordered_roster.len() - 1) % 3 != 0 {
+    if ordered_roster.is_empty() || !(ordered_roster.len() - 1).is_multiple_of(3) {
         return Err(ThresholdKeyLifecycleCertificateErrorV1::InvalidShape);
     }
     let faults = (ordered_roster.len() - 1) / 3;
@@ -915,7 +914,9 @@ mod threshold_key_lifecycle_certificate_tests {
             .map(|member| member.validator.clone())
             .collect::<Vec<_>>();
         assert!(entries.iter().all(|entry| entry == &roster));
-        let params = ChainParamsRecord::from_parameters(&Default::default());
+        let params = ChainParamsRecord::from_parameters(
+            &iroha_data_model::parameter::system::SumeragiParameters::default(),
+        );
         let graph = ConsensusSchedule::from_owned_entries(
             (first_height..first_height + 3)
                 .map(|height| {
@@ -1413,6 +1414,8 @@ macro_rules! with_world_overlay_fields {
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
+            sccp_forgery_offences,
+            sccp_forgery_max_generation,
             sccp_destination_pending_generations,
             sccp_committee_current,
             sccp_liability_clock,
@@ -1435,6 +1438,10 @@ macro_rules! with_world_overlay_fields {
             sccp_governance_revisions,
             sccp_inbound_messages,
             sccp_pending_counts,
+            sccp_reconciliations,
+            sccp_reconciliation_proven,
+            sccp_pending_refund_amount,
+            sccp_reconciliation_due,
             sccp_light_clients,
             sccp_light_client_sets,
             sccp_light_client_checkpoints,
@@ -1493,11 +1500,15 @@ pub(crate) fn inspect_trigger_world_capture_for_testing(
 /// Original executing fields retained through attached publication.
 #[path = "state/block_field.rs"]
 pub(crate) mod block_field;
+use crate::smartcontracts::isi::sccp::reconciliation_store as sccp_reconciliation_store;
 use crate::smartcontracts::isi::sccp::{
     anchor_record::RetainedSccpAnchors,
     anchor_storage::{AnchorStorage, AnchorStorageMode},
     committee_storage::{CommitteeStorage, CommitteeStorageMode},
     generation_record::RetainedSccpGeneration,
+    light_client_set::{
+        Mode as LightClientSetMode, RetainedSccpLcSet, Storage as LightClientSetStorage,
+    },
 };
 use block_field::{CellField, StorageField};
 #[cfg(test)]
@@ -1510,11 +1521,37 @@ mod world_attached_publication_tests;
 #[macro_use]
 mod world_acquisition;
 pub(crate) mod scalar_cell_custody;
+pub(crate) mod sccp_forgery_custody;
 #[cfg(test)]
 use scalar_cell_custody::ScalarCellFixtureBlock;
 
 // Execution-pool cells reserve their original capacity; other fields start empty.
 macro_rules! initial_world_field {
+    (sccp_reconciliations, $execution:ident) => {
+        sccp_reconciliation_store::Records::try_new_admitted($execution.clone())?
+    };
+    (sccp_reconciliation_proven, $execution:ident) => {
+        sccp_reconciliation_store::Proofs::try_new_admitted($execution.clone())?
+    };
+    (sccp_pending_refund_amount, $execution:ident) => {
+        sccp_reconciliation_store::Refunds::try_new_admitted($execution.clone())?
+    };
+    (sccp_reconciliation_due, $execution:ident) => {
+        sccp_reconciliation_store::Due::try_new_admitted($execution.clone())?
+    };
+    (sccp_forgery_offences, $execution:ident) => {
+        sccp_forgery_custody::OffenceStorage::try_new_admitted($execution.clone())?
+    };
+    (sccp_forgery_max_generation, $execution:ident) => {
+        sccp_forgery_custody::initialize_max(
+            None,
+            sccp_forgery_custody::MaxGenerationPredecessor::Unchanged,
+            $execution,
+        )?
+    };
+    (sccp_light_client_sets, $execution:ident) => {
+        LightClientSetStorage::try_new_admitted($execution.clone())?
+    };
     (sccp_committee_generations, $execution:ident) => {
         CommitteeStorage::try_new_admitted($execution.clone())?
     };
@@ -1574,6 +1611,24 @@ impl Default for WorldData {
 
 // Quantity storages wrap their child checkpoints; other fields open ordinary ones.
 macro_rules! world_field_transaction {
+    ($field:expr, sccp_reconciliations) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_reconciliation_proven) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_pending_refund_amount) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_reconciliation_due) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_forgery_offences) => {
+        $field.try_transaction_admitted()?
+    };
+    ($field:expr, sccp_light_client_sets) => {
+        $field.try_transaction_admitted()?
+    };
     ($field:expr, sccp_committee_generations) => {
         $field.try_transaction_admitted()?
     };
@@ -2251,6 +2306,14 @@ work_hash_read!(BlockHashesBlock<'_>);
 impl BlockHashesBlock<'_> {
     hash_read_methods!();
 }
+impl<'a> IntoIterator for &'a BlockHashesBlock<'_> {
+    type Item = &'a HashOf<BlockHeader>;
+    type IntoIter = BlockHashIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
 work_hash_read!(DetachedBlockHashes);
 impl DetachedBlockHashes {
     fn len(&self) -> usize {
@@ -2299,6 +2362,14 @@ impl BlockHashRange<'_> {
 impl BlockHashesTransaction<'_> {
     hash_read_methods!();
 }
+impl<'a> IntoIterator for &'a BlockHashesTransaction<'_> {
+    type Item = &'a HashOf<BlockHeader>;
+    type IntoIter = BlockHashIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
 impl BlockHashRead for BlockHashesView<'_> {
     fn hash_count(&self) -> usize {
         match &self.inner {
@@ -2329,6 +2400,14 @@ impl BlockHashRead for BlockHashesView<'_> {
 }
 impl BlockHashesView<'_> {
     hash_read_methods!();
+}
+impl<'a> IntoIterator for &'a BlockHashesView<'_> {
+    type Item = &'a HashOf<BlockHeader>;
+    type IntoIter = BlockHashIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 #[cfg(test)]
 mod emergency_fast_block_hash_mapping_tests {
@@ -3503,6 +3582,10 @@ pub struct SmartContractCodeUploadProgress {
 pub struct MusubiResolverIndexRevisionV1(u64);
 impl MusubiResolverIndexRevisionV1 {
     /// Construct a non-zero resolver-index revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a parse error if `revision` is zero.
     pub fn new(revision: u64) -> Result<Self, ParseError> {
         if revision == 0 {
             return Err(ParseError::new(
@@ -4662,6 +4745,12 @@ pub struct WorldData {
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     #[norito(skip)]
     pub(crate) sccp_anchor_chunks: AnchorStorage,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    #[norito(skip)]
+    pub(crate) sccp_forgery_offences: sccp_forgery_custody::OffenceStorage,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    #[norito(skip)]
+    pub(crate) sccp_forgery_max_generation: Cell<Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -4735,6 +4824,18 @@ pub struct WorldData {
     #[norito(skip)]
     pub(crate) sccp_pending_counts:
         Storage<(iroha_data_model::bridge::SccpNetworkV1, u32), (u64, u64)>,
+    /// Authoritative fixed-size reconciliation accounting.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliations: sccp_reconciliation_store::Records,
+    /// Permanent finalized forged-mint message amounts.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliation_proven: sccp_reconciliation_store::Proofs,
+    /// Checked pending authentic-refund face amounts.
+    #[norito(skip)]
+    pub(crate) sccp_pending_refund_amount: sccp_reconciliation_store::Refunds,
+    /// Derived ordered open reconciliation deadlines.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliation_due: sccp_reconciliation_store::Due,
     /// Inbound light clients by source network (§4.13.1).
     #[norito(skip)]
     pub(crate) sccp_light_clients: Storage<
@@ -4745,7 +4846,8 @@ pub struct WorldData {
     #[norito(skip)]
     pub(crate) sccp_light_client_sets: Storage<
         (iroha_data_model::bridge::SccpNetworkV1, u64),
-        iroha_data_model::sccp::light_client::SccpLcConsensusSetV1,
+        RetainedSccpLcSet,
+        LightClientSetMode,
     >,
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
     #[norito(skip)]
@@ -5680,6 +5782,18 @@ pub struct WorldBlockFields<'world> {
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageField<'world, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    #[norito(skip)]
+    pub(crate) sccp_forgery_offences: StorageField<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    #[norito(skip)]
+    pub(crate) sccp_forgery_max_generation:
+        CellField<'world, Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -5763,6 +5877,34 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) sccp_pending_counts:
         StorageField<'world, (iroha_data_model::bridge::SccpNetworkV1, u32), (u64, u64)>,
+    /// Authoritative fixed-size reconciliation accounting.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliations: StorageField<
+        'world,
+        sccp_reconciliation_store::Key,
+        iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Permanent finalized forged-mint message amounts.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliation_proven: StorageField<
+        'world,
+        sccp_reconciliation_store::ProofKey,
+        u128,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Checked pending authentic-refund face amounts.
+    #[norito(skip)]
+    pub(crate) sccp_pending_refund_amount:
+        StorageField<'world, sccp_reconciliation_store::Key, u128, sccp_reconciliation_store::Mode>,
+    /// Derived ordered open reconciliation deadlines.
+    #[norito(skip)]
+    pub(crate) sccp_reconciliation_due: StorageField<
+        'world,
+        sccp_reconciliation_store::DueKey,
+        (),
+        sccp_reconciliation_store::Mode,
+    >,
     /// Inbound light clients by source network (§4.13.1).
     #[norito(skip)]
     pub(crate) sccp_light_clients: StorageField<
@@ -5775,7 +5917,8 @@ pub struct WorldBlockFields<'world> {
     pub(crate) sccp_light_client_sets: StorageField<
         'world,
         (iroha_data_model::bridge::SccpNetworkV1, u64),
-        iroha_data_model::sccp::light_client::SccpLcConsensusSetV1,
+        RetainedSccpLcSet,
+        LightClientSetMode,
     >,
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
     #[norito(skip)]
@@ -6380,19 +6523,31 @@ impl WorldBlock<'_> {
     /// (`specs/sccp.md` §4.5, `crate::smartcontracts::isi::sccp::witness`).
     pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
+        self.write_sccp_execution_delta(&mut out)
+            .expect("canonical SCCP write set always encodes");
+        out
+    }
+
+    /// Stream the exact canonical SCCP delta without allocating an intermediate byte graph.
+    /// The caller owns and admits its output; field order and fixed bare Norito remain unchanged.
+    pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(
+        &self,
+        out: &mut W,
+    ) -> Result<(), norito::Error> {
         macro_rules! storage {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_storage_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::storage(out, stringify!($field), &self.$field)?;)*
             };
         }
         macro_rules! cell {
             ($($field:ident),* $(,)?) => {
-                $(append_merge_cell_delta(&mut out, stringify!($field), &self.$field);)*
+                $(sccp_delta::cell(out, stringify!($field), &self.$field)?;)*
             };
         }
         cell!(
             sccp_parameters,
             sccp_reset_nonce,
+            sccp_forgery_max_generation,
             sccp_history,
             sccp_committee_current,
             sccp_liability_clock,
@@ -6401,6 +6556,7 @@ impl WorldBlock<'_> {
             sccp_pause_panel,
         );
         storage!(
+            sccp_forgery_offences,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
@@ -6417,13 +6573,16 @@ impl WorldBlock<'_> {
             sccp_governance_revisions,
             sccp_inbound_messages,
             sccp_pending_counts,
+            sccp_reconciliations,
+            sccp_reconciliation_proven,
+            sccp_pending_refund_amount,
             sccp_light_clients,
             sccp_light_client_sets,
             sccp_light_client_checkpoints,
             sccp_light_client_stride_index,
             sccp_light_client_profiles,
         );
-        out
+        Ok(())
     }
 }
 /// Aggregated changes and original rollback journals for one transaction.
@@ -7305,6 +7464,16 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageTransaction<'block, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageTransaction<
+        'block,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation:
+        CellTransaction<'block, 'world, Option<u64>, iroha_allocation::AllocationCharge>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageTransaction<'block, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
@@ -7376,6 +7545,34 @@ pub struct WorldTransaction<'block, 'world> {
     /// Pending `(inbound, refund)` settlement counts per `(network, revision)` (§4.14.2).
     pub(crate) sccp_pending_counts:
         StorageTransaction<'block, (iroha_data_model::bridge::SccpNetworkV1, u32), (u64, u64)>,
+    /// Authoritative fixed-size reconciliation accounting.
+    pub(crate) sccp_reconciliations: StorageTransaction<
+        'block,
+        sccp_reconciliation_store::Key,
+        iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Permanent finalized forged-mint message amounts.
+    pub(crate) sccp_reconciliation_proven: StorageTransaction<
+        'block,
+        sccp_reconciliation_store::ProofKey,
+        u128,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Checked pending authentic-refund face amounts.
+    pub(crate) sccp_pending_refund_amount: StorageTransaction<
+        'block,
+        sccp_reconciliation_store::Key,
+        u128,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Derived ordered open reconciliation deadlines.
+    pub(crate) sccp_reconciliation_due: StorageTransaction<
+        'block,
+        sccp_reconciliation_store::DueKey,
+        (),
+        sccp_reconciliation_store::Mode,
+    >,
     /// Inbound light clients by source network (§4.13.1).
     pub(crate) sccp_light_clients: StorageTransaction<
         'block,
@@ -7386,7 +7583,8 @@ pub struct WorldTransaction<'block, 'world> {
     pub(crate) sccp_light_client_sets: StorageTransaction<
         'block,
         (iroha_data_model::bridge::SccpNetworkV1, u64),
-        iroha_data_model::sccp::light_client::SccpLcConsensusSetV1,
+        RetainedSccpLcSet,
+        LightClientSetMode,
     >,
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
     pub(crate) sccp_light_client_checkpoints: StorageTransaction<
@@ -7505,7 +7703,7 @@ impl Drop for GovernanceProposalsMutForTesting<'_, '_, '_> {
     }
 }
 #[allow(single_use_lifetimes)]
-impl<'block, 'world> WorldTransaction<'block, 'world> {
+impl<'block> WorldTransaction<'block, '_> {
     fn observe_axt_authorization_identities(&mut self) {
         let current = axt_authorization_identities(self);
         let dataspaces: BTreeSet<_> = self
@@ -8043,6 +8241,7 @@ impl<'block, 'world> WorldTransaction<'block, 'world> {
     ///
     /// # Errors
     /// Returns an error when the persisted definition total cannot be decremented.
+    #[cfg(test)]
     pub(crate) fn remove_asset_and_metadata_with_total(
         &mut self,
         asset_id: &AssetId,
@@ -8201,6 +8400,10 @@ impl<'block, 'world> WorldTransaction<'block, 'world> {
         }
     }
     /// Record RWA lot status in the read-side status index.
+    #[expect(
+        clippy::ref_option,
+        reason = "the status index is keyed by Option<Name>; borrowing its exact key avoids cloning Name for lookups"
+    )]
     pub(crate) fn track_rwa_status(&mut self, rwa_id: &RwaId, status: &Option<Name>) {
         if let Some(rwas) = self.rwas_by_status.get_mut(status) {
             rwas.insert(rwa_id.clone());
@@ -8210,6 +8413,10 @@ impl<'block, 'world> WorldTransaction<'block, 'world> {
         }
     }
     /// Drop RWA lot status from the read-side status index.
+    #[expect(
+        clippy::ref_option,
+        reason = "the status index is keyed by Option<Name>; borrowing its exact key avoids cloning Name for lookups"
+    )]
     pub(crate) fn untrack_rwa_status(&mut self, rwa_id: &RwaId, status: &Option<Name>) {
         let remove_status_entry = self.rwas_by_status.get_mut(status).is_some_and(|rwas| {
             rwas.remove(rwa_id);
@@ -9130,6 +9337,15 @@ pub struct WorldView<'world> {
         CellView<'world, crate::smartcontracts::isi::sccp::anchor_record::RetainedSccpAnchors>,
     /// Immutable roots of complete 4096-height anchor chunks (§4.2 A1).
     pub(crate) sccp_anchor_chunks: StorageView<'world, u64, [u8; 32], AnchorStorageMode>,
+    /// Permanent exact-once forgery offences (§4.9), in original-pool custody.
+    pub(crate) sccp_forgery_offences: StorageView<
+        'world,
+        sccp_forgery_custody::OffenceKey,
+        [u8; 32],
+        sccp_forgery_custody::OffenceMode,
+    >,
+    /// Highest recorded forgery generation; absent before any offence (§4.10).
+    pub(crate) sccp_forgery_max_generation: CellView<'world, Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageView<'world, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
@@ -9197,6 +9413,26 @@ pub struct WorldView<'world> {
     /// Pending `(inbound, refund)` settlement counts per `(network, revision)` (§4.14.2).
     pub(crate) sccp_pending_counts:
         StorageView<'world, (iroha_data_model::bridge::SccpNetworkV1, u32), (u64, u64)>,
+    /// Authoritative fixed-size reconciliation accounting.
+    pub(crate) sccp_reconciliations: StorageView<
+        'world,
+        sccp_reconciliation_store::Key,
+        iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Permanent finalized forged-mint message amounts.
+    pub(crate) sccp_reconciliation_proven: StorageView<
+        'world,
+        sccp_reconciliation_store::ProofKey,
+        u128,
+        sccp_reconciliation_store::Mode,
+    >,
+    /// Checked pending authentic-refund face amounts.
+    pub(crate) sccp_pending_refund_amount:
+        StorageView<'world, sccp_reconciliation_store::Key, u128, sccp_reconciliation_store::Mode>,
+    /// Derived ordered open reconciliation deadlines.
+    pub(crate) sccp_reconciliation_due:
+        StorageView<'world, sccp_reconciliation_store::DueKey, (), sccp_reconciliation_store::Mode>,
     /// Inbound light clients by source network (§4.13.1).
     pub(crate) sccp_light_clients: StorageView<
         'world,
@@ -9207,7 +9443,8 @@ pub struct WorldView<'world> {
     pub(crate) sccp_light_client_sets: StorageView<
         'world,
         (iroha_data_model::bridge::SccpNetworkV1, u64),
-        iroha_data_model::sccp::light_client::SccpLcConsensusSetV1,
+        RetainedSccpLcSet,
+        LightClientSetMode,
     >,
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
     pub(crate) sccp_light_client_checkpoints: StorageView<
@@ -10043,6 +10280,11 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical root for an ordered commitment prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if commitments exceed the fixed tree capacity, contain
+    /// noncanonical leaves, or cannot produce a consistent frontier.
     pub fn compute_root(self, commitments: &[[u8; 32]]) -> Result<[u8; 32], String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10051,6 +10293,11 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical root after every non-empty commitment prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if commitments exceed the fixed tree capacity, contain
+    /// noncanonical leaves, or cannot produce a consistent frontier.
     pub fn compute_prefix_roots(self, commitments: &[[u8; 32]]) -> Result<Vec<[u8; 32]>, String> {
         match self {
             Self::PoseidonPastaV1 => {
@@ -10059,6 +10306,11 @@ impl ConfidentialTreeProfile {
         }
     }
     /// Compute the canonical authentication path for one leaf.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leaf index or commitment count exceeds tree
+    /// capacity, or any traversed commitment is noncanonical.
     pub fn compute_path(
         self,
         commitments: &[[u8; 32]],
@@ -10995,11 +11247,12 @@ impl GovernanceLockRecord {
         if original < policy.minimum_bond {
             return Err("original public conviction bond is below its frozen minimum".into());
         }
+        let covers_conviction_step = self.duration_blocks >= policy.conviction_step_blocks;
         if !self.custody.escrowed
             || self.custody.asset_definition_id != policy.asset_definition_id
             || self.custody.bond_escrow_account != policy.bond_escrow_account
             || self.custody.slash_receiver_account != policy.slash_receiver_account
-            || self.duration_blocks < policy.conviction_step_blocks
+            || !covers_conviction_step
             || self.expiry_height < self.duration_blocks
             || (!self.amount.is_zero()
                 && (self.owner == policy.bond_escrow_account
@@ -11371,10 +11624,7 @@ pub(crate) struct StatelessValidationCache {
     cap: usize,
     next_order: u64,
     context: Option<StatelessValidationContext>,
-    entries: std::collections::HashMap<
-        crate::tx::StatelessValidationCacheKey,
-        StatelessValidationCacheEntry,
-    >,
+    entries: BTreeMap<crate::tx::StatelessValidationCacheKey, StatelessValidationCacheEntry>,
     lru: std::collections::BTreeSet<(u64, crate::tx::StatelessValidationCacheKey)>,
 }
 impl StatelessValidationCache {
@@ -11383,7 +11633,7 @@ impl StatelessValidationCache {
             cap,
             next_order: 0,
             context: None,
-            entries: std::collections::HashMap::new(),
+            entries: BTreeMap::new(),
             lru: std::collections::BTreeSet::new(),
         }
     }
@@ -11903,7 +12153,7 @@ use state_view_publication::{StateViewGenerationWriteGuard, StateViewPublication
 #[inline]
 /// Whether both reads describe the same completed State publication.
 pub(crate) fn is_stable_state_view_generation(before: u64, after: u64) -> bool {
-    before == after && after % 2 == 0
+    before == after && after.is_multiple_of(2)
 }
 #[derive(Debug, Default)]
 struct ViewLockContentionLog {
@@ -11947,7 +12197,6 @@ mod view_lock_contention_log_tests {
     }
 }
 /// Current state of the blockchain.
-
 pub struct State {
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: World,
@@ -12446,9 +12695,6 @@ pub use view_acquisition::StateViewError;
 pub struct StateBlockFields<'state> {
     /// First local storage refusal, sticky across every child rollback and error handler.
     local_storage_refusal: Option<StateStorageAdmissionError>,
-    /// Deterministic S0 input inconsistency, consumed by SCCP G4 at post-execution.
-    pub(crate) sccp_begin_failure:
-        Option<iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1>,
     /// Immutable policy inputs captured with this scope's actual predecessor.
     runtime_policy: canonical_runtime::CapturedRuntimePolicy,
     /// Actual MV runtime scope; projected fields never replace its undo authority.
@@ -12915,9 +13161,9 @@ impl<'state> StateBlock<'state> {
     /// Read one permanent dataspace counter from the immutable parent WSV.
     pub(crate) fn axt_handle_counter_at_block_start(
         &self,
-        dataspace: &DataSpaceId,
+        dataspace: DataSpaceId,
     ) -> Option<&AxtHandleCounterRecord> {
-        self.world.axt_handle_counters.get_before_block(dataspace)
+        self.world.axt_handle_counters.get_before_block(&dataspace)
     }
     /// Read one asset-definition incarnation from the immutable parent WSV.
     ///
@@ -13074,7 +13320,7 @@ impl<'state> StateBlock<'state> {
                 final_policy,
                 minimum_generation,
                 authorization_identity_changed,
-                self.axt_handle_counter_at_block_start(&dataspace).copied(),
+                self.axt_handle_counter_at_block_start(dataspace).copied(),
                 self.world.axt_handle_counters.get(&dataspace).copied(),
             )?;
             if let Some(counter) = counter {
@@ -13206,13 +13452,6 @@ impl<'state> StateBlock<'state> {
 
         Ok(())
     }
-    #[inline]
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub(crate) fn stateless_validation_cache(
-        &self,
-    ) -> &parking_lot::Mutex<StatelessValidationCache> {
-        self.state_ref.stateless_validation_cache()
-    }
     /// Access the DA commitments collected while applying the block.
     pub fn da_commitments(
         &self,
@@ -13259,13 +13498,12 @@ impl<'state> StateBlock<'state> {
         let Some(pending) = policy.pending_tightening else {
             return;
         };
-        if pending.effective_at_height < incoming_height {
-            panic!(
-                "privacy consensus policy missed effective height {} before incoming block \
-                 height {incoming_height}",
-                pending.effective_at_height
-            );
-        }
+        assert!(
+            pending.effective_at_height >= incoming_height,
+            "privacy consensus policy missed effective height {} before incoming block \
+             height {incoming_height}",
+            pending.effective_at_height
+        );
         if pending.effective_at_height > incoming_height {
             return;
         }
@@ -13523,64 +13761,6 @@ impl<'state> StateBlock<'state> {
         }
         #[cfg(feature = "telemetry")]
         self.telemetry.set_axt_policy_snapshot_version(snapshot);
-    }
-    fn refresh_axt_policies_from_directory(&mut self) -> Option<AxtPolicySnapshot> {
-        let valid_lanes = axt_cached_policy_retain_lane_ids_at_height(
-            &self.nexus,
-            self._curr_block.height().get(),
-        );
-        let mut snapshot =
-            crate::smartcontracts::ivm::host::CoreHost::derive_axt_policy_snapshot_from_directory(
-                self,
-            );
-        let Some(snap) = snapshot.as_mut() else {
-            let has_directory_data = self.world.space_directory_manifests.iter().next().is_some()
-                || self.world.uaid_dataspaces.iter().next().is_some();
-            let has_active_manifest = self
-                .world
-                .space_directory_manifests
-                .iter()
-                .any(|(_, set)| set.iter().any(|(_, record)| record.is_active()));
-            if !has_directory_data || has_active_manifest {
-                let stale: Vec<_> = self
-                    .world
-                    .axt_policies
-                    .iter()
-                    .filter(|(_, policy)| !valid_lanes.contains(&policy.target_lane))
-                    .map(|(dsid, _)| *dsid)
-                    .collect();
-                for dsid in stale {
-                    self.world.axt_policies.remove(dsid);
-                }
-                return None;
-            }
-            let stale: Vec<_> = self
-                .world
-                .axt_policies
-                .iter()
-                .map(|(dsid, _)| *dsid)
-                .collect();
-            for dsid in stale {
-                self.world.axt_policies.remove(dsid);
-            }
-            return None;
-        };
-        for binding in &mut snap.entries {
-            if let Some(record) = self.world.axt_handle_counters.get(&binding.dsid) {
-                binding.policy.next_handle_counter = record.next();
-                binding.policy.active_handle_era = record.authorization_generation();
-            } else if binding.policy.manifest_root != [0; 32] {
-                let initial = AxtHandleCounterRecord::initial(binding.policy.active_handle_era);
-                binding.policy.next_handle_counter = initial.next();
-                binding.policy.active_handle_era = initial.authorization_generation();
-                self.world.axt_handle_counters.insert(binding.dsid, initial);
-            }
-        }
-        snap.version = AxtPolicySnapshot::compute_version(&snap.entries);
-        snap.validate()
-            .expect("directory-derived AXT policy snapshot must be canonical");
-        self.replace_axt_policy_projection(snap);
-        snapshot
     }
     /// Provides read-only access to the current commit topology for this block.
     #[inline]
@@ -13926,6 +14106,8 @@ pub struct StateTransaction<'block, 'state> {
     pub last_tx_gas_used: u64,
     /// Actual admitted direct-body fee basis, owned independently from rollbackable business effects.
     pub(crate) execution_fee_meter: Option<crate::executor::ExecutionFeeMeter>,
+    /// Original finite record-preparation pool; protocol reads use the acquired MV parent.
+    sccp_evidence_budget: &'state iroha_allocation::AllocationBudget,
     /// Authority of the fee-exempt SCCP self-claim this signed body executes, set by the
     /// executor before the body runs: only such a claim makes the self-claim fee due on its
     /// inbound message (`specs/sccp.md` §4.12.4).
@@ -13957,6 +14139,11 @@ pub struct StateTransaction<'block, 'state> {
         Option<kagemusha_load_entrypoint::KagemushaLoadEntrypointBindingV1>,
     /// Currently executing direct instruction ordinal; nested frames receive no Load authority.
     pub(crate) current_direct_kagemusha_load_instruction_index: Option<usize>,
+    /// Fixed-size original native forgery source; admission and direct execution are required.
+    sccp_forgery_entrypoint_binding: Option<sccp_forgery_entrypoint::SccpForgeryEntrypointBinding>,
+    sccp_pause_source: Option<sccp_pause_entrypoint::PauseSource>,
+    /// One-shot direct native frame; contracts and callbacks cannot inherit this marker.
+    pub(crate) current_direct_sccp_forgery: bool,
     /// Storage-only ordinal of a directly signed AMX instruction; grants no authority.
     pub(crate) current_direct_amx_instruction_index: Option<usize>,
     /// Borrow of the actual native Worker attempt, confined to this transaction.
@@ -14182,6 +14369,10 @@ pub struct StateView<'state> {
     /// Actual MV runtime scope; projected fields never replace its undo authority.
     pub(crate) canonical_runtime: CellView<'state, SnapshotNexusRuntime>,
     pub(crate) native_execution_tip: CellView<'state, Option<NativeExecutionTip>>,
+    #[expect(
+        clippy::option_option,
+        reason = "MV stores an optional native tip with an independent optional undo; unchanged, genesis absence, and a prior tip must remain distinct."
+    )]
     pub(crate) native_execution_tip_predecessor:
         CellView<'state, Option<Option<NativeExecutionTip>>>,
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
@@ -14503,7 +14694,7 @@ pub(crate) fn consensus_key_pop_for_public_key(
     })
 }
 /// Resolve every lane id currently associated with the provided validator peers.
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 pub(crate) fn validator_lane_ids_for_peers<I, P>(
     snapshot: &impl WorldReadOnly,
     peers: I,
@@ -14547,7 +14738,7 @@ pub(crate) fn public_lane_stake_share_matches_key(
     key.0 == share.lane_id && key.1 == share.validator && key.2 == share.staker
 }
 /// Resolve every lane id currently associated with a single validator peer.
-#[cfg(any(test, feature = "iroha-core-tests"))]
+#[cfg(test)]
 pub(crate) fn validator_lane_ids_for_peer(
     snapshot: &impl WorldReadOnly,
     peer: &PeerId,
@@ -14910,79 +15101,6 @@ fn live_consensus_key_pop_for_peer_matching_role(
         }
     }
     None
-}
-#[cfg(any(test, feature = "iroha-core-tests"))]
-fn active_stake_elected_validator_peers_for_checkpoint_lanes<I, P>(
-    world: &impl WorldReadOnly,
-    candidate_peers: I,
-    checkpoint_lane_ids: &BTreeSet<LaneId>,
-    block_height: u64,
-    nexus: &iroha_config::parameters::actual::Nexus,
-) -> Vec<PeerId>
-where
-    I: IntoIterator<Item = P>,
-    P: std::borrow::Borrow<PeerId>,
-{
-    if checkpoint_lane_ids.is_empty() {
-        return Vec::new();
-    }
-    let candidate_peers: BTreeSet<PeerId> = candidate_peers
-        .into_iter()
-        .map(|peer| peer.borrow().clone())
-        .collect();
-    if candidate_peers.is_empty() {
-        return Vec::new();
-    }
-    let present_peers: BTreeSet<PeerId> = world.peers().iter().cloned().collect();
-    let active_lane_ids = nexus_active_lane_ids(nexus);
-    let mut peers: Vec<_> = world
-        .public_lane_validators()
-        .iter()
-        .filter(|(key, record)| public_lane_validator_record_matches_key(key, record))
-        .filter(|(_, record)| checkpoint_lane_ids.contains(&record.lane_id))
-        .filter(|(_, record)| active_lane_ids.contains(&record.lane_id))
-        .filter(|(_, record)| {
-            crate::smartcontracts::isi::staking::validator_election_eligible_at_height(
-                record,
-                block_height,
-            )
-        })
-        .filter(|(_, record)| {
-            matches!(
-                nexus
-                    .staking
-                    .validator_mode(record.lane_id, &nexus.lane_catalog),
-                iroha_config::parameters::actual::LaneValidatorMode::StakeElected
-            )
-        })
-        .filter_map(|(_, record)| {
-            let Ok(meets_min) = crate::smartcontracts::isi::staking::meets_min_stake(
-                &record.self_stake,
-                &nexus.staking.min_validator_stake,
-            ) else {
-                return None;
-            };
-            if !meets_min {
-                return None;
-            }
-            let peer = record.peer_id.clone();
-            if !candidate_peers.contains(&peer) || !present_peers.contains(&peer) {
-                return None;
-            }
-            if !peer_has_live_consensus_key_for_role(
-                world,
-                &peer,
-                block_height,
-                ConsensusKeyRole::Validator,
-            ) {
-                return None;
-            }
-            Some(peer)
-        })
-        .collect();
-    peers.sort();
-    peers.dedup();
-    peers
 }
 // TODO: Route production epoch construction through the authenticated-seed
 // committee selector before removing this expectation.
@@ -16426,11 +16544,11 @@ mod stake_snapshot_tests {
             nexus.staking.max_validators = NonZeroU32::new(4).expect("nonzero validator limit");
         }
         let peer_a_key = crate::state::checked_keypair_with_algorithm(Algorithm::BlsNormal);
-        let peer_b_key = crate::state::checked_keypair_with_algorithm(Algorithm::BlsNormal);
+        let alternate_peer_key = crate::state::checked_keypair_with_algorithm(Algorithm::BlsNormal);
         let participant_key = crate::state::checked_keypair_with_algorithm(Algorithm::BlsNormal);
         let extra_peer_keys: Vec<_> = (0..2).map(|_| crate::state::checked_keypair()).collect();
         let peer_a = PeerId::from(peer_a_key.public_key().clone());
-        let peer_b = PeerId::from(peer_b_key.public_key().clone());
+        let peer_b = PeerId::from(alternate_peer_key.public_key().clone());
         let participant_peer = PeerId::from(participant_key.public_key().clone());
         let account_a_high = DMAccountId::of(crate::state::checked_keypair().public_key().clone());
         let account_a_low = DMAccountId::of(crate::state::checked_keypair().public_key().clone());
@@ -17549,13 +17667,7 @@ mod custom_parameter_tests {
             .expect("npos parameters should serialize as object");
         map.insert(
             "epoch_seed".to_owned(),
-            norito::json::Value::String(
-                expected
-                    .epoch_seed()
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect(),
-            ),
+            norito::json::Value::String(hex::encode(expected.epoch_seed())),
         );
         let legacy_payload =
             Json::from_norito_value_ref(&legacy_value).expect("serialize compatibility payload");
@@ -17579,14 +17691,7 @@ mod custom_parameter_tests {
             .expect("npos parameters should serialize as object");
         map.insert(
             "epoch_seed".to_owned(),
-            norito::json::Value::String(format!(
-                "\"{}\"",
-                expected
-                    .epoch_seed()
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>()
-            )),
+            norito::json::Value::String(format!("\"{}\"", hex::encode(expected.epoch_seed()))),
         );
         let legacy_payload =
             Json::from_norito_value_ref(&legacy_value).expect("serialize compatibility payload");
@@ -18057,6 +18162,10 @@ fn governance_lock_expiry_index_v1<'a>(
     Ok(lock_expiries)
 }
 
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "The derived current and undo generations rebuild the authoritative Storage<K, ()> index through its map API"
+)]
 fn validation_fee_proposal_index_v1<'a>(
     proposals: impl IntoIterator<Item = (&'a [u8; 32], &'a GovernanceProposalRecord)>,
 ) -> BTreeMap<(u64, [u8; 32]), ()> {
@@ -19557,6 +19666,10 @@ impl World {
         Ok(())
     }
     fn rebuild_confidential_policy_transition_index(&mut self) -> core::result::Result<(), String> {
+        #[expect(
+            clippy::zero_sized_map_values,
+            reason = "Both current and undo maps rebuild the authoritative Storage<K, ()> transition index without changing its journal representation"
+        )]
         fn derive<'a>(
             definitions: impl Iterator<Item = (&'a AssetDefinitionId, &'a AssetDefinition)>,
         ) -> core::result::Result<
@@ -20000,6 +20113,11 @@ impl World {
         Ok(())
     }
     /// Acquire every original World field or return a local storage refusal.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original storage admission error if acquiring or allocating
+    /// any World field under `execution_budget` fails.
     pub fn try_block(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -20007,6 +20125,11 @@ impl World {
         build_world_block!(self, mv::BlockMode::Ordinary, execution_budget)
     }
     /// Acquire the exact replacement overlay under the original finite pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original storage admission error if acquiring or allocating
+    /// any replacement World field under `execution_budget` fails.
     pub fn try_block_and_revert(
         &self,
         execution_budget: &iroha_allocation::AllocationBudget,
@@ -20019,13 +20142,13 @@ impl World {
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn block(&self) -> WorldBlock<'_> {
         let budget = self.sccp_committee_generations.allocation_budget();
-        self.try_block(&budget).expect("fixture World admission")
+        self.try_block(budget).expect("fixture World admission")
     }
     /// Acquire a fixture replacement World using a finite test-only control pool.
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn block_and_revert(&self) -> WorldBlock<'_> {
         let budget = self.sccp_committee_generations.allocation_budget();
-        self.try_block_and_revert(&budget)
+        self.try_block_and_revert(budget)
             .expect("fixture World replacement admission")
     }
     /// Create a point-in-time view of this world.
@@ -20286,21 +20409,21 @@ mod confidential_policy_transition_index_tests {
 fn derive_account_scope_directory_entry(
     world: &(impl WorldReadOnly + ?Sized),
     account_id: &AccountId,
-) -> Result<Option<AccountScopeDirectoryEntry>, ParseError> {
+) -> Option<AccountScopeDirectoryEntry> {
     let Some(account) = world.accounts().get(account_id) else {
-        return Ok(None);
+        return None;
     };
     let aliases = world.bound_account_aliases(account_id);
     let bindings = account
         .as_ref()
         .uaid()
         .and_then(|uaid| world.uaid_dataspaces().get(uaid));
-    Ok(Some(account_scope_restore::entry(
+    Some(account_scope_restore::entry(
         account_id,
         account,
         bindings,
         aliases.iter(),
-    )))
+    ))
 }
 fn account_scope_index_keys(
     entry: &AccountScopeDirectoryEntry,
@@ -21062,6 +21185,10 @@ macro_rules! world_ro_accessors {
             cell_ref sccp_parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>;
             /// Genesis reset nonce of this Taira identity (§4.18).
             cell_ref sccp_reset_nonce: Option<[u8; 32]>;
+            /// Permanent exact-once forgery offences (§4.9).
+            storage sccp_forgery_offences: sccp_forgery_custody::OffenceKey => [u8; 32];
+            /// Highest recorded forgery generation (§4.10).
+            cell_ref sccp_forgery_max_generation: Option<u64>;
             /// Immutable committee trust and liability records (§4.2).
             storage sccp_committee_generations: u64 => crate::smartcontracts::isi::sccp::generation_record::RetainedSccpGeneration;
             /// Current committee generation; zero before initialization.
@@ -21108,10 +21235,18 @@ macro_rules! world_ro_accessors {
             storage sccp_inbound_messages: [u8; 32] => iroha_data_model::sccp::inbound::SccpInboundRecordV1;
             /// Pending `(inbound, refund)` settlement counts per `(network, revision)` (§4.14.2).
             storage sccp_pending_counts: (iroha_data_model::bridge::SccpNetworkV1, u32) => (u64, u64);
+            /// Authoritative fixed-size reconciliation accounting.
+            storage sccp_reconciliations: sccp_reconciliation_store::Key => iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1;
+            /// Permanent finalized forged-mint message amounts.
+            storage sccp_reconciliation_proven: sccp_reconciliation_store::ProofKey => u128;
+            /// Checked pending authentic-refund face amounts.
+            storage sccp_pending_refund_amount: sccp_reconciliation_store::Key => u128;
+            /// Derived ordered open reconciliation deadlines.
+            storage sccp_reconciliation_due: sccp_reconciliation_store::DueKey => ();
             /// Inbound light clients by source network (§4.13.1).
             storage sccp_light_clients: iroha_data_model::bridge::SccpNetworkV1 => iroha_data_model::sccp::light_client::SccpLightClientV1;
             /// Authenticated source consensus sets by `(network, set_id)` (§4.13.1).
-            storage sccp_light_client_sets: (iroha_data_model::bridge::SccpNetworkV1, u64) => iroha_data_model::sccp::light_client::SccpLcConsensusSetV1;
+            storage sccp_light_client_sets: (iroha_data_model::bridge::SccpNetworkV1, u64) => RetainedSccpLcSet;
             /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
             storage sccp_light_client_checkpoints: (iroha_data_model::bridge::SccpNetworkV1, u64) => iroha_data_model::sccp::light_client::SccpLcCheckpointV1;
             /// Lowest checkpoint height per `(network, stride bucket)`, kept permanently (§4.13.1).
@@ -21414,8 +21549,8 @@ pub trait WorldReadOnly {
     /// Iterate domains owned by an account.
     fn domains_owned_by_iter<'a>(
         &'a self,
-        owner: &'a AccountId,
-    ) -> impl Iterator<Item = &'a Domain> {
+        owner: &AccountId,
+    ) -> impl Iterator<Item = &'a Domain> + use<'a, Self> {
         self.domains_by_owner()
             .get(owner)
             .into_iter()
@@ -21430,27 +21565,34 @@ pub trait WorldReadOnly {
     /// fallback materialization scope. Additional dataspaces come from UAID bindings and bound
     /// aliases. Domains remain optional within each dataspace, so a dataspace entry may contain an
     /// empty domain set.
-    fn account_scope_entry(
-        &self,
-        account_id: &AccountId,
-    ) -> Result<Option<AccountScopeDirectoryEntry>, ParseError> {
+    fn account_scope_entry(&self, account_id: &AccountId) -> Option<AccountScopeDirectoryEntry> {
         if let Some(entry) = self.account_scope_directory().get(account_id) {
-            return Ok(Some(entry.clone()));
+            return Some(entry.clone());
         }
         derive_account_scope_directory_entry(self, account_id)
     }
     /// Collect the account's dataspace -> domain hierarchy from the maintained account-scope
     /// directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a parse error if the account scope cannot be represented as
+    /// qualified domains using the current dataspace catalog.
     fn account_scope_hierarchy(
         &self,
         account_id: &AccountId,
     ) -> Result<BTreeMap<DataSpaceId, BTreeSet<DomainId>>, ParseError> {
-        match self.account_scope_entry(account_id)? {
+        match self.account_scope_entry(account_id) {
             Some(entry) => entry.hierarchy(self.dataspace_catalog()),
             None => Ok(BTreeMap::from([(DataSpaceId::UNIVERSAL, BTreeSet::new())])),
         }
     }
     /// Collect the dataspaces linked to the account.
+    ///
+    /// # Errors
+    ///
+    /// Propagates account-scope catalog/domain resolution errors from
+    /// [`Self::account_scope_hierarchy`].
     fn account_dataspaces(
         &self,
         account_id: &AccountId,
@@ -21461,6 +21603,11 @@ pub trait WorldReadOnly {
             .collect())
     }
     /// Collect the qualified domains linked to the account across every dataspace.
+    ///
+    /// # Errors
+    ///
+    /// Propagates account-scope catalog/domain resolution errors from
+    /// [`Self::account_scope_hierarchy`].
     fn account_domains(&self, account_id: &AccountId) -> Result<BTreeSet<DomainId>, ParseError> {
         Ok(self
             .account_scope_hierarchy(account_id)?
@@ -21574,6 +21721,11 @@ pub trait WorldReadOnly {
     /// Read an exact direct dataspace home from its canonical direct-home row.
     ///
     /// Absence remains absence. An orphan, foreign-incarnation or contradictory row fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns a parse error for an orphan, foreign-incarnation, or
+    /// contradictory direct-home row.
     fn asset_definition_dataspace(
         &self,
         id: &AssetDefinitionId,
@@ -21585,6 +21737,11 @@ pub trait WorldReadOnly {
         )
     }
     /// Resolve domain, global or direct dataspace ownership without consulting aliases.
+    ///
+    /// # Errors
+    ///
+    /// Returns a parse error for an invalid direct-home row or a definition
+    /// whose ownership fields do not form a valid home.
     fn asset_definition_home(
         &self,
         id: &AssetDefinitionId,
@@ -22218,6 +22375,12 @@ mod bootle_lantern_policy_world_read_tests {
 impl<'world> WorldBlock<'world> {
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Install one fully verified global-beacon fixture for dependent-crate tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid lifecycle or session bindings, existing
+    /// beacon state, an inactive key, or invalid pulse context, anchor, signature,
+    /// or persisted history.
     pub fn install_global_beacon_fixture_for_testing(
         &mut self,
         key_record: crate::beacon::RetainedFinalizedGlobalThresholdBeaconSessionV1,
@@ -22308,6 +22471,11 @@ impl<'world> WorldBlock<'world> {
         &mut self.verifying_keys_by_circuit
     }
     /// Create struct to apply transaction's changes
+    ///
+    /// # Errors
+    ///
+    /// Returns the original storage admission error if any child transaction
+    /// field or control allocation cannot be admitted.
     pub fn try_transaction(
         &mut self,
         #[cfg(feature = "telemetry")] telemetry: Option<&'world StateTelemetry>,
@@ -22761,7 +22929,7 @@ impl WorldTransaction<'_, '_> {
     fn refresh_account_scope_directory_entry(&mut self, account_id: &AccountId) {
         let previous = self.account_scope_directory.get(account_id).cloned();
         match derive_account_scope_directory_entry(self, account_id) {
-            Ok(Some(entry)) => {
+            Some(entry) => {
                 self.replace_account_scope_accounts_index_entry(
                     account_id,
                     previous.as_ref(),
@@ -22770,20 +22938,13 @@ impl WorldTransaction<'_, '_> {
                 self.account_scope_directory
                     .insert(account_id.clone(), entry);
             }
-            Ok(None) => {
+            None => {
                 self.replace_account_scope_accounts_index_entry(
                     account_id,
                     previous.as_ref(),
                     None,
                 );
                 self.account_scope_directory.remove(account_id.clone());
-            }
-            Err(error) => {
-                warn!(
-                    account_id = %account_id,
-                    ?error,
-                    "failed to refresh account scope directory entry"
-                );
             }
         }
     }
@@ -24054,42 +24215,6 @@ impl WorldTransaction<'_, '_> {
         Ok(())
     }
     #[cfg(test)]
-    /// Persist one finalized public beacon key and remove its matching active DKG snapshot.
-    pub(crate) fn put_finalized_global_beacon_key_session(
-        &mut self,
-        record: RetainedFinalizedGlobalThresholdBeaconSessionV1,
-    ) -> Result<(), GlobalThresholdBeaconError> {
-        record.validate()?;
-        if record.activated_at_height.is_some() || record.retired_at_height.is_some() {
-            return Err(GlobalThresholdBeaconError::InvalidKeyLifecycle);
-        }
-        let session_id = record.session.session_id;
-        if let Some(previous) = self.global_beacon_key_sessions.get(&session_id) {
-            return if previous == &record {
-                Ok(())
-            } else {
-                Err(GlobalThresholdBeaconError::PersistenceConflict)
-            };
-        }
-        if let Some(active_dkg) = self.global_beacon_dkg.get(&session_id) {
-            let transcript = &record.session.adaptive_dkg;
-            if active_dkg.session != transcript.session
-                || active_dkg.generator_h != transcript.generator_h
-                || active_dkg.generator_v != transcript.generator_v
-                || active_dkg.recipient_keys != transcript.recipient_keys
-                || active_dkg.dealer_commitments != transcript.dealer_commitments
-                || active_dkg.encrypted_shares != transcript.encrypted_shares
-                || active_dkg.share_acceptances != transcript.share_acceptances
-                || active_dkg.last_updated_height > transcript.finalized_at_height
-            {
-                return Err(GlobalThresholdBeaconError::PersistenceConflict);
-            }
-            self.global_beacon_dkg.remove(session_id);
-        }
-        self.global_beacon_key_sessions.insert(session_id, record);
-        Ok(())
-    }
-    #[cfg(test)]
     /// Install the singleton successor pointer and its first authorized pulse height.
     ///
     /// A lifecycle instruction in block `H` uses `H + 1`, so consensus effects
@@ -24143,7 +24268,7 @@ impl WorldTransaction<'_, '_> {
             .remove(GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY);
         Ok(())
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     /// Verify and atomically append a pulse for component fixtures.
     /// Production pulses enter only through the native pristine source capture.
     ///
@@ -24153,6 +24278,10 @@ impl WorldTransaction<'_, '_> {
     /// A fresh chain may append its first certified pulse with no pre-seeded
     /// cursor; that pulse atomically creates the cursor. An absent cursor with
     /// any existing pulse is corrupt and fails closed.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "successful verification moves the complete pulse into authenticated World storage"
+    )]
     pub(crate) fn verify_and_advance_global_beacon_pulse(
         &mut self,
         session: &ValidatedGlobalThresholdBeaconSessionV1,
@@ -24622,6 +24751,8 @@ impl WorldTransaction<'_, '_> {
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
             sccp_committee_current: _,
+            sccp_forgery_offences: _,
+            sccp_forgery_max_generation: _,
             sccp_destination_pending_generations: _,
             sccp_liability_clock: _,
             sccp_degraded_run: _,
@@ -24643,6 +24774,10 @@ impl WorldTransaction<'_, '_> {
             sccp_governance_revisions: _,
             sccp_inbound_messages: _,
             sccp_pending_counts: _,
+            sccp_reconciliations: _,
+            sccp_reconciliation_proven: _,
+            sccp_pending_refund_amount: _,
+            sccp_reconciliation_due: _,
             sccp_light_clients: _,
             sccp_light_client_sets: _,
             sccp_light_client_checkpoints: _,
@@ -24936,6 +25071,8 @@ impl WorldTransaction<'_, '_> {
         self.sccp_reset_nonce.apply();
         self.sccp_committee_generations.apply();
         self.sccp_committee_current.apply();
+        self.sccp_forgery_offences.apply();
+        self.sccp_forgery_max_generation.apply();
         self.sccp_destination_pending_generations.apply();
         self.sccp_liability_clock.apply();
         self.sccp_degraded_run.apply();
@@ -24957,6 +25094,10 @@ impl WorldTransaction<'_, '_> {
         self.sccp_governance_revisions.apply();
         self.sccp_inbound_messages.apply();
         self.sccp_pending_counts.apply();
+        self.sccp_reconciliations.apply();
+        self.sccp_reconciliation_proven.apply();
+        self.sccp_pending_refund_amount.apply();
+        self.sccp_reconciliation_due.apply();
         self.sccp_light_clients.apply();
         self.sccp_light_client_sets.apply();
         self.sccp_light_client_checkpoints.apply();
@@ -25654,7 +25795,7 @@ impl State {
         &self,
     ) -> Result<Option<iroha_config::parameters::actual::Nexus>, LaneLifecycleError> {
         let generation_before = self.state_view_generation();
-        if generation_before % 2 != 0 {
+        if !generation_before.is_multiple_of(2) {
             return Ok(None);
         }
         let runtime = self.canonical_runtime.view();
@@ -25669,6 +25810,7 @@ impl State {
     }
     /// Read lane ownership without acquiring the protected catalog during publication.
     /// This projection does not supply complete runtime dataspace descriptions.
+    #[cfg(test)]
     fn nexus_ownership_projection(&self) -> iroha_config::parameters::actual::Nexus {
         self.canonical_runtime
             .view()
@@ -25726,6 +25868,7 @@ impl State {
             .copied()
             .collect()
     }
+    #[cfg(test)]
     fn canonical_lane_reset_heights_snapshot(&self) -> BTreeMap<LaneId, u64> {
         let mut reset_heights = self
             .da_shard_cursors
@@ -25761,9 +25904,9 @@ impl State {
     /// Callers must first acquire the Queue reservation-transition fence when
     /// both owners are needed. On refusal, release all other guards before
     /// waiting on this exact mutex observation; a wake requires a fresh probe.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "TODO: wire native state publication")
+    #[expect(
+        dead_code,
+        reason = "TODO: connect nonblocking native publication admission to the lifecycle fence and its exact ReleaseWait observation"
     )]
     pub(crate) fn try_lock_lane_lifecycle_work_admission(
         &self,
@@ -25877,14 +26020,6 @@ impl State {
     pub fn emergency_fast_startup_enabled(&self) -> bool {
         self.kura.emergency_fast_startup_enabled()
     }
-    /// Return whether this State owns the exact supplied live Kura handle.
-    ///
-    /// The comparison does not clone or expose State's retained storage
-    /// handle. Recovered lifecycle startup uses it to prevent deterministic
-    /// marker replay and live application from crossing Kura instances.
-    pub(crate) fn matches_kura_instance(&self, kura: &Arc<Kura>) -> bool {
-        Arc::ptr_eq(&self.kura, kura)
-    }
     /// Retain this State's exact block-storage owner for consensus custody.
     /// The shared handle does not create another Kura instance or publication authority.
     pub(crate) fn kura_handle(&self) -> Arc<Kura> {
@@ -25909,11 +26044,13 @@ impl State {
         }
         DaShardCursorJournal::journal_path(&root)
     }
+    #[cfg(test)]
     fn persist_da_shard_cursor_journal(&self) {
         self.persist_da_shard_cursor_journal_with_config(
             &self.nexus_ownership_projection().lane_config,
         );
     }
+    #[cfg(test)]
     fn persist_da_shard_cursor_journal_with_config(
         &self,
         lane_config: &iroha_config::parameters::actual::LaneConfig,
@@ -26028,11 +26165,6 @@ impl State {
         self.query_index_journal
             .write()
             .set_latest(indexed_height, indexed_block_hash);
-    }
-    #[cfg(test)]
-    fn persist_query_index_status_snapshot(&self, path: &Path) {
-        let _persistence_guard = self.query_index_journal_persistence_lock.lock();
-        self.persist_query_index_status_snapshot_locked(path);
     }
     fn persist_query_index_status_snapshot_locked(&self, path: &Path) {
         let tmp_path = path.with_extension("norito.tmp");
@@ -26570,6 +26702,12 @@ impl State {
         Ok(())
     }
     /// Access the in-memory DA commitment index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn da_commitments(
         &self,
     ) -> Result<
@@ -26580,6 +26718,12 @@ impl State {
         Ok(self.da_commitments.read())
     }
     /// Access the in-memory confidential-compute receipt index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn da_confidential_compute(
         &self,
     ) -> Result<
@@ -26590,6 +26734,12 @@ impl State {
         Ok(self.da_confidential_compute.read())
     }
     /// Access the in-memory DA receipt cursor index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn da_receipt_cursors(
         &self,
     ) -> Result<
@@ -26599,15 +26749,13 @@ impl State {
         self.ensure_da_indexes_hydrated()?;
         Ok(self.da_receipt_cursors.read())
     }
-    /// Snapshot already-loaded DA lane reset watermarks without replaying Kura.
-    ///
-    /// Proposal assembly uses these watermarks to avoid assigning lane-local
-    /// block heights from an earlier lane incarnation while holding the
-    /// consensus actor lock.
-    pub(crate) fn da_shard_canonical_reset_heights_snapshot_cached(&self) -> BTreeMap<LaneId, u64> {
-        self.canonical_lane_reset_heights_snapshot()
-    }
     /// Access the in-memory shard cursor index derived from DA commitments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn da_shard_cursor_index(
         &self,
     ) -> Result<
@@ -26618,6 +26766,12 @@ impl State {
         Ok(self.da_shard_cursors.read())
     }
     /// Access the in-memory DA pin intent index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn da_pin_intents(
         &self,
     ) -> Result<
@@ -26628,7 +26782,12 @@ impl State {
         Ok(self.da_pin_intents.read())
     }
     /// Lookup a DA commitment by manifest hash.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if committed DA history is missing, inconsistent, or
+    /// cannot be replayed into indexes. Original acquisition resource refusals
+    /// remain deferrals.
     pub fn find_da_commitment_by_manifest(
         &self,
         digest: &iroha_data_model::sorafs::pin_registry::ManifestDigest,
@@ -26641,8 +26800,7 @@ impl State {
     }
     #[cfg(test)]
     /// Lookup a DA commitment by `(lane_id, epoch, sequence)`.
-    #[must_use]
-    pub fn find_da_commitment_by_lane_epoch_sequence(
+    fn find_da_commitment_by_lane_epoch_sequence(
         &self,
         lane_id: u32,
         epoch: u64,
@@ -26683,8 +26841,7 @@ impl State {
         let mut counter = existing_counter.or(requested_counter);
         let previous_was_active = previous_policy.as_ref().is_some_and(axt_policy_is_active);
         let next_is_active = axt_policy_is_active(&policy);
-        let revokes_authority = previous_was_active
-            || (existing_counter.is_some() && !previous_was_active && next_is_active);
+        let revokes_authority = previous_was_active || next_is_active && existing_counter.is_some();
         let raises_generation_floor = counter
             .as_ref()
             .is_some_and(|counter| policy.active_handle_era > counter.authorization_generation());
@@ -27070,25 +27227,6 @@ impl State {
         Ok(())
     }
 
-    fn validate_kaigi_account_dependencies_at_authenticated_time(
-        &self,
-    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
-        let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
-        let nexus = self.nexus_snapshot();
-        let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
-            &world,
-            kaigi_retained_timestamp_ceiling,
-        )
-        .map_err(|error| {
-            error.map_rejection(|error| {
-                format!(
-                    "failed to validate authenticated snapshot Kaigi account dependencies: {error}"
-                )
-            })
-        })
-    }
-
     fn rebuild_snapshot_root_indexes(&mut self) -> core::result::Result<(), String> {
         let rebuilt = self.rebuild_uaid_dataspace_bindings()?;
         iroha_logger::debug!(
@@ -27204,7 +27342,6 @@ impl State {
                 .insert(storage_key, norito::codec::Encode::encode(&record));
         }
     }
-    #[must_use]
     #[inline(never)]
     #[allow(clippy::too_many_lines)]
     fn new_inner(
@@ -28570,13 +28707,15 @@ impl State {
         loop {
             let release = match self.try_block(curr_block.clone()) {
                 Ok(block) => return block,
-                Err(StateBlockStartError::Storage(StateStorageAdmissionError::World(
-                    mv::storage::AdmittedStorageError::Busy { release, .. },
-                )))
-                | Err(StateBlockStartError::History(BlockHashAdmissionError::Busy(release)))
-                | Err(StateBlockStartError::Membership(
-                    storage_transactions::MembershipAdmissionError::Busy(release),
-                )) => release,
+                Err(
+                    StateBlockStartError::Storage(StateStorageAdmissionError::World(
+                        mv::storage::AdmittedStorageError::Busy { release, .. },
+                    ))
+                    | StateBlockStartError::History(BlockHashAdmissionError::Busy(release))
+                    | StateBlockStartError::Membership(
+                        storage_transactions::MembershipAdmissionError::Busy(release),
+                    ),
+                ) => release,
                 Err(error) => panic!("cannot create infallible State block: {error:?}"),
             };
             // try_block has retired every failed aggregate sibling. Admit both
@@ -28637,6 +28776,10 @@ impl State {
             .map(|_| ())
         })
     }
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     pub(crate) fn block_with_pristine_stage<E: std::fmt::Debug>(
         &self,
         curr_block: BlockHeader,
@@ -28666,8 +28809,12 @@ impl State {
     /// Own one overlay across pre-State authentication, all shared start effects,
     /// and a one-use after-start continuation. The continuation's value can only
     /// come from the before-start closure on this SAME overlay. Native callers
-    /// retain the heap owner; old callers keep their existing return convention.
+    /// retain the heap owner; value-returning block constructors unwrap it at their boundary.
     #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     fn block_with_owned_start_stages<'state, E: std::fmt::Debug, T, R>(
         &'state self,
         curr_block: BlockHeader,
@@ -28678,6 +28825,10 @@ impl State {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the acquired block owns the supplied header independently of its caller"
+    )]
     fn block_with_owned_start_stages_with_carrier<'state, E: std::fmt::Debug, T, R>(
         &'state self,
         curr_block: BlockHeader,
@@ -28802,9 +28953,13 @@ impl State {
             .map_err(StateBlockStartError::Storage)?;
         crate::smartcontracts::isi::sccp::hook::begin_block(&mut sb)
             .map_err(StateBlockStartError::Storage)?;
+        crate::smartcontracts::isi::sccp::fast_pause::draw::at_boundary(&mut sb)?;
+        let sccp_pauses =
+            crate::smartcontracts::isi::sccp::governance_clock::advance_reconciliation(&mut sb)?;
         Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;
-        // G4 runs after enactments and outside due-work accounting. A future G3
-        // fast-pause producer must precede this cleanup so renewal has no gap.
+        sccp_pauses.enact(&mut sb)?;
+        // G4 follows both enactment tracks and remains outside due-work accounting;
+        // a same-pass renewal replaces the active record before expiry cleanup.
         crate::smartcontracts::isi::sccp::pause_lifecycle::lapse_after_enactments(&mut sb)
             .map_err(StateBlockStartError::Storage)?;
         let current_slot =
@@ -29424,6 +29579,10 @@ impl State {
     /// The returned scope is scratch state: callers must either fold its deterministic
     /// result into a canonical carrier or drop it. [`StateBlock::commit`] rejects scopes
     /// without canonical transaction membership.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the scratch block owns the supplied header independently of its caller"
+    )]
     fn try_merge_preexecution_block(
         &self,
         curr_block: BlockHeader,
@@ -29444,6 +29603,10 @@ impl State {
         Ok(state_block)
     }
     #[cfg(test)]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the scratch block takes ownership of the supplied header"
+    )]
     fn merge_preexecution_block(&self, curr_block: BlockHeader) -> StateBlock<'_> {
         self.try_merge_preexecution_block(curr_block)
             .expect("fixture scratch hash admission")
@@ -29452,6 +29615,10 @@ impl State {
     ///
     /// The scope contains one generation-coherent parent world/Nexus snapshot,
     /// runs no start-of-block lifecycle effects, and must never be committed.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the scratch block owns the supplied header independently of its caller"
+    )]
     pub(crate) fn consensus_effects_probe_block(
         &self,
         curr_block: BlockHeader,
@@ -29468,6 +29635,10 @@ impl State {
     }
     /// Create a replacement block with one pre-lifecycle deterministic stage.
     #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the replacement block owns the supplied header independently of its caller"
+    )]
     pub(crate) fn block_and_revert_with_pristine_stage<E: std::fmt::Debug>(
         &self,
         curr_block: BlockHeader,
@@ -29477,6 +29648,7 @@ impl State {
     }
 
     /// Fund replacement carrier membership before rewinding its DA projection.
+    #[cfg(test)]
     pub(crate) fn block_and_revert_with_pristine_carrier_stage<E: std::fmt::Debug>(
         &self,
         carrier: &SignedBlock,
@@ -29489,6 +29661,10 @@ impl State {
         )
     }
 
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the replacement block owns the supplied header independently of its caller"
+    )]
     fn block_and_revert_with_pristine_carrier_stage_inner<E: std::fmt::Debug>(
         &self,
         curr_block: BlockHeader,
@@ -29687,7 +29863,7 @@ impl State {
             prev_commit_topology_wait,
         ) = loop {
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 self.note_view_generation_contention(caller);
                 std::thread::yield_now();
                 continue;
@@ -29877,6 +30053,11 @@ impl State {
     /// This avoids acquiring a full [`StateView`] when callers only need to
     /// verify that the state height is backed by durable block storage.
     #[track_caller]
+    ///
+    /// # Errors
+    ///
+    /// Propagates Kura errors while checking the exact durable block index,
+    /// including storage corruption or required recovery.
     pub fn exact_durable_block_count(&self) -> crate::kura::Result<usize> {
         self.kura.exact_durable_blocks_count()
     }
@@ -29884,6 +30065,12 @@ impl State {
     ///
     /// This avoids acquiring a full [`StateView`] when only block retrieval is needed.
     #[track_caller]
+    ///
+    /// # Errors
+    ///
+    /// Returns a canonical-history rejection if the committed body is missing,
+    /// corrupt, or disagrees with the state hash. Original resource refusals
+    /// remain deferrals.
     pub fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -29916,6 +30103,11 @@ impl State {
     ///
     /// This avoids acquiring a full [`StateView`] when only hash-based block retrieval is needed.
     #[track_caller]
+    ///
+    /// # Errors
+    ///
+    /// Propagates canonical-history rejections and original resource deferrals
+    /// from loading the resolved committed height.
     pub fn block_by_hash(
         &self,
         hash: HashOf<BlockHeader>,
@@ -29963,6 +30155,10 @@ impl State {
         })
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the header is transferred into the committed-header cache"
+    )]
     fn update_latest_block_header_cache(&self, header: BlockHeader) {
         *self.latest_block_header.write() = Some(header);
     }
@@ -29994,40 +30190,6 @@ impl State {
         self.update_latest_block_header_cache(header);
     }
 
-    /// Replace one active lane incarnation in a unit-test fixture.
-    #[cfg(test)]
-    pub(crate) fn set_lane_incarnation_for_test(
-        &self,
-        lane_id: LaneId,
-        incarnation: Hash,
-    ) -> Option<Hash> {
-        let mut _view_generation_notice = self.state_view_publication();
-        let _view_generation = _view_generation_notice.begin();
-        let mut runtime = self.canonical_runtime.block();
-        let previous = runtime
-            .get()
-            .lane_incarnation_lineage
-            .iter()
-            .find(|entry| entry.lane_id == lane_id)?
-            .incarnation;
-        if previous == incarnation {
-            // Generation-only fixture races must preserve the authenticated
-            // current/undo runtime pair when no lineage value changed.
-            return Some(previous);
-        }
-        let entry = runtime
-            .get_mut()
-            .lane_incarnation_lineage
-            .iter_mut()
-            .find(|entry| entry.lane_id == lane_id)?;
-        entry.incarnation = incarnation;
-        runtime.commit();
-        Some(previous)
-    }
-    #[cfg(test)]
-    pub(crate) fn clear_latest_block_header_cache_for_testing(&self) {
-        *self.latest_block_header.write() = None;
-    }
     /// Produce a finalized Network input/full typed-output proof under explicit limits.
     ///
     /// Only the committed height/hash journal is captured around storage I/O;
@@ -30116,7 +30278,7 @@ impl State {
         // publication interval binds this immutable history cut before any source I/O.
         let (hashes, tip) = loop {
             let before = self.state_view_generation();
-            if before % 2 != 0 {
+            if !before.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }
@@ -30345,7 +30507,7 @@ impl State {
         {
             let release = self.state_write_lock.observe_release();
             let generation = self.state_view_generation();
-            if generation % 2 != 0 {
+            if !generation.is_multiple_of(2) {
                 return Err(StateViewError::Busy(release));
             }
             let hashes = self.block_hashes.try_view_retaining(releases)?;
@@ -30518,18 +30680,6 @@ impl State {
     pub fn latest_block_hash_fast(&self) -> Option<HashOf<BlockHeader>> {
         self.block_hashes.view().last().copied()
     }
-    /// Canonical committed WSV identity used to bind merge pre-execution.
-    ///
-    /// Merge validation must bind its base to the complete committed world-state
-    /// surface, not only to the canonical block-journal tip.
-    #[track_caller]
-    #[cfg(test)]
-    pub(crate) fn lane_execution_state_hash(
-        &self,
-    ) -> Result<HashOf<BlockHeader>, crate::snapshot::SnapshotCaptureError> {
-        crate::snapshot::canonical_state_snapshot_hash(self)
-            .map(HashOf::<BlockHeader>::from_untyped_unchecked)
-    }
     #[cfg(test)]
     /// Previous committed block hash (if any) derived from the block hash journal.
     ///
@@ -30546,16 +30696,6 @@ impl State {
     #[track_caller]
     pub fn has_committed_entrypoint(&self, hash: HashOf<TransactionEntrypoint>) -> bool {
         self.transactions.view().get(&hash).is_some()
-    }
-    /// Seed canonical entrypoint membership for focused fixtures.
-    #[cfg(test)]
-    pub(crate) fn record_committed_entrypoints_for_tests(
-        &self,
-        entrypoints: impl IntoIterator<Item = HashOf<TransactionEntrypoint>>,
-        height: NonZeroUsize,
-    ) {
-        self.transactions
-            .record_committed_entrypoint_membership_for_tests(entrypoints, height);
     }
     /// Return the transaction admission limits used by ingress validation.
     ///
@@ -30760,6 +30900,7 @@ impl State {
     }
     /// Exclude committed State publication while consensus consumes a
     /// generation-bound validation result and performs its private-key action.
+    #[cfg(test)]
     pub(crate) fn consensus_publication_lease(&self) -> PublicationGuard<'_> {
         self.state_commit_lock.lock()
     }
@@ -30833,7 +30974,7 @@ impl State {
             // State writer. Observe before sampling so even an early unlock is retained.
             let generation_release = self.state_write_lock.observe_release();
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 return Err(StateViewError::Busy(generation_release));
             }
             let block_hashes_start = Instant::now();
@@ -31118,10 +31259,10 @@ impl State {
         }
         stake_shares
             .iter()
-            .filter_map(|(key, record)| {
-                (lanes_to_reset.contains(&key.0) || lanes_to_reset.contains(&record.lane_id))
-                    .then(|| key.clone())
+            .filter(|&(key, record)| {
+                lanes_to_reset.contains(&key.0) || lanes_to_reset.contains(&record.lane_id)
             })
+            .map(|(key, _record)| key.clone())
             .collect()
     }
     fn prune_public_lane_economic_state_for_lanes(&self, lanes_to_reset: &BTreeSet<LaneId>) {
@@ -31288,6 +31429,12 @@ impl State {
     /// The returned height and committee come from one immutable state view so
     /// status and proxy callers cannot decorate a committee with data read
     /// across a concurrent commit boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown or inactive routes, invalid committee
+    /// geometry or authority sources, unavailable selection entropy, an undersized
+    /// pool, invalid autoscale pins, or failed canonical peer encoding.
     pub fn resolve_lane_committee(
         &self,
         route: LaneAuthorityRoute,
@@ -31298,6 +31445,12 @@ impl State {
     }
     /// Resolve the exact `3f+1` authority for a lane/dataspace route at an
     /// explicit consensus height.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown or inactive routes, invalid committee
+    /// geometry or authority sources, unavailable selection entropy, an undersized
+    /// pool, invalid autoscale pins, or failed canonical peer encoding.
     pub fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -31534,6 +31687,7 @@ impl State {
     /// peer/key liveness. The returned authority is persisted in the
     /// lane metadata before the incarnation and catalog commitments are
     /// derived; all later authority resolution reads that pin instead.
+    #[cfg(test)]
     fn derive_new_autoscale_lane_committee_from_sources(
         world: &impl WorldReadOnly,
         network_id: &iroha_data_model::NetworkId,
@@ -31689,6 +31843,7 @@ impl State {
         }
         Vec::new()
     }
+    #[cfg(test)]
     fn pin_new_autoscale_lane_committee_from_sources(
         world: &impl WorldReadOnly,
         network_id: &iroha_data_model::NetworkId,
@@ -31752,6 +31907,7 @@ impl State {
         );
         Ok(())
     }
+    #[cfg(test)]
     fn autoscale_lane_committee_from_pool(
         world: &impl WorldReadOnly,
         network_id: &iroha_data_model::NetworkId,
@@ -31791,7 +31947,7 @@ impl State {
         ) else {
             return Vec::new();
         };
-        let Ok(mut committee) = Self::lane_relay_committee_from_pool(&pool, committee_size, seed)
+        let Ok(mut committee) = Self::lane_relay_committee_from_pool(pool, committee_size, seed)
         else {
             return Vec::new();
         };
@@ -32027,6 +32183,12 @@ impl State {
     /// effective runtime catalog in State. It verifies the journal's original H0
     /// reference against the configured baseline; the snapshot's current and
     /// predecessor instances are authenticated separately during geometry recovery.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if storage cannot bind the network, no decoded runtime
+    /// snapshot exists, the configured catalog differs from its authenticated
+    /// baseline, or the primary geometry reference is invalid or unavailable.
     pub fn prepare_restored_configured_primary_geometry_anchor(
         &self,
         configured_lane_catalog: &LaneCatalog,
@@ -33251,7 +33413,7 @@ impl State {
             updated_lineage_root: lane_incarnation_lineage_root(&self.network_id, current_lineage),
             transition_height,
         };
-        self.resume_lane_geometry_publication(&request, replaced_lane_ids, Some(releases))
+        self.resume_lane_geometry_publication(&request, replaced_lane_ids, Some(releases), None)
     }
     fn preflight_lane_geometry_updates(
         &self,
@@ -33297,6 +33459,7 @@ impl State {
             activation_heights,
             lane_incarnation_lineage_root(&self.network_id, lineage),
             configured_baseline,
+            None,
         )
     }
     fn rollback_lane_geometry_updates(
@@ -33321,68 +33484,26 @@ impl State {
             releases,
         )
     }
-    fn apply_committed_autoscale_lane_geometry(
-        &self,
-        pending: &PendingAutoscaleLaneLifecycle,
+    /// Validate the exact committed transition before acquiring its effect indexes.
+    /// The caller retains the original commit/lifecycle fences until application.
+    fn prepare_committed_autoscale_lane_geometry<'pending>(
+        &'pending self,
+        pending: &'pending PendingAutoscaleLaneLifecycle,
         block_height: u64,
         block_header_hash: HashOf<BlockHeader>,
         releases: &mut LaneLifecycleReleases<'_>,
-    ) -> Result<(), LaneLifecycleError> {
+    ) -> Result<PreparedCommittedLaneGeometry<'pending>, LaneLifecycleError> {
         self.preflight_committed_autoscale_lane_geometry(
             pending,
             block_height,
             block_header_hash,
             releases,
         )?;
-        let update = &pending.catalog_update;
-        if !pending.transition.requires_geometry() {
-            return Ok(());
-        }
-        self.apply_lane_geometry_updates(
-            &update.previous_lane_config,
-            &update.updated_lane_config,
-            &update.previous_lane_incarnations,
-            &update.updated_lane_incarnations,
-            &update.previous_lane_incarnation_activation_heights,
-            &update.updated_lane_incarnation_activation_heights,
-            &update.previous_lane_incarnation_lineage,
-            &update.updated_lane_incarnation_lineage,
-            &update.replaced_lane_ids,
+        Ok(PreparedCommittedLaneGeometry {
+            state: self,
+            pending,
             block_height,
-            releases,
-        )?;
-        if let Err(failure) = self.mark_lane_geometry_catalog_published(
-            &update.updated_lane_config,
-            &update.updated_lane_incarnations,
-            &update.updated_lane_incarnation_activation_heights,
-            &update.updated_lane_incarnation_lineage,
-            None,
-        ) {
-            let LaneGeometryCatalogPublicationFailure {
-                error,
-                rollback_safe,
-            } = failure;
-            if !rollback_safe {
-                return Err(error);
-            }
-            self.rollback_lane_geometry_updates(
-                &update.previous_lane_config,
-                &update.updated_lane_config,
-                &update.previous_lane_incarnations,
-                &update.previous_lane_incarnation_activation_heights,
-                &update.previous_lane_incarnation_lineage,
-                &update.replaced_lane_ids,
-                block_height,
-                releases,
-            )
-            .map_err(|rollback| {
-                LaneLifecycleError::Storage(format!(
-                    "{error}; lane geometry rollback also failed: {rollback}"
-                ))
-            })?;
-            return Err(error);
-        }
-        Ok(())
+        })
     }
     fn preflight_committed_autoscale_lane_geometry(
         &self,
@@ -33468,7 +33589,14 @@ impl State {
             }
             prospective_nexus.dataspace_catalog = runtime_catalog_transition_dataspaces(
                 &nexus,
-                releases.manifests.read().as_ref(),
+                releases
+                    .manifests
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
+                    .as_ref(),
                 &self.world.view_retaining(&mut releases.world),
                 runtime,
                 &pending.plan,
@@ -33501,7 +33629,11 @@ impl State {
             Arc::new(
                 releases
                     .manifests
-                    .read()
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
                     .with_runtime_additions(
                         &runtime.manifests,
                         &expected_update.updated_catalog,
@@ -33512,7 +33644,14 @@ impl State {
             )
         } else {
             rebind_lane_manifests_for_lifecycle(
-                releases.manifests.read().as_ref(),
+                releases
+                    .manifests
+                    .try_read_or_wait()
+                    .map_err(|wait| LaneLifecycleError::PublicationBusy {
+                        field: "lane_manifests",
+                        wait,
+                    })?
+                    .as_ref(),
                 &expected_update.updated_catalog,
                 &nexus.governance,
             )?
@@ -33879,7 +34018,7 @@ impl State {
     pub fn set_gov(&mut self, gov: iroha_config::parameters::actual::Governance) {
         self.validate_restored_governance(&gov)
             .unwrap_or_else(|error| panic!("refusing governance configuration: {error}"));
-        let bootstrap = self.block_hashes.view().len() == 0;
+        let bootstrap = self.block_hashes.view().is_empty();
         for (provider, owner) in gov.sorafs_provider_owners.iter().filter(|_| bootstrap) {
             let existing = self.world.provider_owners.view().get(provider).cloned();
             match existing {
@@ -34213,6 +34352,7 @@ fn decode_autoscale_lane_committee(
 ///
 /// Missing or malformed metadata fails closed as `None`; callers must not fall
 /// back to a mutable live-key cache for an autoscale-managed lane.
+#[cfg(test)]
 pub(crate) fn autoscale_lane_pinned_committee_with_pops(
     lane: &iroha_data_model::nexus::LaneConfig,
 ) -> Option<Vec<(PeerId, Vec<u8>)>> {
@@ -34225,6 +34365,7 @@ pub(crate) fn autoscale_lane_pinned_committee_with_pops(
             .collect(),
     )
 }
+#[cfg(test)]
 fn encode_autoscale_lane_committee(
     committee: &AutoscaleLaneCommitteeV1,
 ) -> Result<String, LaneLifecycleError> {
@@ -34244,6 +34385,7 @@ fn encode_autoscale_lane_committee(
     }
     Ok(hex::encode(encoded))
 }
+#[cfg(test)]
 fn autoscale_lane_committee_from_validator_set(
     validator_set: Vec<PeerId>,
     validator_pops: Vec<Vec<u8>>,
@@ -34347,10 +34489,10 @@ fn ensure_autoscale_managed_lane_shape(
             reason: "autoscale-managed lanes must be public",
         });
     }
-    if !lane
+    if lane
         .metadata
         .get(AUTOSCALE_META_MANAGED)
-        .is_some_and(|value| value == "true")
+        .is_none_or(|value| value != "true")
     {
         return Err(LaneLifecycleError::InvalidAutoscaleManagedLane {
             lane: lane.id,
@@ -35409,6 +35551,12 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// The route is checked as a pair. Missing, inactive, rebound, malformed,
     /// and undersized authority all return typed errors rather than an empty
     /// roster that a caller could accidentally reinterpret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unknown or inactive routes, malformed or rebound
+    /// authority, invalid committee geometry or pins, unavailable selection
+    /// entropy, an undersized pool, or failed peer encoding.
     fn resolve_lane_committee_at_height(
         &self,
         route: LaneAuthorityRoute,
@@ -35425,6 +35573,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     }
     /// Load a canonical block body with a typed availability or corruption
     /// failure instead of collapsing either condition into absence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a rejection for absent or inconsistent canonical history, or the
+    /// original deferral when block acquisition cannot obtain local resources.
     fn canonical_block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35437,6 +35590,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// Load a block body only when it authenticates against this immutable
     /// view's committed WSV hash at the same height.
     #[inline]
+    ///
+    /// # Errors
+    ///
+    /// Propagates canonical-history rejections and original resource deferrals
+    /// from [`Self::canonical_block_by_height`].
     fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -35460,6 +35618,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     ///
     /// If you only need hash of the latest block prefer using [`Self::prev_block_hash`].
     #[inline]
+    ///
+    /// # Errors
+    ///
+    /// Propagates canonical-history rejections and original resource deferrals
+    /// from loading the corresponding committed block.
     fn prev_block(
         &self,
     ) -> core::result::Result<
@@ -35475,6 +35638,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     ///
     /// If you only need hash of the latest block prefer using [`Self::latest_block_hash`]
     #[inline]
+    ///
+    /// # Errors
+    ///
+    /// Propagates canonical-history rejections and original resource deferrals
+    /// from loading the corresponding committed block.
     fn latest_block(
         &self,
     ) -> core::result::Result<
@@ -35496,6 +35664,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     /// Returns [`Some`] milliseconds since the genesis block was
     /// committed, or [`None`] if it wasn't.
     #[inline]
+    ///
+    /// # Errors
+    ///
+    /// Propagates canonical-history rejections and original resource deferrals
+    /// from loading the corresponding committed block.
     fn genesis_timestamp(
         &self,
     ) -> Result<Option<Duration>, ExecutionAttemptError<CanonicalHistoryError>> {
@@ -36377,7 +36550,7 @@ fn zk_policy_put_option_u32(hasher: &mut Sha256, name: &str, value: Option<u32>)
 fn zk_policy_put_option_vk_ref(
     hasher: &mut Sha256,
     name: &str,
-    value: &Option<iroha_config::parameters::actual::VerifyingKeyRef>,
+    value: Option<&iroha_config::parameters::actual::VerifyingKeyRef>,
 ) {
     zk_policy_put_field(hasher, name);
     match value {
@@ -36586,9 +36759,9 @@ pub fn compute_zk_consensus_policy_hash(
     zk_policy_put_option_vk_ref(
         &mut h,
         "kaigi_authorization_vk",
-        &zk_config.kaigi_authorization_vk,
+        zk_config.kaigi_authorization_vk.as_ref(),
     );
-    zk_policy_put_option_vk_ref(&mut h, "kaigi_usage_vk", &zk_config.kaigi_usage_vk);
+    zk_policy_put_option_vk_ref(&mut h, "kaigi_usage_vk", zk_config.kaigi_usage_vk.as_ref());
     zk_policy_put_u32(
         &mut h,
         "max_proof_size_bytes",
@@ -36925,12 +37098,17 @@ fn append_autoscale_sample_record(
     trim_autoscale_sample_history(history, cap);
 }
 #[cfg(test)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the finite nonnegative ratio is rounded after an explicit u64 saturation bound"
+)]
 fn autoscale_ratio_permille(value: f64) -> u64 {
     if !value.is_finite() || value.is_sign_negative() {
         return 0;
     }
     let scaled = value * 1_000.0;
-    if scaled >= u64::MAX as f64 {
+    if scaled >= 18_446_744_073_709_551_616.0 {
         u64::MAX
     } else {
         scaled.round() as u64
@@ -37646,6 +37824,11 @@ impl<'state> StateBlock<'state> {
     /// Completed-rejection assertion surface for deterministic component tests.
     /// A genuine local retry cannot be represented by this helper's String.
     #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+    ///
+    /// # Errors
+    ///
+    /// Returns the completed rejection when the execution witness source, seal,
+    /// or retained content is invalid.
     pub fn capture_exec_witness(&mut self) -> Result<(), String> {
         self.capture_exec_witness_attempt().map_err(|error| match error {
             WitnessCaptureError::Rejected(error) => error,
@@ -37726,6 +37909,7 @@ impl<'state> StateBlock<'state> {
         self.parliament_timed_ovn_casting_bindings.as_ref()
     }
     /// Take the local compact casting leaves aligned with the captured synthetic snapshot.
+    #[cfg(test)]
     pub(crate) fn take_parliament_timed_ovn_casting_bindings(
         &mut self,
     ) -> Option<Vec<iroha_data_model::parliament_casting::ParliamentTimedOvnCastingContextBindingV1>>
@@ -37773,6 +37957,11 @@ impl<'state> StateBlock<'state> {
         Ok(())
     }
     /// Create struct to store changes during transaction or trigger execution
+    ///
+    /// # Errors
+    ///
+    /// Returns the original storage admission error if any child transaction
+    /// field or control allocation cannot be admitted.
     pub fn try_transaction(
         &mut self,
     ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
@@ -38049,6 +38238,7 @@ impl<'state> StateBlock<'state> {
             original_fastpq_invocation_source: None,
             last_tx_gas_used: 0,
             execution_fee_meter: None,
+            sccp_evidence_budget: fields.state_ref.evidence_preparation_budget(),
             sccp_exempt_self_claim: None,
             execution_effects: crate::executor::ExecutionEffects::default(),
             bridge_receipt_proofs_available_in_tx: BTreeSet::new(),
@@ -38062,6 +38252,9 @@ impl<'state> StateBlock<'state> {
             current_tx_hash: None,
             governance_ballot_entrypoint_binding: None,
             kagemusha_load_entrypoint_binding: None,
+            sccp_forgery_entrypoint_binding: None,
+            sccp_pause_source: None,
+            current_direct_sccp_forgery: false,
             current_direct_kagemusha_load_instruction_index: None,
             current_direct_amx_instruction_index: None,
             native_amx_leg_execution: None,
@@ -38134,7 +38327,7 @@ impl<'state> StateBlock<'state> {
             .transactions
             .try_stage_block(
                 ordinary_entrypoints,
-                &HashSet::new(),
+                &BTreeSet::new(),
                 block_height,
             )
             .map_err(|error| match error {
@@ -38171,6 +38364,12 @@ impl<'state> StateBlock<'state> {
     /// an isolated committed-world mutation without pretending that a block was
     /// finalized.
     #[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for failed storage admission, staged block/runtime
+    /// effects, invalid AXT asset or policy transitions, or failure to prepare
+    /// the World commitment.
     pub fn commit_world_overlay_for_testing(self) -> Result<(), TransactionsBlockError> {
         self.require_storage_admission()
             .map_err(TransactionsBlockError::LocalStateStorage)?;
@@ -38219,6 +38418,12 @@ impl<'state> StateBlock<'state> {
     /// then uses the production commit path. It intentionally does not synthesize
     /// the signed-block side effects performed by [`Self::apply_without_execution`].
     #[cfg(any(test, feature = "iroha-core-tests"))]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for existing staged membership, invalid AXT incarnations,
+    /// failed empty-membership or resolver-checkpoint staging, or a failure in
+    /// the production commit path.
     pub fn commit_empty_block_for_testing(mut self) -> Result<(), TransactionsBlockError> {
         if self.transactions.has_staged_block() || self.block_hashes.has_pending() {
             return Err(TransactionsBlockError::MergeAdmission);
@@ -38375,7 +38580,6 @@ impl<'state> StateBlock<'state> {
         skip_all,
         fields(block_height = block.as_ref().header().height())
     )]
-    #[must_use]
     fn apply_without_execution_inner(
         &mut self,
         block: &CommittedBlock,
@@ -38394,6 +38598,10 @@ impl<'state> StateBlock<'state> {
     }
     /// Prepare the event delivery plan without granting permission to deliver it.
     /// The consuming carrier retains this vector until exact durable publication.
+    #[expect(
+        clippy::large_types_passed_by_value,
+        reason = "the header is transferred into the retained publication event"
+    )]
     fn prepare_carrier_publication_events(
         &mut self,
         header: BlockHeader,
@@ -38690,7 +38898,7 @@ impl StateTransaction<'_, '_> {
             return Ok(crate::zk::PreverifyResult::ProofTooBig);
         }
         if self.zk.preverify_budget_bytes > 0
-            && (self.zk.preverify_budget_bytes as usize) < proof.bytes.len()
+            && self.zk.preverify_budget_bytes < proof.bytes.len() as u64
         {
             return Ok(crate::zk::PreverifyResult::PreverifyBudgetExceeded);
         }
@@ -39201,7 +39409,7 @@ mod musubi_replication_shortfall_telemetry_tests {
         releases: u64,
         telemetry_enabled: bool,
     ) -> (State, Arc<crate::telemetry::Metrics>, StateTelemetry) {
-        let mut world = World::default();
+        let mut world = World::new();
         world.musubi_replication_shortfall_releases = scalar_cell_custody::fixture(releases);
         let metrics = Arc::new(crate::telemetry::Metrics::default());
         let telemetry = StateTelemetry::new(Arc::clone(&metrics), telemetry_enabled);
@@ -40162,9 +40370,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(other, record.clone());
         let error = decode_substituted_high_waters(mismatch)
-            .err()
-            .expect("high-water signer substitution must fail");
-        assert!(error.to_string().contains("musubi_pin_outbox_high_waters"));
+            .expect_err("high-water signer substitution must fail");
+        assert!(error.contains("musubi_pin_outbox_high_waters"));
 
         let mut wrong_network = World::default();
         let mut substituted = record.clone();
@@ -40176,9 +40383,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(owner.clone(), substituted);
         let error = decode_substituted_high_waters(wrong_network)
-            .err()
-            .expect("high-water network substitution must fail");
-        assert!(error.to_string().contains("network or signer"));
+            .expect_err("high-water network substitution must fail");
+        assert!(error.contains("network or signer"));
 
         let mut zero_digest = World::default();
         let mut invalid = record;
@@ -40187,9 +40393,8 @@ mod tiered_snapshot_diff_tests {
             .musubi_pin_outbox_high_waters
             .insert(owner, invalid);
         let error = decode_substituted_high_waters(zero_digest)
-            .err()
-            .expect("high-water zero inventory digest must fail");
-        assert!(error.to_string().contains("musubi_pin_outbox_high_waters"));
+            .expect_err("high-water zero inventory digest must fail");
+        assert!(error.contains("musubi_pin_outbox_high_waters"));
     }
     #[test]
     fn isolated_zk_prevalidation_install_affects_only_its_own_state() {
@@ -41131,7 +41336,12 @@ impl StateTransaction<'_, '_> {
         consensus_lane_dataspace_at_height(lane_id, &self.nexus, self.block_height()).is_some()
     }
     /// Load a committed block by height from Kura for the current transaction context.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns a canonical-history rejection if the committed body is missing,
+    /// corrupt, or disagrees with the state hash. Original resource refusals
+    /// remain deferrals.
     pub fn block_by_height(
         &self,
         height: NonZeroUsize,
@@ -41685,7 +41895,7 @@ impl StateTransaction<'_, '_> {
     }
     #[cfg(test)]
     /// Record a transfer delta so the FASTPQ prover can consume a structured transcript.
-    pub fn record_transfer_transcript(
+    fn record_transfer_transcript(
         &mut self,
         authority: &AccountId,
         delta: TransferDeltaTranscript,
@@ -41694,7 +41904,7 @@ impl StateTransaction<'_, '_> {
     }
     #[cfg(test)]
     /// Record a multi-delta transfer transcript so the FASTPQ prover can consume batch witnesses.
-    pub fn record_transfer_transcripts(
+    fn record_transfer_transcripts(
         &mut self,
         authority: &AccountId,
         deltas: Vec<TransferDeltaTranscript>,
@@ -41736,6 +41946,10 @@ impl StateTransaction<'_, '_> {
     /// Generate the next canonical RWA identifier for this transaction scope.
     ///
     /// The id is derived from the current transaction entrypoint hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invariant violation if the transaction has no call hash.
     pub fn next_generated_rwa_id(
         &mut self,
         domain: &DomainId,
@@ -41892,6 +42106,12 @@ impl StateTransaction<'_, '_> {
         world.apply();
         block_fastpq_quantity_candidate.apply(pending_fastpq_quantity_candidate);
     }
+    /// Original finite record-preparation pool of this transaction's immutable parent.
+    /// This borrow neither replaces the pool nor acquires a new State observation.
+    pub(crate) fn sccp_evidence_preparation_budget(&self) -> &iroha_allocation::AllocationBudget {
+        self.sccp_evidence_budget
+    }
+
     /// Authorize only the block-start sweep's pre-admitted retained obligations.
     fn authorize_fastpq_governance_source_scope(&mut self) {
         self.fastpq_source_quota.authorize_governance_purposes();
@@ -43938,6 +44158,7 @@ pub(crate) mod contract_subject_restore;
 mod contract_subject_validation;
 mod ownership_index_restore;
 mod proof_status_restore;
+mod sccp_delta;
 pub(crate) mod sccp_snapshot_state;
 pub use sccp_snapshot_state::SccpRestoreError;
 pub(crate) mod snapshot_service_state;

@@ -1346,9 +1346,9 @@ impl NativeRecord {
          -> Result<(), native::Error> {
             let prover = install(plan, a, w)?;
             for (stage, source) in a.iter().enumerate() {
-                drop(prover.import_a(stage, source.proving_key, read)?);
+                prover.import_a(stage, source.proving_key, read)?;
                 if let Some(source) = w.get(stage) {
-                    drop(prover.import_w(stage, source.proving_key, read)?);
+                    prover.import_w(stage, source.proving_key, read)?;
                 }
             }
             Ok(())
@@ -1425,7 +1425,6 @@ impl NativeRecord {
             ),
             Err(native::Error::Artifact)
         ));
-        drop(foreign_seal);
         let key_seal = prover.import_a(0, a[0].proving_key, read).unwrap();
         let key = prover.bind_a(0, &key_seal, None).unwrap();
         let mut checkpoint = session
@@ -1437,7 +1436,6 @@ impl NativeRecord {
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(key_seal);
         assert_eq!(checkpoint.proof(), self.proofs[0].0);
         assert_eq!(checkpoint.pallas_bytes(), self.proofs[0].1);
         assert!(session.terminal(&checkpoint, budget).is_err());
@@ -1485,7 +1483,6 @@ impl NativeRecord {
                     ),
                     Err(native::Error::Artifact)
                 ));
-                drop(foreign_seal);
             }
             let key_seal = prover
                 .import_w(stage - 1, w[stage - 1].proving_key, read)
@@ -1501,7 +1498,6 @@ impl NativeRecord {
                     ProverConfig::default(),
                 )
                 .unwrap();
-            drop(key_seal);
             assert_eq!(wrapper.proof(), self.wrappers[stage - 1].0);
             assert_eq!(wrapper.vesta_bytes(), self.wrappers[stage - 1].1);
             let wrapper = session
@@ -1538,7 +1534,6 @@ impl NativeRecord {
                     ),
                     Err(native::Error::Artifact)
                 ));
-                drop(foreign_seal);
             }
             let key_seal = prover.import_a(stage, a[stage].proving_key, read).unwrap();
             let key = prover.bind_a(stage, &key_seal, None).unwrap();
@@ -1552,7 +1547,6 @@ impl NativeRecord {
                     ProverConfig::default(),
                 )
                 .unwrap();
-            drop(key_seal);
             assert_eq!(next.proof(), self.proofs[stage].0);
             assert_eq!(next.pallas_bytes(), self.proofs[stage].1);
             let mut bad = self.proofs[stage].0.clone();

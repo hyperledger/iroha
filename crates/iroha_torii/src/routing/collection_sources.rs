@@ -9,7 +9,7 @@ use iroha_torii_shared::list_query::ListQuery;
 
 /// A collection addressed by a request path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum CollectionTarget {
+pub enum CollectionTarget {
     /// `/v1/domains`
     Domains,
     /// `/v1/accounts`
@@ -119,12 +119,12 @@ impl CollectionTarget {
 }
 
 /// Engine bounds derived from the configured app-API page limits.
-pub(crate) fn collection_limits() -> Limits {
+pub fn collection_limits() -> Limits {
     let limits = app_query_limits();
     Limits::from_page_limits(limits.default_page_limit, limits.max_page_limit)
 }
 
-pub(crate) fn collection_execution_limits(app: Option<&crate::SharedAppState>) -> Result<Limits> {
+pub fn collection_execution_limits(app: Option<&crate::SharedAppState>) -> Result<Limits> {
     let mut limits = collection_limits();
     if let Some(app) = app {
         limits.bytes = collections::memory::BytePolicy::for_admitted_read(
@@ -241,7 +241,7 @@ where
 
 /// Rewrite account literals in the filter (aliases, alternate spellings) to
 /// the canonical identifiers the rows carry.
-pub(crate) fn canonicalize_collection_query(
+pub fn canonicalize_collection_query(
     state: &CoreState,
     target: &CollectionTarget,
     query: &mut ListQuery,
@@ -271,7 +271,8 @@ pub(crate) fn canonicalize_collection_query(
 }
 
 /// Validate and execute `query` against this node's state, returning full rows.
-pub(crate) async fn execute_collection_local(
+#[cfg(test)]
+pub async fn execute_collection_local(
     app: Option<&crate::SharedAppState>,
     state: &Arc<CoreState>,
     target: &CollectionTarget,
@@ -283,7 +284,13 @@ pub(crate) async fn execute_collection_local(
     let limits = collection_execution_limits(app)?;
     let prepared = collections::prepare(target.spec(), target.scope(), &query, &limits)?;
     execute_prepared_collection_local(
-        app, state, target, &query, telemetry, visibility, &prepared, &limits,
+        app,
+        state,
+        (target, &query),
+        telemetry,
+        visibility,
+        &prepared,
+        &limits,
     )
     .await
 }
@@ -292,8 +299,7 @@ pub(crate) async fn execute_collection_local(
 async fn execute_prepared_collection_local(
     app: Option<&crate::SharedAppState>,
     state: &Arc<CoreState>,
-    target: &CollectionTarget,
-    query: &ListQuery,
+    (target, query): (&CollectionTarget, &ListQuery),
     telemetry: &MaybeTelemetry,
     visibility: &DataspaceReadVisibility,
     prepared: &collections::Prepared<'_>,
@@ -314,7 +320,7 @@ async fn execute_prepared_collection_local(
             let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
                 DomainId::parse_fully_qualified(id).ok()
             })?;
-            let candidates = id_candidates(&query, |id| DomainId::parse_fully_qualified(id).ok());
+            let candidates = id_candidates(query, |id| DomainId::parse_fully_qualified(id).ok());
             let rows = seek_keys(
                 world.domains(),
                 candidates,
@@ -337,9 +343,9 @@ async fn execute_prepared_collection_local(
             let mut failure = None;
             let rows = until_error(rows, &mut failure);
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -352,7 +358,7 @@ async fn execute_prepared_collection_local(
             let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
                 AccountId::parse_encoded(id).ok()
             })?;
-            let candidates = id_candidates(&query, |id| AccountId::parse_encoded(id).ok());
+            let candidates = id_candidates(query, |id| AccountId::parse_encoded(id).ok());
             let rows = seek_keys(
                 world.accounts(),
                 candidates,
@@ -375,9 +381,9 @@ async fn execute_prepared_collection_local(
             let mut failure = None;
             let rows = until_error(rows, &mut failure);
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -392,8 +398,7 @@ async fn execute_prepared_collection_local(
             let after = cursor_key(scan.and_then(|scan| scan.after), |id| {
                 AssetDefinitionId::parse_address_literal(id).ok()
             })?;
-            let candidates =
-                asset_definition_filter_candidate_ids(world_ref, query.filter.as_ref());
+            let candidates = asset_definition_filter_candidate_ids(query.filter.as_ref());
             let rows = seek_keys(
                 world_ref.asset_definitions(),
                 candidates,
@@ -425,9 +430,9 @@ async fn execute_prepared_collection_local(
             let mut failure = None;
             let rows = until_error(rows, &mut failure);
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -463,9 +468,9 @@ async fn execute_prepared_collection_local(
             let mut failure = None;
             let rows = until_error(rows, &mut failure);
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -479,7 +484,7 @@ async fn execute_prepared_collection_local(
             let after = cursor_key(scan.and_then(|scan| scan.after), parse)?;
             let rows = seek_keys(
                 world.rwas(),
-                id_candidates(&query, parse),
+                id_candidates(query, parse),
                 after.as_ref().filter(|_| !query.include_total),
                 scan.is_some_and(|scan| scan.descending),
             )
@@ -498,9 +503,9 @@ async fn execute_prepared_collection_local(
                 )
             });
             if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             }
         }
         CollectionTarget::AccountAssets(account_literal) => {
@@ -518,7 +523,7 @@ async fn execute_prepared_collection_local(
             let items = projected_account_assets(&world, &scoped_accounts, None, None, visibility);
             prepared.execute_entries(
                 items.map(|item| item.map(|item| account_asset_row(&item))),
-                &limits,
+                limits,
             )
         }
         CollectionTarget::AssetHolders(definition_literal) => {
@@ -549,7 +554,7 @@ async fn execute_prepared_collection_local(
                 )
                 .await?
                 {
-                    return prepared.execute(rows, &limits).map_err(Error::from);
+                    return prepared.execute(rows, limits).map_err(Error::from);
                 }
                 if !asset_holder_live_aggregate_enabled() {
                     return Err(projection_archive_unavailable_error(
@@ -571,7 +576,7 @@ async fn execute_prepared_collection_local(
                         ))
                     })
                 });
-            prepared.execute_entries(rows, &limits)
+            prepared.execute_entries(rows, limits)
         }
         CollectionTarget::AccountTransactions(account_literal) => {
             let (account, _) = parse_account_path_segment_with_state(
@@ -591,7 +596,7 @@ async fn execute_prepared_collection_local(
                 .flatten();
             return transaction_page(
                 state,
-                &prepared,
+                prepared,
                 Some(&account),
                 allowed.as_ref(),
                 visibility,
@@ -605,7 +610,7 @@ async fn execute_prepared_collection_local(
                 .flatten();
             return transaction_page(
                 state,
-                &prepared,
+                prepared,
                 None,
                 allowed.as_ref(),
                 visibility,
@@ -635,7 +640,7 @@ async fn execute_prepared_collection_local(
                 ]))
             });
             let mut failure = None;
-            let page = prepared.execute(until_error(rows, &mut failure), &limits);
+            let page = prepared.execute(until_error(rows, &mut failure), limits);
             if let Some(error) = failure {
                 return Err(error);
             }
@@ -651,7 +656,7 @@ async fn execute_prepared_collection_local(
             let mut failure = None;
             let rows = seek_keys(
                 world.asset_definitions(),
-                id_candidates(&query, |id| {
+                id_candidates(query, |id| {
                     AssetDefinitionId::parse_address_literal(id).ok()
                 }),
                 after.as_ref().filter(|_| !query.include_total),
@@ -678,9 +683,9 @@ async fn execute_prepared_collection_local(
                 }
             });
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -716,9 +721,9 @@ async fn execute_prepared_collection_local(
                 }
             });
             let page = if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             };
             if let Some(error) = failure {
                 return Err(error);
@@ -734,7 +739,7 @@ async fn execute_prepared_collection_local(
                 .space_directory_manifests()
                 .get(&uaid)
                 .into_iter()
-                .flat_map(|set| set.iter())
+                .flat_map(iroha_core::nexus::space_directory::SpaceDirectoryManifestSet::iter)
                 .map(|(id, record)| {
                     if !visibility.allows_dataspace(*id) {
                         return Ok(None);
@@ -751,7 +756,7 @@ async fn execute_prepared_collection_local(
                     None
                 }
             });
-            let page = prepared.execute_entries(rows, &limits);
+            let page = prepared.execute_entries(rows, limits);
             if let Some(error) = failure {
                 return Err(error);
             }
@@ -771,12 +776,12 @@ async fn execute_prepared_collection_local(
                 .map(|app| crate::resolve_tx_history_allowed_asset_definition_id(app))
                 .transpose()?
                 .flatten();
-            return account_subrow_page(state, &prepared, &account, allowed.as_ref(), visibility);
+            return account_subrow_page(state, prepared, &account, allowed.as_ref(), visibility);
         }
         CollectionTarget::ContractActivity => {
             return transaction_page(
                 state,
-                &prepared,
+                prepared,
                 None,
                 None,
                 visibility,
@@ -784,7 +789,7 @@ async fn execute_prepared_collection_local(
             );
         }
         CollectionTarget::ContractEvents => {
-            return contract_emission_page(state, &prepared, visibility);
+            return contract_emission_page(state, prepared, visibility);
         }
         CollectionTarget::RepoAgreements => {
             let world = state.world_view();
@@ -811,9 +816,9 @@ async fn execute_prepared_collection_local(
                 )
             });
             if scan.is_some() {
-                prepared.execute_ordered(rows, &limits)
+                prepared.execute_ordered(rows, limits)
             } else {
-                prepared.execute_entries(rows.map(|(_, row)| row), &limits)
+                prepared.execute_entries(rows.map(|(_, row)| row), limits)
             }
         }
     };
@@ -1048,7 +1053,6 @@ fn contract_emission_page(
                         entrypoint,
                         entrypoint_hash: entrypoint.hash(),
                         result: &network.result,
-                        block_hash: block.hash(),
                     })
                 }
                 _ => None,
@@ -1070,9 +1074,7 @@ fn contract_emission_page(
                     continue;
                 }
                 let projection = contract_event_projection(
-                    height,
-                    block.hash(),
-                    timestamp,
+                    (height, block.hash(), timestamp),
                     output_index as u64,
                     emission_index as u64,
                     execution_hash,
@@ -1253,7 +1255,7 @@ fn contract_activity_row(
     transaction: &iroha_data_model::query::CommittedTransaction,
     position: iroha_core::smartcontracts::isi::tx::TransactionHistoryPosition,
 ) -> Option<Map> {
-    let projection = contract_activity_projection_from_tx(position.height() as usize, transaction)?;
+    let projection = contract_activity_projection_from_tx(transaction)?;
     let Value::Object(mut row) = contract_activity_projections_to_json(&[projection]).pop()? else {
         return None;
     };
@@ -1317,7 +1319,7 @@ fn transaction_row(
 }
 
 /// Execute locally and apply `select`, for collections served without fan-out.
-pub(crate) async fn execute_collection_response(
+pub async fn execute_collection_response(
     app: Option<&crate::SharedAppState>,
     state: &Arc<CoreState>,
     target: &CollectionTarget,
@@ -1337,7 +1339,13 @@ pub(crate) async fn execute_collection_response(
     let limits = collection_execution_limits(app)?;
     let prepared = collections::prepare(target.spec(), target.scope(), &query, &limits)?;
     let page = execute_prepared_collection_local(
-        app, state, target, &query, telemetry, visibility, &prepared, &limits,
+        app,
+        state,
+        (target, &query),
+        telemetry,
+        visibility,
+        &prepared,
+        &limits,
     )
     .await?;
     let page = prepared.project(page)?;
@@ -1350,7 +1358,7 @@ pub(crate) async fn execute_collection_response(
 }
 
 /// Serialize a page as the JSON page envelope.
-pub(crate) fn row_page_response(
+pub fn row_page_response(
     page: RowPage,
     bytes: collections::memory::BytePolicy,
 ) -> Result<Response> {
@@ -1656,29 +1664,29 @@ mod tests {
             Some(uaid),
             Vec::new(),
         );
-        let owned = account_from_key_value(
+        let owned_values = account_from_key_value(
             &owner,
             &iroha_data_model::common::Owned::new(details.clone()),
         );
-        assert!(owned.label().is_none());
+        assert!(owned_values.label().is_none());
         let actual = account_row(&owner, &details, bytes).expect("bounded account row");
         assert_eq!(
             actual,
             Map::from_iter([
-                ("id".to_owned(), Value::from(owned.id().to_string())),
+                ("id".to_owned(), Value::from(owned_values.id().to_string())),
                 ("label".to_owned(), Value::Null),
                 (
                     "uaid".to_owned(),
-                    Value::from(owned.uaid().unwrap().to_string())
+                    Value::from(owned_values.uaid().unwrap().to_string())
                 ),
                 (
                     "metadata".to_owned(),
-                    crate::explorer::metadata_to_json(owned.metadata())
+                    crate::explorer::metadata_to_json(owned_values.metadata())
                 ),
             ])
         );
         let mut tight = bytes;
-        tight.scratch_bytes = owned.uaid().unwrap().to_string().len() - 1;
+        tight.scratch_bytes = owned_values.uaid().unwrap().to_string().len() - 1;
         assert!(matches!(
             account_row(&owner, &details, tight),
             Err(Error::CollectionQuery(error)) if error.code == "query_capacity_exceeded"
@@ -1813,8 +1821,7 @@ mod tests {
         let error = execute_prepared_collection_local(
             None,
             &state,
-            &target,
-            &query,
+            (&target, &query),
             &MaybeTelemetry::for_tests(),
             &DataspaceReadVisibility::all_for_tests(),
             &prepared,
@@ -1960,7 +1967,7 @@ mod tests {
     #[tokio::test]
     async fn accounts_stream_in_identifier_order() {
         let (state, alice, bob) = fixture();
-        let mut expected = vec![alice, bob];
+        let mut expected = [alice, bob];
         expected.sort();
         let expected: Vec<String> = expected.iter().map(ToString::to_string).collect();
         let query = ListQuery::new().limit(1);
@@ -2066,7 +2073,7 @@ mod tests {
         .await
         .expect("page");
         assert_eq!(page.total, Some(2));
-        let mut expected = vec![alice, bob];
+        let mut expected = [alice, bob];
         expected.sort();
         let expected: Vec<String> = expected.iter().map(ToString::to_string).collect();
         assert_eq!(ids(&page), expected);
@@ -2111,7 +2118,7 @@ mod tests {
         let signed = |millis: u64| {
             let mut builder = dm::TransactionBuilder::new(
                 network_id,
-                alice.clone().into(),
+                alice.clone(),
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             );
             builder.set_creation_time(core::time::Duration::from_millis(millis));
@@ -2194,7 +2201,7 @@ mod tests {
 
         let mut builder = dm::TransactionBuilder::new(
             network_id,
-            alice.clone().into(),
+            alice.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         );
         builder.set_creation_time(core::time::Duration::from_millis(4_000));

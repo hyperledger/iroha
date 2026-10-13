@@ -121,6 +121,11 @@ struct Projection {
 
 // The sole proof engine has no State reference. Its carrier is issued only by the existing
 // CertifiedChain reader; its descriptor, charged frame and all later stages move unchanged.
+enum PortableProof {
+    Unbuilt,
+    Completed(Option<AllocatedAmxRecordProofV1>),
+}
+
 struct OriginalAmxSource {
     network_id: iroha_data_model::NetworkId,
     height: u64,
@@ -131,9 +136,9 @@ struct OriginalAmxSource {
     read: Option<NativeContextRead>,
     bytes: Option<ChargedBuffer<u8>>,
     projection: Option<Projection>,
-    // None: not built; Some(None): authenticated absence; Some(Some(_)): exact funded graph.
+    // Completed absence is authenticated; an unbuilt proof has no such authority.
     // Delivery takes this slot only after every original namespace check succeeds.
-    portable: Option<Option<AllocatedAmxRecordProofV1>>,
+    portable: PortableProof,
     authenticated: bool,
     completed: bool,
     source_started: bool,
@@ -237,7 +242,7 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
                 read: None,
                 bytes: None,
                 projection: None,
-                portable: None,
+                portable: PortableProof::Unbuilt,
                 authenticated: false,
                 completed: false,
                 source_started: false,
@@ -433,7 +438,10 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
             .ok_or(NativeAmxRecordProofErrorV1::Source(
                 "native AMX proof already completed",
             ))?;
-        if source.completed || source.portable.is_some() || self.portable_probe.is_some() {
+        if source.completed
+            || matches!(source.portable, PortableProof::Completed(_))
+            || self.portable_probe.is_some()
+        {
             return Err(NativeAmxRecordProofErrorV1::Source(
                 "portable proof observation already selected",
             ));
@@ -444,8 +452,7 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
 
     // Borrow the same authenticated complete write graph; no count supplied by .ami
     // can substitute for the original certified witness.
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC218")))]
-    pub(super) fn authenticated_prepared_count(
+    pub(super) fn authenticated_relay_record_count(
         &self,
     ) -> Result<usize, NativeAmxRecordProofErrorV1> {
         let source = self
@@ -453,7 +460,7 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
             .as_ref()
             .filter(|source| source.completed && source.authenticated)
             .ok_or(NativeAmxRecordProofErrorV1::Source(
-                "Prepared count needs completed original verification",
+                "relay row count needs completed original verification",
             ))?;
         let projection = source
             .projection
@@ -482,6 +489,45 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
                         && certified.commitment().execution.ordinary_writes_root == root
                 })
         })
+    }
+
+    // A sibling delivery owner can borrow only this reader's completed native authority.
+    // Recheck its original namespace after instruction admission; copied proof coordinates
+    // cannot replace this retained carrier or the captured State history.
+    pub(super) fn completed_original(
+        &self,
+    ) -> Result<&CertifiedBlock, NativeAmxRecordProofErrorV1> {
+        use NativeAmxRecordProofErrorV1 as Error;
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| source.completed && source.authenticated)
+            .ok_or(Error::Source(
+                "delivery requires completed original verification",
+            ))?;
+        source
+            .read
+            .as_ref()
+            .ok_or(Error::Source("original archive descriptor missing"))?
+            .recheck_namespace()?;
+        let certified = source
+            .certified
+            .as_ref()
+            .ok_or(Error::Source("original certified carrier missing"))?;
+        let index = source
+            .height
+            .checked_sub(1)
+            .and_then(|height| usize::try_from(height).ok())
+            .ok_or(Error::Source("original carrier height is invalid"))?;
+        if self.view.block_hashes().get(index).copied() != Some(certified.block_hash())
+            || *self.view.network_id() != source.network_id
+            || certified.commitment().schedule.current.network_id != source.network_id
+        {
+            return Err(Error::Source(
+                "original carrier differs from captured history",
+            ));
+        }
+        Ok(certified)
     }
 
     #[cfg(test)]
@@ -645,37 +691,38 @@ impl OriginalAmxSource {
             self.authenticated = true;
         }
         read.recheck_namespace()?;
-        if self.portable.is_none() {
+        if matches!(self.portable, PortableProof::Unbuilt) {
             let certificate = certified
                 .certificate()
                 .ok_or(Error::Source("original carrier has no native certificate"))?;
-            self.portable = Some(AllocatedAmxRecordProofV1::from_original_witness(
-                certificate,
-                projection.witness.get(),
-                self.kind,
-                self.transaction,
-                root,
-                &self.budget,
-            )?);
+            self.portable =
+                PortableProof::Completed(AllocatedAmxRecordProofV1::from_original_witness(
+                    certificate,
+                    projection.witness.get(),
+                    self.kind,
+                    self.transaction,
+                    root,
+                    &self.budget,
+                )?);
             #[cfg(test)]
             if let Some(probe) = portable_probe.take() {
-                probe(
-                    self.portable
-                        .as_ref()
-                        .expect("actual completed portable construction"),
-                );
+                let PortableProof::Completed(proof) = &self.portable else {
+                    unreachable!("actual completed portable construction");
+                };
+                probe(proof);
             }
         }
         let namespace = read.recheck_namespace();
         #[cfg(all(test, sumeragi_core_mutation = "HC159"))]
         if namespace.is_err() {
-            self.portable = None;
+            self.portable = PortableProof::Unbuilt;
         }
         namespace?;
-        let proof = self
-            .portable
-            .take()
-            .ok_or(Error::Source("completed portable proof is not retained"))?;
+        let PortableProof::Completed(proof) =
+            std::mem::replace(&mut self.portable, PortableProof::Unbuilt)
+        else {
+            return Err(Error::Source("completed portable proof is not retained"));
+        };
         self.completed = true;
         Ok(NativeAmxRecordProofPollV1::Complete(proof))
     }

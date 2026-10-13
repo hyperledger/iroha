@@ -13,7 +13,7 @@ pub(in crate::managed) use generated::{
 };
 
 #[cfg(test)]
-pub(in crate::managed::stream_token_custody) use generated::RenewalReads;
+pub(in crate::managed::stream_token_custody) use generated::{CarrierReplay, RenewalReads};
 
 // Local generated-profile bound, not a native protocol revision or sequence limit.
 const MAX_GENERATED_SEQUENCE: u64 = 64;
@@ -47,9 +47,10 @@ impl ManagedStreamTokenCustody {
         self.authority.validate_profile()?;
         let purpose = CustodyPurpose::Renewal(sequence);
         let existing = BodyHistory::open(self, purpose)?;
-        let history = if existing.as_ref().is_some_and(|history| {
-            history.original().is_ok_and(|original| original.is_some()) && !history.has_pending()
-        }) {
+        let history = if existing
+            .as_ref()
+            .is_some_and(|history| history.original().is_some() && !history.has_pending())
+        {
             existing.ok_or_else(|| invalid("renewal body absent"))?
         } else {
             let terms = Terms::new(deadline_unix_ms, options)?;
@@ -296,7 +297,6 @@ impl ManagedStreamTokenCustody {
     }
 
     pub(super) fn validate_renewal_original<P: Borrow<RetainedProviderServicePlan>>(
-        &self,
         original: &Original,
         control: &SignerCustodyControlStateV1,
         sequence: u64,
@@ -399,6 +399,7 @@ pub(super) fn validate_renewal_validity<P: Borrow<RetainedProviderServicePlan>>(
     renewal_validity(&previous.statement, &control.policy, observed, provider_end)
 }
 
+#[cfg(test)]
 pub(super) fn renewal_interval(
     previous: &SignerCustodyStatementV1,
     policy: &SignerCustodyPolicyV1,

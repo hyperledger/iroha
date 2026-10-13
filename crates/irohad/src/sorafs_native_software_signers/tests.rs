@@ -248,19 +248,14 @@ fn startup_rejects_validator_key_shared_roles_and_external_adapter_conflicts() {
     };
     let mut deps = IrohaRuntimeDeps::default();
     assert!(
-        install_native_software_signers(
-            &bindings,
-            Arc::clone(&fixture.state),
-            &config.public_key,
-            &mut deps
-        )
-        .is_err()
+        install_native_software_signers(&bindings, &fixture.state, &config.public_key, &mut deps)
+            .is_err()
     );
     bindings.reserve = Some(config.clone());
     assert!(
         install_native_software_signers(
             &bindings,
-            Arc::clone(&fixture.state),
+            &fixture.state,
             Fixture::key(99).public_key(),
             &mut deps
         )
@@ -273,7 +268,7 @@ fn startup_rejects_validator_key_shared_roles_and_external_adapter_conflicts() {
     assert!(
         install_native_software_signers(
             &bindings,
-            Arc::clone(&fixture.state),
+            &fixture.state,
             Fixture::key(99).public_key(),
             &mut deps
         )
@@ -282,7 +277,7 @@ fn startup_rejects_validator_key_shared_roles_and_external_adapter_conflicts() {
     deps.sorafs_repair_transaction_signer = None;
     install_native_software_signers(
         &bindings,
-        Arc::clone(&fixture.state),
+        &fixture.state,
         Fixture::key(99).public_key(),
         &mut deps,
     )

@@ -123,6 +123,8 @@ impl Selection {
         Ok(())
     }
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::SelectionDigest);
         attempts::semantic_digest(self, MAX_SELECTION_BYTES)
     }
 }
@@ -222,7 +224,7 @@ impl UnsignedEnrollment {
             .map_err(|_| invalid("unsigned enrollment checkpoint invalid"))?
             .verify_global_scope(
                 owner.authority.config.network_id,
-                &owner.authority.config.chain.to_string(),
+                owner.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("unsigned enrollment checkpoint changed Global scope"))
     }
@@ -351,6 +353,8 @@ pub(super) struct Reservation {
 }
 impl Reservation {
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::ReservationDigest);
         attempts::semantic_digest(self, MAX_BODY_BYTES)
     }
 }

@@ -171,7 +171,7 @@ impl Fixture {
             .map(|(index, socket)| {
                 format!(
                     "{{ provider_id = \"{}\", url = \"{}\", attestation_url = \"http://{}/\" }}",
-                    hex::encode([0x21 + index as u8; 32]),
+                    hex::encode([0x21 + u8::try_from(index).unwrap(); 32]),
                     transport.base_url(),
                     socket.local_addr().unwrap(),
                 )

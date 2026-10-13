@@ -15,27 +15,7 @@ mod app_api_integration_tests {
     fn app_query_limits_guard() -> MutexGuard<'static, ()> {
         APP_QUERY_LIMITS_TEST_LOCK
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-    struct AppQueryLimitsOverride {
-        _guard: MutexGuard<'static, ()>,
-        previous: AppQueryLimits,
-    }
-    impl AppQueryLimitsOverride {
-        fn new(limits: AppQueryLimits) -> Self {
-            let guard = app_query_limits_guard();
-            let previous = app_query_limits();
-            set_app_query_limits(limits);
-            Self {
-                _guard: guard,
-                previous,
-            }
-        }
-    }
-    impl Drop for AppQueryLimitsOverride {
-        fn drop(&mut self) {
-            set_app_query_limits(self.previous);
-        }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn checked_app_api_keypair(
         seed: u8,

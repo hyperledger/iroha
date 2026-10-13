@@ -155,7 +155,7 @@ pub fn fixture() -> (
         source_tree_digest: source_digest,
         descriptor_digest,
         file_count: 1,
-        chunk_count: plan.chunks.len() as u32,
+        chunk_count: u32::try_from(plan.chunks.len()).expect("fixture chunk count fits u32"),
     };
     let publisher = AccountId::new(key(0x31).public_key().clone());
     let broker = AccountId::new(key(0x32).public_key().clone());

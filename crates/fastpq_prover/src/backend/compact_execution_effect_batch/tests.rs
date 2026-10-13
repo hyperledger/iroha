@@ -149,7 +149,7 @@ pub(in crate::backend) fn fixture() -> (
         &mut reservation,
     )
     .unwrap();
-    assert!(std::ptr::eq(built.effects(), &effects));
+    assert!(std::ptr::eq(built.effects(), &raw const effects));
     let frame = norito::encode_canonical(&built.statement()).unwrap();
     let statement: FastpqExecutionEffectStatementV1 = norito::decode_canonical(&frame).unwrap();
     assert_eq!(statement.effects, effects);
@@ -276,7 +276,7 @@ fn borrowed_owned_canonical_frames_and_distinct_domains_match_exactly() {
     let view = SourceExecutionEffectStatement::from_owned(&statement);
     assert_eq!(view.public_inputs(), statement.public_inputs);
     assert_eq!(view.ordering_hash(), statement.ordering_hash);
-    assert!(std::ptr::eq(view.effects(), &statement.effects));
+    assert!(std::ptr::eq(view.effects(), &raw const statement.effects));
     assert_eq!(
         view.digest(ExecutionEffectLimits::default().max_public_bytes)
             .unwrap(),

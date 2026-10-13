@@ -48,8 +48,9 @@ impl ReadHookGuard {
         });
         Self
     }
-    fn assert_consumed(&self) {
+    fn assert_consumed(self) {
         READ_HOOK.with(|pending| assert!(pending.borrow().is_none()));
+        drop(self);
     }
 }
 impl Drop for ReadHookGuard {
@@ -112,7 +113,7 @@ fn bootstrap_recovery_rejects_a_deadline_crossed_after_successful_census() {
     let directory = retain(&owner, &original);
     let bytes = directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap();
     let names = directory.entries(2).unwrap();
-    let lock_identity = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    let lock_identity = iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap();
     let peers = UnavailablePeers::start(&prepared);
     let deadline = Instant::now() + Duration::from_secs(10);
     let hook = ReadHookGuard::install(ReadStage::RecoveryCensus, move || wait_past(deadline));
@@ -121,14 +122,13 @@ fn bootstrap_recovery_rejects_a_deadline_crossed_after_successful_census() {
         Err(crate::managed::Error::NativeDeadline)
     ));
     hook.assert_consumed();
-    drop(hook);
     assert_eq!(directory.entries(2).unwrap(), names);
     assert_eq!(
         directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap(),
         bytes
     );
     assert_eq!(
-        iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+        iroha_fs::FileIdentity::of(&owner.authority.lock).unwrap(),
         lock_identity
     );
     assert!(peers.requests.lock().unwrap().is_empty());
@@ -163,7 +163,6 @@ fn bootstrap_startup_rechecks_budget_before_original_publication_and_census_retu
         Err(crate::managed::Error::NativeDeadline)
     ));
     hook.assert_consumed();
-    drop(hook);
     assert!(
         owner
             .authority
@@ -186,7 +185,6 @@ fn bootstrap_startup_rechecks_budget_before_original_publication_and_census_retu
         ))
     ));
     hook.assert_consumed();
-    drop(hook);
     let directory = owner.authority.directory.open_child("initial").unwrap();
     require_empty(&directory).unwrap();
     cancelled.store(false, Ordering::Release);
@@ -203,7 +201,6 @@ fn bootstrap_startup_rechecks_budget_before_original_publication_and_census_retu
         ))
     ));
     hook.assert_consumed();
-    drop(hook);
     let retained = directory.read("original.nrt", MAX_ORIGINAL_BYTES).unwrap();
     assert_eq!(
         directory.entries(2).unwrap(),
@@ -255,7 +252,6 @@ fn bootstrap_startup_closes_late_or_cancelled_issued_authorization_without_rewri
         ))
     ));
     hook.assert_consumed();
-    drop(hook);
     let (original, first_epoch) = observed.borrow_mut().take().unwrap();
     let directory = owner.authority.directory.open_child("initial").unwrap();
     let epochs = directory.open_child("epochs").unwrap();
@@ -302,7 +298,6 @@ fn bootstrap_startup_closes_late_or_cancelled_issued_authorization_without_rewri
         ))
     ));
     hook.assert_consumed();
-    drop(hook);
     let (same_original, second_epoch) = observed.borrow_mut().take().unwrap();
     assert_eq!(same_original, original);
     assert_eq!(
@@ -694,7 +689,7 @@ fn prepare_only_parent_retains_exact_original_without_http_or_child_custody() {
         original
     );
     let mut expired = replay.clone();
-    expired.deadline = Instant::now() - Duration::from_secs(1);
+    expired.deadline = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     assert!(reopened.authorize_test_startup(&expired).is_err());
     let mut wrong = replay.clone();
     wrong.fee_payment = FeePaymentIntent::authority(Vec::new(), std::num::NonZeroU64::new(1));
@@ -764,7 +759,7 @@ fn automatic_bootstrap_preparation_preserves_original_deadline_and_bounded_fees_
     assert!(
         owner
             .authorize_generated_startup(
-                Instant::now() - Duration::from_secs(1),
+                Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
                 Arc::new(AtomicBool::new(false))
             )
             .is_err()
@@ -881,4 +876,19 @@ fn completed_funding_projection_rejects_unfinished_reports_and_keeps_absent_pair
     assert!(
         std::mem::size_of::<CompletedFunding>() < std::mem::size_of::<ProviderFundingProgress>()
     );
+}
+
+#[test]
+fn incomplete_history_refusal_reports_observed_step_without_granting_completion() {
+    let pending = ServiceBootstrapProgress::Pending {
+        step: ServiceBootstrapStep::ReservePolicy,
+        status: iroha_wallet::operations::OperationStatus::Absent,
+    };
+    let error = pending
+        .require_complete("bootstrap incomplete")
+        .unwrap_err();
+    let text = error.to_string();
+    assert!(text.contains("bootstrap incomplete"));
+    assert!(text.contains("ReservePolicy"));
+    assert!(text.contains("Absent"));
 }

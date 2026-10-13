@@ -153,6 +153,7 @@ mod tests {
         parameter::{Parameter, system::SumeragiNposParameters},
         sccp::registry::SCCP_ROUTE_NETWORKS_V1,
     };
+    use mv::storage::StorageReadOnly as _;
 
     fn set_max_validators(stx: &mut StateTransaction<'_, '_>, max_validators: Option<u32>) {
         let Some(max_validators) = max_validators else {
@@ -165,7 +166,8 @@ mod tests {
         stx.world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(npos.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(npos.into_custom_parameter()))
+            .expect("fixture NPoS parameters");
     }
 
     fn original_genesis_context() -> iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1 {
@@ -183,6 +185,69 @@ mod tests {
             .0
     }
 
+    fn seed_genesis_members(
+        stx: &mut StateTransaction<'_, '_>,
+        context: &iroha_data_model::sumeragi::epoch::ValidatorEpochContextV1,
+    ) {
+        use iroha_data_model::nexus::{PublicLaneValidatorRecord, PublicLaneValidatorStatus};
+        use iroha_model_base::{metadata::Metadata, topology::LaneId};
+        for member in &context.committee {
+            let validator = AccountId::new(member.validator.public_key().clone());
+            let record = PublicLaneValidatorRecord {
+                lane_id: LaneId::SINGLE,
+                validator: validator.clone(),
+                peer_id: member.validator.clone(),
+                stake_account: validator.clone(),
+                total_stake: 1_u64.into(),
+                self_stake: 1_u64.into(),
+                metadata: Metadata::default(),
+                status: PublicLaneValidatorStatus::Active,
+                activation_height: 1,
+                election_exit_height: None,
+                deactivation_height: None,
+            };
+            stx.world
+                .public_lane_validators
+                .insert((LaneId::SINGLE, validator), record);
+        }
+    }
+
+    #[test]
+    fn sccp_genesis_requires_every_original_signer_to_have_one_staking_binding() {
+        use iroha_model_base::topology::LaneId;
+        let original = original_genesis_context();
+        let state = blank_state();
+        let mut block = state.block(header(1));
+        let mut stx = block.transaction();
+        stx.native_genesis_context = Some(&original);
+        set_max_validators(&mut stx, Some(4));
+        set_sccp_staking_profile(&mut stx);
+        seed_genesis_members(&mut stx, &original);
+        let key = (
+            LaneId::SINGLE,
+            AccountId::new(original.committee[0].validator.public_key().clone()),
+        );
+        let record = stx.world.public_lane_validators.get(&key).unwrap().clone();
+        stx.world.public_lane_validators.remove(key.clone());
+        let before_events = stx.world.internal_event_buf.len();
+        assert!(
+            execute_initialize(SampleInstructions::initialize(), &authority(1), &mut stx).is_err(),
+            "SCCP genesis must refuse any signer without its original global staking binding"
+        );
+        assert!(store::parameters::get(&*stx.world).is_none());
+        assert!(store::committee_generations::is_empty(&*stx.world));
+        assert_eq!(stx.world.internal_event_buf.len(), before_events);
+        stx.world.public_lane_validators.insert(key, record);
+        execute_initialize(SampleInstructions::initialize(), &authority(1), &mut stx).unwrap();
+        assert!(
+            store::committee_generations::get(&*stx.world, &1)
+                .unwrap()
+                .members
+                .iter()
+                .all(Option::is_some)
+        );
+    }
+
     fn initialize(
         height: u64,
         max_validators: Option<u32>,
@@ -193,6 +258,7 @@ mod tests {
         let mut block = state.block(header(height));
         let mut stx = block.transaction();
         stx.native_genesis_context = Some(&original);
+        seed_genesis_members(&mut stx, &original);
         set_max_validators(&mut stx, max_validators);
         set_sccp_staking_profile(&mut stx);
         execute_initialize(instruction, &authority(1), &mut stx)
@@ -211,6 +277,7 @@ mod tests {
         set_max_validators(&mut stx, Some(31));
         set_sccp_staking_profile(&mut stx);
         stx.native_genesis_context = Some(&original);
+        seed_genesis_members(&mut stx, &original);
         let instruction = SampleInstructions::initialize();
         execute_initialize(instruction.clone(), &authority(1), &mut stx).expect("initialize");
         assert_eq!(
@@ -303,6 +370,7 @@ mod tests {
             let mut stx = block.transaction();
             set_max_validators(&mut stx, Some(31));
             stx.native_genesis_context = Some(&original);
+            seed_genesis_members(&mut stx, &original);
             stx.nexus.staking.unbonding_delay = Duration::from_millis(delay_ms);
             execute_initialize(SampleInstructions::initialize(), &authority(1), &mut stx)
         };
@@ -351,6 +419,50 @@ mod tests {
         assert_eq!(check_parameters(&stx, &short_hold), Ok(()));
     }
     #[test]
+    fn signed_genesis_refuses_partially_registered_initial_committee() {
+        use crate::{
+            smartcontracts::isi::sccp::forgery::tests::{keys, register_genesis_members},
+            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+        };
+        use iroha_data_model::parameter::system::{
+            SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter,
+        };
+        let keys = keys();
+        for registered in [0, 2] {
+            let mut config = TestChainConfig::new(crate::state::World::new(), 1_000);
+            config.validator_keys = Some(keys.clone());
+            config.consensus_mode = SumeragiConsensusMode::Npos;
+            config.genesis_block_cadence_ms = std::num::NonZeroU64::new(1_000).unwrap();
+            let npos = SumeragiNposParameters {
+                epoch_length_blocks: std::num::NonZeroU64::new(3_600).unwrap(),
+                max_validators: 4,
+                ..SumeragiNposParameters::default()
+            };
+            config.genesis_parameters.extend([
+                Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+                    npos.epoch_length_blocks,
+                )),
+                Parameter::Custom(npos.into_custom_parameter()),
+            ]);
+            let mut nexus = iroha_config::parameters::actual::Nexus::default();
+            nexus.staking.unbonding_delay = std::time::Duration::from_secs(21 * 86_400);
+            nexus.staking.max_slash_bps = 1;
+            register_genesis_members(&mut config, &keys[..registered], &nexus.staking);
+            config.nexus = Some(nexus);
+            config
+                .genesis_instructions
+                .push(SampleInstructions::initialize().into());
+            let Err(error) = CertifiedTestChain::start(config) else {
+                panic!("G1 requires every original registration");
+            };
+            assert!(
+                format!("{error:?}").contains("InvalidGeneration"),
+                "{registered}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn initialization_refuses_missing_original_scope_zero_slash_and_short_epoch_without_writes() {
         use iroha_data_model::parameter::system::SumeragiParameter;
         let original = original_genesis_context();
@@ -372,7 +484,8 @@ mod tests {
                     .get_mut()
                     .set_parameter(Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
                         std::num::NonZeroU64::new(1).unwrap(),
-                    )));
+                    )))
+                    .expect("fixture short epoch");
             }
             let error = refusal(execute_initialize(
                 SampleInstructions::initialize(),

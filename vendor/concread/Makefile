@@ -3,20 +3,14 @@
 help:
 	@grep -E -h '\s##\s' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-test: ## run tests across a variety of features
+test: ## run the maintained storage engine and reduced-fanout tests
 test:
-	cargo test
-	cargo test --no-default-features --features arcache-is-hashmap,asynch,ahash,ebr,maps
-	cargo test --features hashtrie_skinny
-	cargo test --features skinny
-	cargo test --features tcache
+	cargo test -p concread
+	cargo test -p concread --features skinny
 
-clippy: ## run clippy across a variety of features
+clippy: ## lint every supported storage feature
 clippy:
-	cargo clippy --no-default-features --features arcache-is-hashmap,asynch,ahash,ebr,maps
-	cargo clippy
-	cargo clippy --features tcache
-	cargo clippy --features arcache
+	cargo clippy -p concread --all-targets --all-features -- -D warnings
 
 check: ## check all the things
 check: test clippy codespell
@@ -29,11 +23,8 @@ check: test clippy codespell
 coverage/run: ## Run coverage tests
 coverage/run:
 	rm -rf "$(PWD)/target/profile/coverage-*.profraw"
-	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test
-	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test --no-default-features --features arcache-is-hashmap,asynch,ahash,ebr,maps
-	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test --features hashtrie_skinny
-	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test --features skinny
-	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test --features tcache
+	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test -p concread
+	LLVM_PROFILE_FILE="$(PWD)/target/profile/coverage-%p-%m.profraw" RUSTFLAGS="-C instrument-coverage" cargo test -p concread --features skinny
 
 .PHONY: coverage/grcov
 coverage/grcov: ## Run grcov
@@ -60,4 +51,4 @@ codespell: ## spell-check things.
 codespell:
 	codespell -c \
 	--ignore-words .codespell_ignore \
-	--skip='./target,dhat-heap.json'
+	--skip='./target'

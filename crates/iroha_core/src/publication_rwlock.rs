@@ -99,6 +99,10 @@ impl<T> PublicationRwLock<T> {
     }
 
     /// Acquire a reader or retain its exact physical source observed before probing.
+    ///
+    /// # Errors
+    ///
+    /// Returns this lock's release observation if shared access is unavailable.
     pub fn try_read_or_wait(&self) -> Result<PublicationRwLockReadGuard<'_, T>, ReleaseWait> {
         let wait = self.released.observe();
         self.try_read().ok_or(wait)
@@ -125,6 +129,10 @@ impl<T> PublicationRwLock<T> {
     ///
     /// Release every earlier aggregate guard before awaiting this event. A wake
     /// requires retrying acquisition and authenticating the original operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns this lock's release observation if exclusive access is unavailable.
     pub fn try_write_or_wait(&self) -> Result<PublicationRwLockWriteGuard<'_, T>, ReleaseWait> {
         let wait = self.released.observe();
         self.try_write().ok_or(wait)
@@ -146,6 +154,11 @@ impl<T> PublicationRwLockReadGuard<'_, T> {
 
     /// Unlock into a batch of this exact source without invoking callbacks.
     /// A foreign batch returns this same held reader without any release.
+    ///
+    /// # Errors
+    ///
+    /// Returns the still-held guard when the batch belongs to a different
+    /// release source.
     pub fn try_release_into(self, batch: &mut DeferredReleaseBatch) -> Result<(), Self> {
         self.inner
             .try_release_into(batch, drop)
@@ -162,6 +175,11 @@ impl<T> PublicationRwLockWriteGuard<'_, T> {
 
     /// Unlock into a batch of this exact source without invoking callbacks.
     /// A foreign batch returns this same held writer without any release.
+    ///
+    /// # Errors
+    ///
+    /// Returns the still-held guard when the batch belongs to a different
+    /// release source.
     pub fn try_release_into(self, batch: &mut DeferredReleaseBatch) -> Result<(), Self> {
         self.inner
             .try_release_into(batch, drop)

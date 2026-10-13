@@ -102,7 +102,8 @@ fn seed_committed_catalog(state: &mut State, runtime: NexusRuntimeCatalogV1) {
             runtime
                 .into_custom_parameter()
                 .expect("structurally valid protected test state"),
-        ));
+        ))
+        .expect("install the committed runtime catalog fixture");
     world.commit();
 }
 

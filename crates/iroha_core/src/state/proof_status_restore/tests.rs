@@ -55,8 +55,8 @@ fn image(
         .collect()
 }
 
-fn fixture() -> Box<World> {
-    let world = Box::new(World::default());
+fn fixture() -> World {
+    let world = World::default();
     {
         let mut block = world.block();
         let mut tx = block.transaction_without_telemetry(LaneConfig::default(), 0);
@@ -97,8 +97,8 @@ fn change(block: &mut WorldBlock<'_>, replacement: bool) {
     tx.apply();
 }
 
-fn restart(world: &World) -> Box<World> {
-    let mut result = Box::new(World::default());
+fn restart(world: &World) -> World {
+    let mut result = World::new();
     result.proofs = restored(&world.proofs);
     rebuild(&mut result);
     result
@@ -192,7 +192,7 @@ fn proof_status_restore_survives_committed_replacement_and_second_restart() {
 
 #[test]
 fn last_status_member_move_keeps_prior_absence_and_removed_bucket() {
-    let world = Box::new(World::default());
+    let world = World::default();
     {
         let mut block = world.block();
         let mut tx = block.transaction_without_telemetry(LaneConfig::default(), 0);
@@ -242,7 +242,7 @@ fn actual_state_constructor_and_snapshot_restore_keep_the_live_proof_predecessor
     let canonical = encoded(&live.proofs);
     let expected = encoded(&live.proofs_by_status);
     let state = State::new_for_testing(
-        *live,
+        live,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );

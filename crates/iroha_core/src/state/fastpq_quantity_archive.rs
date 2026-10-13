@@ -180,7 +180,7 @@ impl std::fmt::Debug for QuantityTape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QuantityTape")
             .field("effects", &self.wire.effects.len())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 impl QuantityTape {

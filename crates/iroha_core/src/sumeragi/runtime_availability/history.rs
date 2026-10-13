@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod source_refusal_tests;
 
+pub(crate) mod sccp;
+
 use crate::execution_attempt::{
     ExecutionAttemptError as Attempt, canonical_decode_attempt_error, norito_decode_attempt_error,
 };
@@ -73,13 +75,29 @@ impl HistoryCapture {
         view: &StateView<'_>,
         generation: u64,
     ) -> Result<Option<Self>, Attempt<io::Error>> {
+        Self::capture(state, view, generation, true)
+    }
+    /// The same original State cut without borrowing decoded World policy as SCCP authority.
+    pub(in crate::sumeragi) fn for_sccp(
+        state: &State,
+        view: &StateView<'_>,
+        generation: u64,
+    ) -> Result<Option<Self>, Attempt<io::Error>> {
+        Self::capture(state, view, generation, false)
+    }
+    fn capture(
+        state: &State,
+        view: &StateView<'_>,
+        generation: u64,
+        read_policy: bool,
+    ) -> Result<Option<Self>, Attempt<io::Error>> {
         if !crate::state::is_stable_state_view_generation(generation, state.state_view_generation())
         {
             return Err(pending("native State publication changed before history capture").into());
         }
         let kura = state.kura_handle();
         let budget = state.ivm_execution_budget();
-        if !std::ptr::eq(view.ivm, &state.ivm)
+        if !std::ptr::eq(view.ivm, &raw const state.ivm)
             || !view
                 .pipeline_ivm_prepared_cache
                 .execution_budget()
@@ -106,16 +124,19 @@ impl HistoryCapture {
         if tip.height() < 2 {
             return Ok(None);
         }
-        let policy = view
-            .world()
-            .sumeragi_npos_parameters()
-            .map_err(|error| error.map_rejection(|message| invalid(&message)))?
-            .map(|policy| {
-                (
-                    policy.evidence_horizon_blocks(),
-                    policy.slashing_delay_blocks(),
-                )
-            });
+        let policy = if read_policy {
+            view.world()
+                .sumeragi_npos_parameters()
+                .map_err(|error| error.map_rejection(|message| invalid(&message)))?
+                .map(|policy| {
+                    (
+                        policy.evidence_horizon_blocks(),
+                        policy.slashing_delay_blocks(),
+                    )
+                })
+        } else {
+            None
+        };
         if !crate::state::is_stable_state_view_generation(generation, state.state_view_generation())
         {
             return Err(pending("native State publication changed during history capture").into());
@@ -166,7 +187,7 @@ impl HistoryScan {
         incarnation: [u8; 32],
     ) -> Result<Option<Self>, Attempt<io::Error>> {
         let generation = state.state_view_generation();
-        if generation % 2 != 0 {
+        if !generation.is_multiple_of(2) {
             return Err(pending("native State publication is in progress").into());
         }
         let capture = {
@@ -1011,7 +1032,7 @@ mod capture_tests {
         );
         let mut view = state.view();
         view.pipeline_ivm_prepared_cache = other.view().pipeline_ivm_prepared_cache.clone();
-        assert!(std::ptr::eq(view.ivm, &state.ivm));
+        assert!(std::ptr::eq(view.ivm, &raw const state.ivm));
         assert!(
             !view
                 .pipeline_ivm_prepared_cache

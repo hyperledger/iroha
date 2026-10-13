@@ -195,9 +195,12 @@ fn accumulator_borrows_latest_selectable_version_and_counts_every_revision() {
     assert_eq!(accumulator.maximum, Some(20));
     assert!(std::ptr::eq(
         accumulator.latest.unwrap(),
-        &versions[1].version
+        &raw const versions[1].version
     ));
-    assert!(std::ptr::eq(accumulator.package, &release.package));
+    assert!(std::ptr::eq(
+        accumulator.package,
+        &raw const release.package
+    ));
 }
 
 #[test]

@@ -29,7 +29,7 @@ fn state() -> State {
         anchor_freshness: 16,
         max_merge_blocks: 32,
         stall_window: 256,
-        lane_params: Default::default(),
+        lane_params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         fixed: vec![SumeragiFixedLane {
             lane: LaneId::new(1),
             dataspace: DataSpaceId::UNIVERSAL,
@@ -60,7 +60,7 @@ fn state() -> State {
         lane: LaneId::new(1),
         dataspace: DataSpaceId::UNIVERSAL,
         incarnation: Hash::new(b"native ordering identity").into(),
-        params: Default::default(),
+        params: iroha_data_model::parameter::system::SumeragiParameters::default(),
         committee,
         created_at: 1,
         active_from: 3,
@@ -142,21 +142,21 @@ fn before_effects(
     replacement: bool,
     check: impl FnOnce(&mut StateBlock<'_>),
 ) {
-    let stage = |block: &mut StateBlock<'_>| {
+    let stage_update = |block: &mut StateBlock<'_>| {
         assert!(!block.start_of_block_effects_applied);
         check(block);
         Err::<(), _>("examined pristine owner")
     };
     let result = if replacement {
         state
-            .block_and_revert_with_pristine_carrier_stage(source, stage)
+            .block_and_revert_with_pristine_carrier_stage(source, stage_update)
             .map(|_| ())
     } else {
         state
             .block_with_owned_start_stages_with_carrier(
                 source.header(),
                 Some(source),
-                stage,
+                stage_update,
                 |_, ()| Ok(()),
             )
             .map(|_| ())
@@ -644,19 +644,19 @@ fn allocation_refusal_precedes_normal_and_replacement_pristine_callbacks() {
         let budget = state.ivm_execution_budget();
         let before = budget.reserved_bytes();
         budget.set_limit_bytes(before);
-        let stage = |_: &mut StateBlock<'_>| -> Result<(), &'static str> {
+        let stage_update = |_: &mut StateBlock<'_>| -> Result<(), &'static str> {
             panic!("allocation refusal cannot enter a pristine callback")
         };
         let result = if replacement {
             state
-                .block_and_revert_with_pristine_carrier_stage(&source, stage)
+                .block_and_revert_with_pristine_carrier_stage(&source, stage_update)
                 .map(|_| ())
         } else {
             state
                 .block_with_owned_start_stages_with_carrier(
                     source.header(),
                     Some(&source),
-                    stage,
+                    stage_update,
                     |_, ()| Ok(()),
                 )
                 .map(|_| ())

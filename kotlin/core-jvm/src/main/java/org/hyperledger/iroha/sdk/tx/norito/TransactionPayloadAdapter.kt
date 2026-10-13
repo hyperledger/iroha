@@ -592,9 +592,11 @@ internal class TransactionPayloadAdapter private constructor(
                 "vk_ref.backend must match attachment backend"
             }
 
+            var presentTailFields = 0
             val commitment = if (decoder.remaining() == 0) {
                 null
             } else {
+                presentTailFields = 1
                 decodeBoundedSizedField(
                     decoder,
                     OPTIONAL_HASH_ADAPTER,
@@ -605,6 +607,7 @@ internal class TransactionPayloadAdapter private constructor(
             val envelopeHash = if (decoder.remaining() == 0) {
                 null
             } else {
+                presentTailFields = 2
                 decodeBoundedSizedField(
                     decoder,
                     OPTIONAL_HASH_ADAPTER,
@@ -615,6 +618,7 @@ internal class TransactionPayloadAdapter private constructor(
             val lanePrivacy = if (decoder.remaining() == 0) {
                 null
             } else {
+                presentTailFields = 3
                 decodeBoundedSizedField(
                     decoder,
                     OPTIONAL_LANE_PRIVACY_ADAPTER,
@@ -623,6 +627,15 @@ internal class TransactionPayloadAdapter private constructor(
                 ).orElse(null)
             }
             require(decoder.remaining() == 0) { "trailing ProofAttachment fields" }
+            val canonicalTailFields = when {
+                lanePrivacy != null -> 3
+                envelopeHash != null -> 2
+                commitment != null -> 1
+                else -> 0
+            }
+            require(presentTailFields == canonicalTailFields) {
+                "non-canonical redundant ProofAttachment optional tail"
+            }
 
             return ProofAttachment(
                 backend,

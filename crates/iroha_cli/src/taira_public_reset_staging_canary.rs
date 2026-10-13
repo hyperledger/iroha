@@ -4,24 +4,33 @@
 //! is private operator custody, never a signed public deployment authorization or a release
 //! qualification. It cannot invoke installed dispatchers, units, edge routes, or SSH.
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
+use super::host::{CoreWriteIdentity, PreparedMutationLifetimeCheck, RetainedPreparedMutation};
 #[cfg(target_os = "linux")]
-use super::host::PreparedMutationOutcome;
-use super::host::{
-    CoreWriteIdentity, CoreWriteTransport, PreparedMutationLifetimeCheck, ProcessOutput,
-    RealProcessRunner, RetainedPreparedMutation,
-};
-use super::runtime_clients::{StagedRuntimeArgs, StagedRuntimeLayout, StagedRuntimeRoot};
+use super::host::{CoreWriteTransport, PreparedMutationOutcome, ProcessOutput, RealProcessRunner};
+use super::runtime_clients::StagedRuntimeArgs;
+#[cfg(target_os = "linux")]
+use super::runtime_clients::{StagedRuntimeLayout, StagedRuntimeRoot};
 use super::*;
-use iroha_data_model::{NetworkId, transaction::FeePaymentIntent};
+#[cfg(target_os = "linux")]
+use iroha_data_model::NetworkId;
+#[cfg(any(target_os = "linux", all(test, unix)))]
+use iroha_data_model::transaction::FeePaymentIntent;
+#[cfg(target_os = "linux")]
 use std::{
     ffi::OsString,
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "linux")]
 const ADMISSION_SCHEMA: &str = "iroha.taira.private-stage.canary-identity.v1";
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const PREPARED_SCHEMA: &str = "iroha.taira.private-stage.prepared-mutation.v1";
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const STATE_SCHEMA: &str = "iroha.taira.private-stage.prepared-mutation-state.v1";
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const PHASE: &str = "pre_edge";
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const KINDS: [&str; 3] = ["onboarding", "faucet", "write_canary"];
 
 /// Coordinate three exact write children on one independent private candidate.
@@ -76,6 +85,7 @@ pub(super) struct StageCanary {
     json: bool,
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct FileIdentityV1 {
@@ -89,7 +99,7 @@ struct FileIdentityV1 {
     ctime_nsec: i64,
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 impl FileIdentityV1 {
     fn from_pin(input: &PinnedInput) -> Result<Self> {
         revalidate_pinned(input, "private-stage input")?;
@@ -110,6 +120,7 @@ impl FileIdentityV1 {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct StageIdentityV1 {
@@ -143,6 +154,7 @@ struct StageIdentityV1 {
     execution_expires_at_unix_ms: u64,
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct StagePreparedV1 {
@@ -157,6 +169,7 @@ struct StagePreparedV1 {
     transaction_hash: String,
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize)]
 #[norito(deny_unknown_fields)]
 struct StageStateV1 {
@@ -174,6 +187,7 @@ struct StageStateV1 {
 }
 
 /// A held owner-only directory; legitimate child publication does not change its identity.
+#[cfg(any(target_os = "linux", all(test, unix)))]
 struct StageDirectory {
     path: PathBuf,
     file: File,
@@ -181,7 +195,7 @@ struct StageDirectory {
     inode: u64,
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 impl StageDirectory {
     fn open(path: &Path) -> Result<Self> {
         validate_owner_private_dir(path, "stage canary journal")?;
@@ -222,6 +236,7 @@ impl StageDirectory {
         host::publish_private_noreplace(&self.path, name, bytes)?;
         self.check()
     }
+    #[cfg(target_os = "linux")]
     fn clone_held(&self) -> Result<Self> {
         self.check()?;
         Ok(Self {
@@ -233,14 +248,16 @@ impl StageDirectory {
     }
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 struct StageLock(PinnedInput);
+#[cfg(any(target_os = "linux", all(test, unix)))]
 impl Drop for StageLock {
     fn drop(&mut self) {
         let _ = self.0.file.unlock();
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 impl StageLock {
     fn open(directory: &StageDirectory) -> Result<Self> {
         directory.check()?;
@@ -277,6 +294,7 @@ impl StageLock {
     }
 }
 
+#[cfg(target_os = "linux")]
 struct NativeStageTransport {
     layout: StagedRuntimeLayout,
     root: StagedRuntimeRoot,
@@ -291,16 +309,19 @@ struct NativeStageTransport {
     runner: RealProcessRunner,
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn json_line<T: JsonSerialize>(value: &T) -> Result<Vec<u8>> {
     let mut bytes = json::to_vec(value)?;
     bytes.push(b'\n');
     Ok(bytes)
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn stage_key(identity: &CoreWriteIdentity, kind: &str) -> String {
     host::child_mutation_idempotency_key(&identity.authorization_nonce, PHASE, kind)
 }
 
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn validate_child(identity: &CoreWriteIdentity, kind: &str, phase: &str, key: &str) -> Result<()> {
     if !KINDS.contains(&kind) || phase != PHASE || key != stage_key(identity, kind) {
         return Err(eyre!(
@@ -310,7 +331,7 @@ fn validate_child(identity: &CoreWriteIdentity, kind: &str, phase: &str, key: &s
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_stage_prepared(
     directory: &StageDirectory,
     identity: &CoreWriteIdentity,
@@ -370,7 +391,7 @@ fn read_stage_prepared(
     )))
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn read_stage_state(
     directory: &StageDirectory,
     identity: &CoreWriteIdentity,
@@ -450,7 +471,7 @@ fn read_stage_state(
     Ok("prepared")
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn publish_stage_state(
     directory: &StageDirectory,
     identity: &CoreWriteIdentity,
@@ -516,7 +537,7 @@ fn publish_stage_state(
     )
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl NativeStageTransport {
     fn check(&self) -> Result<()> {
         self.root.check()?;
@@ -574,7 +595,7 @@ impl NativeStageTransport {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl CoreWriteTransport for NativeStageTransport {
     fn core_write_identity(&self, phase: &str) -> Result<CoreWriteIdentity> {
         if phase != PHASE {
@@ -765,13 +786,14 @@ impl CoreWriteTransport for NativeStageTransport {
     }
 }
 
+#[cfg(target_os = "linux")]
 struct StageProgress {
     directory: StageDirectory,
     identity: CoreWriteIdentity,
     index: usize,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl executor_model::RecoveryProgress for StageProgress {
     fn mark_submitted(&mut self, index: usize) -> Result<()> {
         if index != self.index {
@@ -799,7 +821,7 @@ impl executor_model::RecoveryProgress for StageProgress {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn pin_candidate_executable(layout: &StagedRuntimeLayout) -> Result<PinnedInput> {
     let path = std::env::current_exe().wrap_err("locate current native candidate CLI")?;
     layout.validate_path(&path, "native candidate executable")?;
@@ -817,7 +839,7 @@ fn pin_candidate_executable(layout: &StagedRuntimeLayout) -> Result<PinnedInput>
     })
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn validate_native_client_shape(input: &PinnedInput) -> Result<()> {
     let bytes = zeroize::Zeroizing::new(read_pinned_bytes(
         &input.path,

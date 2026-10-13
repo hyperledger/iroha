@@ -270,6 +270,9 @@ pub struct CertifiedTestChain {
     /// Height, core block hash and `R` of the tip.
     tip: (u64, Hash32, Hash32),
     clock: KeyPair,
+    execution_clock: iroha_primitives::time::MockTimeHandle,
+    #[cfg(test)]
+    execution_time_source: TimeSource,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
 }
 
@@ -554,14 +557,13 @@ impl CertifiedTestChain {
             )
             .expect("fixture committee admits");
         let shared: SharedCrypto = crypto.clone();
-        let instance =
-            root_instance(&genesis, &chain_id.to_string()).map_err(|error| match error {
-                crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
-                crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
-                    error: TestChainError::Deferred(reason),
-                    state: Arc::clone(&state),
-                },
-            })?;
+        let instance = root_instance(&genesis, chain_id.as_ref()).map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => invalid(error),
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => StartFailure {
+                error: TestChainError::Deferred(reason),
+                state: Arc::clone(&state),
+            },
+        })?;
         let availability: Arc<dyn AvailabilitySchedule> = Arc::new(
             super::runtime_availability::NativeGlobalAvailability::new(
                 Arc::clone(&state),
@@ -581,7 +583,10 @@ impl CertifiedTestChain {
             Arc::clone(&availability),
         );
         let (events, event_receiver) = tokio::sync::broadcast::channel(4096);
+        let (execution_clock, execution_time_source) =
+            TimeSource::new_mock(genesis.header().creation_time());
         let executor = StateExecutor::spawn(ExecutorContext {
+            time_source: execution_time_source.clone(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(
@@ -626,6 +631,9 @@ impl CertifiedTestChain {
             instance,
             tip: (GENESIS_HEIGHT, tip.block_hash, tip.result),
             clock,
+            execution_clock,
+            #[cfg(test)]
+            execution_time_source,
             lane_blocks,
         })
     }
@@ -850,7 +858,7 @@ impl CertifiedTestChain {
             aggregate.accept_partial(partial).unwrap();
         }
         let pulse = aggregate.finalize().unwrap();
-        let control = super::epoch_beacon::control::encode(Some(pulse)).unwrap();
+        let control = super::epoch_beacon::control::encode(Some(pulse).as_ref()).unwrap();
         chain.commit_with_control(None, Vec::new(), Signers::Quorum, control);
         assert_eq!(chain.height(), 9);
         chain
@@ -950,7 +958,12 @@ impl CertifiedTestChain {
         transactions: Vec<SignedTransaction>,
         signers: Signers,
     ) -> Vec<bool> {
-        self.commit_with_control(time_ms, transactions, signers, Default::default())
+        self.commit_with_control(
+            time_ms,
+            transactions,
+            signers,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute and certify a block with its separately authenticated control witness.
@@ -1051,7 +1064,7 @@ impl CertifiedTestChain {
         let accepted = transactions
             .into_iter()
             .map(|tx| {
-                let accepted = AcceptedTransaction::accept_with_time_source(
+                AcceptedTransaction::accept_with_time_source(
                     tx,
                     &self.network_id(),
                     Duration::from_secs(1),
@@ -1059,8 +1072,7 @@ impl CertifiedTestChain {
                     &iroha_config::parameters::actual::Crypto::default(),
                     &time_source,
                 )
-                .expect("the fixture transaction is accepted");
-                accepted
+                .expect("the fixture transaction is accepted")
             })
             .collect::<Vec<_>>();
         let assembly = Assembly {
@@ -1146,7 +1158,11 @@ impl CertifiedTestChain {
         entrypoints: Vec<iroha_data_model::transaction::TransactionEntrypoint>,
     ) -> CommittedBlock {
         let proposal = self.proposal_entrypoints(entrypoints);
-        self.commit_proposal(proposal, Signers::Quorum, Default::default())
+        self.commit_proposal(
+            proposal,
+            Signers::Quorum,
+            iroha_sumeragi::types::ControlWitness::default(),
+        )
     }
 
     /// Execute, certify, publish and apply one original resultless proposal through the same
@@ -1170,6 +1186,18 @@ impl CertifiedTestChain {
             .expect("original execution publishes")
     }
 
+    /// The deterministic fixture wall clock shared by its ordinary execution workers.
+    /// Explicit clock-regression tests inject their own independent source instead.
+    #[cfg(test)]
+    pub(crate) fn execution_time_source(&self) -> TimeSource {
+        self.execution_time_source.clone()
+    }
+
+    /// Set the fixture clock to a genuinely constructed proposal's canonical timestamp.
+    pub(crate) fn set_execution_time(&self, time: Duration) {
+        self.execution_clock.set(time);
+    }
+
     /// Retain one actual Worker execution before certification or publication.
     /// The returned owner exclusively borrows the chain until it is published or discarded.
     ///
@@ -1180,6 +1208,7 @@ impl CertifiedTestChain {
         proposal: SignedBlock,
         control_witness: iroha_sumeragi::types::ControlWitness,
     ) -> Result<PendingTestExecution<'_>, String> {
+        self.set_execution_time(proposal.header().creation_time());
         let height = self.tip.0 + 1;
         assert_eq!(
             proposal.header().height().get(),
@@ -1216,7 +1245,7 @@ impl CertifiedTestChain {
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);
         let mut diagnostic_events = self.events.resubscribe();
-        let result = match self.executor.execute(&block, &block_hash) {
+        let result = match self.executor.execute(&block, &block_hash, false) {
             Ok(Some(ExecOutcome::Valid(result))) => result,
             other => {
                 use iroha_data_model::events::{
@@ -1244,6 +1273,7 @@ impl CertifiedTestChain {
             block_hash,
             result,
             certificate: None,
+            appended: false,
             published: None,
         })
     }
@@ -1421,6 +1451,7 @@ pub struct PendingTestExecution<'chain> {
     block_hash: Hash32,
     result: Hash32,
     certificate: Option<(Signers, Qc)>,
+    appended: bool,
     published: Option<CommittedBlock>,
 }
 
@@ -1450,14 +1481,11 @@ impl PendingTestExecution<'_> {
             return Err("published source cannot prepare another inspection".into());
         }
         self.prepare(signers)?;
+        self.append_prepared().map_err(|error| error.to_string())?;
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("original certificate retained");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .prepare_publication_for_inspection(&self.block, qc)
@@ -1540,6 +1568,69 @@ impl PendingTestExecution<'_> {
         }
     }
 
+    /// Retain the actual prepared source handles for an append scheduler control.
+    #[cfg(test)]
+    pub(crate) fn prepared_commit_for_test(&self) -> super::driver::exec::Commit {
+        super::driver::exec::Commit {
+            block: self.block.clone(),
+            qc: self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+                .clone(),
+        }
+    }
+
+    /// Drive the real executor-thread append boundary for this exact original source.
+    #[cfg(test)]
+    pub(crate) fn run_original_append_for_test(
+        &mut self,
+        commit: Arc<super::driver::exec::Commit>,
+    ) -> super::driver::exec::ExecDone {
+        assert_eq!(commit.block, self.block);
+        assert_eq!(
+            &commit.qc,
+            &self
+                .certificate
+                .as_ref()
+                .expect("original prepared certificate")
+                .1
+        );
+        let done = super::driver::run_original_append_for_test(
+            &mut self.chain.executor,
+            &self.chain.blocks,
+            commit,
+        );
+        if matches!(
+            done,
+            super::driver::exec::ExecDone::Appended { durable: true, .. }
+        ) {
+            self.appended = true;
+        }
+        done
+    }
+
+    /// Durably append the exact prepared frame through the real Kura block store.
+    /// This separate fixture phase follows the driver's append-before-commit ordering;
+    /// retries after durability publish the retained overlay without another authority read.
+    ///
+    /// # Errors
+    /// The original certificate is not prepared, or its actual storage attempt refuses.
+    pub fn append_prepared(
+        &mut self,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        let (_, qc) = self.certificate.as_ref().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "original certificate is not prepared",
+            )
+        })?;
+        self.chain.blocks.append(&self.block, qc)?;
+        self.appended = true;
+        Ok(())
+    }
+
     /// Persist and publish this exact original execution. Repeated completion returns the
     /// original committed block without repeating State changes or event delivery.
     ///
@@ -1557,14 +1648,13 @@ impl PendingTestExecution<'_> {
             return Ok(published.clone());
         }
         self.prepare(signers)?;
+        if !self.appended {
+            self.append_prepared().map_err(|error| error.to_string())?;
+        }
         let (_, qc) = self
             .certificate
             .as_ref()
             .expect("prepared original certificate");
-        self.chain
-            .blocks
-            .append(&self.block, qc)
-            .map_err(|error| error.to_string())?;
         self.chain
             .executor
             .commit(&self.block, qc)
@@ -2201,7 +2291,9 @@ mod tests {
         );
         let original = chain.committed(9);
         let proposal = chain.proposal(None, Vec::new());
-        let error = match chain.begin_proposal(proposal, Default::default()) {
+        let error = match chain
+            .begin_proposal(proposal, iroha_sumeragi::types::ControlWitness::default())
+        {
             Ok(_) => panic!("absent currency cannot authorize the native boundary"),
             Err(error) => error,
         };
@@ -2272,7 +2364,7 @@ mod tests {
                 peer_id: peer.clone(),
                 stake_account: validator.clone(),
                 initial_stake: amount.clone(),
-                metadata: Default::default(),
+                metadata: iroha_model_base::metadata::Metadata::default(),
                 monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
                     source_asset.clone(),
                     escrow_asset.clone(),
@@ -2722,10 +2814,11 @@ mod tests {
                 Some(20_000),
                 Vec::new(),
                 Signers::Quorum,
-                Default::default(),
+                iroha_sumeragi::types::ControlWitness::default(),
                 |proposal| {
                     let mut context = proposal.execution_context().cloned().unwrap_or_default();
-                    context.lane_merge = Some(Default::default());
+                    context.lane_merge =
+                        Some(iroha_data_model::sumeragi_lanes::SumeragiLaneMergeSection::default());
                     proposal.set_execution_context(Some(context));
                 },
             );

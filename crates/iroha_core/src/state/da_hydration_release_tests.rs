@@ -211,8 +211,7 @@ fn failed_rewind_releases_its_status_and_state_fences_before_retry() {
     let wait = state
         .da_indexes_hydrated
         .try_write_or_wait()
-        .err()
-        .expect("held original marker");
+        .expect_err("held original marker");
     let original_release = held.release_deferred();
     let waker = Waker::from(Arc::clone(&probe));
     let mut context = Context::from_waker(&waker);

@@ -509,7 +509,7 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
         original: Mutex<Option<([u8; 32], Vec<u8>)>>,
     }
     impl StreamTokenSignerClientV1 for Hardware {
-        fn handle(&self) -> &str {
+        fn handle(&self) -> &'static str {
             "hsm://sorafs/stream-token/primary-a"
         }
         fn sign(
@@ -557,7 +557,7 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
             Err(StreamTokenSignerCallErrorV1::Unavailable)
         }
 
-        fn handle(&self) -> &str {
+        fn handle(&self) -> &'static str {
             "state://sorafs/stream-token/observer-primary"
         }
         fn observe(
@@ -597,11 +597,11 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
     let backends = RuntimeProviderBrokerBackendsV1::new()
         .with_stream_token_signer_client(signer_backend.clone())
         .with_stream_token_state_observer(observer.clone());
-    let observed = make_server_observation(network_id(), &binding, &backends).unwrap();
+    let initial_observation = make_server_observation(network_id(), &binding, &backends).unwrap();
     let state = singleton_state(
         "stream-token-mutation-test-chain",
         binding.clone(),
-        observed.clone(),
+        initial_observation.clone(),
         backends,
     );
     let mut returned = Vec::new();
@@ -613,7 +613,7 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
             TEST_SESSION_ID,
             id,
             binding.clone(),
-            observed.metadata_digest,
+            initial_observation.metadata_digest,
             operation,
             signing_payload(),
         )
@@ -636,7 +636,7 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
         TEST_SESSION_ID,
         3,
         binding.clone(),
-        observed.metadata_digest,
+        initial_observation.metadata_digest,
         OPERATION_STREAM_TOKEN_OBSERVE_V1,
         payload.clone(),
     )
@@ -652,7 +652,7 @@ fn stream_token_server_dispatch_routes_sign_recovery_and_observer_to_separate_ba
         TEST_SESSION_ID,
         4,
         binding.clone(),
-        observed.metadata_digest,
+        initial_observation.metadata_digest,
         OPERATION_QUALIFY_V1,
         encode_canonical(&(), MAX_STREAM_TOKEN_METADATA_BYTES_V1).unwrap(),
     )
@@ -772,8 +772,11 @@ fn stream_token_decoded_receipt_signatures_are_scrubbed_on_success_and_every_rej
         assert_eq!(observed.signature_bytes, 4 * 64);
         assert!(observed.receipt_signatures_zero);
         assert!(observed.role_signature_zero);
-        assert!(observed.parsed_signature_zero);
-        assert_eq!(observed.had_parsed_signature, fault == 0 || fault == 3);
+        assert!(observed.parsed_signature_zero.is_none_or(|zero| zero));
+        assert_eq!(
+            observed.parsed_signature_zero.is_some(),
+            fault == 0 || fault == 3
+        );
     }
 }
 
@@ -807,7 +810,7 @@ fn observer_evidence_codec_refusal_remains_local_after_exact_prefix() {
     // The reply path first decodes the original request and the broker envelope.
     // Measure that exact prefix, so the next actual refusal occurs at the newly
     // typed manifest observation decoder, not the separately owned broker codec.
-    let (_, prefix) = with_decode_limits_measured(limits(usize::MAX), || {
+    let ((), prefix) = with_decode_limits_measured(limits(usize::MAX), || {
         decode_stream_token_observer_request(&binding, &payload).unwrap();
         decode_canonical_with_policy::<StreamTokenObserverReplyWireV1>(
             &encoded,

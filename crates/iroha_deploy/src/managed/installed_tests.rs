@@ -71,6 +71,12 @@ fn require_anonymous_rejection(endpoint: &str, path: &str) {
 #[test]
 #[ignore = "diagnoses installed-binary startup costs without starting validators; run after timing acceptance"]
 fn installed_private_root_startup_cost_diagnostic() {
+    fn measured<T>(label: &str, operation: impl FnOnce() -> Result<T>) -> T {
+        let started = Instant::now();
+        let result = operation().unwrap();
+        eprintln!("startup cost diagnostic: {label}: {:?}", started.elapsed());
+        result
+    }
     let _resources = super::super::native_test_guard();
     let runtime_directory = PathBuf::from(
         std::env::var_os("IROHA_TEST_RUNTIME_DIRECTORY")
@@ -89,13 +95,6 @@ fn installed_private_root_startup_cost_diagnostic() {
         .unwrap();
     let _operation = store::acquire(&directory, "operation.lock", &request.name).unwrap();
     let ports = LocalnetPorts::reserve().unwrap();
-
-    fn measured<T>(label: &str, operation: impl FnOnce() -> Result<T>) -> T {
-        let started = Instant::now();
-        let result = operation().unwrap();
-        eprintln!("startup cost diagnostic: {label}: {:?}", started.elapsed());
-        result
-    }
 
     let launcher = measured("foreground launcher pin", || {
         store::pin_binary(&request.launcher)
@@ -146,19 +145,21 @@ fn installed_private_root_lifecycle_and_listener_isolation() {
             .expect("set IROHA_TEST_RUNTIME_DIRECTORY to the matching installed binaries"),
     );
     let runtime = InstalledRuntime::from_directory(&runtime_directory).unwrap();
-    let root = match std::env::var_os("IROHA_TEST_PRIVATE_STORE") {
-        Some(path) => {
+    let root = std::env::var_os("IROHA_TEST_PRIVATE_STORE").map_or_else(
+        || {
+            tempfile::Builder::new()
+                .prefix("iroha-private-native-smoke-")
+                .tempdir()
+                .unwrap()
+                .keep()
+                .join("managed")
+        },
+        |path| {
             let path = PathBuf::from(path);
             assert!(path.is_absolute() && !path.exists());
             path
-        }
-        None => tempfile::Builder::new()
-            .prefix("iroha-private-native-smoke-")
-            .tempdir()
-            .unwrap()
-            .keep()
-            .join("managed"),
-    };
+        },
+    );
     let store = ManagedStore::open(&root).unwrap();
     eprintln!("PRIVATE_SMOKE_STORE={}", store.root().display());
     let request = runtime.private_root_request("private", Duration::from_secs(30));

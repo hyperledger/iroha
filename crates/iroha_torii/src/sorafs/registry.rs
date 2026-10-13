@@ -1,4 +1,3 @@
-#![cfg(feature = "app_api")]
 //! Capacity registry helpers exposed via Torii.
 use crate::sorafs::capability_name;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STD};
@@ -899,16 +898,18 @@ pub(crate) fn optional_rfc3339(unix: Option<u64>) -> Option<String> {
     unix.and_then(unix_to_rfc3339_string)
 }
 fn lineage_rfc3339_to_json(unix: Option<u64>) -> Result<Value, json::Error> {
-    match unix {
-        None => Ok(Value::Null),
-        Some(unix) => unix_to_rfc3339_string(unix)
-            .map(Value::String)
-            .ok_or_else(|| {
-                json::Error::Message(format!(
-                    "lineage timestamp {unix} is outside the canonical RFC 3339 range"
-                ))
-            }),
-    }
+    unix.map_or_else(
+        || Ok(Value::Null),
+        |unix| {
+            unix_to_rfc3339_string(unix)
+                .map(Value::String)
+                .ok_or_else(|| {
+                    json::Error::Message(format!(
+                        "lineage timestamp {unix} is outside the canonical RFC 3339 range"
+                    ))
+                })
+        },
+    )
 }
 fn metadata_timestamp_hint(metadata: &Metadata, key: &str) -> Option<u64> {
     let name = Name::from_str(key).ok()?;
@@ -1281,10 +1282,11 @@ fn collect_manifest_lineages(
                 depth: 0,
                 approved_successor: None,
                 immediate_successor: None,
-                anomalies: manifest
-                    .is_none()
-                    .then(|| vec!["ManifestMissing".to_owned()])
-                    .unwrap_or_default(),
+                anomalies: if manifest.is_none() {
+                    vec!["ManifestMissing".to_owned()]
+                } else {
+                    Vec::new()
+                },
                 visited,
                 finished: manifest.is_none(),
             }
@@ -1324,10 +1326,9 @@ fn collect_manifest_lineages(
             for index in indices {
                 let selection = &mut selections[*index];
                 selection.count = selection.count.saturating_add(1);
-                let replace = match selection.best.as_ref() {
-                    None => true,
-                    Some(current) => lineage_candidate_is_better(&candidate, current),
-                };
+                let replace = selection.best.as_ref().map_or(true, |current| {
+                    lineage_candidate_is_better(&candidate, current)
+                });
                 if replace {
                     selection.best = Some(candidate.clone());
                 }

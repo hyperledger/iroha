@@ -94,7 +94,7 @@ fn original_with_capsule_corruption(corrupt_capsule: bool) -> Original {
             PreparedLocalGlobalThresholdBeaconDkgSeatV1::new(
                 session,
                 &roster,
-                (i + 1) as u16,
+                u16::try_from(i + 1).expect("fixture value fits u16"),
                 key,
                 &budget,
             )
@@ -625,7 +625,7 @@ fn original_delivery_refusal_keeps_public_prefix_source_chain_and_same_private_b
         &budget,
     )
     .unwrap();
-    let actual_source = (&original.public[1]).as_ptr();
+    let actual_source = original.public[1].as_ptr();
     let actual_hash = Hash::new(&original.public[1]);
     let narrow = norito::DecodeLimits::new(1, 1, 1, 1, 1);
     assert!(bank.decode(&original.public[1], narrow).is_err());

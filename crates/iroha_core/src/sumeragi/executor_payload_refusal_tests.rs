@@ -41,7 +41,7 @@ fn original_available_payload_global_archive_cap_is_invalid_inside_wider_scope()
                     "a globally impossible declared archive must never borrow an unrelated outer budget"
                 );
                 assert!(matches!(
-                    worker.execute(&block, hash),
+                    worker.execute(&block, hash, false),
                     Ok(Some(ExecOutcome::Invalid))
                 ));
             },
@@ -62,7 +62,7 @@ fn original_available_payload_global_archive_cap_is_invalid_inside_wider_scope()
         assert_eq!(std::ptr::from_ref(block.source()), source);
         assert_eq!(block.payload().as_slice().as_ptr(), bytes);
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Ok(Some(ExecOutcome::Invalid))
         ));
         assert_eq!(worker.results.len(), 1);
@@ -85,8 +85,9 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
                 error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit,
                 "genuine original decoder refusal: {error:?}"
             );
-            let failure = norito::with_decode_limits_scope(limits, || worker.execute(&block, hash))
-                .unwrap_err();
+            let failure =
+                norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false))
+                    .unwrap_err();
             let PublicationError::Deferred(ref original) = failure else {
                 panic!("lost original decoder owner: {failure:?}");
             };
@@ -111,7 +112,7 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
             assert_eq!(block.payload().as_slice().as_ptr(), bytes);
         }
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Ok(Some(ExecOutcome::Valid(_)))
         ));
 

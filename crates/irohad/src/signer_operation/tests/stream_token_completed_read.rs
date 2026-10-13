@@ -17,11 +17,11 @@ fn completed_stream_check_survives_signer_drop_and_never_calls_provider_or_mutat
 
     let before = harness.source.counts();
     let calls = harness.calls();
-    let checked = checker
+    let validated_receipt = checker
         .check(&payload(&body))
         .expect("exact completed receipt");
     let after = harness.source.counts();
-    assert_eq!(checked.bytes(), receipt.bytes());
+    assert_eq!(validated_receipt.bytes(), receipt.bytes());
     assert_eq!(harness.calls(), calls);
     assert_eq!(
         (after.signing, after.reserves, after.commits),

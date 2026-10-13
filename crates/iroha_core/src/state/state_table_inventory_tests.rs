@@ -1518,6 +1518,7 @@ const CONSTRUCTIONS: &[&str] = &[
     "smt::",
     "ConfidentialTree",
     "HistoryAccumulator",
+    "anchor_node",
 ];
 
 /// File-name endings of path literals, which are not domain literals.
@@ -1563,6 +1564,32 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             ),
         ],
     },
+    // Canonical model hashing, original Core publication and borrowed anchor lookup share
+    // one accumulator. Its primitive domains and construction are both inside the scan.
+    ApplicationAccumulator {
+        id: "sccp_anchor_accumulator",
+        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
+        statement: "membership of one nonzero height's original consensus core hash and certified result in a retained complete 4096-anchor chunk, checked against its State-committed chunk root; neither a supplied witness nor the accumulator authenticates arbitrary State entries",
+        domains: &[r"sccp/anchor-leaf/v1", r"sccp/anchor-node/v1"],
+        evidence: &[
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+                "fn prepare_anchor<'a>(",
+            ),
+            (
+                "crates/iroha_data_model/src/sccp/generation.rs",
+                "pub fn anchor_chunk_root_v1(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/anchors.rs",
+                "pub fn lookup_anchor(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+                ".try_insert_admitted(chunk, root)",
+            ),
+        ],
+    },
     ApplicationAccumulator {
         id: "sccp_message_accumulator",
         fields: &[
@@ -1571,28 +1598,12 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             "world.sccp_history",
             "world.sccp_history_leaves",
         ],
-        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator",
+        statement: "inclusion of an SCCP message leaf in its block root and of that block root in the history accumulator; these roots are the native finality X fields, with certified-result production and reader binding required separately",
         domains: &[],
         evidence: &[(
             "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
             "//! Block commitment and history accumulator (`specs/sccp.md` §3.4, §3.5, §4.5 step 1).",
         )],
-    },
-    ApplicationAccumulator {
-        id: "sccp_consensus_anchor_chunks",
-        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
-        statement: "membership of one actual native core hash and certified result at its nonzero height in a retained complete 4096-anchor chunk; this application statement does not authenticate arbitrary State reads",
-        domains: &[r"sccp/anchor-leaf/v1", r"sccp/anchor-node/v1"],
-        evidence: &[
-            (
-                "crates/iroha_data_model/src/sccp/generation.rs",
-                "pub fn anchor_chunk_root_v1(",
-            ),
-            (
-                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
-                ".try_insert_admitted(chunk, root)",
-            ),
-        ],
     },
     ApplicationAccumulator {
         id: "kaigi_roster_root",
@@ -1958,6 +1969,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Roots(&["parliament_casting_snapshot_root"]),
     },
     ConstructionUse {
+        path: "crates/iroha_data_model/src/sccp/generation.rs",
+        uses: &[("anchor_node", 4)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
+    },
+    ConstructionUse {
         path: "crates/iroha_data_model/src/sumeragi_finality.rs",
         uses: &[("WORLD_STATE_ACCUMULATOR_LANES", 1)],
         owner: UseOwner::Roots(&["world_state_root"]),
@@ -1982,7 +1998,10 @@ fn rust_sources(scope: &[&str]) -> Vec<String> {
     fn walk(root: &Path, relative: &str, out: &mut Vec<String>) {
         let path = root.join(relative);
         if path.is_file() {
-            if relative.ends_with(".rs") {
+            if std::path::Path::new(relative)
+                .extension()
+                .is_some_and(|extension| extension == "rs")
+            {
                 out.push(relative.to_owned());
             }
             return;
@@ -3622,19 +3641,29 @@ fn witness_key_tags() -> Vec<String> {
 fn sccp_write_set_fields() -> Vec<String> {
     let text = source("crates/iroha_core/src/state.rs");
     let (_, body) = text
-        .split_once("pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {")
+        .split_once("pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(")
         .expect("State has the SCCP write-set encoder");
     let (body, _) = body
-        .split_once("\n        out\n    }")
-        .expect("the SCCP write-set encoder returns its bytes");
-    // The field names are the `sccp_*` identifiers of the two macro invocations, however
-    // rustfmt lays their arguments out.
-    let fields: Vec<String> = body
-        .split(|character: char| {
-            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
+        .split_once("\n        Ok(())\n    }")
+        .expect("the SCCP write-set encoder completes its exact stream");
+    let fields: Vec<String> = ["cell!(", "storage!("]
+        .into_iter()
+        .flat_map(|invocation| {
+            let (_, fields) = body
+                .split_once(invocation)
+                .expect("the SCCP encoder names its cell and storage fields");
+            let (fields, _) = fields
+                .split_once(");")
+                .expect("the SCCP field invocation is complete");
+            fields
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
         })
-        .filter(|name| name.starts_with("sccp_"))
-        .map(|name| format!("world.{name}"))
+        .map(|name| {
+            assert!(name.starts_with("sccp_"), "unexpected SCCP field: {name}");
+            format!("world.{name}")
+        })
         .collect();
     assert!(!fields.is_empty(), "the SCCP write set names no field");
     fields
@@ -7099,10 +7128,12 @@ fn tracked_inventory_matches_the_source() {
 #[test]
 #[ignore = "writes specs/state_table_inventory.json; run it to accept an intended change"]
 fn regenerate_state_table_inventory() {
-    assert!(
-        cfg!(feature = "telemetry"),
-        "regenerate with the node feature set: the tracked inventory lists state.telemetry"
-    );
+    const {
+        assert!(
+            cfg!(feature = "telemetry"),
+            "regenerate with the node feature set: the tracked inventory lists state.telemetry"
+        );
+    }
     let path = repository().join(INVENTORY_PATH);
     let generated = generate();
     // A canonical no-op must preserve the fixture timestamp and Cargo's input
@@ -7513,6 +7544,42 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         (1_u64, [1_u8; 32]),
         (2_u64, [1_u8; 32])
     );
+    {
+        use crate::state::sccp_forgery_custody::OffenceKey;
+        let mut block = world.block();
+        let parent = WorldStateAccumulator::capture(&block).unwrap();
+        let pool = block.sccp_forgery_offences.allocation_budget().clone();
+        let key = OffenceKey::try_copy(
+            7,
+            iroha_model_base::topology::LaneId::SINGLE,
+            &account(b"typed-offence"),
+            &pool,
+        )
+        .unwrap();
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [1; 32])
+            .unwrap();
+        let inserted = parent.apply_block(&block).unwrap();
+        assert_ne!(inserted.root(), parent.root());
+        assert_eq!(inserted.entries(), parent.entries() + 1);
+        assert_eq!(
+            inserted.root(),
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [2; 32])
+            .unwrap();
+        assert_ne!(parent.apply_block(&block).unwrap().root(), inserted.root());
+        block
+            .sccp_forgery_offences
+            .try_remove_admitted(key)
+            .unwrap();
+        assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
+        covered.push(("world.sccp_forgery_offences", Commitment::Certified));
+    }
+
     typed_table!(
         consensus_keys_by_pk,
         "typed-public-key".to_owned(),
@@ -7569,6 +7636,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
+    typed_cell!(sccp_forgery_max_generation, Some(7_u64));
     typed_cell!(sccp_committee_current, 7_u64);
     typed_cell!(sccp_liability_clock, 1_000_u64);
     typed_cell!(sccp_degraded_run, 2_u32);
@@ -7700,6 +7768,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         "world.sccp_fast_pause_rounds",
         "world.sccp_fast_pause_suspended_until_ms",
         "world.sccp_fast_pauses",
+        "world.sccp_forgery_offences",
+        "world.sccp_forgery_max_generation",
         "world.sccp_history_leaves",
         "world.sccp_liability_clock",
         "world.sccp_pause_panel",
@@ -8029,8 +8099,9 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
         "iroha.mint",
         "iroha::logger",
         // Norito Rust schema identities name layouts, not scanned hash domains.
-        "iroha_core::amx::PreparedIntentCoordinatesV1",
-        "iroha_core::amx::PreparedIntentRowV1",
+        "iroha_core::amx::AmxParentCoordinatesV1",
+        "iroha_core::amx::AmxIntentCoordinatesV1",
+        "iroha_core::amx::AmxIntentRowV1",
         "plain text v1 here",
         "retail_fee_head_tree_v1",
         "../fixtures/a/b_v1.json",
@@ -8574,9 +8645,14 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "transaction_membership_root",
         ),
         (
-            "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-            "capture_data_authority_table",
+            "crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_capture/actions.rs",
+            "capture_frozen_action_authority_table",
             "state_table_substrate",
+        ),
+        (
+            "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+            "original_begin",
+            "execution_witness_roots",
         ),
     ] {
         let listed = STATE_HASH_FUNCTIONS
@@ -8797,26 +8873,60 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
     let path = "crates/iroha_core/src/query/native_receipts/amx_read.rs";
     let text = source(path);
     let (_, code) = split_source(&text);
-    let matched: Vec<_> = fn_signatures(&code)
+    let matched = fn_signatures(&code)
         .into_iter()
         .filter(|signature| {
             signature.name == "complete" && signature.reads_state && signature.returns_hash
         })
-        .collect();
+        .count();
     assert_eq!(
-        matched.len(),
-        1,
+        matched, 1,
         "original AMX complete State-reader must remain scanned"
     );
-    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+    let listed = STATE_HASH_FUNCTIONS
         .iter()
         .filter(|listed| listed.path == path && listed.name == "complete")
-        .collect();
+        .count();
     assert_eq!(
-        listed.len(),
-        1,
+        listed, 1,
         "original AMX complete must retain its exact registry entry"
     );
+}
+
+/// Fixture-only hash collection cannot replace the production replay-alias classification.
+#[test]
+fn state_hash_scan_carrier_fixture_keeps_production_alias_and_visitor_visible() {
+    let path = "crates/iroha_core/src/tx.rs";
+    let (_, code) = split_source(&source(path));
+    let signatures = fn_signatures(&code);
+    assert!(
+        !signatures
+            .iter()
+            .any(|entry| entry.name == "canonical_carrier_membership_hashes"),
+        "the cfg(test) collection adapter is not a production State reader"
+    );
+    let visitor: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "for_each_canonical_carrier_membership_hash")
+        .collect();
+    assert_eq!(visitor.len(), 1);
+    assert!(visitor[0].reads_state && !visitor[0].returns_hash);
+    let alias: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(alias.len(), 1);
+    assert!(alias[0].reads_state && alias[0].returns_hash);
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|entry| entry.path == path && entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(listed[0].owner, UseOwner::Other(Use::Record, _)));
+    assert!(!STATE_HASH_FUNCTIONS.iter().any(|entry| {
+        entry.path == path && entry.name == "canonical_carrier_membership_hashes"
+    }));
 }
 
 /// Current execution proofs serve an existing certified identity and result.

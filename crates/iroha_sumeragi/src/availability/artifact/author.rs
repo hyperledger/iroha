@@ -164,9 +164,9 @@ impl PayloadAuthoring {
         if let Some(bytes) = self.pending.as_mut() {
             let count = shape.chunk_count();
             let digest_bytes = 4 + count * 32;
-            let signed = (bytes.as_slice().len() - digest_bytes) / SIGNATURE_LEN;
+            let signatures_written = (bytes.as_slice().len() - digest_bytes) / SIGNATURE_LEN;
             let bh = self.header.hash(crypto);
-            for position in signed..=count {
+            for position in signatures_written..=count {
                 let (kind, row) = if position == 0 {
                     (crate::api::SigningKind::PayloadManifest, None)
                 } else {

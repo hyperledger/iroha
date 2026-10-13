@@ -65,7 +65,7 @@ impl GeneratedPublicationContextV1 {
     ) -> Result<Self, ProductionPublicationConfigurationErrorV1> {
         let fail = generated_invalid;
         if bytes.is_empty()
-            || bytes.len() > MAX_CLIENT_CONFIG_BYTES as usize
+            || bytes.len() > usize::try_from(MAX_CLIENT_CONFIG_BYTES).map_err(|_| fail())?
             || !namespace.journal_root.is_absolute()
         {
             return Err(fail());
@@ -167,13 +167,13 @@ pub(super) fn validate_routes(
             .validate_base_url(&endpoint.readback)
             .map_err(|_| generated_invalid())?;
         let url = &endpoint.attestation;
-        if url.scheme() != "http" || !matches!(url.host_str(), Some("127.0.0.1") | Some("[::1]")) {
+        if url.scheme() != "http" || !matches!(url.host_str(), Some("127.0.0.1" | "[::1]")) {
             return Err(generated_invalid());
         }
     }
     Ok(())
 }
-pub(crate) fn load_bound_generated_publication_runtime_v1<V: PublicationCleanPackageValidatorV1>(
+pub fn load_bound_generated_publication_runtime_v1<V: PublicationCleanPackageValidatorV1>(
     provenance: &PlatformConfigProvenanceV1,
     context: &GeneratedPublicationContextV1,
     validator: V,

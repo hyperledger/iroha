@@ -255,9 +255,9 @@ fn apply_control(
         }
         Action::Revoke(SorafsStreamTokenCustodyRevocationV1 { signer, attester }) => {
             let previous = current.as_ref().ok_or(Error::Conflict)?;
-            active_enrollment = previous.record.active_enrollment.clone();
+            active_enrollment.clone_from(&previous.record.active_enrollment);
             let mut next = previous.state.clone();
-            if !(signer && !next.signer_revoked || attester && !next.attester_revoked) {
+            if (next.attester_revoked || !attester) && (next.signer_revoked || !signer) {
                 return Err(Error::Conflict);
             }
             next.signer_revoked |= signer;

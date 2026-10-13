@@ -64,10 +64,10 @@ impl Geometry for AccountId {
         }
     }
 }
-pub(in crate::state) fn logical<'a, K: mv::Key, V: mv::Value>(
-    rows: &'a impl RawStorageImages<K, V>,
+pub(in crate::state) fn logical<K: mv::Key, V: mv::Value>(
+    rows: &impl RawStorageImages<K, V>,
     image: GroupImage,
-) -> Vec<(&'a K, &'a V)> {
+) -> Vec<(&K, &V)> {
     if image == GroupImage::Current {
         rows.current_entries().collect()
     } else {

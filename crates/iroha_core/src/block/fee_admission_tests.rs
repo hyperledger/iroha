@@ -107,7 +107,7 @@ fn fee_enabled_single_transfer_uses_canonical_output_owner() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -229,7 +229,7 @@ fn fee_enabled_account_metadata_uses_canonical_output_owner() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -240,8 +240,7 @@ fn fee_enabled_account_metadata_uses_canonical_output_owner() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .is_none(),
         "supported non-transfer fee transaction should be accepted by its canonical owner"
     );
@@ -368,7 +367,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_missing() 
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -379,8 +378,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_missing() 
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0),
         "insufficient fee must reject the transaction"
@@ -389,8 +387,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_missing() 
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("fee rejection");
     let expected = format!(
         "fee balance `{payer_fee_asset}` for authority `{payer_id}` is insufficient: requires 1, available 0"
@@ -550,7 +547,7 @@ fn fee_enabled_single_transfer_with_active_data_trigger_retains_callback_outputs
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -561,8 +558,7 @@ fn fee_enabled_single_transfer_with_active_data_trigger_retains_callback_outputs
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .is_none(),
         "fee-enabled transfer and its callback must share the same canonical output owner"
     );
@@ -713,7 +709,7 @@ fn same_block_data_trigger_registration_is_atomic_with_rejected_transfer() {
         .sign(payer_keypair.private_key())
         .unpack(|_| {});
     let (mut state_block, state_block_recorder) =
-        crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+        crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
             .expect("original writer-first component execution");
 
     let valid = block
@@ -867,7 +863,7 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
             .sign(keypair.private_key())
             .unpack(|_| {});
         let (mut state_block, state_block_recorder) =
-            crate::block::ValidBlock::start_component_execution(&block.clone().into(), &state)
+            crate::block::ValidBlock::start_component_execution(&block.clone().into(), state)
                 .expect("original writer-first component execution");
         let valid = block
             .validate_and_record_transactions(&mut state_block, state_block_recorder)
@@ -1019,7 +1015,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_asset_miss
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -1030,8 +1026,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_asset_miss
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0),
         "missing payer fee asset must reject the transaction"
@@ -1040,8 +1035,7 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_asset_miss
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("fee rejection");
     let expected = format!(
         "fee balance `{payer_fee_asset}` for authority `{payer_id}` is insufficient: requires 1, available 0"
@@ -1165,7 +1159,7 @@ fn fee_enabled_transfer_fee_same_asset_rolls_back_business_and_settles_actual_wo
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -1176,8 +1170,7 @@ fn fee_enabled_transfer_fee_same_asset_rolls_back_business_and_settles_actual_wo
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0),
         "fee debit must reject when the payer only has enough balance for the transfer itself"
@@ -1324,7 +1317,7 @@ fn fee_enabled_shared_fee_balance_rejects_later_transfer_without_rolling_back_pr
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -1345,8 +1338,7 @@ fn fee_enabled_shared_fee_balance_rejects_later_transfer_without_rolling_back_pr
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("fee rejection");
     let expected = format!(
         "fee balance `{payer_fee_asset}` for authority `{payer_id}` is insufficient: requires 1, available 0"
@@ -1491,7 +1483,7 @@ fn fee_enabled_transfer_then_failing_instruction_rolls_back_business_effects() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -1502,8 +1494,7 @@ fn fee_enabled_transfer_then_failing_instruction_rolls_back_business_effects() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0),
         "the failing instruction after the transfer must reject the whole transaction"
@@ -1518,8 +1509,7 @@ fn fee_enabled_transfer_then_failing_instruction_rolls_back_business_effects() {
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("instruction rejection");
     assert!(
         matches!(
@@ -1698,7 +1688,7 @@ fn fee_enabled_non_increasing_sequence_rejects_before_transfer_or_fee() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -1709,8 +1699,7 @@ fn fee_enabled_non_increasing_sequence_rejects_before_transfer_or_fee() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0),
         "non-increasing tx_sequence must reject before transfer or fee application"
@@ -1720,8 +1709,7 @@ fn fee_enabled_non_increasing_sequence_rejects_before_transfer_or_fee() {
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .expect("sequence rejection");
     let expected = format!("Transaction sequence 5 for {payer_id} must exceed previous 5");
     assert!(
@@ -2203,7 +2191,7 @@ fn rejected_data_trigger_execution_still_charges_nexus_fee() {
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -2214,8 +2202,7 @@ fn rejected_data_trigger_execution_still_charges_nexus_fee() {
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .map(|(idx, _)| idx),
         Some(0)
     );
@@ -2223,8 +2210,7 @@ fn rejected_data_trigger_execution_still_charges_nexus_fee() {
         .as_ref()
         .output_results()
         .enumerate()
-        .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-        .next()
+        .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
         .map(|(_, err)| err);
     assert!(
         matches!(
@@ -2309,7 +2295,7 @@ async fn validate_and_record_transactions_allows_missing_authority_self_register
     let (mut state_block, state_block_recorder) =
         crate::block::ValidBlock::start_component_execution(
             &unverified_block.clone().into(),
-            &state,
+            state,
         )
         .expect("original writer-first component execution");
     let valid_block = unverified_block
@@ -2320,8 +2306,7 @@ async fn validate_and_record_transactions_allows_missing_authority_self_register
             .as_ref()
             .output_results()
             .enumerate()
-            .filter_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
-            .next()
+            .find_map(|(index, result)| result.as_ref().err().map(|reason| (index, reason)))
             .is_none(),
         "self-register block path should not produce transaction errors"
     );

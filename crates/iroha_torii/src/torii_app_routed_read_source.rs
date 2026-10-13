@@ -54,6 +54,10 @@ impl<T, const N: usize> norito::core::SerializePayload for ToriiBorrowedRoutedRe
 /// source-sized allocation made here is the hard-capped canonical frame. Its
 /// owned replacement is then decoded with explicit Norito limits and charged
 /// to the routed-read accumulator before it can escape this function.
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_bounded_routed_read_source_payload<T, S>(
     source: &S,
     budget: &mut ToriiRoutedReadMemoryBudget,
@@ -78,6 +82,10 @@ where
         canonical_bytes,
     })
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_bounded_routed_read_payload_response<T>(
     payload: ToriiBoundedNoritoPayload<T>,
     format: ResponseFormat,
@@ -121,6 +129,10 @@ where
         }
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_bounded_routed_read_source_response<T, S>(
     source: &S,
     format: ResponseFormat,
@@ -134,6 +146,10 @@ where
     let payload = torii_bounded_routed_read_source_payload::<T, S>(source, &mut budget)?;
     torii_bounded_routed_read_payload_response(payload, format, budget)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_local_routed_read_budget(
     app: &SharedAppState,
 ) -> Result<ToriiRoutedReadMemoryBudget, Response> {
@@ -986,9 +1002,8 @@ fn execute_torii_explorer_asset_definition_local_source_read_admitted(
             .unwrap_or(u32::MAX)
         });
     let zero_locked_quantity = iroha_primitives::numeric::Quantity::zero();
-    let mut locked_quantity = None;
-    let mut circulating_quantity = None;
-    if definition_id == &app.state.gov.voting_asset_id {
+    let (locked_quantity, circulating_quantity) = if definition_id == &app.state.gov.voting_asset_id
+    {
         let locked = world
             .assets_iter()
             .find(|entry| {
@@ -1010,9 +1025,10 @@ fn execute_torii_explorer_asset_definition_local_source_read_admitted(
                 );
             }
         };
-        locked_quantity = Some(locked);
-        circulating_quantity = Some(circulating);
-    }
+        (Some(locked), Some(circulating))
+    } else {
+        (None, None)
+    };
     let source = ToriiExplorerAssetDefinitionJsonSource {
         definition,
         owning_dataspace: match routing::asset_definition_dataspace_for_read(&world, definition_id)
@@ -1032,6 +1048,10 @@ fn execute_torii_explorer_asset_definition_local_source_read_admitted(
         .json_response(&source)
         .unwrap_or_else(|response| response)
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+)]
 fn torii_bounded_local_proof_record_payload(
     app: &SharedAppState,
     proof_id: &iroha_data_model::proof::ProofId,
@@ -1159,7 +1179,7 @@ mod service_source_depth_tests {
             }
             let expected = norito::json::to_json(&expected).unwrap();
             audit(&expected, |sink| source.write_json_to(sink));
-            assert!(std::ptr::eq(source.definition, &definition));
+            assert!(std::ptr::eq(source.definition, &raw const definition));
         }
     }
     #[test]

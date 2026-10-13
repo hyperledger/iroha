@@ -275,7 +275,7 @@ struct AttachmentDeleteTransaction {
 #[norito(tag = "kind", content = "value", rename_all = "snake_case")]
 #[norito(deny_unknown_fields)]
 enum AttachmentMutationTransaction {
-    Write(AttachmentQuotaTransaction),
+    Write(Box<AttachmentQuotaTransaction>),
     Delete(AttachmentDeleteTransaction),
 }
 #[derive(
@@ -683,7 +683,7 @@ pub(super) fn persist_bytes_atomically(
         temporary.as_file().sync_all()?;
         temporary.persist(path).map_err(|error| error.error)?;
         drop(open_attachment_regular_file(path)?);
-        return sync_directory(parent);
+        sync_directory(parent)
     }
     #[cfg(windows)]
     {
@@ -2669,6 +2669,11 @@ fn reconcile_attachment_entry_pairs_if_dirty() -> std::io::Result<()> {
 ///
 /// A failure must prevent consumers such as the prover from observing the
 /// attachment store until a later recovery attempt succeeds.
+///
+/// # Errors
+///
+/// Returns an I/O error if secure directory initialization, temporary-file
+/// recovery, pending mutation recovery, or attachment-pair reconciliation fails.
 pub fn init_persistence() -> std::io::Result<()> {
     let _store_guard = attachment_store_write_lock();
     ensure_root_dir()?;
@@ -3082,14 +3087,14 @@ fn validate_attachment_quota_transaction(
 fn persist_attachment_quota_transaction(
     transaction: &AttachmentQuotaTransaction,
 ) -> std::io::Result<()> {
-    persist_attachment_mutation_transaction(&AttachmentMutationTransaction::Write(
+    persist_attachment_mutation_transaction(&AttachmentMutationTransaction::Write(Box::new(
         transaction.clone(),
-    ))
+    )))
 }
 fn load_attachment_quota_transaction() -> std::io::Result<Option<AttachmentQuotaTransaction>> {
     match load_attachment_mutation_transaction()? {
         None => Ok(None),
-        Some(AttachmentMutationTransaction::Write(transaction)) => Ok(Some(transaction)),
+        Some(AttachmentMutationTransaction::Write(transaction)) => Ok(Some(*transaction)),
         Some(AttachmentMutationTransaction::Delete(_)) => Err(invalid_attachment_file(
             "pending attachment mutation is not a write transaction",
         )),
@@ -4426,7 +4431,7 @@ fn delete_attachment_if_expired_locked(
     id: &str,
     ttl: Duration,
 ) -> std::io::Result<bool> {
-    let Some(meta) = try_load_meta(tenant, &id)? else {
+    let Some(meta) = try_load_meta(tenant, id)? else {
         return Ok(false);
     };
     let meta_time = UNIX_EPOCH + Duration::from_millis(meta.created_ms);
@@ -4437,7 +4442,7 @@ fn delete_attachment_if_expired_locked(
     {
         return Ok(false);
     }
-    delete_attachment_files(tenant, &id)?;
+    delete_attachment_files(tenant, id)?;
     Ok(true)
 }
 async fn collect_expired_attachments_once(

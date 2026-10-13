@@ -96,6 +96,8 @@ use std::{
 #[path = "executor_execution_fee.rs"]
 mod execution_fee;
 mod fee_sponsor_multisig;
+mod settlement_replay;
+pub(crate) use settlement_replay::reject_committed_direct_payment;
 pub(crate) mod private_fees;
 /// Authenticated root scope for native and contract-generated instruction effects.
 pub(crate) mod root_scope;
@@ -267,6 +269,9 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         SingularQueryBox::FindFeeSponsorProgramById(query) => {
             NativeQueryAccess::Account(query.id().sponsor.clone())
         }
+        SingularQueryBox::FindSettlementReceiptById(query) => {
+            NativeQueryAccess::Account(query.id.owner().clone())
+        }
         // Runtime/control-plane definitions and explicitly routed subsystem state do not expose
         // the general account roster, balances, or transaction history. Alias reads still pass
         // through their separate exact-scope gate below, and protected SoraFS records pass
@@ -364,7 +369,6 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         | SingularQueryBox::FindDaPinIntentByLaneEpochSequence(_)
         | SingularQueryBox::FindFxCorridorPolicyRegistry(_)
         | SingularQueryBox::FindFxCorridorPolicyById(_)
-        | SingularQueryBox::FindSettlementReceiptById(_)
         | SingularQueryBox::FindSorafsCitizenBondBySerialCommitment(_)
         | SingularQueryBox::FindSorafsCitizenBondSnapshot(_)
         | SingularQueryBox::FindNftById(_)
@@ -901,7 +905,7 @@ fn validate_builtin_account_alias_query_permission(
                     catalog
                         .by_alias(dataspace)
                         .map(|entry| entry.id)
-                        .ok_or_else(|| deny())
+                        .ok_or_else(&deny)
                 })
                 .transpose()?;
             let domain_filter = query
@@ -1446,7 +1450,7 @@ fn metadata_string(
 fn should_charge_pipeline_gas_asset(
     skip_nexus_fee: bool,
     nexus_fees: &NexusFees,
-    gas_asset_opt: &Option<String>,
+    gas_asset_opt: Option<&str>,
 ) -> bool {
     !skip_nexus_fee && gas_asset_opt.is_some() && nexus_fees.per_gas_unit_fee.is_zero()
 }
@@ -1768,7 +1772,7 @@ fn mutates_contract_deployment_permission(instruction: &InstructionBox) -> bool 
         Some(
             PermissionOrRoleMutation::AccountPermission { permission, .. }
                 | PermissionOrRoleMutation::RolePermission { permission, .. }
-        ) if matches!(permission.name().as_ref(), "CanManageSmartContractCode" | "CanGrantSmartContractCodeManagement")
+        ) if matches!(permission.name(), "CanManageSmartContractCode" | "CanGrantSmartContractCodeManagement")
     )
 }
 fn ensure_contract_code_management_permission_lifecycle(
@@ -1777,7 +1781,7 @@ fn ensure_contract_code_management_permission_lifecycle(
     permission: &Permission,
 ) -> Result<(), ValidationFail> {
     let is_genesis = is_initial_genesis_context(state_transaction);
-    match permission.name().as_ref() {
+    match permission.name() {
         "CanGrantSmartContractCodeManagement" => {
             executor_permission::smart_contract::CanGrantSmartContractCodeManagement::try_from(
                 permission,
@@ -2567,8 +2571,7 @@ fn resolve_fee_sponsor_program(
         return Err(NexusFeeAdmissionError::sponsor(
             FeeRejectionCode::RevisionNotActive,
             format!(
-                "fee sponsor program `{program_id}` active revision is {:?}; transaction selected {signed_revision}",
-                effective_revision
+                "fee sponsor program `{program_id}` active revision is {effective_revision:?}; transaction selected {signed_revision}"
             ),
         ).into());
     }
@@ -4370,11 +4373,7 @@ fn resolve_pipeline_gas_quote_asset(
             ));
         }
         requested
-    } else if requested_is_accepted
-        && requested
-            .as_deref()
-            .is_some_and(|asset| sponsor_covers(asset))
-    {
+    } else if requested_is_accepted && requested.as_deref().is_some_and(&sponsor_covers) {
         requested.expect("accepted requested pipeline gas asset exists")
     } else {
         pipeline
@@ -4615,6 +4614,12 @@ fn evaluate_nexus_fee_admission_payload(
 /// ([`crate::smartcontracts::isi::sccp::hold::committed_time_ms`]); it is distinct from the
 /// fee observation horizon. `None` represents an empty predecessor and cannot expire a pause.
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+///
+/// Returns a rejection for invalid fee configuration, charge limits, or an
+/// ineligible or insufficiently funded payer. Returns a deferral when the
+/// original SCCP source cannot complete the fee-exemption check.
 pub fn quote_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4708,6 +4713,12 @@ fn fee_exempt_admission_quote(payload: &TransactionPayload) -> FeeAdmissionQuote
 /// Supply the original parent's SCCP time separately from the fee observation horizon, as
 /// required by [`quote_nexus_fee_admission_payload`].
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+///
+/// Returns the fee-policy, payer, or resource-deferral errors from admission
+/// evaluation. Also rejects a schedule that does not converge to canonical
+/// charge limits within the deterministic iteration bound.
 pub fn quote_nexus_fee_admission_draft(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4787,6 +4798,11 @@ pub fn quote_nexus_fee_admission_draft(
 /// This is the queue/admission wrapper around
 /// [`quote_nexus_fee_admission_payload`]; signatures do not affect fee bytes.
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
+///
+/// # Errors
+///
+/// Propagates the fee-policy, funding, charge-limit, and resource-deferral
+/// errors from [`quote_nexus_fee_admission_payload`].
 pub fn quote_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -5068,7 +5084,7 @@ fn charge_fees_for_applied_overlay(
     if should_charge_pipeline_gas_asset(
         skip_nexus_fee,
         &state_transaction.nexus.fees,
-        &gas_asset_opt,
+        gas_asset_opt.as_deref(),
     ) && let Some(gas_asset_id_str) = gas_asset_opt
     {
         Executor::charge_pipeline_gas_asset_fee(
@@ -6060,6 +6076,8 @@ impl Executor {
         fee_sponsor: Option<FeeSponsorProgramId>,
         skip_nexus_fee: bool,
     ) -> Result<(), ValidationFail> {
+        state_transaction.current_direct_sccp_forgery = false;
+        state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         if require_gas_limit && gas_limit_md.is_none() {
@@ -6420,6 +6438,13 @@ impl Executor {
                             contract_runtime_context.is_none()
                                 && entrypoint_authorization.is_none(),
                         )?;
+                    state_transaction.arm_direct_sccp_forgery(
+                        transaction,
+                        authority,
+                        &isi,
+                        index,
+                        contract_runtime_context.is_none() && entrypoint_authorization.is_none(),
+                    );
                     state_transaction.current_direct_kagemusha_load_instruction_index =
                         (contract_runtime_context.is_none() && entrypoint_authorization.is_none())
                             .then_some(index);
@@ -6437,6 +6462,8 @@ impl Executor {
                         isi,
                         contract_runtime_context,
                     );
+                    state_transaction.current_direct_sccp_forgery = false;
+                    state_transaction.clear_direct_sccp_pause();
                     state_transaction.current_direct_kagemusha_load_instruction_index = None;
                     state_transaction.current_direct_amx_instruction_index = None;
                     state_transaction.current_direct_stream_token_instruction_index = None;
@@ -6468,7 +6495,7 @@ impl Executor {
         if should_charge_pipeline_gas_asset(
             skip_nexus_fee,
             &state_transaction.nexus.fees,
-            &gas_asset_opt,
+            gas_asset_opt.as_deref(),
         ) && let Some(gas_asset_id_str) = gas_asset_opt
         {
             Self::charge_pipeline_gas_asset_fee(
@@ -6484,7 +6511,7 @@ impl Executor {
             Self::charge_nexus_fees(
                 state_transaction,
                 authority,
-                &transaction,
+                transaction,
                 fee_sponsor,
                 tx_bytes_len,
                 instruction_count,
@@ -6582,6 +6609,8 @@ impl Executor {
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
+        state_transaction.current_direct_sccp_forgery = false;
+        state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
@@ -6612,6 +6641,9 @@ impl Executor {
         trigger_context: Option<(&TriggerId, u64)>,
     ) -> Result<ContractInvocationOutcome, ValidationFail> {
         // A contract frame cannot inherit a native instruction's signed ordinal.
+        use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
+        state_transaction.current_direct_sccp_forgery = false;
+        state_transaction.clear_direct_sccp_pause();
         state_transaction.current_direct_kagemusha_load_instruction_index = None;
         state_transaction.current_direct_amx_instruction_index = None;
         state_transaction.current_direct_stream_token_gateway_instruction_index = None;
@@ -6619,7 +6651,6 @@ impl Executor {
         state_transaction.current_direct_reputation_policy_origin = None;
         state_transaction.current_direct_musubi_pin_outbox_origin = None;
         root_scope::ensure_contract_scope(state_transaction, &call.contract_address)?;
-        use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
         let ResolvedContractInvocation {
             identity,
             contract_subject,
@@ -6873,7 +6904,7 @@ impl Executor {
         if should_charge_pipeline_gas_asset(
             skip_nexus_fee,
             &state_transaction.nexus.fees,
-            &gas_asset_opt,
+            gas_asset_opt.as_deref(),
         ) && let Some(gas_asset_id_str) = gas_asset_opt
         {
             Self::charge_pipeline_gas_asset_fee(
@@ -6910,8 +6941,8 @@ impl Executor {
         state_transaction: &mut StateTransaction<'_, '_>,
         transaction: &SignedTransaction,
     ) -> Result<(), ValidationFail> {
-        let md = transaction.metadata();
         use iroha_data_model::proof::ProofAttachment;
+        let md = transaction.metadata();
         let namespace_hint = md
             .get("contract_alias")
             .and_then(|value| value.try_into_any_norito::<String>().ok())
@@ -6949,7 +6980,7 @@ impl Executor {
                 let bh = crate::zk::hash_proof(&b.proof);
                 (a.backend.as_str(), ah).cmp(&(b.backend.as_str(), bh))
             });
-            for attachment in list_sorted.into_iter() {
+            for attachment in list_sorted {
                 if let Some((field, message)) = attachment.structural_error() {
                     return Err(ValidationFail::NotPermitted(format!(
                         "malformed proof attachment: {field} {message}"
@@ -7103,6 +7134,7 @@ impl Executor {
             .map_err(crate::execution_attempt::ExecutionAttemptError::Deferred)?;
         let result =
             self.execute_transaction_body(state_transaction, authority, transaction, ivm_cache);
+        state_transaction.clear_sccp_forgery_source();
         // The self-claim marker belongs to the signed body only, never to later callbacks.
         state_transaction.sccp_exempt_self_claim = None;
         state_transaction.bind_kagemusha_load_entrypoint_v1(None);
@@ -7135,6 +7167,8 @@ impl Executor {
                 "signed authority mismatch".into(),
             ));
         }
+        reject_committed_direct_payment(state_transaction, &transaction)
+            .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         trace!("Running transaction execution");
         let privacy_intent_binding =
             crate::privacy::signed_privacy_transaction_intent_binding_v1(&transaction)?;
@@ -7677,6 +7711,7 @@ impl Executor {
         bytes: iroha_data_model::transaction::executable::IvmBytecode,
         inputs: RawIvmTransactionInputs,
     ) -> Result<(), ValidationFail> {
+        use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
         let RawIvmTransactionInputs {
             metadata: md,
             gas_limit_md,
@@ -7687,7 +7722,6 @@ impl Executor {
         } = inputs;
         // IVM path: run the bytecode through the VM with CoreHost, enqueueing ISIs,
         // then apply them via the standard executor logic.
-        use crate::smartcontracts::ivm::host::CoreHostImpl as CoreCoreHost;
         // Set gas limit per transaction (payer-provided), clamped to remaining block budget.
         // Read the signature-bound payer cap captured before moving the transaction.
         let gas_limit_md = gas_limit_md.ok_or_else(|| {
@@ -7833,7 +7867,7 @@ impl Executor {
                 if should_charge_pipeline_gas_asset(
                     skip_nexus_fee,
                     &state_transaction.nexus.fees,
-                    &gas_asset_opt,
+                    gas_asset_opt.as_deref(),
                 ) && let Some(gas_asset_id_str) = gas_asset_opt
                 {
                     Self::charge_pipeline_gas_asset_fee(
@@ -8050,7 +8084,7 @@ impl Executor {
         if should_charge_pipeline_gas_asset(
             skip_nexus_fee,
             &state_transaction.nexus.fees,
-            &gas_asset_opt,
+            gas_asset_opt.as_deref(),
         ) && let Some(gas_asset_id_str) = gas_asset_opt
         {
             Self::charge_pipeline_gas_asset_fee(
@@ -8294,6 +8328,37 @@ impl Executor {
         profile: InstructionExecutionProfile,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<(), ValidationFail> {
+        fn has_modify_nft_metadata_permission(
+            state_transaction: &mut StateTransaction<'_, '_>,
+            authority: &AccountId,
+            nft_id: &iroha_data_model::nft::NftId,
+        ) -> Result<bool, ValidationFail> {
+            let is_target_permission = |permission: &Permission| -> bool {
+                permission
+                    .payload()
+                    .try_into_any_norito::<executor_permission::nft::CanModifyNftMetadata>()
+                    .is_ok_and(|token| token.nft == *nft_id)
+            };
+            {
+                let permissions = state_transaction
+                    .world
+                    .account_permissions_iter(authority)
+                    .map_err(|err| {
+                        ValidationFail::InstructionFailed(InstructionExecutionError::Find(err))
+                    })?;
+                if permissions.into_iter().any(is_target_permission) {
+                    return Ok(true);
+                }
+            }
+            for role_id in state_transaction.world.account_roles_iter(authority) {
+                if let Some(role) = state_transaction.world.roles.get(role_id) {
+                    if role.permissions.iter().any(is_target_permission) {
+                        return Ok(true);
+                    }
+                }
+            }
+            Ok(false)
+        }
         if matches!(profile, InstructionExecutionProfile::Runtime) {
             iroha_logger::trace!(
                 instr = %instruction.id(),
@@ -8495,37 +8560,6 @@ impl Executor {
                 ));
             }
         }
-        fn has_modify_nft_metadata_permission(
-            state_transaction: &mut StateTransaction<'_, '_>,
-            authority: &AccountId,
-            nft_id: &iroha_data_model::nft::NftId,
-        ) -> Result<bool, ValidationFail> {
-            let is_target_permission = |permission: &Permission| -> bool {
-                permission
-                    .payload()
-                    .try_into_any_norito::<executor_permission::nft::CanModifyNftMetadata>()
-                    .is_ok_and(|token| token.nft == *nft_id)
-            };
-            {
-                let permissions = state_transaction
-                    .world
-                    .account_permissions_iter(authority)
-                    .map_err(|err| {
-                        ValidationFail::InstructionFailed(InstructionExecutionError::Find(err))
-                    })?;
-                if permissions.into_iter().any(is_target_permission) {
-                    return Ok(true);
-                }
-            }
-            for role_id in state_transaction.world.account_roles_iter(authority) {
-                if let Some(role) = state_transaction.world.roles.get(role_id) {
-                    if role.permissions.iter().any(is_target_permission) {
-                        return Ok(true);
-                    }
-                }
-            }
-            Ok(false)
-        }
         if let Some(nft_id) = instruction
             .as_any()
             .downcast_ref::<SetKeyValueBox>()
@@ -8659,7 +8693,7 @@ impl Executor {
             .map(|block| block.header());
         self.validate_query_with_world_parts(
             state_ro.world(),
-            latest_block,
+            latest_block.as_ref(),
             authority,
             query,
             &state_ro.execution_budget(),
@@ -8678,7 +8712,7 @@ impl Executor {
     pub(crate) fn validate_query_with_world_parts(
         &self,
         world_ro: &impl WorldReadOnly,
-        latest_block: Option<BlockHeader>,
+        latest_block: Option<&BlockHeader>,
         authority: &AccountId,
         query: &QueryRequest,
         budget: &iroha_allocation::AllocationBudget,
@@ -8690,7 +8724,7 @@ impl Executor {
             world_ro,
             authority,
             query,
-            latest_block.as_ref().map_or(0, |header| {
+            latest_block.map_or(0, |header| {
                 u64::try_from(header.creation_time().as_millis()).unwrap_or(u64::MAX)
             }),
         )?;
@@ -8707,25 +8741,14 @@ impl Executor {
         // Alias reads carry privacy and routing authority independent of the pluggable executor.
         // Enforce the exact built-in dataspace/domain grants first so neither the permissive
         // initial executor nor an incomplete user executor visitor can bypass them.
-        validate_builtin_account_alias_query_permission(
-            world_ro,
-            latest_block.as_ref(),
-            authority,
-            query,
-        )?;
-        validate_builtin_subsystem_query_permission(
-            world_ro,
-            latest_block.as_ref(),
-            authority,
-            query,
-        )?;
+        validate_builtin_account_alias_query_permission(world_ro, latest_block, authority, query)?;
+        validate_builtin_subsystem_query_permission(world_ro, latest_block, authority, query)?;
         match self {
             Self::Initial => Ok(()),
             Self::UserProvided(loaded_executor) => {
-                let curr_block = latest_block.map_or_else(
-                    || BlockHeader::new(nonzero_ext::nonzero!(1_u64), None, None, 0, 0),
-                    core::convert::identity,
-                );
+                let curr_block = latest_block.copied().unwrap_or_else(|| {
+                    BlockHeader::new(nonzero_ext::nonzero!(1_u64), None, None, 0, 0)
+                });
                 let context = ExecutorContext {
                     authority: authority.clone(),
                     curr_block,
@@ -9022,6 +9045,7 @@ fn map_migration_fail_to_vm_error(fail: ValidationFail) -> VMError {
             VMError::DecodeError
         }
         ValidationFail::IvmFault(_) => VMError::DecodeError,
+        ValidationFail::SettlementReplay(_) => VMError::PermissionDenied,
         ValidationFail::ContractRejected(rejection) => {
             debug!(
                 ?rejection,
@@ -9543,7 +9567,7 @@ fn executor_test_budget() -> iroha_allocation::AllocationBudget {
 #[debug("LoadedExecutor {{ runtime: <IVM> }}")]
 pub struct LoadedExecutor {
     runtime_pool: Arc<Mutex<ExecutorRuntimePool>>,
-    _pool_memory: Arc<ivm::cache_memory::MemoryReservation>,
+    pool_memory: Arc<ivm::cache_memory::MemoryReservation>,
     _eviction: ivm::cache_memory::CacheEvictionRegistration,
     /// Sharing immutable bytecode makes executor clones cheap.
     /// See [`crate::tx::TransactionExecutor::validate_with_runtime_executor`].
@@ -9839,6 +9863,17 @@ impl LoadedExecutor {
     pub(crate) fn load(raw_executor: data_model_executor::Executor) -> Result<Self, VMError> {
         // Restore validates the same static image as load_program, but has no State
         // resource owner yet. Mutable runtimes are funded only at live checkout.
+        struct PoolControl {
+            weak: std::sync::Weak<Mutex<ExecutorRuntimePool>>,
+            _memory: Arc<ivm::cache_memory::MemoryReservation>,
+        }
+        impl PoolControl {
+            fn clear(&self) {
+                if let Some(pool) = self.weak.upgrade() {
+                    with_executor_runtime_pool(&pool, ExecutorRuntimePool::clear_storage);
+                }
+            }
+        }
         IVM::validate_program(raw_executor.bytecode().as_ref())?;
         // Normalize caller spare Vec capacity, then charge the actual owned Vec.
         let bytecode = raw_executor.bytecode().as_ref().to_vec();
@@ -9859,17 +9894,6 @@ impl LoadedExecutor {
                 )
                 .expect("pool accounting fits"),
         ));
-        struct PoolControl {
-            weak: std::sync::Weak<Mutex<ExecutorRuntimePool>>,
-            _memory: Arc<ivm::cache_memory::MemoryReservation>,
-        }
-        impl PoolControl {
-            fn clear(&self) {
-                if let Some(pool) = self.weak.upgrade() {
-                    with_executor_runtime_pool(&pool, ExecutorRuntimePool::clear_storage);
-                }
-            }
-        }
         let control = PoolControl {
             weak: Arc::downgrade(&runtime_pool),
             _memory: Arc::clone(&pool_memory),
@@ -9877,7 +9901,7 @@ impl LoadedExecutor {
         let eviction = ivm::cache_memory::register_cache_evictor(move || control.clear());
         Ok(Self {
             runtime_pool,
-            _pool_memory: pool_memory,
+            pool_memory,
             _eviction: eviction,
             raw_executor,
         })
@@ -9942,7 +9966,7 @@ impl LoadedExecutor {
         vm.set_gas_limit(gas_limit);
         Ok(ExecutorRuntimeLease {
             pool: Arc::clone(&self.runtime_pool),
-            _pool_memory: Arc::clone(&self._pool_memory),
+            _pool_memory: Arc::clone(&self.pool_memory),
             key,
             variant_identity,
             execution_budget: budget.clone(),
@@ -10720,22 +10744,29 @@ mod tests {
         AccountId::new(checked_keypair().public_key().clone())
     }
     #[test]
-    fn native_settlement_receipt_query_requires_all_ledger_access() {
+    fn native_settlement_receipt_query_uses_exact_payer_read_access() {
+        let fixture = initial_batch_fixture();
         let query = SingularQueryBox::from(
             iroha_data_model::query::settlement::FindSettlementReceiptById::new(
-                "business_receipt".parse().expect("settlement id"),
+                iroha_data_model::isi::SettlementId::new(
+                    fixture.source.clone(),
+                    "business_receipt".parse().expect("settlement reference"),
+                ),
             ),
         );
         assert_eq!(
             native_singular_query_access(&query),
-            NativeQueryAccess::AllLedger
+            NativeQueryAccess::Account(fixture.source.clone())
         );
-        let fixture = initial_batch_fixture();
-        let authority = fixture.source.clone();
+        let payer = fixture.source.clone();
+        let authority = fixture.delegate.clone();
+        let foreign_payer = fixture.foreign_source.clone();
         let state = state_for_testing(fixture.world);
         let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
         let mut tx = block.transaction();
         let request = QueryRequest::Singular(query);
+        validate_builtin_native_query_permission(tx.world(), &payer, &request, 0)
+            .expect("payer can read its own receipt without a ledger-wide grant");
         assert!(
             validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
@@ -10746,6 +10777,28 @@ mod tests {
             }
             .into()]),
         );
+        assert!(
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
+        );
+        tx.world.account_permissions.insert(
+            authority.clone(),
+            BTreeSet::from([executor_permission::query::CanReadAccountData {
+                account: foreign_payer,
+            }
+            .into()]),
+        );
+        assert!(
+            validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
+        );
+        tx.world.account_permissions.insert(
+            authority.clone(),
+            BTreeSet::from([
+                executor_permission::query::CanReadAccountData { account: payer }.into(),
+            ]),
+        );
+        validate_builtin_native_query_permission(tx.world(), &authority, &request, 0)
+            .expect("reader has the exact payer-scoped grant");
+        tx.world.account_permissions.remove(authority.clone());
         assert!(
             validate_builtin_native_query_permission(tx.world(), &authority, &request, 0).is_err()
         );
@@ -11490,6 +11543,156 @@ mod tests {
             use std::num::NonZeroU64;
 
             const EPOCH: u64 = 16;
+            fn ceremony(
+                chain: &CertifiedTestChain,
+                keys: &[KeyPair],
+                generation: u64,
+                session_id: [u8; 32],
+                attempt_id: [u8; 32],
+                start: u64,
+            ) -> Beacon {
+                let roster = keys
+                    .iter()
+                    .map(|key| PeerId::new(key.public_key().clone()))
+                    .collect::<Vec<_>>();
+                let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
+                    GlobalThresholdBeaconDkgSessionV1 {
+                        version: 1,
+                        network_id: chain.network_id(),
+                        session_id,
+                        attempt_id,
+                        authority_generation: generation,
+                        roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                        committee_size: 4,
+                        threshold: 2,
+                        start_height: start,
+                        commitments_end_height: start + 1,
+                        deliveries_end_height: start + 2,
+                        acceptances_end_height: start + 3,
+                    },
+                    keys,
+                    &chain.state().ivm_execution_budget(),
+                );
+                assert!(session.belongs_to(&chain.state().ivm_execution_budget()));
+                Beacon { session, signers }
+            }
+            fn install(
+                chain: &mut CertifiedTestChain,
+                beacon: &Beacon,
+                keys: &[KeyPair],
+                owner: &KeyPair,
+            ) {
+                let height = chain.height() + 1;
+                let roster = keys
+                    .iter()
+                    .map(|key| PeerId::new(key.public_key().clone()))
+                    .collect::<Vec<_>>();
+                let record = FinalizedGlobalThresholdBeaconKeySessionRecordV1::new(
+                    beacon.session.record().clone(),
+                    &chain.state().ivm_execution_budget(),
+                )
+                .unwrap();
+                let mut certificate = ThresholdKeyLifecycleCertificateV1 {
+                    version: crate::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1,
+                    action: ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
+                    expected_active_session_id: chain
+                        .state()
+                        .view()
+                        .world()
+                        .active_global_beacon_key_session(),
+                    effective_height: height,
+                    network_id: chain.network_id(),
+                    roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
+                    committee_size: 4,
+                    quorum: 3,
+                    session_id: record.session.session_id,
+                    transcript_hash: record.session.transcript_hash,
+                    public_state: norito::encode_canonical(&record).unwrap(),
+                    signatures: Vec::new(),
+                };
+                let preimage =
+                    crate::state::threshold_key_lifecycle_certificate_preimage_v1(&certificate)
+                        .unwrap();
+                certificate.signatures = keys
+                    .iter()
+                    .take(3)
+                    .enumerate()
+                    .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
+                        signer_index: u16::try_from(index).expect("fixture value fits u16"),
+                        signature: iroha_crypto::Signature::try_new(key.private_key(), &preimage)
+                            .unwrap(),
+                    })
+                    .collect();
+                crate::state::verify_threshold_key_lifecycle_certificate_v1(
+                    &certificate,
+                    &chain.network_id(),
+                    height,
+                    &roster,
+                )
+                .unwrap();
+                let signed = chain.sign(
+                    owner,
+                    [ApplyThresholdKeyLifecycleCertificateV1 { certificate }.into()],
+                    height * 1_000,
+                );
+                assert_eq!(chain.commit_at(height * 1_000, vec![signed]), [true]);
+            }
+            fn advance(chain: &mut CertifiedTestChain, target: u64, beacon: &Beacon) {
+                while chain.height() < target {
+                    let height = chain.height() + 1;
+                    let current = chain
+                        .state()
+                        .view()
+                        .world()
+                        .consensus_schedule()
+                        .ready(height)
+                        .unwrap()
+                        .epoch
+                        .clone();
+                    let control = if height + 1 == current.authorization.last_height {
+                        let parent = chain.committed(chain.height());
+                        let epoch = crate::sumeragi::schedule::core_epoch(&current).unwrap().id;
+                        let mut pulse = GlobalThresholdBeaconPulseAggregatorV1::new(
+                            beacon.session.clone(),
+                            height,
+                            GlobalThresholdBeaconChainAnchorV1 {
+                                height: chain.height(),
+                                block_hash: parent.block_hash(),
+                            },
+                            GlobalThresholdBeaconPulseContextV1 {
+                                instance: chain.instance().0,
+                                epoch: epoch.epoch,
+                                epoch_context_id: epoch.context.0,
+                                parent_consensus_hash: parent.core_hash().0,
+                                parent_result: parent.result().0,
+                            },
+                        )
+                        .unwrap();
+                        for signer in beacon.signers.iter().take(2) {
+                            pulse
+                                .accept_partial(
+                                    signer
+                                        .sign_partial(pulse.session(), pulse.payload())
+                                        .unwrap(),
+                                )
+                                .unwrap();
+                        }
+                        crate::sumeragi::epoch_beacon::control::encode(
+                            Some(pulse.finalize().unwrap()).as_ref(),
+                        )
+                        .unwrap()
+                    } else {
+                        iroha_sumeragi::types::ControlWitness::empty()
+                    };
+                    chain.commit_with_control(
+                        Some(height * 1_000),
+                        Vec::new(),
+                        Signers::Quorum,
+                        control,
+                    );
+                    assert_eq!(chain.height(), height);
+                }
+            }
             let mut keys = (0x51..=0x54)
                 .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
                 .collect::<Vec<_>>();
@@ -11575,156 +11778,6 @@ mod tests {
             }
             let mut chain = CertifiedTestChain::start(config).unwrap();
 
-            fn ceremony(
-                chain: &CertifiedTestChain,
-                keys: &[KeyPair],
-                generation: u64,
-                session_id: [u8; 32],
-                attempt_id: [u8; 32],
-                start: u64,
-            ) -> Beacon {
-                let roster = keys
-                    .iter()
-                    .map(|key| PeerId::new(key.public_key().clone()))
-                    .collect::<Vec<_>>();
-                let (session, signers) = prepared_session_and_signers_fixture_for_keys_v1(
-                    GlobalThresholdBeaconDkgSessionV1 {
-                        version: 1,
-                        network_id: chain.network_id(),
-                        session_id,
-                        attempt_id,
-                        authority_generation: generation,
-                        roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
-                        committee_size: 4,
-                        threshold: 2,
-                        start_height: start,
-                        commitments_end_height: start + 1,
-                        deliveries_end_height: start + 2,
-                        acceptances_end_height: start + 3,
-                    },
-                    keys,
-                    &chain.state().ivm_execution_budget(),
-                );
-                assert!(session.belongs_to(&chain.state().ivm_execution_budget()));
-                Beacon { session, signers }
-            }
-            fn install(
-                chain: &mut CertifiedTestChain,
-                beacon: &Beacon,
-                keys: &[KeyPair],
-                owner: &KeyPair,
-            ) {
-                let height = chain.height() + 1;
-                let roster = keys
-                    .iter()
-                    .map(|key| PeerId::new(key.public_key().clone()))
-                    .collect::<Vec<_>>();
-                let record = FinalizedGlobalThresholdBeaconKeySessionRecordV1::new(
-                    beacon.session.record().clone(),
-                    &chain.state().ivm_execution_budget(),
-                )
-                .unwrap();
-                let mut certificate = ThresholdKeyLifecycleCertificateV1 {
-                    version: crate::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1,
-                    action: ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
-                    expected_active_session_id: chain
-                        .state()
-                        .view()
-                        .world()
-                        .active_global_beacon_key_session(),
-                    effective_height: height,
-                    network_id: chain.network_id(),
-                    roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&roster),
-                    committee_size: 4,
-                    quorum: 3,
-                    session_id: record.session.session_id,
-                    transcript_hash: record.session.transcript_hash,
-                    public_state: norito::encode_canonical(&record).unwrap(),
-                    signatures: Vec::new(),
-                };
-                let preimage =
-                    crate::state::threshold_key_lifecycle_certificate_preimage_v1(&certificate)
-                        .unwrap();
-                certificate.signatures = keys
-                    .iter()
-                    .take(3)
-                    .enumerate()
-                    .map(|(index, key)| ThresholdKeyLifecycleSignatureV1 {
-                        signer_index: index as u16,
-                        signature: iroha_crypto::Signature::try_new(key.private_key(), &preimage)
-                            .unwrap(),
-                    })
-                    .collect();
-                crate::state::verify_threshold_key_lifecycle_certificate_v1(
-                    &certificate,
-                    &chain.network_id(),
-                    height,
-                    &roster,
-                )
-                .unwrap();
-                let signed = chain.sign(
-                    owner,
-                    [ApplyThresholdKeyLifecycleCertificateV1 { certificate }.into()],
-                    height * 1_000,
-                );
-                assert_eq!(chain.commit_at(height * 1_000, vec![signed]), [true]);
-            }
-            fn advance(chain: &mut CertifiedTestChain, target: u64, beacon: &Beacon) {
-                while chain.height() < target {
-                    let height = chain.height() + 1;
-                    let current = chain
-                        .state()
-                        .view()
-                        .world()
-                        .consensus_schedule()
-                        .ready(height)
-                        .unwrap()
-                        .epoch
-                        .clone();
-                    let control = if height + 1 == current.authorization.last_height {
-                        let parent = chain.committed(chain.height());
-                        let epoch = crate::sumeragi::schedule::core_epoch(&current).unwrap().id;
-                        let mut pulse = GlobalThresholdBeaconPulseAggregatorV1::new(
-                            beacon.session.clone(),
-                            height,
-                            GlobalThresholdBeaconChainAnchorV1 {
-                                height: chain.height(),
-                                block_hash: parent.block_hash(),
-                            },
-                            GlobalThresholdBeaconPulseContextV1 {
-                                instance: chain.instance().0,
-                                epoch: epoch.epoch,
-                                epoch_context_id: epoch.context.0,
-                                parent_consensus_hash: parent.core_hash().0,
-                                parent_result: parent.result().0,
-                            },
-                        )
-                        .unwrap();
-                        for signer in beacon.signers.iter().take(2) {
-                            pulse
-                                .accept_partial(
-                                    signer
-                                        .sign_partial(pulse.session(), pulse.payload())
-                                        .unwrap(),
-                                )
-                                .unwrap();
-                        }
-                        crate::sumeragi::epoch_beacon::control::encode(Some(
-                            pulse.finalize().unwrap(),
-                        ))
-                        .unwrap()
-                    } else {
-                        iroha_sumeragi::types::ControlWitness::empty()
-                    };
-                    chain.commit_with_control(
-                        Some(height * 1_000),
-                        Vec::new(),
-                        Signers::Quorum,
-                        control,
-                    );
-                    assert_eq!(chain.height(), height);
-                }
-            }
             let bootstrap = ceremony(&chain, &keys, 0, [0x71; 32], [0x71; 32], 1);
             advance(&mut chain, 3, &bootstrap);
             install(&mut chain, &bootstrap, &keys, &owners[0]);
@@ -12518,8 +12571,9 @@ mod tests {
         );
         let statement_digest = statement.digest().expect("hash Jindo statement fixture");
         let envelope = PrivacyProofEnvelopeV1 {
-            wire_magic: Default::default(),
-            catalog_commitment: Default::default(),
+            wire_magic: iroha_data_model::privacy::PrivacyProofWireMagicV1::default(),
+            catalog_commitment:
+                iroha_data_model::privacy::PrivacyExact12CatalogCommitmentV1::default(),
             protocol_id: profile.protocol_id,
             proof_system_id: profile.proof_system_id,
             engine_id: profile.engine_id,
@@ -12831,6 +12885,11 @@ mod tests {
             RebindPublicLaneValidatorPeer, SchedulePublicLaneUnbond,
         };
 
+        use iroha_data_model::nexus::{
+            PublicLaneMonetaryBondV1, PublicLaneMonetaryPlanV1, PublicLaneMonetaryPreconditionV1,
+            PublicLaneMonetaryScopeV1, PublicLaneMonetaryUnbondV1, PublicLaneRewardClaimPlanV1,
+            PublicLaneUnbonding, public_lane_unbonding_commitment,
+        };
         let validator = checked_account_id();
         let staker = checked_account_id();
         let rebind_key = checked_keypair();
@@ -12845,11 +12904,6 @@ mod tests {
                 iroha_model_base::peer::PeerId::new(validator.expect_single_signatory().clone()),
             );
         let request_id = Hash::prehashed([0xA5; Hash::LENGTH]);
-        use iroha_data_model::nexus::{
-            PublicLaneMonetaryBondV1, PublicLaneMonetaryPlanV1, PublicLaneMonetaryPreconditionV1,
-            PublicLaneMonetaryScopeV1, PublicLaneMonetaryUnbondV1, PublicLaneRewardClaimPlanV1,
-            PublicLaneUnbonding, public_lane_unbonding_commitment,
-        };
         // This test checks dispatch and self-authority, while Core separately
         // authenticates these exact tenure, custody and withdrawal bindings.
         let stake_asset = AssetDefinitionId::derive_from_components(
@@ -13391,9 +13445,7 @@ mod tests {
     fn initial_executor_treats_sccp_proposer_permission_as_genesis_only() {
         let permission: Permission =
             executor_permission::sccp::CanProposeSccpRouteGovernance.into();
-        assert!(is_builtin_initial_permission_name(
-            permission.name().as_ref()
-        ));
+        assert!(is_builtin_initial_permission_name(permission.name()));
         assert!(
             initial_permission_is_genesis_only(&permission),
             "SCCP route governance proposers are granted and revoked only in genesis"
@@ -13838,7 +13890,12 @@ mod tests {
                 "CanExecuteSettlement",
                 executor_permission::settlement::CanExecuteSettlement {
                     debited_asset: root_asset,
-                    settlement_id: "grant_policy_settlement".parse().expect("settlement id"),
+                    settlement_id: iroha_data_model::isi::SettlementId::new(
+                        legitimate_root.clone(),
+                        "grant_policy_settlement"
+                            .parse()
+                            .expect("settlement reference"),
+                    ),
                     intent_hash: Hash::new(b"grant-policy-settlement"),
                 }
                 .into(),
@@ -14105,7 +14162,7 @@ mod tests {
             .execute(&authority, &mut state_transaction)
             .expect("seed empty role fixture");
         for permission in invalid_permissions {
-            let permission_name: &str = permission.name().as_ref();
+            let permission_name: &str = permission.name();
             for (path, instruction) in [
                 (
                     "account",
@@ -17383,20 +17440,20 @@ mod tests {
         assert!(should_charge_pipeline_gas_asset(
             false,
             &nexus_fees,
-            &gas_asset
+            gas_asset.as_deref()
         ));
         nexus_fees.per_gas_unit_fee = "0.001".parse().expect("valid gas fee");
         assert!(!should_charge_pipeline_gas_asset(
             false,
             &nexus_fees,
-            &gas_asset
+            gas_asset.as_deref()
         ));
         assert!(!should_charge_pipeline_gas_asset(
             true,
             &nexus_fees,
-            &gas_asset
+            gas_asset.as_deref()
         ));
-        assert!(!should_charge_pipeline_gas_asset(false, &nexus_fees, &None));
+        assert!(!should_charge_pipeline_gas_asset(false, &nexus_fees, None));
     }
     fn multi_component_fee_quote_fixture() -> (
         World,
@@ -17457,8 +17514,10 @@ mod tests {
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
         nexus.fees.fee_asset_id = nexus_asset.canonical_address();
-        let mut params = iroha_data_model::parameter::system::SumeragiNposParameters::default();
-        params.xor_asset_definition_id = nexus_asset.clone();
+        let params = iroha_data_model::parameter::system::SumeragiNposParameters {
+            xor_asset_definition_id: nexus_asset.clone(),
+            ..Default::default()
+        };
         let mut parameter_block = world.parameters.block();
         parameter_block
             .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
@@ -21913,7 +21972,8 @@ mod tests {
         program.extend_from_slice(
             &ivm::encoding::wide::encode_sys(
                 ivm::instruction::wide::system::SCALL,
-                ivm::syscalls::SYSCALL_GET_PRIVATE_INPUT as u8,
+                u8::try_from(ivm::syscalls::SYSCALL_GET_PRIVATE_INPUT)
+                    .expect("fixture value fits u8"),
             )
             .to_le_bytes(),
         );
@@ -21921,13 +21981,13 @@ mod tests {
         program
     }
     fn prepared_parameterized_trigger_contract() -> ivm::PreparedContract {
-        let source = r#"
+        let source = r"
 seiyaku TriggerArguments { permission Admin;
   kotoage fn run(quantity val) authorize(Admin) {
     let _val = val;
   }
 }
-"#;
+";
         let code = kotodama_lang::compiler::Compiler::new()
             .compile_source(source)
             .expect("compile parameterized trigger callback");
@@ -21936,8 +21996,8 @@ seiyaku TriggerArguments { permission Admin;
     }
     #[test]
     fn contract_call_enforces_entrypoint_and_hold_before_argument_decode() {
-        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         const REQUIRED_PERMISSION: &str = "CanInvokeContractEntrypoint";
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
@@ -23019,13 +23079,13 @@ seiyaku MeteredFailure { permission CanInvokeContractEntrypoint;
             },
         )
         .compile_source(
-            r#"
+            r"
 seiyaku IdentityRequired {
   view fn write(int value) authorize(anyone) -> int {
     return value;
   }
 }
-"#,
+",
         )
         .expect("compile identity-required raw contract");
         let authority = ALICE_ID.clone();
@@ -23176,11 +23236,11 @@ seiyaku IdentityRequired {
     fn reviewable_contract_metadata_binds_exact_invocation_arguments() {
         let (program, _) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
-                r#"
+                r"
 seiyaku ReviewedValue { permission CanInvokeContractEntrypoint;
   kotoage fn write(int value) authorize(CanInvokeContractEntrypoint) {}
 }
-"#,
+",
             )
             .expect("compile reviewed contract");
         let prepared = ivm::prepare_contract(Arc::<[u8]>::from(program.clone()))

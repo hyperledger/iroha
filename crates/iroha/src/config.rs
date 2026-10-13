@@ -16,6 +16,7 @@ use norito::json::{self, JsonDeserialize, JsonSerialize};
 use std::{fmt, path::Path, time::Duration};
 use url::Url;
 mod private_key_file;
+pub mod sccp;
 mod user;
 use crate::secrecy::SecretString;
 pub use user::{
@@ -591,6 +592,51 @@ mod tests {
             .with_toml_source(TomlSource::inline(config_sample()))
             .read_and_complete::<user::Root>()
             .unwrap();
+    }
+    #[test]
+    fn sccp_table_is_nested_in_the_original_client_source() {
+        let mut table = config_sample();
+        table.insert(
+            "sccp".into(),
+            toml::Value::Table(toml::toml! {
+                poll_interval_ms = 321
+                journal_dir = "journal"
+                [endpoints]
+                bsc = ["https://bsc.example"]
+            }),
+        );
+        let root = ConfigReader::new()
+            .without_env()
+            .with_toml_source(TomlSource::new("/config/client.toml".into(), table))
+            .read_and_complete::<user::Root>()
+            .unwrap();
+        assert_eq!(root.sccp.poll_interval_ms.get(), Duration::from_millis(321));
+        assert_eq!(
+            root.sccp.journal_dir.resolve_relative_path(),
+            Path::new("/config/journal")
+        );
+        assert_eq!(root.sccp.endpoints.bsc, ["https://bsc.example"]);
+        root.parse()
+            .expect("SCCP and ordinary client fields load together");
+    }
+    #[test]
+    fn sccp_client_root_rejects_unknown_and_retired_fields() {
+        for source in [
+            "attestation_timeout_ms = 1",
+            "request_timeout = 1",
+            "[endpoints]\ntron = []",
+        ] {
+            let mut table = config_sample();
+            table.insert("sccp".into(), toml::Value::Table(source.parse().unwrap()));
+            assert!(
+                ConfigReader::new()
+                    .without_env()
+                    .with_toml_source(TomlSource::inline(table))
+                    .read_and_complete::<user::Root>()
+                    .is_err(),
+                "{source}"
+            );
+        }
     }
     #[test]
     fn owner_api_token_loads_without_exposure_in_debug() {

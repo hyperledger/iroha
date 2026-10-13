@@ -1,0 +1,23 @@
+{
+  "observed_at_utc": "2026-10-13T03:49:07.191815+00:00",
+  "scope": "Adds separate malformed observation subcommand and documents it; ordinary historical campaign remains unchanged. New module and module tests were absent from the old source manifest.",
+  "production_qualified": false,
+  "files": [
+    {
+      "path": "crates/iroha_parliament_ballot_proof/examples/qualify.rs",
+      "measured_sha256": "7febbd9b65277a6411ab50fa054df862031e5b4fd20f42cd1fced6ab18060c4d",
+      "current_sha256": "94fe7a73d3d2c59c342f0b7881588d935f0c9f9ff72edc2f6be0115524ba1749"
+    },
+    {
+      "path": "crates/iroha_parliament_ballot_proof/examples/qualification/mod.rs",
+      "measured_sha256": "f8e2a2aff668a368891e14d44d6a51286afa0a0d54e64da64475cf7c2f53fc92",
+      "current_sha256": "3a599dea55abe8751866d8e61e95c65a686f0a294052784aea6ed73c5e5b3725"
+    },
+    {
+      "path": "crates/iroha_parliament_ballot_proof/examples/QUALIFICATION.md",
+      "measured_sha256": "3cf70e493f71be7b6ae642b7ee4ae982bd4db8edde2bb4bade13f81082fea426",
+      "current_sha256": "506d20d66b75826765cf1422709666913c498866c5d6adef581d8f0802116c26"
+    }
+  ],
+  "recovery": "Reverse patch only in a separate reconstruction, along with Rustdoc patch and measured lock; leave live checkout unchanged."
+}

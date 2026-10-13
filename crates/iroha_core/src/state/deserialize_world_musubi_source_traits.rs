@@ -19,7 +19,7 @@ use mv::storage::StorageReadOnly;
 /// Read-only dependencies of the existing live and universal Musubi predicates.
 /// General native World readers forward the same sources; the closed State cut
 /// below retains only this enumerated dependency set.
-pub(crate) trait MusubiSourceReadOnly {
+pub trait MusubiSourceReadOnly {
     /// Borrow original `musubi_archives` rows, never caller-supplied projections.
     fn source_musubi_archives(&self) -> &impl StorageReadOnly<ArchiveId, MusubiArchiveRecordV1>;
     /// Borrow original `musubi_archive_availability` rows, never caller-supplied projections.

@@ -10,6 +10,7 @@ impl State {
     /// discarded and retried just like successful ones. The fixed attempt bound
     /// prevents sustained block publication from turning an operator request into
     /// an unbounded sequence of full evidence scans.
+    #[cfg(test)]
     fn derive_diagnostics_at_stable_state_generation<T, E>(
         &self,
         mut derive: impl FnMut() -> core::result::Result<T, E>,
@@ -17,7 +18,7 @@ impl State {
     ) -> core::result::Result<T, E> {
         for _ in 0..DIAGNOSTIC_STABLE_STATE_GENERATION_ATTEMPTS {
             let generation_before = self.state_view_generation();
-            if generation_before % 2 != 0 {
+            if !generation_before.is_multiple_of(2) {
                 std::thread::yield_now();
                 continue;
             }

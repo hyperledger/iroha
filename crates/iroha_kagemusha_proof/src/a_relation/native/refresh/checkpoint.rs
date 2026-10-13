@@ -150,11 +150,10 @@ impl Payload {
         if bytes.len() != layout.payload_bytes {
             return Err(Error::Input);
         }
-        let payload: Self = norito::decode_canonical_with_limits(
+        let payload: Self = norito::decode_canonical_for_admission(
             bytes,
             norito::canonical_decode_limits(layout.payload_bytes),
-        )
-        .map_err(|_| Error::Input)?;
+        )?;
         payload.check(layout)?;
         Ok(payload)
     }
@@ -429,6 +428,71 @@ impl Session<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoint_read_refusal_preserves_original_and_exact_retry() {
+        // Grammar-only originals never enter a proof verifier or monetary owner.
+        for (kind, a_stages) in [
+            (CheckpointKind::A, BASIC_A_STAGE_COUNT),
+            (CheckpointKind::W, BASIC_A_STAGE_COUNT),
+            (CheckpointKind::A, QUOTA_A_STAGE_COUNT),
+            (CheckpointKind::W, QUOTA_A_STAGE_COUNT),
+        ] {
+            let layout = CheckpointLayout::new(kind, 0, a_stages, [1; 32], [2; 32], 64).unwrap();
+            let make = || Payload {
+                version: 1,
+                kind: kind.tag(),
+                stage: 0,
+                descriptor_digest: [1; 32],
+                verifying_key_digest: [2; 32],
+                source_context: [3; 32],
+                proof: vec![4; 64],
+                accumulator: [5; ACCUMULATOR_BYTES],
+            };
+            let bytes = make().encode(&layout).unwrap();
+            for limits in [
+                norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            ] {
+                let error =
+                    norito::with_decode_limits_scope(limits, || Payload::decode(&bytes, &layout))
+                        .err()
+                        .expect("actual enclosing decoder refusal");
+                let Error::DecodeResource(ref original) = error else {
+                    panic!("lost original checkpoint refusal: {error:?}")
+                };
+                assert_eq!(
+                    original.kind(),
+                    norito::core::DecodeLocalRefusalKind::EnclosingLimit
+                );
+                assert_eq!(error.clone(), error);
+                assert!(!error.is_cancelled());
+                assert!(std::error::Error::source(&error).is_some());
+                let restored = Payload::decode(&bytes, &layout).unwrap();
+                assert_eq!(restored.encode(&layout).unwrap(), bytes);
+                // Exact extent is checked before a decoder observer is entered.
+                assert!(matches!(
+                    norito::with_decode_limits_scope(limits, || {
+                        Payload::decode(&bytes[..bytes.len() - 1], &layout)
+                    }),
+                    Err(Error::Input)
+                ));
+            }
+            let mut invalid = make();
+            invalid.version = 2;
+            let invalid = norito::encode_canonical(&invalid).unwrap();
+            assert!(matches!(
+                Payload::decode(&invalid, &layout),
+                Err(Error::Input)
+            ));
+            let mut bad_header = bytes;
+            bad_header[0] ^= 1;
+            assert!(matches!(
+                Payload::decode(&bad_header, &layout),
+                Err(Error::Input)
+            ));
+        }
+    }
 
     #[test]
     fn counting_layout_preserves_every_fixed_stage_and_rejects_overflow() {

@@ -21,6 +21,13 @@ impl StateTransaction<'_, '_> {
 
 impl StateBlock<'_> {
     /// Keep the first post-execution local refusal even when the caller catches it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect additional post-execution storage admissions; retain the first original local refusal independently of deterministic receipts"
+        )
+    )]
     pub(crate) fn arm_local_storage_refusal(&mut self, error: StateStorageAdmissionError) {
         if self.local_storage_refusal.is_none() {
             self.local_storage_refusal = Some(error);

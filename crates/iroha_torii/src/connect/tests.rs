@@ -63,10 +63,12 @@ async fn websocket_writer_panic_is_contained_and_disconnects_session() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -181,10 +183,12 @@ async fn register_tokens_rejects_duplicate_sid() {
         sid,
         app_pk,
         nonce,
-        "t-app".into(),
-        "t-wallet".into(),
-        "t-management".into(),
-        "t-relay".into(),
+        crate::connect::SessionTokens {
+            app: "t-app".into(),
+            wallet: "t-wallet".into(),
+            management: "t-management".into(),
+            relay: "t-relay".into(),
+        },
     )
     .await
     .expect("first registration succeeds");
@@ -193,10 +197,12 @@ async fn register_tokens_rejects_duplicate_sid() {
             sid,
             app_pk,
             nonce,
-            "t-app-2".into(),
-            "t-wallet-2".into(),
-            "t-management-2".into(),
-            "t-relay-2".into(),
+            crate::connect::SessionTokens {
+                app: "t-app-2".into(),
+                wallet: "t-wallet-2".into(),
+                management: "t-management-2".into(),
+                relay: "t-relay-2".into(),
+            },
         )
         .await
         .expect_err("duplicate sid should be rejected");
@@ -210,19 +216,23 @@ async fn concurrent_registration_cannot_replace_session_identity() {
         sid,
         app_pk,
         nonce,
-        "app-token-a".into(),
-        "wallet-token-a".into(),
-        "management-token-a".into(),
-        "relay-token-a".into(),
+        crate::connect::SessionTokens {
+            app: "app-token-a".into(),
+            wallet: "wallet-token-a".into(),
+            management: "management-token-a".into(),
+            relay: "relay-token-a".into(),
+        },
     );
     let second = bus.register_tokens(
         sid,
         app_pk,
         nonce,
-        "app-token-b".into(),
-        "wallet-token-b".into(),
-        "management-token-b".into(),
-        "relay-token-b".into(),
+        crate::connect::SessionTokens {
+            app: "app-token-b".into(),
+            wallet: "wallet-token-b".into(),
+            management: "management-token-b".into(),
+            relay: "relay-token-b".into(),
+        },
     );
     let (first, second) = tokio::join!(first, second);
     assert!(
@@ -253,10 +263,12 @@ async fn register_tokens_stores_token_hashes() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -312,10 +324,12 @@ async fn dropped_role_token_reservation_can_be_retried() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -346,10 +360,12 @@ async fn remote_role_consumption_wins_over_reservation_rollback() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -380,10 +396,12 @@ async fn terminated_reserved_session_cannot_be_reattached_or_replace_retry() {
         sid,
         app_pk,
         nonce,
-        "old-app-token".into(),
-        "old-wallet-token".into(),
-        "old-management-token".into(),
-        "old-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "old-app-token".into(),
+            wallet: "old-wallet-token".into(),
+            management: "old-management-token".into(),
+            relay: "old-relay-token".into(),
+        },
     )
     .await
     .expect("register old session");
@@ -398,10 +416,12 @@ async fn terminated_reserved_session_cannot_be_reattached_or_replace_retry() {
         sid,
         app_pk,
         nonce,
-        "new-app-token".into(),
-        "new-wallet-token".into(),
-        "new-management-token".into(),
-        "new-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "new-app-token".into(),
+            wallet: "new-wallet-token".into(),
+            management: "new-management-token".into(),
+            relay: "new-relay-token".into(),
+        },
     )
     .await
     .expect("register replacement session");
@@ -420,10 +440,12 @@ async fn stale_management_token_cannot_terminate_replacement_session() {
         sid,
         app_pk,
         nonce,
-        "old-app-token".into(),
-        "old-wallet-token".into(),
-        "old-management-token".into(),
-        "old-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "old-app-token".into(),
+            wallet: "old-wallet-token".into(),
+            management: "old-management-token".into(),
+            relay: "old-relay-token".into(),
+        },
     )
     .await
     .expect("register old session");
@@ -432,10 +454,12 @@ async fn stale_management_token_cannot_terminate_replacement_session() {
         sid,
         app_pk,
         nonce,
-        "new-app-token".into(),
-        "new-wallet-token".into(),
-        "new-management-token".into(),
-        "new-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "new-app-token".into(),
+            wallet: "new-wallet-token".into(),
+            management: "new-management-token".into(),
+            relay: "new-relay-token".into(),
+        },
     )
     .await
     .expect("register replacement session");
@@ -463,10 +487,12 @@ async fn stale_relay_work_cannot_touch_deliver_to_or_terminate_replacement() {
         sid,
         app_pk,
         nonce,
-        "old-app-token".into(),
-        "old-wallet-token".into(),
-        "old-management-token".into(),
-        "old-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "old-app-token".into(),
+            wallet: "old-wallet-token".into(),
+            management: "old-management-token".into(),
+            relay: "old-relay-token".into(),
+        },
     )
     .await
     .expect("register old session");
@@ -482,10 +508,12 @@ async fn stale_relay_work_cannot_touch_deliver_to_or_terminate_replacement() {
         sid,
         app_pk,
         nonce,
-        "new-app-token".into(),
-        "new-wallet-token".into(),
-        "new-management-token".into(),
-        "new-relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "new-app-token".into(),
+            wallet: "new-wallet-token".into(),
+            management: "new-management-token".into(),
+            relay: "new-relay-token".into(),
+        },
     )
     .await
     .expect("register replacement session");
@@ -543,10 +571,12 @@ async fn committed_attach_drains_more_than_channel_capacity_in_order() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -609,10 +639,12 @@ async fn offline_buffer_overflow_terminates_instead_of_creating_sequence_gap() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -937,10 +969,12 @@ async fn session_creation_respects_global_cap() {
         sid,
         app_pk,
         nonce,
-        "t-app".into(),
-        "t-wallet".into(),
-        "t-management".into(),
-        "t-relay".into(),
+        crate::connect::SessionTokens {
+            app: "t-app".into(),
+            wallet: "t-wallet".into(),
+            management: "t-management".into(),
+            relay: "t-relay".into(),
+        },
     )
     .await
     .expect("first registration ok");
@@ -1198,10 +1232,12 @@ async fn terminate_session_sends_close_frames() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session tokens");
@@ -1245,10 +1281,12 @@ async fn attached_transport_loss_terminates_session_and_notifies_survivor() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session");
@@ -1760,10 +1798,12 @@ async fn ciphertext_direction_substitution_terminates_session() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register direction-substitution fixture");
@@ -1878,10 +1918,12 @@ async fn broadcast_strategy_records_p2p_rebroadcast_when_network_attached() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register session tokens");
@@ -2097,10 +2139,12 @@ async fn execution_transport_config_relays_complete_large_frames_after_signed_ap
             sid,
             app_pk,
             nonce,
-            "app-token".into(),
-            "wallet-token".into(),
-            "management-token".into(),
-            "relay-token".into(),
+            crate::connect::SessionTokens {
+                app: "app-token".into(),
+                wallet: "wallet-token".into(),
+                management: "management-token".into(),
+                relay: "relay-token".into(),
+            },
         )
         .await
         .expect("session registration");
@@ -2198,10 +2242,12 @@ async fn ciphertext_before_verified_approval_terminates_session() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register pre-approval ciphertext fixture");
@@ -2238,10 +2284,12 @@ async fn drops_plaintext_control_after_approve() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register approval fixture session");
@@ -2341,10 +2389,12 @@ async fn wrong_network_open_is_rejected_before_wallet_delivery() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register wrong-network fixture session");
@@ -2397,10 +2447,12 @@ async fn substituted_wallet_approval_is_rejected_before_app_delivery() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register substitution fixture session");
@@ -2462,10 +2514,12 @@ async fn noncanonical_wallet_account_id_is_rejected_before_app_delivery() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register noncanonical-account fixture session");
@@ -2540,10 +2594,12 @@ async fn repeated_valid_wallet_approval_terminates_the_session() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register replay fixture session");
@@ -2616,10 +2672,12 @@ async fn concurrent_wallet_approvals_cannot_both_reach_the_app() {
         sid,
         app_pk,
         nonce,
-        "app-token".into(),
-        "wallet-token".into(),
-        "management-token".into(),
-        "relay-token".into(),
+        crate::connect::SessionTokens {
+            app: "app-token".into(),
+            wallet: "wallet-token".into(),
+            management: "management-token".into(),
+            relay: "relay-token".into(),
+        },
     )
     .await
     .expect("register concurrent approval fixture session");

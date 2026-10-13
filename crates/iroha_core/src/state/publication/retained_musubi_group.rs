@@ -26,6 +26,13 @@ use iroha_data_model::{
 
 /// Exact local group/source or original field refusal; no physical wait is forged.
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"
+    )
+)]
 pub(crate) enum RetainedMusubiGroupReadError {
     /// Complete original frozen publication required; terminal phases refuse.
     NotFrozen,
@@ -86,10 +93,24 @@ pub(crate) struct OriginalMusubiRevision<'read> {
 }
 impl OriginalMusubiRevision<'_> {
     /// Borrow the actual frozen current revision value.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"
+        )
+    )]
     pub(crate) fn current(&self) -> &MusubiResolverIndexRevisionV1 {
         self.current
     }
     /// Borrow the actual frozen before-block revision value.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"
+        )
+    )]
     pub(crate) fn predecessor(&self) -> &MusubiResolverIndexRevisionV1 {
         self.predecessor
     }
@@ -103,7 +124,7 @@ macro_rules! define_original_musubi_group {
         // All positions/cursors/readers drop before the outer original scope.
         // MV current/undo metadata/admission stays in the exact Reading field.
         struct MusubiGroupReadData {
-            $($field: Option<OriginalTableRead<$key,$value>>,)+
+            $( $field: Option<OriginalTableRead<$key,$value>>,)+
             revision: Option<mv::cell::FrozenDetachedRead<MusubiResolverIndexRevisionV1>>,
         }
         impl MusubiGroupReadData {
@@ -158,18 +179,21 @@ macro_rules! define_original_musubi_group {
         impl OriginalMusubiRows<'_> {
             $(
                 #[doc=concat!("Resolve ordered original predecessor ",stringify!($field)," only after complete descriptor admission.")]
+                #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
                 pub(crate) fn $predecessor(&mut self,index:usize)->Result<(&$key,&$value),RetainedMusubiGroupReadError> {
                     self.data.$field.as_ref().expect(concat!("original ",stringify!($field)))
                         .predecessor_row(index,self.work,self.limit)
                         .map_err(|original|RetainedMusubiGroupReadError::Field {field:stringify!($field),original})
                 }
                 #[doc=concat!("Resolve original current ",stringify!($field)," after finite structural admission.")]
+                #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
                 pub(crate) fn $current(&mut self,index:usize)->Result<(&$key,&$value),RetainedMusubiGroupReadError> {
                     self.data.$field.as_ref().expect(concat!("original ",stringify!($field)))
                         .current_row(index,self.work,self.limit)
                         .map_err(|original|RetainedMusubiGroupReadError::Field {field:stringify!($field),original})
                 }
                 #[doc=concat!("Resolve original raw undo ",stringify!($field),"; this is not a complete predecessor.")]
+                #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
                 pub(crate) fn $undo(&mut self,index:usize)->Result<(&$key,&Option<$value>),RetainedMusubiGroupReadError> {
                     self.data.$field.as_ref().expect(concat!("original ",stringify!($field)))
                         .undo_row(index,self.work,self.limit)
@@ -180,7 +204,7 @@ macro_rules! define_original_musubi_group {
         impl StateBlock<'_> {
             /// Retain fourteen original paired map readers once under the same scope.
             /// Every pre-installation failure returns the unchanged move-only scope.
-            #[expect(clippy::result_large_err,reason="refusal returns the original move-only scope without allocating an error wrapper")]
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn start_original_musubi_group_read(&mut self,scope:OwnedAllocationScope)
                 ->Result<(),(OwnedAllocationScope,RetainedMusubiGroupReadError)> {
                 let fields=self.fields.as_mut().expect("original State fields");
@@ -275,6 +299,7 @@ macro_rules! define_original_musubi_group {
                 Ok(())
             }
             /// Resume original positions/stages without rebuilding completed work.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn advance_original_musubi_group_read(&mut self,limit:usize)
                 ->Result<MusubiGroupReadProgress,RetainedMusubiGroupReadError> {
                 self.check_original_musubi_group_read()?;
@@ -283,6 +308,7 @@ macro_rules! define_original_musubi_group {
             /// Resume ordered predecessor descriptors of the same fourteen pairs.
             /// Successful comparison heads/frontiers/work remain through refusal.
             /// This prerequisite does not admit the infallible semantic verifier.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn advance_original_musubi_group_predecessor_read(&mut self,limit:usize)
                 ->Result<MusubiGroupPredecessorProgress,RetainedMusubiGroupReadError> {
                 self.check_original_musubi_group_read()?;
@@ -290,10 +316,12 @@ macro_rules! define_original_musubi_group {
             }
             /// Observe descriptors without rebuilding or scanning any original row.
             /// None after actual index/source retirement; no old authority survives.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn original_musubi_group_predecessor_progress(&self)->Option<MusubiGroupPredecessorProgress> {
                 self.publication.as_ref()?.musubi_group_read.as_ref()?.predecessor_progress()
             }
             /// Observe existing counts/work without scans or replenished admission.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn original_musubi_group_read_progress(&self)->Option<MusubiGroupReadProgress> {
                 self.publication.as_ref()?.musubi_group_read.as_ref().map(RetainedMusubiGroupRead::observe)
             }
@@ -304,6 +332,7 @@ macro_rules! define_original_musubi_group {
             /// An equal revision staged under the same predecessor cannot replace
             /// either original allocation. No semantic authority marker or infallible
             /// StorageReadOnly implementation is exposed by this callback.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn with_original_musubi_rows<R>(&mut self,limit:usize,
                 callback:impl for<'read> FnOnce(OriginalMusubiRows<'read>,OriginalMusubiRevision<'read>)->R)
                 ->Result<R,RetainedMusubiGroupReadError> {
@@ -326,6 +355,7 @@ macro_rules! define_original_musubi_group {
             /// Retire actual indexes/readers before original writer installation.
             /// Later reader refusal keeps completed thaw stages and the exact scope.
             /// A reader-held refusal has no physical mutex ReleaseWait event.
+            #[cfg_attr(not(test), expect(dead_code, reason = "TODO: connect semantic Musubi materialization; preserve all fourteen original current/undo maps and revision under the same admitted scope"))]
             pub(crate) fn retire_original_musubi_group_read(&mut self)->Result<(),RetainedMusubiGroupReadError> {
                 self.check_original_musubi_group_read()?;
                 let plan=self.publication.as_mut().expect("original publication").musubi_group_read.as_mut().expect("original plan");

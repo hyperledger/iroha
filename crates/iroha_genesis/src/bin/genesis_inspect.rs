@@ -43,10 +43,7 @@ fn main() -> Result<()> {
             .downcast_ref::<ActivatePublicLaneValidator>()
             .is_some()
     });
-    println!(
-        "event=genesis_inspect peers_with_pop={count}",
-        count = peers
-    );
+    println!("event=genesis_inspect peers_with_pop={peers}");
     for transaction in block.external_transactions() {
         let Executable::Instructions(batch) = transaction.instructions() else {
             continue;
@@ -63,10 +60,7 @@ fn main() -> Result<()> {
             }
         }
     }
-    println!(
-        "event=genesis_inspect validators={count}",
-        count = validators
-    );
+    println!("event=genesis_inspect validators={validators}");
     for transaction in block.external_transactions() {
         let Executable::Instructions(batch) = transaction.instructions() else {
             continue;
@@ -86,10 +80,7 @@ fn main() -> Result<()> {
             }
         }
     }
-    println!(
-        "event=genesis_inspect activations={count}",
-        count = activations
-    );
+    println!("event=genesis_inspect activations={activations}");
     for transaction in block.external_transactions() {
         let Executable::Instructions(batch) = transaction.instructions() else {
             continue;

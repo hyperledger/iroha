@@ -90,8 +90,7 @@ pub use bitonic::bitonic_sort_pairs;
 mod imp {
     #[cfg(test)]
     use super::aes_batches::{
-        aesdec_batch_cuda_into, aesdec_cuda, aesdec_rounds_batch_cuda_into, aesenc_batch_cuda_into,
-        aesenc_cuda, aesenc_rounds_batch_cuda_into,
+        aesdec_batch_cuda_into, aesdec_cuda, aesenc_batch_cuda_into, aesenc_cuda,
     };
     #[cfg(test)]
     use super::bitonic::bitonic_sort_pairs;

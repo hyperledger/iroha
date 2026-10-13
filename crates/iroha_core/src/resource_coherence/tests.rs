@@ -79,7 +79,9 @@ fn scheduled_world(caps: [u32; 3]) -> World {
         caps.into_iter()
             .enumerate()
             .map(|(index, cap)| {
-                let mut params = ChainParamsRecord::from_parameters(&Default::default());
+                let mut params = ChainParamsRecord::from_parameters(
+                    &iroha_data_model::parameter::system::SumeragiParameters::default(),
+                );
                 params.max_block_bytes = cap;
                 ScheduledSlot::Ready(ScheduledConfig {
                     height: index as u64 + 2,
@@ -249,8 +251,7 @@ fn split_signed_genesis_transactions_may_be_temporarily_incoherent() {
 fn executed_genesis_rejects_final_incoherence_and_an_uncovered_intervening_height() {
     for activation in [None, Some(3)] {
         let error = CertifiedTestChain::start(genesis_config(activation))
-            .err()
-            .expect("final genesis must reject incoherent height two");
+            .expect_err("final genesis must reject incoherent height two");
         assert!(
             format!("{error:?}").contains("incoherent resource policy at height 2"),
             "{error:?}"

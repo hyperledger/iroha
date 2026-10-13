@@ -2,7 +2,18 @@
 // These local host fixtures do not certify deployed transaction admission or consensus.
 
 fn custody_namespace_paths() -> Vec<StatePath> {
+    use crate::query::final_promotion_authority as promotion;
+    use crate::query::signer_custody_history::{
+        AccountPurpose, ReceiptPurpose, control_head_key, control_height_key, control_record_key,
+        key_path as custody_key_path,
+    };
+    use crate::query::stream_token_authority as authority;
     use crate::query::stream_token_custody::{head_key, height_key, key_path, record_key};
+    use crate::query::stream_token_gateway::{
+        rows::{GatewayExpiryKeyV1, GatewayExpiryTargetV1, GatewayRowKey},
+        storage as gateway,
+    };
+    use iroha_data_model::sorafs::provider_admission::history::AdmissionHistoryPathV1;
     let provider = iroha_data_model::sorafs::capacity::ProviderId::new([37; 32]);
     let mut paths = vec![
         head_key(provider),
@@ -11,17 +22,12 @@ fn custody_namespace_paths() -> Vec<StatePath> {
         key_path(provider, true, ALICE_KEYPAIR.public_key()).expect("signer first-use key"),
         key_path(provider, false, BOB_KEYPAIR.public_key()).expect("attester first-use key"),
     ];
-    use crate::query::stream_token_authority as authority;
     paths.extend([
         authority::head_key(provider),
-        authority::record_key(provider, 131072),
+        authority::record_key(provider, 131_072),
         authority::slot_key(provider, [31; 32]),
         authority::admission_key(provider, [31; 32]),
     ]);
-    use crate::query::stream_token_gateway::{
-        rows::{GatewayExpiryKeyV1, GatewayExpiryTargetV1, GatewayRowKey},
-        storage as gateway,
-    };
     let gateway_id = [39; 32];
     paths.extend([
         gateway::STATE_ROOT.parse().unwrap(),
@@ -32,7 +38,7 @@ fn custody_namespace_paths() -> Vec<StatePath> {
         gateway::policy_head_path(gateway_id).unwrap(),
         gateway::policy_record_path(gateway_id, 8194).unwrap(),
         gateway::head_path(gateway_id).unwrap(),
-        gateway::mutation_path(gateway_id, 131072).unwrap(),
+        gateway::mutation_path(gateway_id, 131_072).unwrap(),
     ]);
     for row in [
         GatewayRowKey::Admission(8194),
@@ -44,17 +50,16 @@ fn custody_namespace_paths() -> Vec<StatePath> {
         GatewayRowKey::Lease([31; 32]),
         GatewayRowKey::LeaseTerminal([31; 32]),
         GatewayRowKey::Expiry(GatewayExpiryKeyV1 {
-            at_unix_ms: 131072,
+            at_unix_ms: 131_072,
             target: GatewayExpiryTargetV1::Lease([31; 32]),
         }),
         GatewayRowKey::Expiry(GatewayExpiryKeyV1 {
-            at_unix_ms: 131072,
+            at_unix_ms: 131_072,
             target: GatewayExpiryTargetV1::Quota([31; 32]),
         }),
     ] {
         paths.push(gateway::row_path(gateway_id, &row).unwrap());
     }
-    use iroha_data_model::sorafs::provider_admission::history::AdmissionHistoryPathV1;
     // Admission policy, counters, immutable revisions and revocation tombstones are native-only.
     for subject in [None, Some(provider)] {
         for suffix in [
@@ -70,11 +75,6 @@ fn custody_namespace_paths() -> Vec<StatePath> {
     }
     paths.push("sorafs/provider_admission".parse().unwrap());
     // Exercise the same real syscall/overlay boundaries for deployment custody and operations.
-    use crate::query::final_promotion_authority as promotion;
-    use crate::query::signer_custody_history::{
-        AccountPurpose, ReceiptPurpose, control_head_key, control_height_key, control_record_key,
-        key_path as custody_key_path,
-    };
     let deployment = "promotion-primary";
     paths.extend([
         control_head_key::<ReceiptPurpose>(deployment).unwrap(),
@@ -83,7 +83,7 @@ fn custody_namespace_paths() -> Vec<StatePath> {
         custody_key_path::<ReceiptPurpose>(deployment, true, ALICE_KEYPAIR.public_key()).unwrap(),
         custody_key_path::<ReceiptPurpose>(deployment, false, BOB_KEYPAIR.public_key()).unwrap(),
         promotion::operation_head_key(deployment).unwrap(),
-        promotion::operation_record_key(deployment, 131072).unwrap(),
+        promotion::operation_record_key(deployment, 131_072).unwrap(),
         promotion::operation_height_key(deployment, 17, 1).unwrap(),
         promotion::operation_slot_key(deployment, [31; 32]).unwrap(),
         promotion::operation_admission_key(deployment, [31; 32]).unwrap(),
@@ -132,13 +132,14 @@ fn custody_namespace_scoped_host() -> CoreHost {
 }
 
 fn custody_namespace_vm(paths: &[StatePath]) -> IVM {
+    use std::fmt::Write as _;
     let mut source = String::from("seiyaku CustodyNamespaceShadows {\n");
     for path in paths {
-        source.push_str(&format!("state bytes {path};\n"));
+        writeln!(source, "state bytes {path};").expect("format test contract");
     }
     source.push_str("hajimari() {\n");
     for path in paths {
-        source.push_str(&format!("{path} = b\"\";\n"));
+        writeln!(source, "{path} = b\"\";").expect("format test contract");
     }
     source.push_str("}\npermission WriteState;\nkotoage fn main() authorize(WriteState) -> int { return 1; }\n}");
     let (program, _) = kotodama_lang::compiler::Compiler::new()

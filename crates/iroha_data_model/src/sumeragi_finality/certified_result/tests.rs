@@ -1340,6 +1340,29 @@ fn context_committee_root_hashes_the_context_keys_in_order() {
     let mut empty = context.clone();
     empty.committee.clear();
     assert_eq!(context_committee_root(&empty), None);
+    // The raw count contract is 1..=255 even for structurally unvalidated contexts.
+    let mut largest = context.clone();
+    largest.committee.resize(255, context.committee[0].clone());
+    let largest_keys: Vec<[u8; 48]> = largest
+        .committee
+        .iter()
+        .map(|member| {
+            member
+                .validator
+                .public_key()
+                .try_to_bytes()
+                .unwrap()
+                .1
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        context_committee_root(&largest),
+        committee_root(&largest_keys)
+    );
+    largest.committee.push(context.committee[0].clone());
+    assert_eq!(context_committee_root(&largest), None);
     // A member that is not a BLS-normal key has no committee root.
     let mut foreign = context;
     let ed25519 = KeyPair::try_from_seed(vec![9; 32], Algorithm::Ed25519).unwrap();

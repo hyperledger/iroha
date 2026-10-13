@@ -8,6 +8,10 @@ use crate::{
     state::{State, World, WorldBlock},
 };
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
+use iroha_data_model::sccp::{
+    deployment::SccpCommitteePinV1,
+    generation::{SccpAnchorV1, SccpCommitteeGenerationV1, SccpGenerationCauseV1},
+};
 use iroha_data_model::{
     NetworkId,
     account::AccountId,
@@ -17,8 +21,8 @@ use iroha_data_model::{
         InstructionBox,
         sccp::{
             AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
-            SubmitSccpOutboundVoidV1,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
+            SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
         },
     },
     sccp::{
@@ -111,7 +115,7 @@ fn address(seed: u8) -> [u8; 20] {
     [seed; 20]
 }
 
-/// Populated values of the seven SCCP v1 instructions.
+/// Populated values of the eight SCCP v1 instructions.
 pub(crate) struct SampleInstructions;
 
 impl SampleInstructions {
@@ -159,6 +163,21 @@ impl SampleInstructions {
         }
     }
 
+    /// Return a bounded forged-mint proof submission.
+    pub(crate) fn forged_mint() -> iroha_data_model::isi::sccp::ProveSccpForgedMintV1 {
+        iroha_data_model::isi::sccp::ProveSccpForgedMintV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: iroha_data_model::sccp::reconciliation::SccpForgedMintProofV1 {
+                source: SccpSourceProofBytesV1::new(vec![1]).unwrap(),
+                payload: iroha_data_model::sccp::reconciliation::SccpForgedMintPayloadV1::new(
+                    vec![1],
+                )
+                .unwrap(),
+            },
+        }
+    }
+
     /// Return a light-client advance.
     pub(crate) fn advance() -> AdvanceSccpLightClientV1 {
         AdvanceSccpLightClientV1 {
@@ -181,12 +200,29 @@ impl SampleInstructions {
     pub(crate) fn all() -> Vec<InstructionBox> {
         vec![
             Self::initialize().into(),
+            iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1 { panel_seq: 1 }.into(),
+            iroha_data_model::isi::sccp::EndorseSccpFastPauseV1 {
+                network_id: network_id(1),
+                network: SccpNetworkV1::EthereumMainnet,
+                panel_id: [1; 32],
+                head: 0,
+                incident_digest: [2; 32],
+            }
+            .into(),
             Self::record().into(),
             Self::inbound().into(),
             Self::settle().into(),
             Self::void().into(),
+            Self::forged_mint().into(),
             Self::advance().into(),
             Self::equivocation().into(),
+            SubmitSccpForgeryEvidenceV1 {
+                qc: [0; 116],
+                header: [0; 221],
+                aggregate_signature: [0; 96],
+                anchor: None,
+            }
+            .into(),
         ]
     }
 }
@@ -266,7 +302,7 @@ pub(crate) fn sample_generation(
                 .expect("48-byte BLS key")
         })
         .collect::<Vec<[u8; 48]>>();
-    keys.sort();
+    keys.sort_unstable();
     let parameters = SccpParametersV1::taira_default();
     let time = u64::from(seed) * 1_000;
     SccpCommitteeGenerationV1 {
@@ -407,7 +443,7 @@ pub(crate) fn populate_every_sccp_map(
         (network, 1, u64::from(seed)),
         SccpControlRecordV1 {
             track: 1,
-            parliament_paused: seed % 2 == 0,
+            parliament_paused: seed.is_multiple_of(2),
             fast_pause_until_ms: 0,
             height,
             commitment_index: 1,
@@ -459,15 +495,21 @@ pub(crate) fn populate_every_sccp_map(
             state_hash: word(seed),
         },
     );
-    block.sccp_light_client_sets.insert(
-        (network, u64::from(seed)),
-        SccpLcConsensusSetV1 {
-            set_id: u64::from(seed),
-            valid_from_source_height: height,
-            superseded_at_source_ms: None,
-            set_bytes: vec![seed; 16],
-        },
-    );
+    let lc_set = SccpLcConsensusSetV1 {
+        set_id: u64::from(seed),
+        valid_from_source_height: height,
+        superseded_at_source_ms: None,
+        set_bytes: vec![seed; 16],
+    };
+    let lc_set = super::light_client_set::RetainedSccpLcSet::admit(
+        (&lc_set).into(),
+        block.sccp_light_client_sets.allocation_budget(),
+    )
+    .unwrap();
+    block
+        .sccp_light_client_sets
+        .try_insert_admitted((network, u64::from(seed)), lc_set)
+        .unwrap();
     block.sccp_light_client_checkpoints.insert(
         (network, height),
         SccpLcCheckpointV1 {
@@ -796,4 +838,105 @@ pub(crate) fn install_consumer_fast_pause(
     let pause = super::pause_record::RetainedSccpFastPause::admit(&pause, &budget)
         .expect("original fixture pause custody");
     super::store::fast_pauses::insert(stx, network, pause).expect("fixture pause State");
+}
+
+/// A canonical four-member generation with independently selected generation and height.
+pub(crate) fn sample_generation_at(
+    generation: u64,
+    start_height: u64,
+) -> SccpCommitteeGenerationV1 {
+    let mut keys = (1..=4)
+        .map(|seed| {
+            let pair =
+                KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).expect("BLS fixture");
+            pair.public_key()
+                .try_to_bytes()
+                .expect("public bytes")
+                .1
+                .try_into()
+                .expect("48-byte key")
+        })
+        .collect::<Vec<[u8; 48]>>();
+    keys.sort_unstable();
+    let params = SccpParametersV1::taira_default();
+    let start_timestamp_ms = start_height.saturating_mul(4_000);
+    SccpCommitteeGenerationV1 {
+        generation,
+        committee_root: iroha_data_model::sumeragi_finality::certified_result::committee_root(
+            &keys,
+        )
+        .expect("root"),
+        keys,
+        members: vec![None; 4],
+        cause: if generation == 1 {
+            SccpGenerationCauseV1::Genesis
+        } else {
+            SccpGenerationCauseV1::Heartbeat
+        },
+        start_height,
+        start_timestamp_ms,
+        start_lc: start_timestamp_ms,
+        validity_ms: params.committee_validity_ms,
+        deadline_ms: start_timestamp_ms.saturating_add(params.committee_validity_ms),
+        grace_ms: params.forgery_evidence_grace_ms,
+        progress_cap_ms: params.destination_progress_cap_ms,
+        liable_until_lc: start_timestamp_ms
+            .saturating_add(params.committee_validity_ms)
+            .saturating_add(params.forgery_evidence_grace_ms),
+        dest_cleared_lc: None,
+        end: None,
+    }
+}
+
+/// The immutable deployment pin corresponding to this exact generation.
+pub(crate) fn sample_pin(generation: &SccpCommitteeGenerationV1) -> SccpCommitteePinV1 {
+    SccpCommitteePinV1 {
+        generation: generation.generation,
+        committee_root: generation.committee_root,
+        start_height: generation.start_height,
+        until_ms: generation.deadline_ms,
+    }
+}
+
+/// One exact original anchor fixture.
+pub(crate) fn sample_anchor(seed: u8) -> SccpAnchorV1 {
+    SccpAnchorV1 {
+        core_hash: word(seed),
+        result: word(seed.wrapping_add(1)),
+    }
+}
+
+/// Admit a fixture generation through the executing original pool and typed map writer.
+pub(crate) fn install_generation(
+    stx: &mut crate::state::StateTransaction<'_, '_>,
+    key: u64,
+    source: SccpCommitteeGenerationV1,
+) -> Result<Option<super::generation_record::RetainedSccpGeneration>, super::Error> {
+    let budget = crate::state::StateReadOnly::execution_budget(stx);
+    let record = super::generation_record::RetainedSccpGeneration::admit(&source, &budget)
+        .expect("fixture generation admission");
+    super::store::committee_generations::insert(stx, key, record)
+}
+
+/// Decode predicate DATA with its own real retained custody, including malformed controls.
+/// This helper grants neither a State source nor finality authority.
+pub(crate) fn retained_generation_fixture(
+    source: &SccpCommitteeGenerationV1,
+) -> super::generation_record::RetainedSccpGeneration {
+    use norito::codec::Encode as _;
+    super::generation_record::RetainedSccpGeneration::decode_snapshot_hex_for_fixture(
+        &hex::encode(source.encode()),
+        &iroha_allocation::AllocationBudget::new(128 << 20),
+    )
+    .expect("fixture generation custody")
+}
+
+/// Copy an immutable retained record to mutable test DATA, preserving lifecycle scalars.
+pub(crate) fn generation_fixture_data(
+    source: &super::generation_record::RetainedSccpGeneration,
+) -> SccpCommitteeGenerationV1 {
+    let mut data = (**source).clone();
+    data.end = source.end;
+    data.dest_cleared_lc = source.dest_cleared_lc;
+    data
 }

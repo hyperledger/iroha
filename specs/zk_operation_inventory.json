@@ -10284,7 +10284,7 @@
     {
      "id": "ram_lfe_receipt",
      "needle": "validate_",
-     "pattern": "\\b(?:validate_execution_receipt_at|validate_program_receipt|verify_execution_proof)\\s*\\(",
+     "pattern": "\\b(?:validate_execution_receipt_at|validate_program_receipt)\\s*\\(",
      "roots": ["crates/iroha_core/src", "crates/iroha_torii/src"],
      "what": "RAM-LFE and identifier receipt validation."
     },
@@ -10474,10 +10474,10 @@
     {
      "token": "ram_lfe_receipt",
      "path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs",
-     "count": 4,
+     "count": 2,
      "route": "direct_protocol_instructions"
     },
-    {"token": "ram_lfe_receipt", "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "count": 2, "route": "definition"},
+    {"token": "ram_lfe_receipt", "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "count": 1, "route": "definition"},
     {"token": "ram_lfe_receipt", "path": "crates/iroha_torii/src/lib.rs", "count": 1, "route": "torii"},
     {
      "token": "restore_committed_height_validation",
@@ -10511,7 +10511,7 @@
      "token": "restore_rebuild",
      "name": "validate_rebuilt_kaigi_account_dependencies_at",
      "path": "crates/iroha_core/src/state.rs",
-     "count": 3,
+     "count": 2,
      "route": "restore"
     },
     {
@@ -11541,8 +11541,8 @@
     "id": "ram_lfe.uploaded_verifier_metadata",
     "selector": "uploaded_key",
     "chooses_guarantee": false,
-    "what": "The old proof-mode schema can carry verifier metadata, but current policy registration and stateless validation refuse proof mode before reading it. The proof boundary unconditionally refuses; metadata cannot select a relation.",
-    "site": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub(crate) fn verify_execution_proof("},
+    "what": "The proof-mode schema can carry verifier metadata, but actual policy registration and stateless receipt validation refuse proof mode before reading it. Adversarial proof bytes and uploaded metadata exercise those production entry points; metadata cannot select a relation.",
+    "site": {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub fn validate_execution_receipt_at("},
     "guards": [
      {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "symbol": "pub(crate) fn validate_program_policy("}
     ],
@@ -11556,7 +11556,12 @@
       "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
       "test": "unavailable_execution_relation_rejects_before_reading_proof_or_key"
      },
-     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "test": "verify_execution_proof_refuses_regardless_of_node_guardrails"}
+     {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "test": "verify_execution_proof_refuses_regardless_of_node_guardrails"},
+     {
+      "path": "crates/iroha_core/src/smartcontracts/isi/identifier_tests.rs",
+      "test": "current_identifier_receipt_refuses_proof_mode_before_metadata_or_proof_decode",
+      "reaches": [{"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "fn validate_program_receipt("}]
+     }
     ],
     "test_evidence": "default",
     "open_defect": {

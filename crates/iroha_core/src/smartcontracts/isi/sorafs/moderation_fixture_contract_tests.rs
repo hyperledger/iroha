@@ -1,5 +1,9 @@
 // Direct overlay fixtures retain the same consensus header in the journal and immutable query cache.
 
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the query cache takes ownership of the authenticated fixture header"
+)]
 fn cache_moderation_fixture_header(state: &State, header: BlockHeader) {
     assert_eq!(state.view().latest_block_hash(), Some(header.hash()));
     let now = header.creation_time_ms;
@@ -9,6 +13,10 @@ fn cache_moderation_fixture_header(state: &State, header: BlockHeader) {
         Some(now)
     );
 }
+#[expect(
+    clippy::large_types_passed_by_value,
+    reason = "the fixture transfers its header into the authenticated query cache"
+)]
 fn retain_moderation_fixture_header(state: &mut State, header: BlockHeader) {
     state.push_block_hash_for_testing(header.hash());
     cache_moderation_fixture_header(state, header);
@@ -29,8 +37,7 @@ fn moderation_payload_decoder_rejects_alternate_norito_layout() {
     decode_from_bytes_with_limits::<SoraFsModerationBallotCommitV1>(&alternate, PAYLOAD_LIMITS)
         .expect("ordinary bounded Norito accepts the advertised alternate layout");
     let error = decode_payload::<SoraFsModerationBallotCommitV1>(&alternate, "moderation commit")
-        .err()
-        .expect("alternate-layout moderation payload must fail");
+        .expect_err("alternate-layout moderation payload must fail");
     assert_eq!(
         parameter_error_message(&error),
         "moderation commit payload is not exact canonical Norito"

@@ -404,7 +404,13 @@ fn signed_attachment_bounds_accept_the_limit_and_reject_one_over() {
     // Count: sixteen occurrences are carried, seventeen are not.
     let distinct = |count: usize| {
         (0..count)
-            .map(|slot| vec![slot as u8, 1, 2])
+            .map(|slot| {
+                vec![
+                    u8::try_from(slot).expect("seventeen distinct occurrences"),
+                    1,
+                    2,
+                ]
+            })
             .collect::<Vec<_>>()
     };
     with_proofs(distinct(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1))

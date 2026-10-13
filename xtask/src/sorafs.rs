@@ -3583,11 +3583,11 @@ fn build_envelope_summary(
     map.insert("version".into(), Value::from(envelope.version as u64));
     map.insert(
         "network_id_hex".into(),
-        Value::from(hex_lower(&envelope.network_id)),
+        Value::from(hex_lower(envelope.network_id)),
     );
     map.insert(
         "policy_id_hex".into(),
-        Value::from(hex_lower(&envelope.policy_id)),
+        Value::from(hex_lower(envelope.policy_id)),
     );
     map.insert(
         "policy_revision".into(),
@@ -3595,7 +3595,7 @@ fn build_envelope_summary(
     );
     map.insert(
         "policy_digest_hex".into(),
-        Value::from(hex_lower(&envelope.policy_digest)),
+        Value::from(hex_lower(envelope.policy_digest)),
     );
     map.insert(
         "admission_revision".into(),

@@ -25,8 +25,8 @@ use iroha_data_model::{
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
         light_client::{
-            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
-            SccpLcProfileActivationV1, SccpLightClientV1,
+            SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcProfileActivationV1,
+            SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::{SCCP_MESSAGES_MAX_PER_BLOCK_V1, SccpParametersV1},
@@ -44,6 +44,13 @@ fn storage_refusal(
     Error::InvariantViolation("SCCP original map allocation did not complete".into())
 }
 macro_rules! insert_map {
+    ($state:ident, sccp_light_client_sets, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_light_client_sets
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
     ($state:ident, sccp_committee_generations, $key:ident, $value:ident) => {
         $state
             .world
@@ -63,6 +70,19 @@ macro_rules! insert_map {
     };
 }
 macro_rules! remove_map {
+    ($state:ident, sccp_light_client_sets, $key:ident) => {
+        match $state
+            .world
+            .sccp_light_client_sets
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
     ($state:ident, sccp_committee_generations, $key:ident) => {
         match $state
             .world
@@ -178,17 +198,17 @@ macro_rules! storage_map {
             }
 
             /// Iterate every entry in ascending key order.
-            pub fn iter<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            pub fn iter(
+                world: &(impl WorldReadOnly + ?Sized),
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().iter()
             }
 
             /// Iterate the entries whose keys fall in `bounds`, in ascending key order.
-            pub fn range<'world>(
-                world: &'world (impl WorldReadOnly + ?Sized),
+            pub fn range(
+                world: &(impl WorldReadOnly + ?Sized),
                 bounds: impl RangeBounds<$key>,
-            ) -> impl DoubleEndedIterator<Item = (&'world $key, &'world $value)> + 'world {
+            ) -> impl DoubleEndedIterator<Item = (&$key, &$value)> + '_ {
                 world.$field().range::<$key>(bounds)
             }
 
@@ -348,7 +368,8 @@ storage_map! {
 }
 storage_map! {
     /// Authenticated source consensus sets by `(network, set_id)` (§4.13.1).
-    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => SccpLcConsensusSetV1
+    light_client_sets => sccp_light_client_sets: (SccpNetworkV1, u64) => crate::smartcontracts::isi::sccp::light_client_set::RetainedSccpLcSet,
+    valid(key, record) => key.1 == record.set_id
 }
 storage_map! {
     /// Finalized source checkpoints by `(network, source_height)` (§4.13.1).
@@ -798,4 +819,49 @@ mod tests {
         assert_eq!(set_governance_revision(&mut stx, subject, 0), 3);
         assert!(governance_revisions::is_empty(&*stx.world));
     }
+}
+
+/// Permanent offences are read separately from Native evidence; no native-horizon pruning.
+pub mod forgery_offences {
+    use super::*;
+    use crate::state::sccp_forgery_custody::OffenceKey;
+
+    /// Borrow the original evidence id, retaining absence as absence.
+    #[must_use]
+    pub fn get<'a>(
+        world: &'a (impl WorldReadOnly + ?Sized),
+        key: &OffenceKey,
+    ) -> Option<&'a [u8; 32]> {
+        world.sccp_forgery_offences().get(key)
+    }
+
+    /// Install one new offence under its original map pool and advance the maximum.
+    /// The executing-parent handler owns paired record/event publication in the same
+    /// child transaction; this primitive alone grants no instruction authority.
+    pub(crate) fn insert_new(
+        stx: &mut StateTransaction<'_, '_>,
+        key: OffenceKey,
+        evidence_id: [u8; 32],
+    ) -> Result<bool, (OffenceKey, mv::storage::AdmittedStorageError)> {
+        if !key.belongs_to(stx.world.sccp_forgery_offences.allocation_budget()) {
+            return Err((key, mv::storage::AdmittedStorageError::ScopeIdentity));
+        }
+        if stx.world.sccp_forgery_offences.get(&key).is_some() {
+            return Ok(false);
+        }
+        let generation = key.generation();
+        stx.world
+            .sccp_forgery_offences
+            .try_insert_admitted(key, evidence_id)
+            .map_err(|((key, _), error)| (key, error))?;
+        let maximum = stx.world.sccp_forgery_max_generation.get_mut();
+        *maximum = Some(maximum.map_or(generation, |previous| previous.max(generation)));
+        Ok(true)
+    }
+}
+
+/// Highest recorded SCCP generation; this does not derive a hold release by itself.
+#[must_use]
+pub fn forgery_max_generation(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64> {
+    *world.sccp_forgery_max_generation()
 }

@@ -182,11 +182,11 @@ impl FrozenContracts<'_> {
             pipeline: &self.pipeline,
             time: &self.time,
             by_call: &self.by_call,
-            ids: &self._ids,
-            active_data: &self._active_data,
-            active_pipeline: &self._active_pipeline,
-            active_time: &self._active_time,
-            active_by_call: &self._active_by_call,
+            ids: &self.ids,
+            active_data: &self.active_data,
+            active_pipeline: &self.active_pipeline,
+            active_time: &self.active_time,
+            active_by_call: &self.active_by_call,
         };
         self.strategy = Some(CheckedStrategy::prepare(&sources, max_work, budget)?);
         let work = self

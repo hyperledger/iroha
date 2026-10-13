@@ -17,8 +17,7 @@
 //! ([`destination::Destination`]); [`destination_abi`] their selectors, event topics and
 //! the shared error table with its TON exit codes.
 //!
-//! TODO(WP-S4): migrate Core control enactment to authenticated 199-byte control leaves
-//! and remove the old control-only hash helpers still used by that owner.
+//! Core controls commit the complete authenticated 199-byte control leaf.
 
 /// Declare a field-less error enum with `Debug`, `Display` and `std::error::Error`.
 macro_rules! unit_error {
@@ -61,6 +60,7 @@ pub mod merkle;
 pub mod network;
 pub mod payload;
 pub mod proof;
+pub mod reconciliation;
 pub mod signature;
 pub mod ton_cell;
 

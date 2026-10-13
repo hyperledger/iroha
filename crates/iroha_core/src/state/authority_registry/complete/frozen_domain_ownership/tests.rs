@@ -202,7 +202,7 @@ fn missing_wrong_foreign_empty_and_wrong_owner_reject_either_original_image() {
             let mut block = state.block(header());
             if previous {
                 match defect {
-                    0 | 1 | 2 => {
+                    0..=2 => {
                         block
                             .world
                             .domains_by_owner

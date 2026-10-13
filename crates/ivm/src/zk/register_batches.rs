@@ -333,12 +333,8 @@ impl Drop for RegEventBatch {
 pub(crate) fn record_register_event(build: impl FnOnce() -> RegEvent) {
     let log = LOGGER.with(|slot| {
         let mut local = slot.borrow_mut();
-        let Some(state) = local.state.as_mut().filter(|state| state.logging_enabled) else {
-            return None;
-        };
-        let Some(log) = &state.log else {
-            return None;
-        };
+        let state = local.state.as_mut().filter(|state| state.logging_enabled)?;
+        let log = state.log.as_ref()?;
         let Quota::Ready { remaining, .. } = &mut state.quota else {
             panic!("register events require a before-effects batch");
         };

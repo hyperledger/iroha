@@ -32,7 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ADVERT_VALIDITY_SECS: u64 = 3 * super::sorafs_publication_http::DEADLINE.as_secs();
 
 /// Independent test custody and networkless admission inputs for the actual provider network.
-pub(super) struct PublicationAuthorityFixture {
+pub struct PublicationAuthorityFixture {
     council_key: KeyPair,
     council: InitialProviderAdmissionCouncilV1,
     owners: Vec<AccountId>,
@@ -74,8 +74,14 @@ impl PublicationAuthorityFixture {
         let mut materials = Vec::new();
         let mut advert_keys = Vec::new();
         for (index, provider) in provider_ids.iter().enumerate() {
-            let key = KeyPair::try_from_seed(vec![0x80 + index as u8; 32], Algorithm::Ed25519)?;
-            let vrf = KeyPair::try_from_seed(vec![0x80 + index as u8; 32], Algorithm::BlsNormal)?;
+            let key = KeyPair::try_from_seed(
+                vec![0x80 + u8::try_from(index).expect("fixture provider index fits u8"); 32],
+                Algorithm::Ed25519,
+            )?;
+            let vrf = KeyPair::try_from_seed(
+                vec![0x80 + u8::try_from(index).expect("fixture provider index fits u8"); 32],
+                Algorithm::BlsNormal,
+            )?;
             let mut proposal = reference.proposal.clone();
             proposal.provider_id = *provider;
             proposal.advert_key = key

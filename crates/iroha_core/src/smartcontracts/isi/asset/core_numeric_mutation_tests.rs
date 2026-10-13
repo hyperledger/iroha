@@ -1431,7 +1431,7 @@ fn availability_is_revisioned_and_only_blocks_account_transfers_until_reopened()
             AssetTransferAdmissionError::IncomingDisabled(_)
         )
     ));
-    let stale = SetAssetTransferAvailability::new(
+    let outdated = SetAssetTransferAvailability::new(
         ALICE_ID.clone(),
         asset_definition_id.clone(),
         0,
@@ -1442,7 +1442,7 @@ fn availability_is_revisioned_and_only_blocks_account_transfers_until_reopened()
     .execute(&ALICE_ID, &mut stx)
     .expect_err("stale revision must fail");
     assert!(matches!(
-        stale,
+        outdated,
         InstructionExecutionError::AssetTransferAdmission(
             AssetTransferAdmissionError::AvailabilityRevisionMismatch(_)
         )

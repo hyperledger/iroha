@@ -44,10 +44,10 @@ fn original_proof_destination_charges_each_actual_compact_key_before_clone_and_r
         demand,
         "original destination charges actual compact-key backing, not only Vec shells"
     );
-    assert_eq!(retained._charges.as_slice().len(), 2 + 2 * members.len());
+    assert_eq!(retained.charges.as_slice().len(), 2 + 2 * members.len());
     assert!(
         retained
-            ._charges
+            .charges
             .as_slice()
             .iter()
             .all(|charge| charge.belongs_to(&pool))
@@ -117,7 +117,7 @@ fn retained_proof_preparation_binds_original_source_and_refunds_partial_key_unwi
     let reader = CertifiedChain::new(&view).unwrap();
     let certified = reader.certified(2).unwrap();
     let members = &certified.commitment().schedule.current.committee;
-    let foreign_members = members.to_vec();
+    let foreign_members = members.clone();
     let genesis = chain.committed(1);
     let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let wire = norito::canonical_frame_len(certified.block().as_ref()).unwrap() + 1;
@@ -171,8 +171,8 @@ fn retained_proof_preparation_binds_original_source_and_refunds_partial_key_unwi
         assert_eq!(limit_bytes, demand + registration_bytes);
         assert_eq!(pool.reserved_bytes(), reserved_bytes);
         let mut wait = Box::pin(release.wait_for_release(&mut registration));
-        let mut poll = Context::from_waker(std::task::Waker::noop());
-        assert_eq!(wait.as_mut().poll(&mut poll), Poll::Pending);
+        let mut task_context = Context::from_waker(std::task::Waker::noop());
+        assert_eq!(wait.as_mut().poll(&mut task_context), Poll::Pending);
         let original = attempt.construction.as_ref().unwrap();
         assert_eq!(original.owned.proof.committee.len(), members.len() - 1);
         assert_eq!(
@@ -204,10 +204,10 @@ fn retained_proof_preparation_binds_original_source_and_refunds_partial_key_unwi
         ));
         assert_eq!(foreign.reserved_bytes(), 0);
         assert_eq!(pool.reserved_bytes(), reserved_bytes);
-        assert_eq!(wait.as_mut().poll(&mut poll), Poll::Pending);
+        assert_eq!(wait.as_mut().poll(&mut task_context), Poll::Pending);
         if mode == 0 {
             drop(pressure);
-            assert_eq!(wait.as_mut().poll(&mut poll), Poll::Ready(()));
+            assert_eq!(wait.as_mut().poll(&mut task_context), Poll::Ready(()));
             drop(wait);
             let complete = attempt
                 .complete(certified.block(), members, &pool, deadline)
@@ -238,7 +238,7 @@ fn retained_proof_preparation_binds_original_source_and_refunds_partial_key_unwi
                 }));
                 assert!(result.is_err());
             }
-            assert_eq!(wait.as_mut().poll(&mut poll), Poll::Ready(()));
+            assert_eq!(wait.as_mut().poll(&mut task_context), Poll::Ready(()));
             drop(wait);
             assert_eq!(pool.reserved_bytes(), registration_bytes + 1);
             drop(pressure);

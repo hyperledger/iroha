@@ -225,8 +225,9 @@ impl QuantitySourceCensus {
         &mut self,
         archive: &mut QuantityCandidateArchive,
     ) -> Result<(), QuantityCaptureIssue> {
+        let original_already_retained = self.archive.is_some();
         if archive.issue.is_some()
-            || self.archive.is_some()
+            || original_already_retained
             || archive.applied_world_transactions != self.applied_world_transactions
             || archive.usage != self.usage
             || !archive.entries.belongs_to(&self.pool)
@@ -308,8 +309,7 @@ impl QuantitySourceCensus {
     {
         self.verify_current(block)?;
         self.archive
-            .as_ref()
-            .cloned()
+            .clone()
             .ok_or(QuantityCaptureIssue::InvalidFacts)
     }
 

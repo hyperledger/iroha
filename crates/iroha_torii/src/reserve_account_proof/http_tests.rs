@@ -8,7 +8,7 @@ use axum::{
     http::{HeaderValue, Method, Request, StatusCode, Uri, header},
 };
 use iroha_core::{
-    state::{State as CoreState, StateReadOnly as _, World, WorldReadOnly as _},
+    state::{State as CoreState, World, WorldReadOnly as _},
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::{Algorithm, KeyPair};
@@ -274,16 +274,16 @@ impl Fixture {
         )
         .unwrap();
         let view = self.chain.state().view();
-        let mut verified = None;
+        let mut authenticated = None;
         // This finite fixture uses only submitted native work. Production acquisition uses the native tip continuation.
         for height in 1..=self.chain.height() {
-            verified = Some(
+            authenticated = Some(
                 verifier
                     .verify(&iroha_core::sumeragi::finality::build_proof(&view, height).unwrap())
                     .unwrap(),
             );
         }
-        verified.unwrap()
+        authenticated.unwrap()
     }
 
     fn request(&self, path: &str, signer: Option<(&AccountId, &KeyPair)>) -> Request<Body> {

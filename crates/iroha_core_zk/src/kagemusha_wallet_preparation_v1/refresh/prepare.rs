@@ -142,20 +142,20 @@ impl PreparationV1<'_> {
             scheme,
             &owners.current.credential,
             &owners.successor.credential,
-            &capsule.successor_state,
+            &capsule.body().successor_state,
             originals,
         )?;
         let (state, statement, witness) = transition(
             &owners.current.credential,
             &owners.successor.credential,
-            &capsule.successor_state,
+            &capsule.body().successor_state,
             &update,
             successor_nonce,
             scheme.relation_id,
             self.omega_key_digest,
         )?;
         self.statement_fields(owners.successor, &statement)?;
-        authority(statement.validate_successor_of(&capsule.statement))?;
+        authority(statement.validate_successor_of(&capsule.body().statement))?;
         // Blacklists retain one explicit complete-original archive reference under
         // their fixed update kind. Native publishes and authenticates that full
         // original through the actual coordinator ObjectStore before proving.
@@ -187,7 +187,7 @@ impl PreparationV1<'_> {
         }
         Ok(RefreshStepV1 {
             manifest_digest: owners.current.manifest_digest,
-            source_capsule_digest: authority(capsule.capsule_digest())?,
+            source_capsule_digest: capsule.custody_digest(),
             witness,
             state,
             statement,

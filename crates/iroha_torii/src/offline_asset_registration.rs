@@ -76,7 +76,7 @@ fn canonical_asset(raw: &str) -> Result<AssetDefinitionId, Error> {
     Ok(asset)
 }
 
-pub(crate) async fn handler(
+pub async fn handler(
     State(app): State<SharedAppState>,
     headers: axum::http::HeaderMap,
     method: axum::http::Method,

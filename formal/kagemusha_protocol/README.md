@@ -23,33 +23,52 @@ The [focused workflow](../../.github/workflows/kagemusha_protocol.yml) runs thes
 commands and retains failure logs. Local commands pass; hosted CI has not run.
 Discovery includes the accounting schedule and mutation controls; the 484-state
 exhaustive result below belongs only to the provider model.
-The combined unit suite has 55 checks: 14 provider, 23 accounting, eight
-schedule-explorer controls and ten Send composition controls. The accounting
-suite includes eight rejected state mutations.
+The combined unit suite contains 65 checks: 14 provider, 23 accounting, ten
+defensive-containment controls, eight schedule-explorer controls and ten Send
+composition controls. All 65 pass for the reviewed model candidate.
 Its reserve equation distinguishes actual burned backing from unbacked rejected
 input and checks each wallet/account effect separately. It covers split and
 cyclic transfers, fee entitlement before delivery, both Archive outcomes and
-retirement/load races. Those hand-selected schedules are not exhaustive.
+retirement/load races. The containment controls add successful Archive of burned
+credits, a second committed optimistic intake canceled by burn, preserved first
+digest/flag, same-operation replay and rejected altered originals. Repeated
+alternate originals retain their first amount across distinct operation
+sequences; an invariant mutation rejects changing that amount even when balance
+and deferred burn change together to preserve aggregate value. A maximal-value
+case reaches and rejects the duplicate intake's core-balance overflow. Those
+hand-selected schedules are not exhaustive. Ordinary Receive remains replay;
+the defensive operation represents an already committed nonmembership failure.
+Digest integers distinguish opaque originals within one credit key; the pair
+`(key, digest)` names the original. They are not hash implementations or a way
+to reconstruct lost bytes.
 
 `schedules.py` separately explores immutable accounting worlds with explicit
 finite supply and record inventories. Its two-wallet, two-unit fee graph exhausts
-56,910 states and 508,958 permitted transitions, reaches every modeled operation,
-and counts 575,055 rejected actions. The zero-funded unbacked-input graph exhausts
+68,190 states and 610,738 permitted transitions, reaches every ordinary modeled
+operation, and counts 706,027 rejected actions. The single-unit graph exhausts
+6,789 states and 57,593 permitted transitions. The zero-funded unbacked-input graph exhausts
 289 states without enabling any debit. Four faulty transition rules have exact,
 replayable shortest counterexamples: refunded Send, omitted burn, duplicate credit
 and redirected Unload payout. These do not replace the accounting premises.
+The explicit post-commit duplicate-containment operation is not in this
+ordinary-operation action inventory; its focused controls are separate.
 
 The explorer shares immutable action inventories and checks a state-only
 invariant once per distinct immutable world. It performs no state quotienting or
 partial-order reduction. Self-loops and every permitted transition still count;
-the cached implementation preserves the uncached fee graph's counts. Any search
-limit raises an error and cannot produce an overall success record. The larger
-three-wallet graph exhausts 4,146,534 states and 57,063,475 permitted transitions,
-with maximum shortest-path depth 31. Its vocabulary has one initial unit, at
+the exact graph-count regression assertion has been refreshed from the revised
+burned-credit Archive graph's actual output. Any search limit raises an error
+and cannot produce an overall success record. The Archive-corrected larger
+three-wallet graph exhausts 4,649,058 states and 63,751,915 permitted transitions
+without an invariant violation, including after the final alternate-original
+amount invariant. All four final-source profiles complete under the unchanged
+5,000,000-state cap; the source and interpreter pins remain unchanged.
+Its vocabulary has one initial unit, at
 most one Load, two Payments and one Unload claim, and no unbacked-input identity.
 The separate unbacked profile covers that branch. The earlier 500,000- and
 2,000,000-state cutoffs remain retained as inconclusive attempts; the completed
-run uses a 5,000,000-state safety limit. These four finite graphs are separate;
+run and final-source revalidation used the same 5,000,000-state safety limit.
+A cutoff is inconclusive. These four finite graphs are separate;
 their state counts do not combine into an exhaustive unbounded protocol graph.
 
 `publication_accounting.py` composes every provider transition with the monetary

@@ -10,10 +10,10 @@ fn rounds_in_place(states: &mut [[u8; 16]], keys: &[[u8; 16]], decrypt: bool, fu
     {
         use crate::vector::MetalBatchWork;
         let work = match (decrypt, fused) {
-            (false, false) => MetalBatchWork::AesEnc,
-            (true, false) => MetalBatchWork::AesDec,
-            (false, true) => MetalBatchWork::AesEncRounds(keys.len()),
-            (true, true) => MetalBatchWork::AesDecRounds(keys.len()),
+            (false, false) => MetalBatchWork::Encrypt,
+            (true, false) => MetalBatchWork::Decrypt,
+            (false, true) => MetalBatchWork::EncryptRounds(keys.len()),
+            (true, true) => MetalBatchWork::DecryptRounds(keys.len()),
         };
         if crate::vector::select_metal_batch(work, states.len())
             .is_some_and(|selected| selected.run(states, keys))

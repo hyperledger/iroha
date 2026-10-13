@@ -4,8 +4,7 @@ use super::*;
 use iroha_crypto::{Algorithm, Hash, HashOf};
 use iroha_data_model::{
     isi::{InstructionBox, musubi::AdvanceMusubiPinOutboxV1},
-    transaction::FeeChargeKind,
-    transaction::FeeChargeLimit,
+    transaction::{FeeChargeKind, FeeChargeLimit, FeePaymentIntent},
 };
 use iroha_primitives::{numeric::Quantity, time::TimeSource};
 use std::{collections::BTreeMap, num::NonZeroU32, time::Duration};

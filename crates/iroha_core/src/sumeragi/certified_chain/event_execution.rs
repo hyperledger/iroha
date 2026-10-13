@@ -81,7 +81,7 @@ pub(crate) fn read_event_execution(
         instance,
         root_scope,
     }
-    .verify_executed_successor(&parent, current)
+    .verify_executed_successor(&parent, current, source.allocation_budget())
     .map_err(state_certificate::verification_attempt_failure)?;
     let authenticated = certified.into_authenticated_execution().map_err(|error| {
         ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(error.to_string()))

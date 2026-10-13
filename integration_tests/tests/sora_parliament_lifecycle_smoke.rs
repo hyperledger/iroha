@@ -1,6 +1,10 @@
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Four-validator modern SORA Parliament and mandatory timed-OVN lifecycle corridor.
 
+use iroha::data_model::{
+    parameter::system::{ConsensusHandshakeMetadata, consensus_metadata},
+    prelude::{AssetId, FindAssetById, Identifiable as _},
+};
 use iroha::query::QueryError;
 use iroha_data_model::sumeragi::PROTOCOL_VERSION;
 use iroha_data_model::{
@@ -15,34 +19,25 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use eyre::{Result, WrapErr as _, eyre};
 use integration_tests::sandbox;
 use iroha::{
     blocking::Client,
-    client::{
-        AccountTransactionDraft, FeeQuoteRequest, ParliamentTimedOvnCastingContextResponseV1,
-        ParliamentTlePartialReleaseShareV1, ParliamentTleReleaseContextResponseV1,
-    },
-    crypto::{Algorithm, Hash, KeyPair, Signature},
+    crypto::{Hash, KeyPair},
     data_model::{
         account::AccountId,
-        block::SignedBlock,
         governance::types::{
             AbiVersion, BallotAttemptId, BallotAttemptStatusV1, BeaconPulseId, BeaconSessionId,
             BodyElectionAttemptId, BodyElectionAttemptStatusV1, BodyInstanceId,
             BodyInstanceStatusV1, ContractAbiHash, ContractCodeHash, DeliberationPhaseV1,
             DeployContractProposal, GovernanceAttemptId, GovernanceAttemptStatusV1,
-            GovernanceStageV1, ParliamentAggregateOutcomeV1, ParliamentBody,
-            ParliamentNoResultKindV1, ProposalKind, SortitionRequestV1, TleSessionId,
-            parliament_ballot_participant_hash_v1, parliament_candidate_root_v1,
+            GovernanceStageV1, ParliamentBody, ParliamentNoResultKindV1, ProposalKind,
+            SortitionRequestV1, TleSessionId, parliament_ballot_participant_hash_v1,
+            parliament_candidate_root_v1,
         },
         isi::{
             InstructionBox, Log,
-            consensus_keys::{
-                ApplyThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleActionV1,
-                ThresholdKeyLifecycleCertificateV1, ThresholdKeyLifecycleSignatureV1,
-            },
+            consensus_keys::ThresholdKeyLifecycleActionV1,
             governance::{
                 CreateParliamentGovernanceAttemptV1, ParliamentAdvanceBodyPhaseV1,
                 ParliamentBeginBallotOpeningBatchV1, ParliamentBeginInvitationAcceptanceV1,
@@ -57,25 +52,13 @@ use iroha::{
                 ParliamentTleFinalReleaseSignatureV1, ProposeDeployContract, RegisterCitizen,
                 SubmitParliamentLifecycleTransitionV1,
             },
-            smart_contract_code::{
-                FinalizeSmartContractCodeUpload, RegisterSmartContractCode,
-                SMART_CONTRACT_CODE_CHUNK_BYTES, UploadSmartContractCodeChunk,
-            },
         },
         parameter::{
             Parameter,
-            system::{
-                ConsensusHandshakeMetadata, SumeragiConsensusMode, SumeragiNposParameters,
-                SumeragiParameter, consensus_metadata,
-            },
+            system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter},
         },
         permission::Permission,
-        prelude::{
-            Account, AssetId, FeePaymentIntent, FindAssetById, FindBlocks, Grant,
-            Identifiable as _, Level, QueryBuilderExt as _, Register, SetParameter,
-            SignedTransaction,
-        },
-        query::dsl::IntoPredicate as _,
+        prelude::{Account, Grant, Level, Register, SetParameter},
         smart_contract::ContractAddress,
         sumeragi::SumeragiStatus,
     },
@@ -88,35 +71,253 @@ use iroha_core::beacon::parliament_test_network_signer::deterministic_parliament
 use iroha_core::beacon::validate_global_threshold_beacon_session_v1;
 use iroha_core::beacon::verify_finalized_global_threshold_beacon_pulse_v1;
 use iroha_core::governance::parliament::ParliamentAttemptStateV1;
-use iroha_core::state::THRESHOLD_KEY_LIFECYCLE_CERTIFICATE_VERSION_V1;
-use iroha_core::state::threshold_key_lifecycle_certificate_preimage_v1;
-use iroha_core::state::verify_threshold_key_lifecycle_certificate_v1;
 use iroha_core::tle_release::parliament_test_network_signer::deterministic_parliament_tle_key_public_state_v1;
-use iroha_core_timed_ovn::casting::PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1;
-use iroha_core_timed_ovn::casting::ParliamentTimedOvnCastingContextArchiveV1;
-use iroha_core_timed_ovn::casting::ParliamentTimedOvnCastingPhaseV1;
-use iroha_core_timed_ovn::evidence::TimedOvnReleaseIdentityPublicV1;
-use iroha_core_timed_ovn::tle::AuthorizedTleReleaseProjectionV1;
-use iroha_core_timed_ovn::tle::TLE_AUTHORIZED_RELEASE_IDENTITY_PAYLOAD_BYTES_V1;
-use iroha_core_timed_ovn::tle::TLE_AUTHORIZED_RELEASE_PROJECTION_VERSION_V1;
-use iroha_core_timed_ovn::tle::TleAdaptiveDealerCommitmentV1;
-use iroha_core_timed_ovn::tle::TleAdaptivePublicShareV1;
 use iroha_core_timed_ovn::tle::TleKeySessionPublicStateV1;
-use iroha_core_timed_ovn::tle::TlePartialReleaseShareV1;
 use iroha_crypto::timed_ovn::{TimedOvnChoiceV1, TimedOvnRegistrationSecretV1};
 use iroha_data_model::governance::types::PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1 as TIMED_OVN_BALLOT_RECORD_BYTES_V1;
 use iroha_executor_data_model::permission::{
     governance::CanProposeContractDeployment, smart_contract::CanManageSmartContractCode,
 };
-use iroha_model_base::{metadata::Metadata, peer::PeerId};
+use iroha_model_base::peer::PeerId;
 use iroha_test_network::{NetworkBuilder, ParliamentBeaconSignerMode, read_on_dedicated_thread};
 use iroha_test_samples::ALICE_ID;
-use norito::codec::Encode as _;
 use rand::{SeedableRng as _, rngs::StdRng};
 
 #[path = "sora_parliament_lifecycle_support.rs"]
 mod support;
+use support::submission as parliament_submission;
+use support::submission::{minimal_contract_artifact, minimal_contract_artifact_with_identity};
 use support::*;
+#[path = "support/parliament_contract.rs"]
+mod parliament_contract;
+use parliament_contract::stage_contract_artifact;
+
+const MANDATORY_NPOS_EPOCH_LENGTH_BLOCKS: u64 = 8;
+
+// Unrelated carriers committed past the retired `request_height + delay` slot by the
+// isolation corridor; the first one lands on the height the retired rule stalled.
+const ISOLATION_CARRIERS_PAST_RETIRED_SLOT: u64 = 12;
+
+// Further carriers committed after the restarted validator has rejoined.
+const ISOLATION_CARRIERS_AFTER_RESTART: u64 = 3;
+
+const PARLIAMENT_NETWORK_STACK_BYTES: usize = 32 * 1024 * 1024;
+
+const FAIL_CLOSED_BEACON_OBSERVATION_WINDOW: Duration = Duration::from_secs(8);
+
+const FAIL_CLOSED_BEACON_SIGNER_MODES: [ParliamentBeaconSignerMode; VALIDATOR_COUNT] = [
+    ParliamentBeaconSignerMode::Valid,
+    ParliamentBeaconSignerMode::Absent,
+    ParliamentBeaconSignerMode::Absent,
+    ParliamentBeaconSignerMode::Invalid,
+];
+
+const CONTRACT_ADDRESS: &str = "irohac1qyqqqqqqqqqqqq95fes93ygegsv5enq9mqsz6x4lv4vp9gg4yxgjw";
+
+const NO_RESULT_RETRY_CONTRACT_ADDRESS: &str =
+    "irohac1qyqqqqqqqqqqqqputuv64zhf0a0a4hhlqdj2lhnwuzq4xjq3qexfh";
+
+/// Read one validator's Sumeragi status together with its published native beacon horizon.
+///
+/// The status omits the horizon while its same-cut observation is being refreshed, so an
+/// assertion guarded by `if let Some(..)` could pass without running. This read waits a bounded
+/// time for the horizon and fails when the validator never publishes it.
+async fn require_beacon_horizon(
+    client: &Client,
+    label: &str,
+) -> Result<(
+    iroha_data_model::sumeragi::SumeragiStatus,
+    iroha_data_model::sumeragi::BeaconHorizonStatusV1,
+)> {
+    let deadline = Instant::now() + OPERATION_TIMEOUT;
+    loop {
+        let status = read_on_dedicated_thread({
+            let client = client.client().clone();
+            move || client.get_sumeragi_status()
+        })
+        .await?;
+        if let Some(horizon) = status.beacon_horizon {
+            return Ok((status, horizon));
+        }
+        if Instant::now() >= deadline {
+            return Err(eyre!(
+                "{label}: the validator never published its native beacon horizon"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn assert_governed_contract_absent(
+    client: &Client,
+    contract_address: &ContractAddress,
+    label: &str,
+) -> Result<()> {
+    let response = read_on_dedicated_thread({
+        let client = client.client().clone();
+        let contract_address = (contract_address).clone();
+        move || client.get_gov_contract_response(&contract_address)
+    })
+    .await
+    .wrap_err_with(|| format!("{label}: inactive governed-contract lookup failed"))?;
+    if response.status() != iroha::http::StatusCode::OK {
+        return Err(eyre!(
+            "{label}: expected governed-contract HTTP 200, observed {}",
+            response.status(),
+        ));
+    }
+    let projection: norito::json::Value = norito::json::from_slice(response.body())
+        .wrap_err_with(|| format!("{label}: inactive governed-contract response is not JSON"))?;
+    let object = projection
+        .as_object()
+        .ok_or_else(|| eyre!("{label}: inactive governed-contract response is not an object"))?;
+    if object.len() != 3
+        || object.get("found").and_then(norito::json::Value::as_bool) != Some(false)
+        || object
+            .get("contract_address")
+            .and_then(norito::json::Value::as_str)
+            != Some(contract_address.as_ref())
+        || object
+            .get("dataspace")
+            .and_then(norito::json::Value::as_str)
+            != Some("universal")
+    {
+        return Err(eyre!(
+            "{label}: expected the exact inactive governed-contract projection, got {object:?}"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_governed_contract_binding(
+    client: &Client,
+    contract_address: &ContractAddress,
+    expected_code_hash: ContractCodeHash,
+    expected_abi_hash: ContractAbiHash,
+    label: &str,
+) -> Result<()> {
+    let response = read_on_dedicated_thread({
+        let client = client.client().clone();
+        let contract_address = (contract_address).clone();
+        move || client.get_gov_contract_json(&contract_address)
+    })
+    .await
+    .wrap_err_with(|| format!("{label}: active governed-contract lookup failed"))?;
+    let object = response
+        .as_object()
+        .ok_or_else(|| eyre!("{label}: active governed-contract response is not an object"))?;
+    let expected_subject = contract_address.subject_id().to_string();
+    let expected_code_hash = expected_code_hash.to_hex();
+    let expected_abi_hash = expected_abi_hash.to_hex();
+    let has_exact_entrypoints = object
+        .get("public_entrypoints")
+        .and_then(norito::json::Value::as_array)
+        .is_some_and(|entrypoints| {
+            entrypoints.len() == 1 && entrypoints[0].as_str() == Some("main")
+        });
+    if object.len() != 7
+        || object.get("found").and_then(norito::json::Value::as_bool) != Some(true)
+        || object
+            .get("contract_address")
+            .and_then(norito::json::Value::as_str)
+            != Some(contract_address.as_ref())
+        || object
+            .get("contract_subject_account")
+            .and_then(norito::json::Value::as_str)
+            != Some(expected_subject.as_str())
+        || object
+            .get("dataspace")
+            .and_then(norito::json::Value::as_str)
+            != Some("universal")
+        || object
+            .get("code_hash_hex")
+            .and_then(norito::json::Value::as_str)
+            != Some(expected_code_hash.as_str())
+        || object
+            .get("abi_hash_hex")
+            .and_then(norito::json::Value::as_str)
+            != Some(expected_abi_hash.as_str())
+        || !has_exact_entrypoints
+    {
+        return Err(eyre!(
+            "{label}: expected the exact active governed-contract projection, got {object:?}"
+        ));
+    }
+    Ok(())
+}
+
+async fn assert_asset_not_found(client: &Client, asset_id: &AssetId, label: &str) -> Result<()> {
+    let query = FindAssetById::new(asset_id.clone());
+    assert_eq!(
+        query.asset_id(),
+        asset_id,
+        "{label}: bind the exact requested asset"
+    );
+    match read_on_dedicated_thread({
+        let client = client.client().clone();
+        move || Ok(client.query_single(query))
+    })
+    .await?
+    {
+        Err(QueryError::Validation(ValidationFail::QueryFailed(QueryExecutionFail::Find(
+            FindError::Asset(missing),
+        )))) if missing.as_ref() == asset_id => Ok(()),
+        Ok(asset) => Err(eyre!(
+            "{label}: expected asset `{asset_id}` to be absent, but the query returned `{}`",
+            asset.id()
+        )),
+        Err(error) => Err(eyre!(
+            "{label}: expected typed absence of exact asset `{asset_id}`, got {error:?}"
+        )),
+    }
+}
+
+fn signed_consensus_handshake(
+    network: &iroha_test_network::Network,
+) -> Result<ConsensusHandshakeMetadata> {
+    let mut handshakes = network
+        .genesis_isi()
+        .iter()
+        .flatten()
+        .filter_map(|instruction| instruction.as_any().downcast_ref::<SetParameter>())
+        .filter_map(|set_parameter| match set_parameter.inner() {
+            Parameter::Custom(custom)
+                if custom.id() == &consensus_metadata::handshake_meta_id() =>
+            {
+                Some(custom)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if handshakes.len() != 1 {
+        return Err(eyre!("expected one signed consensus handshake"));
+    }
+    norito::json::from_str(
+        handshakes
+            .pop()
+            .expect("handshake count checked")
+            .payload()
+            .get(),
+    )
+    .wrap_err("decode signed consensus handshake")
+}
+
+async fn assert_no_global_beacon_pulse_at(
+    client: &Client,
+    height: u64,
+    label: &str,
+    network: &iroha_test_network::Network,
+) -> Result<()> {
+    let block = exact_block(client, height, network)
+        .await
+        .wrap_err_with(|| format!("{label}: exact finalized block is unavailable"))?;
+    if block.global_beacon_pulse().is_some() {
+        return Err(eyre!(
+            "{label}: finalized block {height} unexpectedly carries a global beacon pulse"
+        ));
+    }
+    Ok(())
+}
 
 #[test]
 // TODO: this corridor needs a hidden ballot to open, and the timed-OVN release slot is no
@@ -216,7 +417,7 @@ async fn four_validator_policy_jury_uses_future_pulses_and_mandatory_timed_ovn_i
         roster_hash: beacon_record.session.roster_hash,
         transcript_hash: beacon_record.session.transcript_hash,
     };
-    let validated_beacon_session = validate_global_threshold_beacon_session_v1(
+    validate_global_threshold_beacon_session_v1(
         &beacon_record.session,
         &beacon_binding,
         &beacon_budget,

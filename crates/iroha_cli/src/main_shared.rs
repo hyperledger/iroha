@@ -634,6 +634,10 @@ fn transaction_submission_receipt_fields(
 /// Context inside which commands run
 trait RunContext {
     fn config(&self) -> &Config;
+    /// SCCP values retained from the same original client configuration file.
+    fn sccp_config(&self) -> Result<iroha_sccp_wallet::config::SccpClientConfig> {
+        eyre::bail!("this context has no original SCCP client configuration")
+    }
     /// Whether [`Self::config`] is a real client configuration rather than the offline sentinel
     /// used by configuration-free helpers; only a real configuration may reach the network.
     fn has_client_config(&self) -> bool {
@@ -7378,7 +7382,7 @@ mod settlement {
         /// Expected destination asset from the referenced policy
         #[arg(long)]
         pub destination_asset: AssetDefinitionId,
-        /// Globally unique settlement/replay identifier
+        /// Payer-scoped settlement identity: REFERENCE$CANONICAL_ACCOUNT
         #[arg(long)]
         pub settlement_id: SettlementId,
         /// Destination-currency recipient account or alias
@@ -7456,21 +7460,17 @@ mod settlement {
     #[value(rename_all = "kebab_case")]
     pub enum AtomicityArg {
         AllOrNothing,
-        CommitFirstLeg,
-        CommitSecondLeg,
     }
     impl AtomicityArg {
         fn to_model(self) -> SettlementAtomicity {
             match self {
                 AtomicityArg::AllOrNothing => SettlementAtomicity::AllOrNothing,
-                AtomicityArg::CommitFirstLeg => SettlementAtomicity::CommitFirstLeg,
-                AtomicityArg::CommitSecondLeg => SettlementAtomicity::CommitSecondLeg,
             }
         }
     }
     #[derive(clap::Args, Debug)]
     pub struct DvpArgs {
-        /// Stable identifier shared across the settlement lifecycle
+        /// Payer-scoped settlement identity: REFERENCE$CANONICAL_ACCOUNT
         #[arg(long)]
         pub settlement_id: SettlementId,
         /// Asset definition delivered in exchange
@@ -7506,7 +7506,7 @@ mod settlement {
         /// Execution order for the two legs
         #[arg(long, value_enum, default_value = "delivery-then-payment")]
         pub order: OrderArg,
-        /// Atomicity policy for partial failures (currently only all-or-nothing)
+        /// All-or-nothing settlement policy
         #[arg(long, value_enum, default_value = "all-or-nothing")]
         pub atomicity: AtomicityArg,
         /// Optional MIC to emit under PlcOfSttlm/MktId
@@ -7586,7 +7586,7 @@ mod settlement {
     }
     #[derive(clap::Args, Debug)]
     pub struct PvpArgs {
-        /// Stable identifier shared across the settlement lifecycle
+        /// Payer-scoped settlement identity: REFERENCE$CANONICAL_ACCOUNT
         #[arg(long)]
         pub settlement_id: SettlementId,
         /// Primary currency leg asset definition
@@ -7616,7 +7616,7 @@ mod settlement {
         /// Execution order for the two legs
         #[arg(long, value_enum, default_value = "delivery-then-payment")]
         pub order: OrderArg,
-        /// Atomicity policy for partial failures (currently only all-or-nothing)
+        /// All-or-nothing settlement policy
         #[arg(long, value_enum, default_value = "all-or-nothing")]
         pub atomicity: AtomicityArg,
         /// Optional MIC to emit under PlcOfSttlm/MktId
@@ -7800,7 +7800,7 @@ mod settlement {
                 }
                 validate_instrument_id(fin_instr)?;
                 msg_create("sese.023");
-                msg_set("TxId", isi.settlement_id.to_string().as_bytes());
+                msg_set("TxId", isi.settlement_id.reference().as_ref().as_bytes());
                 msg_set("SttlmTpAndAddtlParams/SctiesMvmntTp", b"DELI");
                 msg_set("SttlmTpAndAddtlParams/Pmt", b"APMT");
                 msg_set(
@@ -7923,7 +7923,7 @@ mod settlement {
         pub fn pvp_to_sese025(isi: &PvpIsi, options: &SettlementPreviewOptions) -> Result<String> {
             iso_scope(|| {
                 msg_create("sese.025");
-                msg_set("TxId", isi.settlement_id.to_string().as_bytes());
+                msg_set("TxId", isi.settlement_id.reference().as_ref().as_bytes());
                 msg_set("SttlmTpAndAddtlParams/SctiesMvmntTp", b"RECE");
                 msg_set("SttlmTpAndAddtlParams/Pmt", b"APMT");
                 msg_set(
@@ -8035,8 +8035,6 @@ mod settlement {
         fn atomicity(atomicity: SettlementAtomicity) -> &'static str {
             match atomicity {
                 SettlementAtomicity::AllOrNothing => "ALL_OR_NOTHING",
-                SettlementAtomicity::CommitFirstLeg => "COMMIT_FIRST_LEG",
-                SettlementAtomicity::CommitSecondLeg => "COMMIT_SECOND_LEG",
             }
         }
         fn map_msg_err(err: &MsgError) -> eyre::Error {
@@ -8097,7 +8095,10 @@ mod settlement {
                     SettlementAtomicity::AllOrNothing,
                 );
                 DvpIsi {
-                    settlement_id: "dvp".parse().unwrap(),
+                    settlement_id: SettlementId::new(
+                        delivery_leg.from().clone(),
+                        "dvp".parse().unwrap(),
+                    ),
                     delivery_leg,
                     payment_leg,
                     plan,
@@ -8130,10 +8131,13 @@ mod settlement {
                 );
                 let plan = SettlementPlan::new(
                     SettlementExecutionOrder::PaymentThenDelivery,
-                    SettlementAtomicity::CommitSecondLeg,
+                    SettlementAtomicity::AllOrNothing,
                 );
                 PvpIsi {
-                    settlement_id: "pvp".parse().unwrap(),
+                    settlement_id: SettlementId::new(
+                        primary_leg.from().clone(),
+                        "pvp".parse().unwrap(),
+                    ),
                     primary_leg,
                     counter_leg,
                     plan,
@@ -8217,7 +8221,10 @@ mod settlement {
                     .parse()
                     .expect("canonical asset id should parse");
                 let dvp = DvpIsi {
-                    settlement_id: "dvp_settlement".parse().unwrap(),
+                    settlement_id: SettlementId::new(
+                        seller.clone(),
+                        "dvp_settlement".parse().unwrap(),
+                    ),
                     delivery_leg: SettlementLeg::new(
                         iroha_data_model::asset::AssetDefinitionId::derive_from_components(
                             DomainId::try_new("wonderland", "universal").unwrap(),
@@ -8235,7 +8242,7 @@ mod settlement {
                     ),
                     plan: SettlementPlan::new(
                         SettlementExecutionOrder::DeliveryThenPayment,
-                        SettlementAtomicity::CommitFirstLeg,
+                        SettlementAtomicity::AllOrNothing,
                     ),
                     metadata: Metadata::default(),
                 };
@@ -8249,10 +8256,7 @@ mod settlement {
                 let parsed = ivm::iso20022::parse_message("sese.023", xml.as_bytes())
                     .expect("parse preview");
                 assert_eq!(parsed.field_text("CashLeg/Ccy"), Some("XXX"));
-                assert_eq!(
-                    parsed.field_text("Plan/Atomicity"),
-                    Some("COMMIT_FIRST_LEG")
-                );
+                assert_eq!(parsed.field_text("Plan/Atomicity"), Some("ALL_OR_NOTHING"));
             }
             #[test]
             fn dvp_preview_applies_hold_partial_mic_and_linkages() {
@@ -9461,9 +9465,9 @@ mod cli_integration_harness_tests {
         let out: Vec<AssetDefinition> = builder.execute_all().expect("exec ok");
         // Expect silver (rank=1), gold (rank=2), then bronze (no rank)
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].id().name().as_ref(), "silver");
-        assert_eq!(out[1].id().name().as_ref(), "gold");
-        assert_eq!(out[2].id().name().as_ref(), "bronze");
+        assert_eq!(out[0].name(), "silver");
+        assert_eq!(out[1].name(), "gold");
+        assert_eq!(out[2].name(), "bronze");
     }
     #[test]
     fn metadata_sorting_asset_defs_desc_end_to_end() {
@@ -9478,9 +9482,9 @@ mod cli_integration_harness_tests {
         let out: Vec<AssetDefinition> = builder.execute_all().expect("exec ok");
         // Descending: gold (2), silver (1), bronze (None)
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].id().name().as_ref(), "gold");
-        assert_eq!(out[1].id().name().as_ref(), "silver");
-        assert_eq!(out[2].id().name().as_ref(), "bronze");
+        assert_eq!(out[0].name(), "gold");
+        assert_eq!(out[1].name(), "silver");
+        assert_eq!(out[2].name(), "bronze");
     }
     #[test]
     fn pagination_and_fetch_size_domains() {

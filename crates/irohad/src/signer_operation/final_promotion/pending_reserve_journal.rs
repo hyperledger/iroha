@@ -8,6 +8,14 @@
 
 use std::path::Path;
 
+/// Distinct retained receipt signer, account signer and observer identities for one Reserve.
+#[derive(Clone, Copy)]
+pub(super) struct ReserveBindings<'a> {
+    pub(super) receipt_binding: &'a SignerCustodyBindingV1,
+    pub(super) account_binding: &'a SignerCustodyBindingV1,
+    pub(super) observer: &'a AccountId,
+}
+
 use iroha_core::query::{
     final_promotion_account_custody::observation::final_promotion_native_signed_entry_frame_v1,
     final_promotion_authority::observation::{
@@ -165,13 +173,16 @@ impl FinalPromotionPendingReserveJournalV1 {
     pub(super) fn stage(
         &self,
         request: SignerFinalPromotionRequestV1,
-        receipt_binding: &SignerCustodyBindingV1,
-        account_binding: &SignerCustodyBindingV1,
-        observer: &AccountId,
+        bindings: ReserveBindings<'_>,
         source_floor: FinalPromotionCheckFloorV1,
         current_check: &VerifiedFinalPromotionCheckV1,
         reserve: &SignedTransaction,
     ) -> Result<RecoveredPendingReserveV1, Error> {
+        let ReserveBindings {
+            receipt_binding,
+            account_binding,
+            observer,
+        } = bindings;
         let reserve_entry = TransactionEntrypoint::External(reserve.clone());
         let signed_reserve = encode_signed_frame(&reserve_entry)?;
         let record = PendingReserveRecordV1 {
@@ -377,8 +388,14 @@ fn validate_record(record: &PendingReserveRecordV1) -> Result<(), Error> {
         || reserve.hash_as_entrypoint().as_ref() != &intent.reserve_entry_hash
         || current.authority() != &intent.observer
         || reserve.authority() != &AccountId::new(intent.account_binding.public_key.clone())
-        || current.network_id().map(|id| id.as_bytes()) != Some(&intent.receipt_binding.network_id)
-        || reserve.network_id().map(|id| id.as_bytes()) != Some(&intent.receipt_binding.network_id)
+        || current
+            .network_id()
+            .map(iroha_data_model::NetworkId::as_bytes)
+            != Some(&intent.receipt_binding.network_id)
+        || reserve
+            .network_id()
+            .map(iroha_data_model::NetworkId::as_bytes)
+            != Some(&intent.receipt_binding.network_id)
         || &current_instruction.deployment_id != receipt_deployment
         || &reserve_instruction.deployment_id != receipt_deployment
         || current_instruction.expected_control_revision

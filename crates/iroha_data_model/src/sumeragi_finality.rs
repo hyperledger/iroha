@@ -952,11 +952,14 @@ impl VerifiedSumeragiBlock {
             .encode_wire()
             .map_err(malformed)
     }
-    /// Verify a successful external transaction's exact input/output membership and signature.
+    /// Authenticate an external transaction's exact input and execution outcome.
     ///
+    /// Both successful and rejected results are authenticated. A rejected result
+    /// closes this signed carrier only; it grants no successful-payment receipt.
+    /// The signed input and certified block must both name the selected network.
     /// # Errors
-    /// Rejection, foreign network, invalid signature, substituted output or invalid inclusion.
-    pub fn verify_committed_transaction(
+    /// Genesis, foreign network, invalid signature, substituted output or invalid inclusion.
+    pub fn verify_transaction_execution(
         &self,
         network: &NetworkId,
         committed: &CommittedTransaction,
@@ -971,10 +974,26 @@ impl VerifiedSumeragiBlock {
             ));
         };
         need(
-            committed.result().is_ok()
+            self.commitment().schedule.current.network_id == *network
                 && transaction.network_id() == Some(network)
                 && transaction.verify_signature().is_ok()
                 && committed.verify_inclusion_in_block(&self.0.block),
+            "transaction does not match authenticated execution",
+        )
+    }
+
+    /// Verify a successful external transaction's exact input/output membership and signature.
+    ///
+    /// # Errors
+    /// Rejection, foreign network, invalid signature, substituted output or invalid inclusion.
+    pub fn verify_committed_transaction(
+        &self,
+        network: &NetworkId,
+        committed: &CommittedTransaction,
+    ) -> Result<(), FinalityError> {
+        self.verify_transaction_execution(network, committed)?;
+        need(
+            committed.result().is_ok(),
             "transaction does not match successful authenticated execution",
         )
     }
@@ -1127,6 +1146,12 @@ impl SumeragiFinalityVerifier {
     #[must_use]
     pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
         self.genesis_metadata.sumeragi_context.root_scope
+    }
+    /// Highest decision in the authenticated contiguous prefix, if any.
+    /// This is local verified progress, never an unauthenticated server height.
+    #[must_use]
+    pub fn authenticated_height(&self) -> Option<u64> {
+        self.decisions.last_key_value().map(|(height, _)| *height)
     }
     /// Admit exactly the next proof into the authenticated contiguous prefix.
     ///

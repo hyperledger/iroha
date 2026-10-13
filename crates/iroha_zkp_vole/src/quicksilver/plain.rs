@@ -1,5 +1,7 @@
 //! The plain evaluator: constraints as values on the witness itself.
 
+use zeroize::Zeroize;
+
 use super::{ConstraintSystem, Degree, QuickSilverError, Stream};
 use crate::field::LambdaField;
 
@@ -16,6 +18,14 @@ impl<F> core::fmt::Debug for PlainValue<F> {
         f.debug_struct("PlainValue")
             .field("degree", &self.degree)
             .finish_non_exhaustive()
+    }
+}
+
+impl<F: Zeroize> Zeroize for PlainValue<F> {
+    /// Erase the value and reset the degree: the constant 0 remains.
+    fn zeroize(&mut self) {
+        self.value.zeroize();
+        self.degree = Degree::ZERO;
     }
 }
 
@@ -113,7 +123,7 @@ impl<'a, F: LambdaField> Plain<'a, F> {
 
     /// The field value inside `value`.
     #[cfg(test)]
-    pub(super) fn value_of(&self, value: PlainValue<F>) -> F {
+    pub(super) fn value_of(value: PlainValue<F>) -> F {
         value.value
     }
 }
@@ -170,10 +180,10 @@ impl<F: LambdaField> ConstraintSystem for Plain<'_, F> {
         }
         let non_zero = !value.value.is_zero();
         self.violated |= non_zero;
-        if let Some(indices) = &mut self.indices {
-            if non_zero {
-                indices.push(index);
-            }
+        if let Some(indices) = &mut self.indices
+            && non_zero
+        {
+            indices.push(index);
         }
         #[cfg(test)]
         self.recorded.push(value.value);
@@ -194,12 +204,25 @@ mod tests {
         for index in 0..16 {
             let expected = F::from_bit(u8::from([1, 2, 15].contains(&index)));
             assert_eq!(system.coordinate(index), Some(expected));
-            assert_eq!(system.value_of(system.witness(index)), expected);
+            assert_eq!(Plain::<F>::value_of(system.witness(index)), expected);
             assert_eq!(system.witness(index).degree, Degree::ONE);
         }
         assert_eq!(system.coordinate(16), None);
         assert_eq!(system.witness(16).degree, Degree::BadIndex);
         assert!(format!("{:?}", system.witness(0)).contains("degree"));
+    }
+
+    #[test]
+    fn erasing_a_plain_value_leaves_the_constant_zero() {
+        let elements = [F::from_u64(3), F::from_u64(5)];
+        let system = Plain::<F>::with_elements(&elements, 2);
+        let mut product = system.mul(system.witness(0), system.witness(1));
+        assert_eq!(product.value, F::from_u64(15));
+        product.zeroize();
+        assert_eq!((product.value, product.degree), (F::ZERO, Degree::ZERO));
+        let mut missing = system.witness(2);
+        missing.zeroize();
+        assert_eq!(missing.degree, Degree::ZERO);
     }
 
     #[test]

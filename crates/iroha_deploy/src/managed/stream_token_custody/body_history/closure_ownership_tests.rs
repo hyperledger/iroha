@@ -166,14 +166,14 @@ fn owned_closed_history_moves_after_fresh_wallet_and_source_checks_with_active_r
         // Native retained handles, rather than matching path strings, must close the call.
         struct ReplacedDirectory {
             original: std::path::PathBuf,
-            held: std::path::PathBuf,
+            saved_ancestor: std::path::PathBuf,
         }
         impl Drop for ReplacedDirectory {
             fn drop(&mut self) {
                 if self.original.exists() {
                     std::fs::remove_dir(&self.original).unwrap();
                 }
-                std::fs::rename(&self.held, &self.original).unwrap();
+                std::fs::rename(&self.saved_ancestor, &self.original).unwrap();
             }
         }
         let owned = oldest.test_owned_closure_history().unwrap();
@@ -184,9 +184,12 @@ fn owned_closed_history_moves_after_fresh_wallet_and_source_checks_with_active_r
                 let value = inspect(attempt)?;
                 if calls.get() == original_calls {
                     let original = history.bodies[0].directory.path().to_path_buf();
-                    let held = original.with_extension("closure-owner-original");
-                    std::fs::rename(&original, &held).unwrap();
-                    let restore = ReplacedDirectory { original, held };
+                    let saved_ancestor = original.with_extension("closure-owner-original");
+                    std::fs::rename(&original, &saved_ancestor).unwrap();
+                    let restore = ReplacedDirectory {
+                        original,
+                        saved_ancestor,
+                    };
                     PrivateDirectory::open_or_create(&restore.original).unwrap();
                     replacement = Some(restore);
                     return Err(invalid("ordinary closure wallet refusal"));
@@ -407,12 +410,13 @@ fn consumed_receipt_closes_one_native_census_and_refuses_oldest_post_callback_su
     {
         struct RestoredAncestor {
             path: std::path::PathBuf,
-            held: std::path::PathBuf,
+            saved_ancestor: std::path::PathBuf,
         }
         impl Drop for RestoredAncestor {
             fn drop(&mut self) {
                 std::fs::remove_dir(&self.path).expect("remove only empty test replacement");
-                std::fs::rename(&self.held, &self.path).expect("restore exact native ancestor");
+                std::fs::rename(&self.saved_ancestor, &self.path)
+                    .expect("restore exact native ancestor");
             }
         }
         for ordinary_error in [false, true] {
@@ -427,10 +431,14 @@ fn consumed_receipt_closes_one_native_census_and_refuses_oldest_post_callback_su
                             let value = inspect(attempt)?;
                             if calls.get() == old_calls {
                                 let path = history.bodies[0].directory.path().to_owned();
-                                let held = path.with_extension("receipt-original-ancestor");
-                                assert!(!held.exists());
-                                std::fs::rename(&path, &held).unwrap();
-                                let restore = RestoredAncestor { path, held };
+                                let saved_ancestor =
+                                    path.with_extension("receipt-original-ancestor");
+                                assert!(!saved_ancestor.exists());
+                                std::fs::rename(&path, &saved_ancestor).unwrap();
+                                let restore = RestoredAncestor {
+                                    path,
+                                    saved_ancestor,
+                                };
                                 PrivateDirectory::open_or_create(&restore.path).unwrap();
                                 replacement = Some(restore);
                                 if ordinary_error {

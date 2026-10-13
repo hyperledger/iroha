@@ -35,7 +35,7 @@ fn config() -> HeightConfig {
 }
 
 fn result_of(parent_result: &Hash32, block: &AvailableBody) -> Hash32 {
-    match reference_exec(parent_result, &block.payload().as_slice()) {
+    match reference_exec(parent_result, block.payload().as_slice()) {
         ExecOutcome::Valid(r) => r,
         other => panic!("{other:?}"),
     }
@@ -523,6 +523,7 @@ impl Executor for Panicking {
         &mut self,
         _: &AvailableBody,
         _: &Hash32,
+        _: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError> {
         panic!("boom")
     }
@@ -609,6 +610,7 @@ struct Overlay {
     prepared: Option<Hash32>,
     fail_commits: u32,
     calls: Vec<&'static str>,
+    certified_calls: Vec<bool>,
 }
 
 impl Overlay {
@@ -618,6 +620,7 @@ impl Overlay {
             prepared: None,
             fail_commits: 0,
             calls: Vec::new(),
+            certified_calls: Vec::new(),
         }
     }
 
@@ -625,6 +628,33 @@ impl Overlay {
         self.prepared = None;
         self.calls.push(call);
     }
+}
+
+#[test]
+fn certified_execution_flag_reaches_the_application_without_inference() {
+    let mut executor = Overlay::new();
+    let blocks = FakeBlocks::default();
+    let (block, block_hash, _) = child(1, (G, RG), 1);
+    let block = std::sync::Arc::new(block);
+    for certified in [false, true, false, true] {
+        assert!(matches!(
+            run_exec(
+                &mut executor,
+                &blocks,
+                ExecOp::Execute {
+                    block: block.clone(),
+                    block_hash,
+                    certified
+                },
+            ),
+            ExecDone::Executed(Ok(Some(ExecOutcome::Valid(_))))
+        ));
+    }
+    assert_eq!(
+        executor.certified_calls,
+        [false, true, false, true],
+        "certified Execute flag reaches the application unchanged"
+    );
 }
 
 impl Executor for Overlay {
@@ -652,9 +682,11 @@ impl Executor for Overlay {
         &mut self,
         block: &AvailableBody,
         block_hash: &Hash32,
+        certified: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError> {
+        self.certified_calls.push(certified);
         self.other("execute");
-        self.inner.execute(block, block_hash)
+        self.inner.execute(block, block_hash, certified)
     }
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
         self.other("discard");
@@ -1261,7 +1293,7 @@ fn all_validator_control_waits_for_applied_parent_and_shares_do_not_starve_work(
 fn application_control_ingress_has_a_hard_protocol_cap() {
     let mut sched = ExecSched::new(0, Backoff::default(), super::test_registrations());
     sched.retain_control_context(Some((partial_context(1), 0)));
-    for index in 0..iroha_sumeragi::types::MAX_COMMITTEE_SIZE + 1 {
+    for index in 0..=iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
         let mut bytes = vec![0xAB; 32];
         bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
         sched.receive_control(PublicKey::new(bytes).unwrap(), partial(1));

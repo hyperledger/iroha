@@ -47,6 +47,7 @@ impl RetainedSccpAnchors {
     ///
     /// # Errors
     /// Rejects complete/overfull stored chunks, original capacity refusal or physical failure.
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &[SccpAnchorV1],
         budget: &AllocationBudget,
@@ -87,6 +88,7 @@ impl RetainedSccpAnchors {
     ///
     /// # Errors
     /// Rejects a foreign pool or overfull chunk; preserves original allocation refusal.
+    #[cfg(test)]
     pub(crate) fn try_appended(
         &self,
         anchor: SccpAnchorV1,

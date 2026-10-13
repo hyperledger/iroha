@@ -216,9 +216,6 @@ pub(super) struct HistoricalProviderBootstrap {
     gateway: ManagedTransactionFinality,
 }
 impl HistoricalProviderBootstrap {
-    pub(super) fn provider_id(&self) -> ProviderId {
-        self.provider_id
-    }
     pub(super) fn custody_enrollment(&self) -> ManagedTransactionFinality {
         self.custody_enrollment
     }
@@ -321,9 +318,31 @@ pub(super) enum ServiceBootstrapProgress {
     },
     Funding {
         provider_id: ProviderId,
-        progress: ProviderFundingProgress,
+        progress: Box<ProviderFundingProgress>,
     },
-    Complete(HistoricalServiceBootstrap),
+    Complete(Box<HistoricalServiceBootstrap>),
+}
+
+impl ServiceBootstrapProgress {
+    /// Accept only original complete history; pending details remain diagnostic observations.
+    pub(super) fn require_complete(
+        self,
+        message: &'static str,
+    ) -> Result<Box<HistoricalServiceBootstrap>> {
+        match self {
+            Self::Complete(history) => Ok(history),
+            Self::Pending { step, status } => Err(super::Error::Invalid(format!(
+                "{message}: {step:?}: {status:?}"
+            ))),
+            Self::Funding {
+                provider_id,
+                progress,
+            } => Err(super::Error::Invalid(format!(
+                "{message}: provider {provider_id:?}: {}",
+                progress.diagnostic()
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -343,6 +362,19 @@ impl ManagedServiceBootstrap {
         Ok(Self {
             authority: ServiceAuthority::open_network(prepared, NetworkPurpose::ServiceBootstrap)?,
         })
+    }
+
+    /// Consume the authorized startup owner into the separately locked renderer.
+    /// The native creator freshly closes the original profile on entry and ordinary exit;
+    /// only immutable constructor material is shared, never authorization or current state.
+    /// Consuming `self` releases Bootstrap on success and error before catalog preparation
+    /// can reopen that purpose. Active decode budgets and owned profiles cold-open as usual.
+    pub(super) fn into_generated_runtime(
+        self,
+    ) -> Result<super::generated_service_runtime::GeneratedServiceRuntime> {
+        super::generated_service_runtime::GeneratedServiceRuntime::open_from_original(
+            &self.authority,
+        )
     }
 
     /// Open only an existing bootstrap purpose through the parent's original profile.
@@ -406,32 +438,29 @@ impl ManagedServiceBootstrap {
             }
             None => None,
         };
-        let (directory, original) = match existing {
-            Some((directory, original)) => {
-                if original.fees != fees {
-                    return Err(invalid("original bootstrap fee authorization changed"));
-                }
-                (directory, original)
+        let (directory, original) = if let Some((directory, original)) = existing {
+            if original.fees != fees {
+                return Err(invalid("original bootstrap fee authorization changed"));
             }
-            None => {
-                let original = Original::select(&self.authority, fees)?;
-                // Missing parent custody cannot be reconstructed around retained child work.
-                // Inspect every exact child purpose before creating even the initial directory.
-                self.validate_child_inventory(&original.policies, None)?;
-                #[cfg(test)]
-                tests::after_read(tests::ReadStage::OriginalInventory);
-                authorization::require_active(&cancelled)?;
-                require_deadline(deadline)?;
-                let directory = self.authority.directory.ensure_child("initial")?;
-                require_empty(&directory)?;
-                let bytes = encode(&original, MAX_ORIGINAL_BYTES)?;
-                #[cfg(test)]
-                tests::after_read(tests::ReadStage::OriginalEncoding);
-                authorization::require_active(&cancelled)?;
-                require_deadline(deadline)?;
-                directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
-                (directory, original)
-            }
+            (directory, original)
+        } else {
+            let original = Original::select(&self.authority, fees)?;
+            // Missing parent custody cannot be reconstructed around retained child work.
+            // Inspect every exact child purpose before creating even the initial directory.
+            self.validate_child_inventory(&original.policies, None)?;
+            #[cfg(test)]
+            tests::after_read(tests::ReadStage::OriginalInventory);
+            authorization::require_active(&cancelled)?;
+            require_deadline(deadline)?;
+            let directory = self.authority.directory.ensure_child("initial")?;
+            require_empty(&directory)?;
+            let bytes = encode(&original, MAX_ORIGINAL_BYTES)?;
+            #[cfg(test)]
+            tests::after_read(tests::ReadStage::OriginalEncoding);
+            authorization::require_active(&cancelled)?;
+            require_deadline(deadline)?;
+            directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
+            (directory, original)
         };
         authorization::validate_inventory(&directory, &original)?;
         #[cfg(test)]

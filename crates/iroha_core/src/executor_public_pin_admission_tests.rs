@@ -71,9 +71,11 @@ impl Fixture {
             )],
             [],
         );
-        let mut governance = Governance::default();
-        governance.sorafs_pin_fee_asset_id = fee_asset.clone();
-        governance.sorafs_pin_fee_treasury_account = treasury.clone();
+        let mut governance = Governance {
+            sorafs_pin_fee_asset_id: fee_asset.clone(),
+            sorafs_pin_fee_treasury_account: treasury.clone(),
+            ..Default::default()
+        };
         governance.sorafs_pin_policy.min_replicas_floor = 3;
         // Paid registration is valid while approval is pending. This exercises the genuine
         // council gate without injecting provider assignments or bypassing replication policy.

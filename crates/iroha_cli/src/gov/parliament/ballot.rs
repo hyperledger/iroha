@@ -1280,21 +1280,6 @@ impl RelayArgs {
     }
 }
 
-/// Verify the published record files against `source` and return the chunk size, the accepted
-/// prefix it continues and the `FreezeTimedOvnCorpus` instruction of the next chunk.
-///
-/// # Errors
-///
-/// Fails for unreadable or foreign records, a ballot that no longer accepts ballots, or records
-/// that do not continue the accepted prefix.
-pub(crate) fn relay_instruction(
-    source: &Client,
-    ballot_attempt_id: BallotAttemptId,
-    record_paths: &[PathBuf],
-) -> Result<(usize, u32, InstructionBox)> {
-    relay_instruction_from(source, ballot_attempt_id, record_paths)
-}
-
 fn relay_instruction_from<S: BallotSource>(
     source: &S,
     ballot_attempt_id: BallotAttemptId,

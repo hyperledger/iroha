@@ -286,7 +286,7 @@ pub fn build_checkpoint(
     let genesis = proof_from_chain(&chain, 1)?;
     let mut verifier = SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &view.chain_id().to_string(),
+        view.chain_id().as_ref(),
         genesis.committee.clone(),
     )?;
     for at in 1..=height {
@@ -303,7 +303,7 @@ pub fn build_checkpoint(
         verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             view.network_id(),
-            &view.chain_id().to_string(),
+            view.chain_id().as_ref(),
         )?;
     }
     Err(ProofError::UnverifiedCommittee(height))
@@ -923,7 +923,7 @@ mod tests {
         let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &chain.network_id(),
-            &view.chain_id().to_string(),
+            view.chain_id().as_ref(),
         )
         .unwrap();
         let next = build_proof(&view, 3).unwrap();

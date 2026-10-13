@@ -238,7 +238,7 @@ trait Strategy {
     fn count_matches(
         &mut self,
         hash: &HashOf<IvmBytecode>,
-        expected: &NonZeroU64,
+        expected: NonZeroU64,
     ) -> Result<bool, Self::Error>;
     fn empty(&mut self) -> Result<bool, Self::Error>;
 }
@@ -270,7 +270,7 @@ impl Strategy for OrdinaryStrategy {
     fn count_matches(
         &mut self,
         hash: &HashOf<IvmBytecode>,
-        expected: &NonZeroU64,
+        expected: NonZeroU64,
     ) -> Result<bool, String> {
         Ok(self.0.remove(hash) == Some(expected.get()))
     }
@@ -357,7 +357,7 @@ impl Strategy for CheckedStrategy {
     fn count_matches(
         &mut self,
         hash: &HashOf<IvmBytecode>,
-        expected: &NonZeroU64,
+        expected: NonZeroU64,
     ) -> Result<bool, Self::Error> {
         self.work.prepay(3)?; // helper, fixed iterator construction and prepaid terminal next
         let mut found = None;
@@ -434,7 +434,7 @@ fn contract<S: Strategy>(
     if !matches {
         return Err(strategy.failure(SemanticFailure::Code));
     }
-    let matches = strategy.count_matches(key, &entry.count)?;
+    let matches = strategy.count_matches(key, entry.count)?;
     strategy.control(1)?;
     if !matches {
         return Err(strategy.failure(SemanticFailure::Count));

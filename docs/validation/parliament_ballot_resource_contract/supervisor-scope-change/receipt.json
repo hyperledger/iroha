@@ -1,0 +1,33 @@
+{
+  "time_utc": "2026-10-13T05:41:53.615943+00:00",
+  "change": "Require exact complete reviewed compiled-source scope in build receipt; reject omitted and extra entries. Explicitly document receipt prerequisite.",
+  "source_changes": {
+    "scripts/check_parliament_ballot_resource_contract.py": {
+      "before_sha256": "8ae4e8970b3543ab3ed564c6ba91c530d19a69fc6eea2bbc7521a9603b4c36ce",
+      "after_sha256": "545a0655dd83dd5e19bdc428d90841dbf416afd0c523eec3992fba6bd15ade02",
+      "before_template": "docs/validation/parliament_ballot_resource_contract/supervisor-scope-change/campaign-driver.before.py.template"
+    },
+    "scripts/tests/parliament_ballot_resource_contract_test.py": {
+      "before_sha256": "d8fddc25c5a3398e477a2b532ba178584aecc683d8dfbd5c1164d0dd7d4affee",
+      "after_sha256": "2e7c95149e746b5bf666474befacc937a7faed4eb4bfbecb9af12b36475e93dd",
+      "before_template": "docs/validation/parliament_ballot_resource_contract/supervisor-scope-change/campaign-tests.before.py.template"
+    }
+  },
+  "original_campaign_source_entries_reconstructed": 260,
+  "compiled_source_entries_matched": 231,
+  "retained_observations_revalidated": 120,
+  "native_calls_rerun": 0,
+  "test_command": [
+    "python3.11",
+    "-m",
+    "pytest",
+    "scripts/tests/parliament_ballot_resource_contract_test.py",
+    "-q"
+  ],
+  "test_exit": 0,
+  "tests": 35,
+  "complete_workspace_certificate": false,
+  "physical_cost_calibrated": false,
+  "profile_qualified": false,
+  "scope": "Pure supervisor admission hardening and revalidation of retained observations, not a new worker measurement. Old campaign/report sources are reconstructed with explicit templates; no old records are repinned."
+}

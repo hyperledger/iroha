@@ -113,7 +113,11 @@ fn soracloud_response_bounds_match_empty_response_shapes() {
 }
 #[test]
 fn soracloud_response_bounds_match_maximal_host_response_shapes() {
-    let payload_bytes = vec![0xA5; SORACLOUD_HOST_VARIABLE_RESPONSE_MAX_BYTES];
+    let payload_bytes = vec![
+        0xA5;
+        usize::try_from(SORACLOUD_HOST_VARIABLE_RESPONSE_MAX_BYTES)
+            .expect("response bound fits host usize")
+    ];
     assert_soracloud_response_bound_matches(
         SoracloudHostOperationV1::ReadConfig,
         SoracloudHostResponsePayloadV1::ReadConfig(SoracloudReadConfigResponseV1 {

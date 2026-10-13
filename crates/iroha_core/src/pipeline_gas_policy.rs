@@ -79,6 +79,11 @@ impl StateParameters {
     /// Validate and atomically update one original parameter and its derived policies.
     ///
     /// Errors preserve the original decoder refusal and leave both values unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns the decoding or validation error for a malformed custom gas or
+    /// pipeline policy parameter. The original parameters and policies remain unchanged.
     pub fn set_parameter(
         &mut self,
         parameter: iroha_data_model::parameter::Parameter,
@@ -128,6 +133,11 @@ impl StateParameters {
     }
 
     /// Replace the canonical input only after its entire projection validates.
+    ///
+    /// # Errors
+    ///
+    /// Returns the decoding or validation error for malformed gas or pipeline
+    /// policies in the replacement parameters, leaving this value unchanged.
     pub fn replace(&mut self, parameters: Parameters) -> Result<(), norito::Error> {
         *self = Self::try_from(parameters)?;
         Ok(())
@@ -397,8 +407,10 @@ mod tests {
             assert_eq!(owner, before);
         });
         owner.set_parameter(update).unwrap();
-        let mut local = iroha_config::parameters::actual::Pipeline::default();
-        local.ivm_max_cycles_upper_bound = std::num::NonZeroU64::new(123).unwrap();
+        let local = iroha_config::parameters::actual::Pipeline {
+            ivm_max_cycles_upper_bound: std::num::NonZeroU64::new(123).unwrap(),
+            ..Default::default()
+        };
         let effective = norito::with_decode_limits_scope(zero, || {
             crate::pipeline_validity_policy::effective_pipeline(local, &owner)
         });

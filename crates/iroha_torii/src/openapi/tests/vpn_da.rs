@@ -433,7 +433,7 @@ fn vpn_openapi_schemas_are_strict_and_use_canonical_quantities() {
 }
 #[test]
 fn sorafs_tag_documents_exact_canonical_quantity_contract() {
-    let tags = tags_section().as_array().expect("tags array").to_vec();
+    let tags = tags_section().as_array().expect("tags array").clone();
     let description = tags
         .iter()
         .find(|tag| tag.get("name").and_then(Value::as_str) == Some("SoraFS"))

@@ -103,7 +103,7 @@ impl RetainedGatewayCompliancePlan {
     }
     /// Maximum lifetime of one generated catalog, shared with its sole signing owner.
     #[must_use]
-    pub fn catalog_validity_seconds(&self) -> u64 {
+    pub fn catalog_validity_seconds() -> u64 {
         publication::GENERATED_CATALOG_VALIDITY_SECONDS
     }
     /// Original bounded plan hash committed in manager metadata by signed genesis.

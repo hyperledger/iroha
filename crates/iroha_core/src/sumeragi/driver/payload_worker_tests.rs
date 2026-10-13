@@ -151,7 +151,7 @@ pub(super) struct Fixture {
     pub(super) signers: Vec<Arc<dyn Signer>>,
     pub(super) blocks: Blocks,
     pub(super) bodies: FileBodyStore,
-    _dir: tempfile::TempDir,
+    directory: tempfile::TempDir,
 }
 impl Fixture {
     pub(super) fn new() -> Self {
@@ -195,7 +195,7 @@ impl Fixture {
             signers,
             blocks,
             bodies,
-            _dir: dir,
+            directory: dir,
         }
     }
     pub(super) fn worker(&self) -> PayloadWorker {
@@ -210,7 +210,7 @@ impl Fixture {
     }
     fn install_committed_body(&mut self) {
         let committed = FileBodyStore::open(
-            &self._dir.path().join("committed"),
+            &self.directory.path().join("committed"),
             &self.source.instance(),
             self.crypto.clone(),
             BodyLimits::default(),
@@ -666,6 +666,15 @@ fn signing_refusal_retains_author_and_reports_local_fault_before_retry() {
     impl Signer for RefusingSigner {
         fn public_key(&self) -> &PublicKey {
             self.inner.public_key()
+        }
+        fn sign_prepare(
+            &self,
+            context: &iroha_sumeragi::crypto::PrepareSigningContext<'_>,
+        ) -> Result<Signature, SigningError> {
+            if self.refused.load(Ordering::SeqCst) {
+                return Err(SigningError::Refused);
+            }
+            self.inner.sign_prepare(context)
         }
         fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
             if self.refused.load(Ordering::SeqCst) {

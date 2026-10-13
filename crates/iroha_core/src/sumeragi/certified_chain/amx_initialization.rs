@@ -141,7 +141,7 @@ impl<'v, V: StateReadOnly> AmxChainInitialization<'v, V> {
             instance,
             root_scope,
         );
-        chain._amx_genesis_authentication = self.authentication.take();
+        chain.amx_genesis_authentication = self.authentication.take();
         // Retain the very same bytes/descriptor after body delivery. Prefix retries lend
         // chain.genesis and recheck this source; they never call complete a second time.
         chain.amx_genesis_source = self.acquisition.take();

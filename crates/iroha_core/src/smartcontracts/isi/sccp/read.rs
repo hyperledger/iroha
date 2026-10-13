@@ -6,30 +6,22 @@
 //! detail, history paths) live in [`views`]; history paths go through the validated `O(log n)`
 //! node cache of `history`.
 //!
-//! The certificate projection borrows an authenticated native Global receipt and preserves
-//! its original finality header, result-body digest, Sumeragi `CommitQC` and historical keys
-//! under the caller's original allocation pool. The message producer joins that original
-//! receipt to payload, block and history paths with one complete request admission. Durable
-//! history nodes retain their separate original cache pool; no process-global cache exists.
-//!
-//! TODO(TT-A2): close request-funded native receipt acquisition before connecting message
-//! HTTP selectors to these producers. Current control records retain the exact authenticated
-//! effect cause; record presence alone is never proof authority.
+//! Native proof queries acquire compact original Global receipts through the caller's
+//! request-funded source reader and preserve the original finality header, result-body
+//! digest, Sumeragi `CommitQC` and historical keys. Message and control proofs bind their
+//! recorded inputs to that receipt's block and history commitments under one retained
+//! response admission. Control causes retain the exact governance certificate and effect;
+//! record presence alone is never proof authority. Durable history nodes retain their
+//! separate original cache pool; no process-global cache exists.
 
-mod certificate;
+mod coalition;
 mod committee;
-mod control;
 mod history;
-mod membership;
-mod message;
+pub mod native;
 mod views;
 
-pub use certificate::{RetainedSccpCertificate, SccpCertificateReadError, certificate_from_native};
 pub use committee::{RetainedSccpGenerationView, committee, current_committee};
-pub use control::{RetainedSccpControlProof, control_proof_from_native};
 pub use history::funded::{RetainedSccpHistoryPath, SccpHistoryNodeCache, SccpHistoryReadError};
-pub use membership::SccpProofReadError;
-pub use message::{RetainedSccpMessageProof, message_proof_from_native};
 pub use views::*;
 
 use super::{light_clients, store};
@@ -57,10 +49,28 @@ pub enum SccpReadError {
 
 /// Assemble `GET /v1/sccp/capabilities` (§6).
 ///
-/// TODO: Torii work package (TT-A1): the coalition floor, forgery-hold summary, seated panel
-/// ids and launch-gate state of §6 still need their committed owners.
-#[must_use]
-pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
+/// Includes the current generation's actual rounded seizable collateral. Original
+/// registration/custody inconsistencies remain unavailable, never a reported zero.
+/// # Errors
+/// Preserves original source, cancellation, deadline and request-pool refusals.
+pub fn capabilities(
+    view: &(impl StateReadOnly + ?Sized),
+    budget: &iroha_allocation::AllocationBudget,
+    control: native::SccpNativeReadControl<'_>,
+    paths: impl ExactSizeIterator<Item = &'static str> + Clone,
+) -> Result<native::SccpNativeDataV1<SccpCapabilitiesV1>, native::SccpNativeReadError> {
+    coalition::capabilities(view, budget, control, paths)
+}
+
+fn capabilities_fields(
+    view: &(impl StateReadOnly + ?Sized),
+    coalition_slashable_floor: Option<iroha_primitives::numeric::Quantity>,
+    chain_id: String,
+    profiles: Vec<api::SccpChainProfileViewV1>,
+    light_client_profiles: Vec<SccpLcProfileStatusV1>,
+    profiles_policy_hash: [u8; 32],
+    path_templates: Vec<String>,
+) -> SccpCapabilitiesV1 {
     let world = view.world();
     let network_id = *view.network_id().as_bytes();
     let committed_height = u64::try_from(view.height()).unwrap_or(u64::MAX);
@@ -85,20 +95,26 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
             start_height: generation.start_height,
             deadline_ms: generation.deadline_ms,
         }),
+        coalition_slashable_floor,
         liability_clock: *store::liability_clock::get(world),
+        forgery_max_generation: store::forgery_max_generation(world),
+        pause_panel_ids: store::pause_panel::get(world).as_ref().map(|panel| {
+            api::SccpPausePanelIdsV1 {
+                primary: panel.primary_id,
+                backup: panel.backup_id,
+            }
+        }),
+        parliament_binding_ballot_available:
+            super::parliament_iface::parliament_binding_ballot_available(),
+        reconciliation_available: super::governance::sccp_reconciliation_available(),
         parameters: *store::parameters::get(world),
         committed_height,
-        light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
-        chain_id: view.chain_id().to_string(),
-        profiles: compiled_profiles(),
-        profiles_policy_hash: light_clients::active_profiles_at(
-            world,
-            committed_height.saturating_add(1),
-            &SccpLcProfileCatalogV1::compiled(),
-        )
-        .policy_hash(),
+        light_client_profiles,
+        chain_id,
+        profiles,
+        profiles_policy_hash,
         limits: SccpReadLimitsV1::v1(),
-        path_templates: Vec::new(),
+        path_templates,
     }
 }
 
@@ -139,6 +155,7 @@ pub fn light_client_profiles(
 /// Return every installed light client (`GET /v1/sccp/light-clients`, §4.13); each record
 /// names its network in `params.network`.
 #[must_use]
+#[cfg(test)]
 pub fn light_clients(
     world: &(impl WorldReadOnly + ?Sized),
 ) -> Vec<iroha_data_model::sccp::light_client::SccpLightClientV1> {
@@ -151,19 +168,28 @@ pub fn light_clients(
 /// (`GET /v1/sccp/light-clients/{network}/sets`, §4.13.1). Wallets pick the set covering a proof
 /// and its successor from them.
 #[must_use]
+#[cfg(test)]
 pub fn light_client_sets(
     world: &(impl WorldReadOnly + ?Sized),
     network: iroha_data_model::bridge::SccpNetworkV1,
 ) -> Vec<iroha_data_model::sccp::light_client::SccpLcConsensusSetV1> {
     store::light_client_sets::iter(world)
         .filter(|((set_network, _), _)| *set_network == network)
-        .map(|(_, set)| set.clone())
+        .map(
+            |(_, set)| iroha_data_model::sccp::light_client::SccpLcConsensusSetV1 {
+                set_id: set.set_id,
+                valid_from_source_height: set.valid_from_source_height,
+                superseded_at_source_ms: set.superseded_at_source_ms,
+                set_bytes: set.bytes().to_vec(),
+            },
+        )
         .collect()
 }
 
 /// Return every open SCCP governance proposal, oldest first, with its admissibility and newest
 /// Parliament attempt (`GET /v1/sccp/governance/proposals`, §4.14.5 item 4).
 #[must_use]
+#[cfg(test)]
 pub fn governance_proposals(
     world: &(impl WorldReadOnly + ?Sized),
 ) -> Vec<iroha_sccp::api::SccpGovernanceProposalStatusV1> {
@@ -201,6 +227,7 @@ pub fn governance_proposals(
 /// Return every nonzero SCCP governance revision (`GET /v1/sccp/governance`, §4.14.3); an
 /// absent subject is at revision 0.
 #[must_use]
+#[cfg(test)]
 pub fn governance_revisions(
     world: &(impl WorldReadOnly + ?Sized),
 ) -> Vec<iroha_data_model::sccp::governance::SccpGovernanceBaseRevisionV1> {
@@ -215,6 +242,23 @@ mod tests {
     use crate::smartcontracts::isi::sccp::test_support::{blank_state, header};
     use iroha_data_model::sccp::params::SccpParametersV1;
 
+    fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
+        let budget = iroha_allocation::AllocationBudget::new(32_768);
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        super::capabilities(
+            view,
+            &budget,
+            native::SccpNativeReadControl {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+                stop: &stop,
+            },
+            std::iter::empty(),
+        )
+        .unwrap()
+        .data()
+        .clone()
+    }
+
     #[test]
     fn capabilities_report_identity_parameters_and_limits() {
         let state = blank_state();
@@ -224,7 +268,12 @@ mod tests {
         assert_eq!(empty.parameters, None);
         assert_eq!(empty.network_id, *stx.network_id().as_bytes());
         assert_eq!(empty.current_generation, None);
+        assert_eq!(empty.coalition_slashable_floor, None);
         assert_eq!(empty.liability_clock, 0);
+        assert_eq!(empty.forgery_max_generation, None);
+        assert_eq!(empty.pause_panel_ids, None);
+        assert!(!empty.parliament_binding_ballot_available);
+        assert!(!empty.reconciliation_available);
         assert_eq!(empty.finality, api::SccpFinalityConstantsV1::current());
         assert_eq!(
             empty.consensus_instance,
@@ -240,6 +289,15 @@ mod tests {
         let json = norito::json::to_value(&empty).unwrap();
         assert!(json.get("domain_separator").is_none());
         assert_eq!(empty.limits, SccpReadLimitsV1::v1());
+        let encoded = norito::codec::Encode::encode(&empty);
+        assert_eq!(
+            <SccpCapabilitiesV1 as norito::codec::Decode>::decode(&mut encoded.as_slice()).unwrap(),
+            empty
+        );
+        assert_eq!(
+            norito::json::from_value::<SccpCapabilitiesV1>(json).unwrap(),
+            empty
+        );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         let reported = capabilities(&stx);
         assert_eq!(reported.parameters, Some(SccpParametersV1::taira_default()));
@@ -252,6 +310,30 @@ mod tests {
             SCCP_LC_PROFILE_NETWORKS_V1.len(),
             "one compiled profile per external network"
         );
+    }
+
+    #[test]
+    fn capabilities_report_only_the_retained_panel_identities() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::RetainedSccpPausePanel, test_support::sample_pause_panel,
+        };
+        let state = blank_state();
+        let budget = state.ivm_execution_budget();
+        let mut block = state.block(header(30));
+        let mut stx = block.transaction();
+        let panel = sample_pause_panel(7);
+        let retained = RetainedSccpPausePanel::admit(&panel, &budget).unwrap();
+        store::pause_panel::set(&mut stx, Some(retained));
+        let view = capabilities(&stx);
+        assert_eq!(
+            view.pause_panel_ids,
+            Some(api::SccpPausePanelIdsV1 {
+                primary: panel.primary_id,
+                backup: panel.backup_id
+            })
+        );
+        assert!(!view.parliament_binding_ballot_available);
+        assert!(!view.reconciliation_available);
     }
 
     #[test]
@@ -347,7 +429,7 @@ mod tests {
             (SccpNetworkV1::EthereumMainnet, 1),
             (SccpNetworkV1::BscMainnet, 5_000),
         ] {
-            store::light_client_sets::insert(&mut stx, (network, set_id), set(set_id))
+            light_clients::insert_consensus_set(&mut stx, network, (&set(set_id)).into())
                 .expect("set");
         }
         let listed = light_client_sets(&*stx.world, SccpNetworkV1::BscMainnet);

@@ -998,7 +998,8 @@ fn i105_discriminant_hint(input: &str) -> Option<u16> {
     AccountAddress::i105_discriminant(input).ok()
 }
 fn scoped_chain_discriminant_for_literal(input: &str) -> napi::Result<ChainDiscriminantGuard> {
-    let prefix = AccountAddress::i105_discriminant(input).map_err(account_address_err)?;
+    let prefix =
+        AccountAddress::i105_discriminant(input).map_err(|error| account_address_err(&error))?;
     Ok(ChainDiscriminantGuard::enter(prefix))
 }
 /// Build a canonical public `AssetId` literal from definition/account parts.
@@ -2017,7 +2018,7 @@ fn parse_sm2_signature(bytes: &[u8]) -> napi::Result<Sm2Signature> {
     Sm2Signature::from_bytes(&array)
         .map_err(|err| napi::Error::new(napi::Status::InvalidArg, err.to_string()))
 }
-fn account_address_err(err: AccountAddressError) -> napi::Error {
+fn account_address_err(err: &AccountAddressError) -> napi::Error {
     codec_to_napi(iroha_js_codec::account_address_err(err))
 }
 fn codec_to_napi(error: iroha_js_codec::CodecError) -> napi::Error {
@@ -6949,7 +6950,8 @@ fn require_matching_i105_discriminant(
     account: &str,
     label: &str,
 ) -> napi::Result<()> {
-    let actual = AccountAddress::i105_discriminant(account).map_err(account_address_err)?;
+    let actual =
+        AccountAddress::i105_discriminant(account).map_err(|error| account_address_err(&error))?;
     if actual != expected {
         return Err(napi::Error::new(
             napi::Status::InvalidArg,
@@ -6986,8 +6988,8 @@ pub fn build_transfer_asset_payload(
             "source asset holding id must not contain surrounding whitespace",
         ));
     }
-    let authority_discriminant =
-        AccountAddress::i105_discriminant(&authority).map_err(account_address_err)?;
+    let authority_discriminant = AccountAddress::i105_discriminant(&authority)
+        .map_err(|error| account_address_err(&error))?;
     require_matching_i105_discriminant(
         authority_discriminant,
         &destination_account_id,
@@ -8752,12 +8754,12 @@ mod tests {
     #[test]
     fn canonical_kotodama_binding_returns_full_artifact_manifest() {
         let request = canonical_kotodama_request(
-            r#"seiyaku Demo { permission RunDemo;
+            r"seiyaku Demo { permission RunDemo;
                 hajimari() {}
                 kaizen() {}
                 kotoage fn run() authorize(RunDemo) {}
                 view fn ping() authorize(anyone) -> int { return 1; }
-            }"#,
+            }",
         );
         let result = compile_kotodama_request(&request).expect("compile canonical Kotodama source");
         assert!(result.ok);
@@ -8823,7 +8825,7 @@ mod tests {
     }
     #[test]
     fn canonical_kotodama_request_preserves_source_name_and_selects_zk_policy() {
-        let source = r#"
+        let source = r"
 seiyaku Privacy { permission CanCommitPrivateInput;
   kotoage fn commit() authorize(CanCommitPrivateInput) {
     let Secret<int> value = crypto::private_input(0);
@@ -8832,7 +8834,7 @@ seiyaku Privacy { permission CanCommitPrivateInput;
     crypto::commit_output();
   }
 }
-"#;
+";
         let request = JsKotodamaCompileRequest {
             artifacts: Vec::new(),
             source: source.to_owned(),
@@ -13985,7 +13987,10 @@ seiyaku Privacy { permission CanCommitPrivateInput;
                 DomainId::try_new("sbp", "universal").expect("destination asset domain"),
                 "pkr".parse().expect("destination asset name"),
             ),
-            settlement_id: "fx_1".parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                sample_account("payer"),
+                "fx_1".parse().expect("settlement reference"),
+            ),
             recipient: AccountId::new(
                 KeyPair::random_with_algorithm(Algorithm::Ed25519)
                     .public_key()

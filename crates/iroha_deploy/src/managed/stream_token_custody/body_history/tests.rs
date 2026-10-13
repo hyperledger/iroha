@@ -84,7 +84,6 @@ fn completed_body_and_high_water_loss_refuse_and_scope_rechecks_outer_names() {
     let history = retain_body(&fixture);
     let completed_original = history
         .original()
-        .unwrap()
         .expect("fixture renewal must retain a signed body before completion-loss mutation");
     assert_eq!(
         history.anchor.completed,
@@ -144,7 +143,7 @@ fn completed_body_and_high_water_loss_refuse_and_scope_rechecks_outer_names() {
     std::fs::remove_file(container.path().join("unknown.nrt")).unwrap();
     assert!(history.read_current(&fixture.owner).is_ok());
     let selected_path = body.path().join("original.nrt");
-    let held_path = fixture._temporary.path().join("held-completed-body.nrt");
+    let held_path = fixture.temporary.path().join("held-completed-body.nrt");
     std::fs::rename(&selected_path, &held_path).unwrap();
     assert!(matches!(
         BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2)),
@@ -165,13 +164,13 @@ fn completed_body_and_high_water_loss_refuse_and_scope_rechecks_outer_names() {
             .as_slice(),
         wire
     );
-    let held_body = fixture._temporary.path().join("held-whole-body");
+    let held_body = fixture.temporary.path().join("held-whole-body");
     std::fs::rename(body.path(), &held_body).unwrap();
     assert!(BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2)).is_err());
     assert!(!body.path().exists());
     std::fs::rename(&held_body, body.path()).unwrap();
     let anchor_path = history.root.path().join("anchor.nrt");
-    let held_anchor = fixture._temporary.path().join("held-anchor.nrt");
+    let held_anchor = fixture.temporary.path().join("held-anchor.nrt");
     std::fs::rename(&anchor_path, &held_anchor).unwrap();
     assert!(BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2)).is_err());
     assert!(history.read_current(&fixture.owner).is_err());
@@ -181,7 +180,7 @@ fn completed_body_and_high_water_loss_refuse_and_scope_rechecks_outer_names() {
     assert!(original.current_history().unwrap().last().is_none());
     assert_eq!(
         original.anchor.completed,
-        Some(original.original().unwrap().unwrap().digest().unwrap())
+        Some(original.original().unwrap().digest().unwrap())
     );
 }
 
@@ -334,7 +333,7 @@ fn expired_request_retirement_recovers_after_actual_wallet_retirement_before_clo
             .exists()
     );
     assert_ne!(
-        resumed.original().unwrap().unwrap().digest().unwrap(),
+        resumed.original().unwrap().digest().unwrap(),
         old.digest().unwrap()
     );
     assert_eq!(fixture.native.chain.height(), 4); // Retirement itself executes no native transaction.
@@ -452,7 +451,7 @@ fn unused_expired_reservation_retires_without_inventing_a_wallet_or_dispatch_his
         )
         .unwrap();
     assert!(!activated.has_pending());
-    assert!(activated.original().unwrap().is_none());
+    assert!(activated.original().is_none());
     assert_eq!(
         activated.bodies[0].directory.entries(1).unwrap(),
         vec![std::ffi::OsString::from("reserved.nrt")]
@@ -784,7 +783,7 @@ fn paid_payload_and_signed_body_refuse_semantic_replacement_without_changing_ori
     );
     // This is a local crash-prefix control: the payload was emitted by the sole wallet owner.
     // Hiding its later signed record does not create authority or relax the retained payload.
-    let held = fixture._temporary.path().join("held-signed-operation.json");
+    let held = fixture.temporary.path().join("held-signed-operation.json");
     std::fs::rename(path.join("operation.json"), &held).unwrap();
     assert_eq!(
         selected
@@ -1081,7 +1080,7 @@ fn expired_reserved_successor_keeps_one_claim_per_turn_and_later_fresh_turn_prog
         .unwrap();
     assert_eq!(completed.anchor.highest, 2);
     assert_eq!(completed.anchor.active, Some(2));
-    assert!(completed.original().unwrap().is_none());
+    assert!(completed.original().is_none());
     assert_eq!(
         completed.bodies[1]
             .directory
@@ -1137,7 +1136,7 @@ fn expired_reserved_successor_keeps_one_claim_per_turn_and_later_fresh_turn_prog
         )
         .unwrap();
     assert_eq!(third.anchor.highest, 3);
-    assert!(third.original().unwrap().is_some());
+    assert!(third.original().is_some());
     assert!(third.bodies[1].unused.is_some());
     assert_eq!(
         third.current_history().unwrap().cumulative_reserved_count(),
@@ -1241,7 +1240,7 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
     assert!(completed.anchor.pending.is_none());
     assert_eq!(
         completed.anchor.completed,
-        Some(completed.original().unwrap().unwrap().digest().unwrap())
+        Some(completed.original().unwrap().digest().unwrap())
     );
     let retained = &completed.bodies[0];
     assert_eq!(

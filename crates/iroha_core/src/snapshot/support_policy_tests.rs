@@ -206,17 +206,17 @@ fn assert_canonical_snapshot_generation(store_dir: &Path) {
         ],
         "first-release snapshots expose only the atomic pointer and immutable generations"
     );
-    let generation_dir = current_generation_dir(store_dir);
+    let snapshot_directory = current_generation_dir(store_dir);
     let generation_name = current_generation_name(store_dir);
-    let payload = std::fs::read(generation_dir.join(SNAPSHOT_FILE_NAME))
+    let payload = std::fs::read(snapshot_directory.join(SNAPSHOT_FILE_NAME))
         .expect("read selected snapshot payload");
     assert_eq!(generation_name, hex::encode(Sha256::digest(&payload)));
     assert_eq!(
-        std::fs::read(generation_dir.join(SNAPSHOT_DIGEST_FILE_NAME))
+        std::fs::read(snapshot_directory.join(SNAPSHOT_DIGEST_FILE_NAME))
             .expect("read selected snapshot digest"),
         format!("{generation_name}\n").as_bytes()
     );
-    let mut artifact_names = std::fs::read_dir(&generation_dir)
+    let mut artifact_names = std::fs::read_dir(&snapshot_directory)
         .expect("read selected generation")
         .map(|entry| {
             entry
@@ -830,7 +830,7 @@ fn staged_and_committed_wsv_hashes_commit_consensus_evidence() {
         evidence_key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence,
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
                 attribution,
                 recorded_at_height: 2,
                 recorded_at_view: 0,
@@ -946,7 +946,9 @@ async fn staged_snapshot_wsv_hash_commits_consensus_evidence() {
                 key,
                 crate::state::RetainedEvidenceRecord::from_fixture(
                     EvidenceRecord {
-                        evidence,
+                        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                            evidence,
+                        ),
                         attribution,
                         recorded_at_height: 1,
                         recorded_at_view: 0,
@@ -1296,7 +1298,7 @@ fn store_block_and_mark_state_height(
 ) {
     kura.store_block(block.clone()).expect("store block");
     state.push_block_hash_for_testing(block.hash());
-    seed_snapshot_genesis_resolver_checkpoint(&state);
+    seed_snapshot_genesis_resolver_checkpoint(state);
 }
 
 /// Direct block fixtures retain the resolver anchor required of every committed state.

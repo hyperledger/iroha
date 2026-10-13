@@ -749,41 +749,13 @@ fn execute_prepare_with_transfer(
 #[cfg(test)]
 mod tests;
 
-/// Test-only finite admission of an untouched native Cell writer.
-/// Nested authority remains shared with its original graph; these controls admit only the two
-/// actual EBR allocations used by World acquisition/publication contention tests.
-#[cfg(test)]
-pub(crate) trait NativeAmxCellFixtureBlock {
-    /// Acquire this exact field independently without acquiring other World writers.
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge>;
-}
-#[cfg(test)]
-impl NativeAmxCellFixtureBlock for Cell<RetainedNativeAmx, AllocationCharge> {
-    fn block(&self) -> mv::cell::Block<'_, RetainedNativeAmx, AllocationCharge> {
-        let budget = AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        );
-        let [current, undo] = Self::allocation_layouts();
-        let mut original = budget
-            .try_reserve_layouts([current, undo])
-            .expect("native fixture EBR capacity");
-        let charges = mv::cell::CellAllocationCharges::new(
-            original
-                .try_split(current)
-                .expect("native fixture current EBR"),
-            original.try_split(undo).expect("native fixture undo EBR"),
-        );
-        self.block_charged(charges)
-    }
-}
-
 impl Execute for SettleAmxV1 {
     fn execute(
         self,
-        _authority: &AccountId,
+        authority: &AccountId,
         state: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
-        execute_settle_original(&self, _authority, state)
+        execute_settle_original(&self, authority, state)
     }
 }
 
@@ -909,6 +881,7 @@ impl Execute for RelayGlobalAmxHandoffV1 {
         participant.held.retain(|held| {
             held.height.saturating_add(MAX_AMX_DEADLINE_WINDOW) >= participant.global_height
         });
+        participant.prune_decision_contexts();
         let next = candidate
             .finish()
             .map_err(|error| graph_error(error, state))?

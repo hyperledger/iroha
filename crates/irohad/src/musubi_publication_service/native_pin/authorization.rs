@@ -201,8 +201,9 @@ pub(in crate::musubi_publication_service) struct ReservedFeesV1 {
 }
 impl ReservedFeesV1 {
     fn validate(&self, original: &NativePinAuthorizationV1) -> Result<()> {
+        let check_rounds_within_limit = self.check_rounds <= original.max_check_rounds;
         ensure!(
-            self.check_rounds <= original.max_check_rounds
+            check_rounds_within_limit
                 && self.check_rounds <= self.transactions
                 && self.transactions <= original.max_check_rounds + 3
                 && self.amounts.len() <= MAX_FEE_ASSETS,
@@ -216,6 +217,26 @@ impl ReservedFeesV1 {
             "retained native pin aggregate fee bound differs"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(in crate::musubi_publication_service) fn test_asset(seed: u8) -> AssetDefinitionId {
+    let mut uuid = [seed; 16];
+    uuid[6] = (uuid[6] & 15) | 0x40;
+    uuid[8] = (uuid[8] & 63) | 0x80;
+    AssetDefinitionId::from_uuid_bytes(uuid).unwrap()
+}
+
+#[cfg(test)]
+pub(super) struct FixedClock(pub(super) u64);
+#[cfg(test)]
+impl iroha_musubi_service::MusubiPublicationServiceClockV1 for FixedClock {
+    fn current_time_ms(
+        &mut self,
+    ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
+    {
+        Ok(self.0)
     }
 }
 
@@ -310,25 +331,5 @@ mod tests {
         let caller = Instant::now() + Duration::from_millis(50);
         assert_eq!(original.round_deadline(89_000, caller).unwrap(), caller);
         assert!(original.round_deadline(90_000, caller).is_err());
-    }
-}
-
-#[cfg(test)]
-pub(in crate::musubi_publication_service) fn test_asset(seed: u8) -> AssetDefinitionId {
-    let mut uuid = [seed; 16];
-    uuid[6] = (uuid[6] & 15) | 0x40;
-    uuid[8] = (uuid[8] & 63) | 0x80;
-    AssetDefinitionId::from_uuid_bytes(uuid).unwrap()
-}
-
-#[cfg(test)]
-pub(super) struct FixedClock(pub(super) u64);
-#[cfg(test)]
-impl iroha_musubi_service::MusubiPublicationServiceClockV1 for FixedClock {
-    fn current_time_ms(
-        &mut self,
-    ) -> std::result::Result<u64, iroha_musubi_service::MusubiPublicationServiceBackendErrorV1>
-    {
-        Ok(self.0)
     }
 }

@@ -93,7 +93,7 @@ const ACCOUNT_BODY_CONTEXT: &str = "account_id";
 ///
 /// This matches the complete HTTP/1 parser-buffer ceiling and also protects
 /// direct in-process verifier callers that do not pass through that transport.
-pub(crate) const CANONICAL_REQUEST_MAX_RAW_QUERY_BYTES_V1: usize = 64 * 1024;
+pub const CANONICAL_REQUEST_MAX_RAW_QUERY_BYTES_V1: usize = 64 * 1024;
 /// Maximum method token bytes accepted by the in-process V1 verifier.
 const CANONICAL_REQUEST_MAX_METHOD_BYTES_V1: usize = 32;
 /// Maximum percent-encoded path bytes covered by one canonical V1 request.
@@ -107,7 +107,7 @@ const CANONICAL_REQUEST_MAX_PATH_BYTES_V1: usize = 64 * 1024;
 /// This covers the worst-case UTF-8 I105 spelling for every supported V1
 /// single-key controller after the grouped base conversion. Larger multisig
 /// controllers authenticate with the separately bounded witness form instead.
-pub(crate) const CANONICAL_REQUEST_MAX_ACCOUNT_LITERAL_BYTES_V1: usize = 36 * 1024;
+pub const CANONICAL_REQUEST_MAX_ACCOUNT_LITERAL_BYTES_V1: usize = 36 * 1024;
 /// Maximum bytes in the catalog-free ASCII alias exception accepted by auth.
 ///
 /// An account alias contains at most three [`iroha_model_base::name::Name`] segments plus the `@`
@@ -123,9 +123,9 @@ const CANONICAL_REQUEST_WITNESS_MAX_SIGNATURES_V1: usize = 64;
 /// envelope. The explicit ceiling also protects direct in-process verifier callers which bypass the
 /// HTTP parser, while the outer routed-read admission owns the overlapping header, decoded frame,
 /// and verification scratch high-water.
-pub(crate) const CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1: usize = 3 * 1024 * 1024 / 4;
+pub const CANONICAL_REQUEST_WITNESS_MAX_DECODED_BYTES_V1: usize = 3 * 1024 * 1024 / 4;
 /// Largest detached signature payload supported by the canonical V1 verifier.
-pub(crate) const CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1: usize =
+pub const CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1: usize =
     Algorithm::MlDsa.signature_payload_len();
 /// HTTP request types used for canonical signing.
 pub use axum::http::{Method, Uri};
@@ -269,12 +269,12 @@ pub struct VerifiedCanonicalRequest {
 }
 #[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum CanonicalRequestBodyProof<'a> {
+pub enum CanonicalRequestBodyProof<'a> {
     SignatureBase64(&'a str),
 }
 #[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CanonicalRequestBodyAuth<'a> {
+pub struct CanonicalRequestBodyAuth<'a> {
     pub(crate) account_id: &'a str,
     pub(crate) timestamp_ms: u64,
     pub(crate) nonce: &'a str,
@@ -493,7 +493,7 @@ pub fn canonical_request_message(
     uri: &Uri,
     body: &[u8],
 ) -> Result<Vec<u8>, crate::Error> {
-    bounded_canonical_request_message(method, uri, body).map(|message| message.into_vec())
+    bounded_canonical_request_message(method, uri, body).map(<[u8]>::into_vec)
 }
 /// Construct exact-network canonical request bytes for signing.
 ///
@@ -507,7 +507,7 @@ pub fn canonical_network_request_message(
     body: &[u8],
 ) -> Result<Vec<u8>, crate::Error> {
     bounded_canonical_network_request_message(network_id, method, uri, body, None)
-        .map(|message| message.into_vec())
+        .map(<[u8]>::into_vec)
 }
 /// Hash an exact-network canonical request for a multisig witness.
 ///
@@ -541,7 +541,7 @@ pub fn canonical_network_request_signature_message(
         body,
         Some((timestamp_ms, nonce)),
     )
-    .map(|message| message.into_vec())
+    .map(<[u8]>::into_vec)
 }
 /// Encode a signature payload for use in `X-Iroha-Signature` headers.
 ///
@@ -983,7 +983,7 @@ fn canonical_request_nonce_is_valid(nonce: &str) -> bool {
 /// admission, and cryptographic verification. It is used by internal forwarders
 /// to reject values that the authoritative route verifier cannot parse.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn validate_canonical_request_auth_wire_values(
+pub fn validate_canonical_request_auth_wire_values(
     account: Option<&str>,
     signature: Option<&str>,
     timestamp_ms: Option<&str>,
@@ -1153,7 +1153,7 @@ fn parse_account_header_value(
     })
 }
 
-pub(crate) fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
+pub fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
     match error {
         iroha_core::state::StateViewError::Busy(_) => canonical_request_capacity_error(),
         error => crate::Error::Query(ValidationFail::InternalError(error.to_string())),
@@ -1272,7 +1272,7 @@ const fn canonical_padded_base64_len(decoded_bytes: usize) -> usize {
     (decoded_bytes.saturating_add(2) / 3).saturating_mul(4)
 }
 
-pub(crate) fn decode_bounded_canonical_base64_value(
+pub fn decode_bounded_canonical_base64_value(
     encoded: &str,
     maximum_decoded_bytes: usize,
     context: &'static str,
@@ -1295,7 +1295,7 @@ pub(crate) fn decode_bounded_canonical_base64_value(
         .checked_div(4)
         .and_then(|groups| groups.checked_mul(3))
         .and_then(|bytes| bytes.checked_sub(padding))
-        .filter(|_| encoded.len() % 4 == 0)
+        .filter(|_| encoded.len().is_multiple_of(4))
     else {
         return Err(crate::Error::Query(ValidationFail::NotPermitted(format!(
             "invalid base64 in {context}"
@@ -1669,14 +1669,14 @@ where
         request,
         authority,
         &world,
-        latest_block,
+        latest_block.as_ref(),
         limits,
         &state.ivm_execution_budget(),
     )
     .map_err(crate::Error::Query)
 }
 #[cfg(test)]
-pub(crate) fn verify_canonical_body_request(
+pub fn verify_canonical_body_request(
     state: &Arc<CoreState>,
     auth: CanonicalRequestBodyAuth<'_>,
     method: &Method,
@@ -1744,17 +1744,23 @@ pub fn verify_canonical_request(
     verify_canonical_request_for_network(
         state,
         headers,
-        method,
-        uri,
-        body,
-        CanonicalRequestVerificationScope {
-            expected_account,
-            purpose: CanonicalRequestPurpose::General,
-        },
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
+        expected_account,
         state.network_id_ref(),
         context,
     )
 }
+/// Borrowed HTTP target and exact body authenticated as one canonical request.
+#[derive(Clone, Copy)]
+pub struct CanonicalRequestParts<'a> {
+    /// Exact HTTP method included in the signature preimage.
+    pub method: &'a Method,
+    /// Exact path and query included in the signature preimage.
+    pub uri: &'a Uri,
+    /// Exact body bytes included in the signature preimage.
+    pub body: &'a [u8],
+}
+
 /// Verify required canonical request headers against an exact network identity.
 ///
 /// A signature produced for a different genesis-derived [`NetworkId`] cannot
@@ -1764,9 +1770,7 @@ pub fn verify_canonical_network_request(
     state: &Arc<CoreState>,
     network_id: &NetworkId,
     headers: &HeaderMap,
-    method: &Method,
-    uri: &Uri,
-    body: &[u8],
+    CanonicalRequestParts { method, uri, body }: CanonicalRequestParts<'_>,
     expected_account: Option<&AccountId>,
     context: &norito::core::DecodeBudgetContext,
 ) -> Result<Option<VerifiedCanonicalRequest>, crate::Error> {
@@ -1778,49 +1782,17 @@ pub fn verify_canonical_network_request(
     verify_canonical_request_for_network(
         state,
         headers,
-        method,
-        uri,
-        body,
-        CanonicalRequestVerificationScope {
-            expected_account,
-            purpose: CanonicalRequestPurpose::General,
-        },
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
+        expected_account,
         network_id,
         context,
     )
 }
-#[derive(Clone, Copy)]
-enum CanonicalRequestPurpose {
-    General,
-    #[cfg(feature = "app_api")]
-    FeeQuote,
-}
-#[derive(Clone, Copy)]
-struct CanonicalRequestVerificationScope<'a> {
-    expected_account: Option<&'a AccountId>,
-    purpose: CanonicalRequestPurpose,
-}
-fn validate_verified_request_purpose(
-    purpose: CanonicalRequestPurpose,
-    _method: &Method,
-    _uri: &Uri,
-    _body: &[u8],
-    _account: &AccountId,
-    _verified_signers: &[PublicKey],
-) -> Result<(), crate::Error> {
-    match purpose {
-        CanonicalRequestPurpose::General => Ok(()),
-        #[cfg(feature = "app_api")]
-        CanonicalRequestPurpose::FeeQuote => Ok(()),
-    }
-}
 fn verify_canonical_request_for_network(
     state: &Arc<CoreState>,
     headers: &HeaderMap,
-    method: &Method,
-    uri: &Uri,
-    body: &[u8],
-    scope: CanonicalRequestVerificationScope<'_>,
+    CanonicalRequestParts { method, uri, body }: CanonicalRequestParts<'_>,
+    expected_account: Option<&AccountId>,
     network_id: &NetworkId,
     context: &norito::core::DecodeBudgetContext,
 ) -> Result<Option<VerifiedCanonicalRequest>, crate::Error> {
@@ -1871,7 +1843,7 @@ fn verify_canonical_request_for_network(
         let account = explicit_account
             .as_ref()
             .unwrap_or(&witness.subject_account);
-        if let Some(expected) = scope.expected_account
+        if let Some(expected) = expected_account
             && expected != account
         {
             return Err(crate::Error::Query(ValidationFail::NotPermitted(
@@ -1898,14 +1870,6 @@ fn verify_canonical_request_for_network(
             "X-Iroha-Witness",
             "X-Iroha-Witness signature payload",
          context)?;
-        validate_verified_request_purpose(
-            scope.purpose,
-            method,
-            uri,
-            body,
-            account,
-            &verified_signers,
-        )?;
         let signer = verified_signers
             .first()
             .expect("non-empty witness signer set")
@@ -1929,11 +1893,11 @@ fn verify_canonical_request_for_network(
         return Err(crate::Error::Query(ValidationFail::NotPermitted(
             "X-Iroha-Account, X-Iroha-Signature, X-Iroha-Timestamp-Ms, and X-Iroha-Nonce must be set together".to_owned(),
         )));
-    };
+    }
     validate_canonical_request_target(method, uri)?;
     let account_literal = parse_required_header_exact_text(headers, HEADER_ACCOUNT)?;
     let account = parse_account_header_value(state, account_literal, context)?;
-    if let Some(expected) = scope.expected_account
+    if let Some(expected) = expected_account
         && expected != &account
     {
         return Err(crate::Error::Query(ValidationFail::NotPermitted(
@@ -1987,14 +1951,6 @@ fn verify_canonical_request_for_network(
         .map_err(|_| canonical_request_capacity_error())?;
     let mut verified_signers = admitted_signer_list(1)?;
     verified_signers.push(signer);
-    validate_verified_request_purpose(
-        scope.purpose,
-        method,
-        uri,
-        body,
-        &account,
-        &verified_signers,
-    )?;
     Ok(Some(finish_verified_canonical_request(
         account,
         primary_signer,
@@ -2014,7 +1970,7 @@ fn verify_canonical_request_for_network(
 /// instruction self-registers that same authority. Aliases, multisig controllers, and other
 /// endpoints never enter this fallback.
 #[cfg(feature = "app_api")]
-pub(crate) fn verify_fee_quote_canonical_request(
+pub fn verify_fee_quote_canonical_request(
     state: &Arc<CoreState>,
     headers: &HeaderMap,
     method: &Method,
@@ -2026,13 +1982,8 @@ pub(crate) fn verify_fee_quote_canonical_request(
         let normal_error = match verify_canonical_request_for_network(
             state,
             headers,
-            method,
-            uri,
-            body,
-            CanonicalRequestVerificationScope {
-                expected_account: None,
-                purpose: CanonicalRequestPurpose::FeeQuote,
-            },
+            crate::app_auth::CanonicalRequestParts { method, uri, body },
+            None,
             state.network_id_ref(),
             context,
         ) {
@@ -2377,7 +2328,7 @@ mod tests {
         let guard = TEST_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         configure(config).expect("valid app-auth test config");
         Guard { _lock: guard }
     }
@@ -2620,14 +2571,14 @@ mod tests {
     #[test]
     fn canonical_method_limit_accepts_exact_and_rejects_plus_one() {
         let uri: Uri = "/v1/test".parse().expect("test URI");
-        let exact = Method::from_bytes(&vec![b'A'; CANONICAL_REQUEST_MAX_METHOD_BYTES_V1])
+        let exact = Method::from_bytes(&[b'A'; CANONICAL_REQUEST_MAX_METHOD_BYTES_V1])
             .expect("exact method token");
         validate_canonical_request_target(&exact, &uri)
             .expect("the exact V1 method limit must be accepted");
         canonical_request_message(&exact, &uri, &[])
             .expect("the public builder accepts the exact method limit");
 
-        let excessive = Method::from_bytes(&vec![b'A'; CANONICAL_REQUEST_MAX_METHOD_BYTES_V1 + 1])
+        let excessive = Method::from_bytes(&[b'A'; CANONICAL_REQUEST_MAX_METHOD_BYTES_V1 + 1])
             .expect("plus-one method token");
         let error = validate_canonical_request_target(&excessive, &uri)
             .expect_err("one method byte beyond the V1 limit must be rejected");
@@ -3106,9 +3057,11 @@ mod tests {
             &state,
             &wrong_network_id,
             &headers,
-            &method,
-            &uri,
-            body,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -3120,9 +3073,11 @@ mod tests {
             &state,
             &network_id,
             &headers,
-            &method,
-            &wrong_uri,
-            body,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &wrong_uri,
+                body,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -3131,9 +3086,11 @@ mod tests {
             &state,
             &network_id,
             &headers,
-            &method,
-            &uri,
-            br#"{"payload_public_key":"tampered"}"#,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body: br#"{"payload_public_key":"tampered"}"#,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -3142,9 +3099,11 @@ mod tests {
             &state,
             &network_id,
             &headers,
-            &method,
-            &uri,
-            body,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -3155,9 +3114,11 @@ mod tests {
             &state,
             &network_id,
             &headers,
-            &method,
-            &uri,
-            body,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -3191,9 +3152,11 @@ mod tests {
             &state,
             &network_id,
             &headers,
-            &method,
-            &uri,
-            body,
+            crate::app_auth::CanonicalRequestParts {
+                method: &method,
+                uri: &uri,
+                body,
+            },
             None,
             &standalone_auth_context(),
         )
@@ -4363,8 +4326,7 @@ mod tests {
         method: &Method,
         uri: &Uri,
         body: &[u8],
-        timestamp_ms: u64,
-        nonce: &str,
+        (timestamp_ms, nonce): (u64, &str),
         signers: &[&KeyPair],
     ) -> CanonicalRequestWitnessV1 {
         let mut witness = CanonicalRequestWitnessV1 {
@@ -4549,8 +4511,7 @@ mod tests {
             &method,
             &uri,
             b"{\"deploy\":true}",
-            timestamp_ms,
-            nonce,
+            (timestamp_ms, nonce),
             &[&signer_one, &signer_two],
         );
         let headers = witness_headers(&account, &witness);
@@ -4714,8 +4675,7 @@ mod tests {
                 &method,
                 &uri,
                 b"{\"deploy\":true}",
-                timestamp_ms,
-                nonce,
+                (timestamp_ms, nonce),
                 &[&signer_one],
             );
             let mut payload = witness.signatures[0].signature.payload().to_vec();
@@ -4767,8 +4727,7 @@ mod tests {
             &method,
             &uri,
             b"{}",
-            timestamp_ms,
-            "duplicate-multisig-witness",
+            (timestamp_ms, "duplicate-multisig-witness"),
             &[&signer_one],
         );
         let mut duplicate = witness.clone();
@@ -4816,8 +4775,7 @@ mod tests {
             &method,
             &uri,
             b"{}",
-            crate::utils::unix_now_ms(),
-            "threshold-multisig-witness",
+            (crate::utils::unix_now_ms(), "threshold-multisig-witness"),
             &[&signer_one, &signer_two],
         );
         let headers = witness_headers(&account, &witness);
@@ -4861,8 +4819,7 @@ mod tests {
             &method,
             &uri,
             b"{}",
-            crate::utils::unix_now_ms(),
-            "replayed-multisig-witness",
+            (crate::utils::unix_now_ms(), "replayed-multisig-witness"),
             &[&signer_one, &signer_two],
         );
         let headers = witness_headers(&account, &witness);

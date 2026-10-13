@@ -357,6 +357,7 @@ fn require_retained_restart_wave_before_frontier<T>(
     Ok(receipt)
 }
 
+#[cfg(test)]
 fn classify_inrou_restart_recovery_outcome(result: Result<()>) -> Result<RecoveryOutcome> {
     match result {
         Ok(()) => Ok(RecoveryOutcome::Applied),
@@ -1503,6 +1504,7 @@ fn validate_prepared_mutation_envelope(
 }
 
 /// Validate a private stage envelope through the same canonical protocol validator.
+#[cfg(any(target_os = "linux", all(test, unix)))]
 pub(super) fn validate_core_prepared_envelope(
     identity: &CoreWriteIdentity,
     bytes: &[u8],
@@ -11699,6 +11701,7 @@ fn prepared_child_process_error(output: &ProcessOutput, label: &str, kind: &str)
 /// Keep one restart and its HTTP readiness barrier inside the same deadline.
 /// The caller retains the durable Submitted/Applied transitions; this helper
 /// never retries a restart or submits a signed mutation.
+#[cfg(test)]
 fn run_restart_with_validator_http_readiness(
     origins: &[String],
     timeout: Duration,
@@ -12780,7 +12783,7 @@ impl RuntimeCustody {
         }
         let validator_operator_key = if validator_config_paths.len() == 4 {
             let path = validator_operator_key_path
-                .ok_or_else(|| eyre!("RestartProof recovery requires --validator-operator-key"))?;
+                .ok_or_else(|| eyre!("Canary recovery requires --validator-operator-key"))?;
             Some(pin_validator_operator_key(&path, &admitted.inventory)?)
         } else {
             None
@@ -13058,6 +13061,7 @@ pub(super) fn inherited_client_config_args(
 }
 
 /// Bind a child to the signed candidate socket without persisting another signer config.
+#[cfg(test)]
 fn inherited_candidate_client_config_args(
     input: &super::PinnedInput,
     label: &str,
@@ -13571,11 +13575,6 @@ fn core_prepared_write_outcome(
         _ => return Err(eyre!("prepared write child report has an invalid outcome")),
     };
     Ok(retain_applied_mutation_outcome(prepared, outcome))
-}
-
-#[derive(Clone, Copy)]
-enum PreparedChildProtocol {
-    Inrou,
 }
 
 fn retain_applied_mutation_outcome(
@@ -14432,23 +14431,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         Ok(receipt)
     }
 
-    fn recover_validator_restart(
-        &mut self,
-        validator: &ValidatorV1,
-        timeout_secs: u64,
-    ) -> Result<HostReceiptV1> {
-        self.dispatch(
-            &validator.slug,
-            &validator.endpoint,
-            &validator.service_root,
-            HostAction::Restart,
-            None,
-            true,
-            None,
-            timeout_secs,
-        )
-    }
-
     fn coordinate_shared_prepared_mutation(
         &mut self,
         operation: &str,
@@ -14517,34 +14499,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         })
     }
 
-    fn run_local_cli(
-        &mut self,
-        args: Vec<OsString>,
-        inherited_files: Vec<File>,
-        timeout_secs: u64,
-        label: &str,
-    ) -> Result<Vec<u8>> {
-        let deadline = Instant::now()
-            .checked_add(Duration::from_secs(timeout_secs))
-            .ok_or_else(|| eyre!("local reset action deadline overflow"))?;
-        require_forward_lease_budget(self.admitted, timeout_secs)?;
-        self.run_local_cli_until(args, inherited_files, timeout_secs, deadline, false, label)
-    }
-
-    fn run_local_cli_until(
-        &mut self,
-        args: Vec<OsString>,
-        inherited_files: Vec<File>,
-        _action_timeout_secs: u64,
-        deadline: Instant,
-        recovery_only: bool,
-        label: &str,
-    ) -> Result<Vec<u8>> {
-        let output =
-            self.run_local_cli_process_until(args, inherited_files, deadline, recovery_only)?;
-        require_success(output, label)
-    }
-
     fn run_local_cli_process_until(
         &mut self,
         mut args: Vec<OsString>,
@@ -14602,80 +14556,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         )
     }
 
-    fn run_journaled_prepared_child(
-        &mut self,
-        progress: &mut dyn RecoveryProgress,
-        mutation_index: usize,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-        protocol: PreparedChildProtocol,
-    ) -> Result<()> {
-        let deadline = Instant::now()
-            .checked_add(Duration::from_secs(timeout_secs))
-            .ok_or_else(|| eyre!("journaled prepared child deadline overflow"))?;
-        let prepared = match protocol {
-            PreparedChildProtocol::Inrou => {
-                self.prepare_inrou_child_until(deadline, timeout_secs, phase, kind)?
-            }
-        };
-        run_journaled_submitted_mutation(progress, mutation_index, || {
-            let already_applied = prepared.state == "applied";
-            let prepared = if already_applied {
-                prepared
-            } else {
-                self.coordinate_shared_prepared_mutation(
-                    "submitted",
-                    kind,
-                    phase,
-                    &child_mutation_idempotency_key(
-                        &self.admitted.inventory.authorization_nonce,
-                        phase,
-                        kind,
-                    ),
-                    None,
-                    "",
-                    "",
-                    None,
-                    false,
-                    remaining_seconds(deadline)?,
-                )?
-            };
-            let recover_only = already_applied;
-            let outcome = match protocol {
-                PreparedChildProtocol::Inrou => {
-                    self.run_inrou_prepared_until(deadline, phase, kind, &prepared, recover_only)?
-                }
-            };
-            if let PreparedMutationOutcome::Applied { value, evidence } = &outcome {
-                if !already_applied {
-                    self.mark_shared_prepared_applied(phase, kind, &prepared, evidence, deadline)?;
-                }
-                self.publish_local_receipt(
-                    &format!("{}-{phase}.json", kind.replace('_', "-")),
-                    value,
-                )?;
-            }
-            Ok(outcome)
-        })
-    }
-
-    fn prepare_write_canary_child_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-    ) -> Result<RetainedPreparedMutation> {
-        CoreWriteTransport::prepare_write_canary_child_until(
-            self,
-            deadline,
-            timeout_secs,
-            phase,
-            kind,
-        )
-    }
-
     fn fetch_shared_prepared_mutation(
         &mut self,
         phase: &str,
@@ -14705,44 +14585,7 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
         )
     }
 
-    fn run_write_canary_prepare_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-        idempotency_key: &str,
-        prerequisite: Option<&RetainedPreparedMutation>,
-    ) -> Result<(Vec<u8>, Vec<u8>)> {
-        CoreWriteTransport::run_write_canary_prepare_until(
-            self,
-            deadline,
-            timeout_secs,
-            phase,
-            kind,
-            idempotency_key,
-            prerequisite,
-        )
-    }
-
-    fn run_write_canary_prepared_until(
-        &mut self,
-        deadline: Instant,
-        phase: &str,
-        kind: &str,
-        prepared: &RetainedPreparedMutation,
-        recover_only: bool,
-    ) -> Result<PreparedMutationOutcome> {
-        CoreWriteTransport::run_write_canary_prepared_until(
-            self,
-            deadline,
-            phase,
-            kind,
-            prepared,
-            recover_only,
-        )
-    }
-
+    #[cfg(test)]
     fn write_canary_base_args(
         &self,
         phase: &str,
@@ -14813,150 +14656,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
             }
         }
         Ok(outcome)
-    }
-
-    fn prepare_inrou_child_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-    ) -> Result<RetainedPreparedMutation> {
-        let idempotency_key = child_mutation_idempotency_key(
-            &self.admitted.inventory.authorization_nonce,
-            phase,
-            kind,
-        );
-        let existing = self.coordinate_shared_prepared_mutation(
-            "fetch",
-            kind,
-            phase,
-            &idempotency_key,
-            None,
-            "",
-            "",
-            None,
-            false,
-            remaining_seconds(deadline)?,
-        )?;
-        if existing.state != "absent" {
-            return Ok(existing);
-        }
-        let predecessor = mutation_predecessor_kind(kind, phase)
-            .ok_or_else(|| eyre!("Inrou child has no exact predecessor"))?;
-        let prerequisite = self.fetch_shared_prepared_mutation(
-            phase,
-            predecessor,
-            false,
-            remaining_seconds(deadline)?,
-        )?;
-        if prerequisite.state != "applied" {
-            return Err(eyre!(
-                "Inrou child preparation requires its exact Applied predecessor"
-            ));
-        }
-        let candidate = self.run_inrou_prepare_until(
-            deadline,
-            timeout_secs,
-            phase,
-            kind,
-            &idempotency_key,
-            &prerequisite,
-        )?;
-        let candidate_sha256 = sha256_hex(&candidate);
-        let transaction_hash = prepared_envelope_transaction_hash(&candidate)?;
-        if transaction_hash.is_empty() {
-            return Err(eyre!(
-                "an Inrou prepared child must contain one exact signed transaction"
-            ));
-        }
-        self.coordinate_shared_prepared_mutation(
-            "prepare",
-            kind,
-            phase,
-            &idempotency_key,
-            Some(&candidate),
-            &candidate_sha256,
-            &transaction_hash,
-            None,
-            false,
-            remaining_seconds(deadline)?,
-        )
-    }
-
-    fn run_inrou_prepare_until(
-        &mut self,
-        deadline: Instant,
-        timeout_secs: u64,
-        phase: &str,
-        kind: &str,
-        idempotency_key: &str,
-        prerequisite: &RetainedPreparedMutation,
-    ) -> Result<Vec<u8>> {
-        let scratch = self
-            .local_receipt_root
-            .join(format!(".{idempotency_key}.inrou-candidate.next"));
-        if scratch.exists() {
-            let metadata = fs::symlink_metadata(&scratch)?;
-            #[cfg(unix)]
-            if metadata.file_type().is_symlink()
-                || !metadata.is_file()
-                || metadata.uid() != rustix::process::geteuid().as_raw()
-                || metadata.nlink() != 1
-            {
-                return Err(eyre!("Inrou prepared-envelope scratch has unsafe custody"));
-            }
-            fs::remove_file(&scratch)?;
-            sync_directory(&self.local_receipt_root)?;
-        }
-        let output_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&scratch)?;
-        let mut output_reader = output_file.try_clone()?;
-        let (mut args, mut inherited_files) =
-            self.inrou_prepared_base_args(phase, kind, idempotency_key, timeout_secs)?;
-        args.push(OsString::from("--prepare-envelope"));
-        args.push(OsString::from("--prepared-output-fd"));
-        args.push(output_file.as_raw_fd().to_string().into());
-        inherited_files.push(output_file);
-        let predecessor_file = self.open_retained_prepared_envelope(prerequisite)?;
-        args.push(OsString::from("--prerequisite-envelope-fd"));
-        args.push(predecessor_file.as_raw_fd().to_string().into());
-        inherited_files.push(predecessor_file);
-        let stdout = self.run_local_cli_until(
-            args,
-            inherited_files,
-            timeout_secs,
-            deadline,
-            false,
-            "prepare exact Inrou child envelope",
-        )?;
-        let report = parse_json_report(&stdout, "prepared Inrou child")?;
-        validate_prepared_inrou_report(
-            &report,
-            self.admitted,
-            phase,
-            kind,
-            idempotency_key,
-            "Prepared",
-            None,
-        )?;
-        output_reader.rewind()?;
-        let mut bytes = Vec::new();
-        std::io::Read::by_ref(&mut output_reader)
-            .take(u64::try_from(MAX_PREPARED_ENVELOPE_BYTES + 1).expect("bounded"))
-            .read_to_end(&mut bytes)?;
-        output_reader.sync_all()?;
-        fs::remove_file(&scratch)?;
-        sync_directory(&self.local_receipt_root)?;
-        if bytes.is_empty() || bytes.len() > MAX_PREPARED_ENVELOPE_BYTES {
-            return Err(eyre!("prepared Inrou child envelope is empty or oversized"));
-        }
-        validate_prepared_report_envelope_bytes(&report, &bytes)?;
-        Ok(bytes)
     }
 
     fn run_inrou_prepared_until(
@@ -15070,327 +14769,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
             OsString::from("--json"),
         ]);
         Ok((args, vec![config_file]))
-    }
-
-    fn inrou_check(&mut self, timeout_secs: u64, wave: usize) -> Result<()> {
-        self.inrou_check_with_mode(timeout_secs, wave, false)
-    }
-
-    fn inrou_check_with_mode(
-        &mut self,
-        timeout_secs: u64,
-        wave: usize,
-        recovery_only: bool,
-    ) -> Result<()> {
-        if !(1..=4).contains(&wave) {
-            return Err(eyre!("Inrou restart wave must be within 1 through 4"));
-        }
-        let baselines = self.read_inrou_restart_baselines_with_mode(recovery_only)?;
-        let previous =
-            self.validated_retained_inrou_restart_chain(&baselines, wave - 1, recovery_only)?;
-        let target_baseline = &baselines[wave - 1];
-        let receipt_name = format!("inrou-restart-wave-{wave}.json");
-        let retained_receipt = require_retained_restart_wave_before_frontier(
-            classify_inrou_restart_receipt_read(
-                self.read_local_receipt(&receipt_name),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?,
-            recovery_only,
-            wave,
-            4,
-            "inrou_restart_wave_evidence",
-        )?;
-        let retained = classify_inrou_restart_semantic_result(
-            retained_receipt
-                .map(|value| {
-                    let evidence = validate_exact_inrou_check_report(&value, self.admitted, false)?;
-                    validate_inrou_restart_transition(
-                        &previous,
-                        target_baseline,
-                        &evidence,
-                        &self.admitted.inventory,
-                        wave - 1,
-                    )?;
-                    Ok::<_, eyre::Report>(evidence)
-                })
-                .transpose(),
-            recovery_only,
-            "inrou_restart_wave_evidence",
-        )?;
-        let value =
-            self.run_inrou_check_report_with_mode(timeout_secs, recovery_only, Some(wave - 1))?;
-        let fresh = validate_exact_inrou_check_report(&value, self.admitted, true)?;
-        if let Some(retained) = retained.as_ref() {
-            validate_inrou_live_continuity(retained, &fresh, &self.admitted.inventory, wave - 1)?;
-        } else {
-            validate_inrou_restart_transition(
-                &previous,
-                target_baseline,
-                &fresh,
-                &self.admitted.inventory,
-                wave - 1,
-            )?;
-            self.publish_local_receipt(&receipt_name, &value)?;
-        }
-        Ok(())
-    }
-
-    fn require_final_inrou_restart_sweep(
-        &mut self,
-        timeout_secs: u64,
-        recovery_only: bool,
-    ) -> Result<()> {
-        let baselines = self.read_inrou_restart_baselines_with_mode(recovery_only)?;
-        let final_wave =
-            self.validated_retained_inrou_restart_chain(&baselines, 4, recovery_only)?;
-        let mut current = Vec::with_capacity(4);
-        for validator_index in 0..4 {
-            let value = self.run_inrou_check_report_with_mode(
-                timeout_secs,
-                recovery_only,
-                Some(validator_index),
-            )?;
-            current.push(validate_exact_inrou_check_report(
-                &value,
-                self.admitted,
-                true,
-            )?);
-        }
-        validate_inrou_restart_final_sweep(
-            &baselines,
-            &final_wave,
-            &current,
-            &self.admitted.inventory,
-        )
-    }
-
-    fn ensure_inrou_restart_baselines(&mut self, timeout_secs: u64) -> Result<()> {
-        if self.runtime.validator_client_configs.len() != 4 {
-            return Err(eyre!(
-                "Inrou restart qualification requires four ordered validator client configs"
-            ));
-        }
-        let mut baselines = Vec::with_capacity(4);
-        for validator_index in 0..4 {
-            let receipt_name = format!("inrou-pre-restart-validator-{}.json", validator_index + 1);
-            let evidence = if let Some(value) = self.read_local_receipt(&receipt_name)? {
-                validate_exact_inrou_check_report(&value, self.admitted, false)?
-            } else {
-                let value = self.run_inrou_check_report_with_mode(
-                    timeout_secs,
-                    false,
-                    Some(validator_index),
-                )?;
-                let evidence = validate_exact_inrou_check_report(&value, self.admitted, true)?;
-                validate_inrou_evidence_for_validator(
-                    &evidence,
-                    &self.admitted.inventory,
-                    validator_index,
-                )?;
-                self.publish_local_receipt(&receipt_name, &value)?;
-                evidence
-            };
-            validate_inrou_evidence_for_validator(
-                &evidence,
-                &self.admitted.inventory,
-                validator_index,
-            )?;
-            baselines.push(evidence);
-        }
-        validate_inrou_restart_baseline_set(&baselines, &self.admitted.inventory)
-    }
-
-    fn read_inrou_restart_baselines_with_mode(
-        &self,
-        recovery_only: bool,
-    ) -> Result<Vec<ValidatedInrouEvidence>> {
-        let mut baselines = Vec::with_capacity(4);
-        for validator_index in 0..4 {
-            let receipt_name = format!("inrou-pre-restart-validator-{}.json", validator_index + 1);
-            let receipt = classify_inrou_restart_receipt_read(
-                self.read_local_receipt(&receipt_name),
-                recovery_only,
-                "inrou_restart_baseline_evidence",
-            )?;
-            let value = classify_inrou_restart_semantic_result(
-                receipt.ok_or_else(|| eyre!("Inrou restart qualification lacks its baseline set")),
-                recovery_only,
-                "inrou_restart_baseline_evidence",
-            )?;
-            let evidence = classify_inrou_restart_semantic_result(
-                validate_exact_inrou_check_report(&value, self.admitted, false),
-                recovery_only,
-                "inrou_restart_baseline_evidence",
-            )?;
-            classify_inrou_restart_semantic_result(
-                validate_inrou_evidence_for_validator(
-                    &evidence,
-                    &self.admitted.inventory,
-                    validator_index,
-                ),
-                recovery_only,
-                "inrou_restart_baseline_evidence",
-            )?;
-            baselines.push(evidence);
-        }
-        classify_inrou_restart_semantic_result(
-            validate_inrou_restart_baseline_set(&baselines, &self.admitted.inventory),
-            recovery_only,
-            "inrou_restart_baseline_evidence",
-        )?;
-        Ok(baselines)
-    }
-
-    fn validated_retained_inrou_restart_chain(
-        &self,
-        baselines: &[ValidatedInrouEvidence],
-        through_wave: usize,
-        recovery_only: bool,
-    ) -> Result<ValidatedInrouEvidence> {
-        let mut previous = classify_inrou_restart_semantic_result(
-            baselines
-                .first()
-                .cloned()
-                .ok_or_else(|| eyre!("Inrou restart baseline set is empty")),
-            recovery_only,
-            "inrou_restart_baseline_evidence",
-        )?;
-        for wave in 1..=through_wave {
-            let receipt_name = format!("inrou-restart-wave-{wave}.json");
-            let receipt = classify_inrou_restart_receipt_read(
-                self.read_local_receipt(&receipt_name),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?;
-            let value = classify_inrou_restart_semantic_result(
-                receipt
-                    .ok_or_else(|| eyre!("Inrou restart proof lacks its preceding wave receipt")),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?;
-            let current = classify_inrou_restart_semantic_result(
-                validate_exact_inrou_check_report(&value, self.admitted, false),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?;
-            let target_baseline = classify_inrou_restart_semantic_result(
-                baselines
-                    .get(wave - 1)
-                    .ok_or_else(|| eyre!("Inrou restart wave has no target baseline")),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?;
-            classify_inrou_restart_semantic_result(
-                validate_inrou_restart_transition(
-                    &previous,
-                    target_baseline,
-                    &current,
-                    &self.admitted.inventory,
-                    wave - 1,
-                ),
-                recovery_only,
-                "inrou_restart_wave_evidence",
-            )?;
-            previous = current;
-        }
-        Ok(previous)
-    }
-
-    fn run_inrou_check_report_with_mode(
-        &mut self,
-        timeout_secs: u64,
-        recovery_only: bool,
-        validator_index: Option<usize>,
-    ) -> Result<norito::json::Value> {
-        let (config, label) = if let Some(validator_index) = validator_index {
-            (
-                self.runtime
-                    .validator_client_configs
-                    .get(validator_index)
-                    .ok_or_else(|| {
-                        eyre!("Inrou restart check lacks its ordered validator client config")
-                    })?,
-                format!("Taira validator {} client config", validator_index + 1),
-            )
-        } else {
-            (
-                &self.runtime.client_config,
-                "Taira runtime client config".to_owned(),
-            )
-        };
-        let scope = if validator_index.is_some() {
-            crate::taira::InrouProbeScope::Candidate
-        } else {
-            crate::taira::InrouProbeScope::Public
-        };
-        let (mut args, config_file, _candidate_custody) = if let Some(index) = validator_index {
-            let (args, file, custody) = inherited_candidate_client_config_args(
-                config,
-                &label,
-                &self.admitted.inventory.validator_clients[index].probe_origin,
-            )?;
-            (args, file, Some(custody))
-        } else {
-            let (args, file) = inherited_client_config_args(config, &label)?;
-            (args, file, None)
-        };
-        args.extend([
-            "taira".into(),
-            "inrou-check".into(),
-            "--public-root".into(),
-            inrou_probe_root(&self.admitted.inventory, scope).into(),
-            "--probe-scope".into(),
-            scope.label().into(),
-            "--stage-dir".into(),
-            self.runtime.inrou()?.inrou_stage_dir.as_os_str().to_owned(),
-            "--mode".into(),
-            "deploy".into(),
-            "--timeout-secs".into(),
-            timeout_secs.to_string().into(),
-            "--json".into(),
-        ]);
-        let authorization_deadline_unix_ms = (!recovery_only).then_some(
-            self.admitted
-                .authorization
-                .claims
-                .execution_expires_at_unix_ms,
-        );
-        let started_at_unix_ms = now_unix_ms()?;
-        if authorization_deadline_unix_ms.is_some_and(|deadline| started_at_unix_ms >= deadline) {
-            return Err(eyre!(
-                "Inrou-check invocation began at or after the reset authorization expiry"
-            ));
-        }
-        let output = if recovery_only {
-            let deadline = Instant::now()
-                .checked_add(Duration::from_secs(timeout_secs))
-                .ok_or_else(|| eyre!("Inrou-check recovery deadline overflow"))?;
-            self.run_local_cli_until(
-                args,
-                vec![config_file],
-                timeout_secs,
-                deadline,
-                true,
-                "same-revision Inrou restart check",
-            )?
-        } else {
-            self.run_local_cli(
-                args,
-                vec![config_file],
-                timeout_secs,
-                "same-revision Inrou restart check",
-            )?
-        };
-        let finished_at_unix_ms = now_unix_ms()?;
-        let value = parse_json_report(&output, "same-revision Inrou restart check")?;
-        validate_fresh_inrou_observation_window(
-            &value,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            authorization_deadline_unix_ms,
-        )?;
-        Ok(value)
     }
 
     fn convergence(&mut self, timeout_secs: u64, wave: usize, recovery_only: bool) -> Result<()> {
@@ -15579,18 +14957,6 @@ impl<R: ProcessRunner> OpenSshTransport<'_, R> {
             &self.admitted.inventory.authorization_nonce,
             name,
         )
-    }
-
-    fn validate_existing_local_receipt(
-        &self,
-        name: &str,
-        validator: fn(&norito::json::Value, &AdmittedReset) -> Result<()>,
-    ) -> Result<bool> {
-        let Some(bytes) = self.read_local_receipt(name)? else {
-            return Ok(false);
-        };
-        validator(&bytes, self.admitted)?;
-        Ok(true)
     }
 
     fn publish_local_receipt(&self, name: &str, report: &norito::json::Value) -> Result<()> {
@@ -15790,25 +15156,6 @@ pub(super) fn build_recovery_intent(
             .iter()
             .map(|kind| recovery_child_mutation(nonce, "pre_edge", kind, None))
             .collect(),
-        ExecutionStep::RestartProof => (1..=inventory
-            .qualification_scope
-            .restart_validator_indices()
-            .len())
-            .flat_map(|wave| {
-                let phase = format!("restart-wave-{wave}");
-                let restart = recovery_child_mutation(
-                    nonce,
-                    &phase,
-                    "host_restart",
-                    Some(format!("host-restart-wave-{wave}.json")),
-                );
-                std::iter::once(restart).chain(
-                    ["onboarding", "faucet", "write_canary"]
-                        .into_iter()
-                        .map(move |kind| recovery_child_mutation(nonce, &phase, kind, None)),
-                )
-            })
-            .collect(),
         _ => return None,
     };
     Some(RecoveryIntentV1 {
@@ -15906,6 +15253,7 @@ impl<R: ProcessRunner> CoreWriteTransport for OpenSshTransport<'_, R> {
 }
 
 /// Execute the held native candidate CLI without accepting an executable path.
+#[cfg(target_os = "linux")]
 pub(super) fn run_native_core_cli<R: ProcessRunner>(
     executable: &File,
     mut args: Vec<OsString>,
@@ -15974,37 +15322,6 @@ impl<R: ProcessRunner> ResetTransport for OpenSshTransport<'_, R> {
                 return Ok(RecoveryOutcome::ReadyToContinue);
             }
             let outcome = match mutation.kind.as_str() {
-                "host_restart" => {
-                    let scope = inventory.qualification_scope;
-                    let validator = scope.restart_wave(&mutation.phase).and_then(|wave| {
-                        scope
-                            .restart_validator_indices()
-                            .get(wave - 1)
-                            .and_then(|index| inventory.validators.get(*index))
-                    });
-                    let Some(validator) = validator else {
-                        return Ok(RecoveryOutcome::Rejected(
-                            "restart_validator_missing".to_owned(),
-                        ));
-                    };
-                    match self.recover_validator_restart(validator, inventory.timeouts.restart_secs)
-                    {
-                        Ok(receipt) if receipt.status == "ok" => PreparedMutationOutcome::Applied {
-                            value: norito::json::Value::Null,
-                            evidence: Vec::new(),
-                        },
-                        Ok(receipt) if receipt.status == "pending" => {
-                            PreparedMutationOutcome::Pending
-                        }
-                        Ok(receipt) if receipt.status == "rejected" => {
-                            PreparedMutationOutcome::Rejected(receipt.detail)
-                        }
-                        Ok(_) => {
-                            PreparedMutationOutcome::Rejected("restart_recovery_status".to_owned())
-                        }
-                        Err(_) => PreparedMutationOutcome::Pending,
-                    }
-                }
                 "beacon_install" => match self.recover_beacon_install(progress, deadline) {
                     Ok(()) => return Ok(RecoveryOutcome::ReadyToContinue),
                     Err(_) => return Ok(RecoveryOutcome::Pending),
@@ -16060,36 +15377,8 @@ impl<R: ProcessRunner> ResetTransport for OpenSshTransport<'_, R> {
                 return Ok(RecoveryOutcome::ReadyToContinue);
             }
         }
-        match step {
-            ExecutionStep::Canary => {}
-            ExecutionStep::RestartProof => {
-                let result = (|| {
-                    if inventory.qualification_scope.includes_inrou() {
-                        self.read_inrou_restart_baselines_with_mode(true)?;
-                    }
-                    for wave in 1..=inventory
-                        .qualification_scope
-                        .restart_validator_indices()
-                        .len()
-                    {
-                        self.convergence(inventory.timeouts.convergence_secs, wave, true)?;
-                        if inventory.qualification_scope.includes_inrou() {
-                            self.inrou_check_with_mode(inventory.timeouts.canary_secs, wave, true)?;
-                        }
-                    }
-                    if inventory.qualification_scope.includes_inrou() {
-                        self.require_final_inrou_restart_sweep(
-                            inventory.timeouts.canary_secs,
-                            true,
-                        )?;
-                    }
-                    Ok(())
-                })();
-                return classify_inrou_restart_recovery_outcome(result);
-            }
-            _ => {
-                return Ok(RecoveryOutcome::Rejected("recovery_step_kind".to_owned()));
-            }
+        if step != ExecutionStep::Canary {
+            return Ok(RecoveryOutcome::Rejected("recovery_step_kind".to_owned()));
         }
         Ok(RecoveryOutcome::Applied)
     }
@@ -16129,71 +15418,6 @@ impl<R: ProcessRunner> ResetTransport for OpenSshTransport<'_, R> {
                 // bootstrap prefix. Provider activation restarts validators
                 // one at a time; confirm the mesh after that actual operation.
                 self.wait_for_validator_mesh(inventory, deadline)?;
-                Ok(())
-            }
-            ExecutionStep::RestartProof => {
-                if inventory.qualification_scope.includes_inrou() {
-                    self.ensure_inrou_restart_baselines(inventory.timeouts.canary_secs)?;
-                }
-                for (index, validator_index) in inventory
-                    .qualification_scope
-                    .restart_validator_indices()
-                    .iter()
-                    .enumerate()
-                {
-                    let validator = &inventory.validators[*validator_index];
-                    let wave = index + 1;
-                    let restart_index = index * 4;
-                    let origins = inventory
-                        .validator_clients
-                        .iter()
-                        .map(|client| client.probe_origin.clone())
-                        .collect::<Vec<_>>();
-                    let restart_deadline = Instant::now()
-                        .checked_add(Duration::from_secs(inventory.timeouts.restart_secs))
-                        .ok_or_else(|| eyre!("restart mesh deadline overflow"))?;
-                    let admitted = self.admitted;
-                    if restart_index >= next_mutation {
-                        run_restart_with_validator_http_readiness(
-                            &origins,
-                            restart_deadline.saturating_duration_since(Instant::now()),
-                            || ensure_authorization_current(admitted),
-                            |deadline| {
-                                progress.mark_submitted(restart_index)?;
-                                self.bootstrap_and_dispatch_validator(
-                                    validator,
-                                    HostAction::Restart,
-                                    remaining_seconds(deadline)?,
-                                )?;
-                                progress.mark_applied(restart_index)
-                            },
-                        )?;
-                    }
-                    self.wait_for_validator_mesh(inventory, restart_deadline)?;
-                    let phase = format!("restart-wave-{wave}");
-                    for (offset, kind) in ["onboarding", "faucet", "write_canary"]
-                        .into_iter()
-                        .enumerate()
-                    {
-                        if restart_index + offset + 1 < next_mutation {
-                            continue;
-                        }
-                        self.run_journaled_write_canary_child(
-                            progress,
-                            restart_index + offset + 1,
-                            inventory.timeouts.canary_secs,
-                            &phase,
-                            kind,
-                        )?;
-                    }
-                    self.convergence(inventory.timeouts.convergence_secs, wave, false)?;
-                    if inventory.qualification_scope.includes_inrou() {
-                        self.inrou_check(inventory.timeouts.canary_secs, wave)?;
-                    }
-                }
-                if inventory.qualification_scope.includes_inrou() {
-                    self.require_final_inrou_restart_sweep(inventory.timeouts.canary_secs, false)?;
-                }
                 Ok(())
             }
             _ => Err(eyre!("step is not recovery-sensitive")),
@@ -16728,6 +15952,7 @@ fn validate_prepared_report_envelope_bytes(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_prepared_write_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17363,6 +16588,7 @@ fn validate_applied_inrou_local_placement(
     })
 }
 
+#[cfg(test)]
 fn validate_inrou_evidence_for_validator(
     evidence: &ValidatedInrouEvidence,
     inventory: &InventoryV1,
@@ -17383,6 +16609,7 @@ fn validate_inrou_evidence_for_validator(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_inrou_restart_baseline_set(
     baselines: &[ValidatedInrouEvidence],
     inventory: &InventoryV1,
@@ -17418,6 +16645,7 @@ fn validate_inrou_restart_baseline_set(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_inrou_restart_transition(
     previous: &ValidatedInrouEvidence,
     target_baseline: &ValidatedInrouEvidence,
@@ -17466,6 +16694,7 @@ fn validate_inrou_restart_transition(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_inrou_restart_final_sweep(
     baselines: &[ValidatedInrouEvidence],
     final_wave: &ValidatedInrouEvidence,
@@ -17498,6 +16727,7 @@ fn validate_inrou_restart_final_sweep(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_inrou_replica_continuity(
     retained: &[ValidatedInrouReplicaIdentity],
     current: &[ValidatedInrouReplicaIdentity],
@@ -17539,21 +16769,6 @@ fn validate_inrou_replica_continuity(
     Ok(())
 }
 
-fn validate_inrou_live_continuity(
-    retained: &ValidatedInrouEvidence,
-    current: &ValidatedInrouEvidence,
-    inventory: &InventoryV1,
-    validator_index: usize,
-) -> Result<()> {
-    validate_inrou_evidence_for_validator(current, inventory, validator_index)?;
-    if current.local_placement != retained.local_placement {
-        return Err(eyre!(
-            "live Inrou continuity differs from the retained validator placement"
-        ));
-    }
-    validate_inrou_replica_continuity(&retained.replicas, &current.replicas)
-}
-
 fn parse_json_report(bytes: &[u8], label: &str) -> Result<norito::json::Value> {
     if bytes.len() > MAX_PROCESS_OUTPUT {
         return Err(eyre!("{label} exceeded the report byte bound"));
@@ -17588,6 +16803,7 @@ fn validate_common_report(
     Ok(())
 }
 
+#[cfg(test)]
 fn require_fresh_liveness_report<C>(
     context: &mut C,
     had_prior_receipt: bool,
@@ -17603,6 +16819,7 @@ fn require_fresh_liveness_report<C>(
     Ok(())
 }
 
+#[cfg(test)]
 const FRESH_INROU_CHECK_REPORT_FIELDS: &[&str] = &[
     "command",
     "status",
@@ -17636,6 +16853,7 @@ const FRESH_INROU_CHECK_REPORT_FIELDS: &[&str] = &[
     "replica_identities",
 ];
 
+#[cfg(test)]
 const RETAINED_INROU_CHECK_REPORT_FIELDS: &[&str] = &[
     "command",
     "status",
@@ -17668,6 +16886,7 @@ const RETAINED_INROU_CHECK_REPORT_FIELDS: &[&str] = &[
     "replica_identities",
 ];
 
+#[cfg(test)]
 fn validate_fresh_inrou_check_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17681,6 +16900,7 @@ fn validate_fresh_inrou_check_report(
     .map(|_| ())
 }
 
+#[cfg(test)]
 fn validate_fresh_inrou_observation_window(
     value: &norito::json::Value,
     started_at_unix_ms: u64,
@@ -17705,6 +16925,7 @@ fn validate_fresh_inrou_observation_window(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_retained_inrou_check_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17718,6 +16939,7 @@ fn validate_retained_inrou_check_report(
     .map(|_| ())
 }
 
+#[cfg(test)]
 fn validate_exact_inrou_check_report(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -17731,6 +16953,7 @@ fn validate_exact_inrou_check_report(
     )
 }
 
+#[cfg(test)]
 fn validate_exact_inrou_check_report_with_scope(
     value: &norito::json::Value,
     admitted: &AdmittedReset,
@@ -24030,19 +23253,6 @@ time.sleep(30)
                 "beacon_provider_4",
             ]
         );
-        let restart = build_recovery_intent(&inventory, ExecutionStep::RestartProof)
-            .expect("restart recovery intent");
-        assert_eq!(restart.mutations.len(), 16);
-        for wave in 0..4 {
-            assert_eq!(restart.mutations[wave * 4].kind, "host_restart");
-            assert_eq!(
-                restart.mutations[wave * 4 + 1..wave * 4 + 4]
-                    .iter()
-                    .map(|mutation| mutation.kind.as_str())
-                    .collect::<Vec<_>>(),
-                ["onboarding", "faucet", "write_canary"]
-            );
-        }
         assert!(build_recovery_intent(&inventory, ExecutionStep::EdgeVerify).is_none());
     }
 
@@ -24052,8 +23262,6 @@ time.sleep(30)
         let full_plan = host_forward_plan(&admitted);
         let full_canary = build_recovery_intent(&admitted.inventory, ExecutionStep::Canary)
             .expect("full qualification intent");
-        let full_restart = build_recovery_intent(&admitted.inventory, ExecutionStep::RestartProof)
-            .expect("full restart intent");
         admitted.inventory.qualification_scope = super::super::QualificationScopeV1::CoreTestnet;
         admitted.inventory.inrou_canary = None;
         admitted.inventory.inrou_stage_tree_sha256 = None;
@@ -24116,67 +23324,41 @@ time.sleep(30)
         );
         assert!(recovery_intent_identity_matches(&canary, &full_canary));
         assert!(recovery_intent_identity_matches(&full_canary, &canary));
-        let restart = build_recovery_intent(&admitted.inventory, ExecutionStep::RestartProof)
-            .expect("core restart intent");
-        assert_eq!(restart.mutations.len(), 4);
-        assert_eq!(
-            restart
-                .mutations
-                .iter()
-                .map(|mutation| mutation.kind.as_str())
-                .collect::<Vec<_>>(),
-            ["host_restart", "onboarding", "faucet", "write_canary"]
-        );
-        assert!(
-            restart
-                .mutations
-                .iter()
-                .all(|mutation| mutation.phase == "restart-wave-1")
-        );
-        assert!(!recovery_intent_identity_matches(&restart, &full_restart));
-        assert!(!recovery_intent_identity_matches(&full_restart, &restart));
-        for cursor in 0..=restart.mutations.len() {
-            let mut resumed = restart.clone();
+        for cursor in 0..=canary.mutations.len() {
+            let mut resumed = canary.clone();
             resumed.next_mutation = u16::try_from(cursor).expect("bounded cursor");
             for mutation in resumed.mutations.iter_mut().take(cursor) {
                 mutation.state = RecoveryMutationStateV1::Applied;
             }
-            super::super::validate_recovery_intent(&resumed, ExecutionStep::RestartProof)
+            super::super::validate_recovery_intent(&resumed, ExecutionStep::Canary)
                 .expect("every exact core cursor reopens");
-            assert!(recovery_intent_identity_matches(&resumed, &restart));
+            assert!(recovery_intent_identity_matches(&resumed, &canary));
             if cursor < resumed.mutations.len() {
                 resumed.mutations[cursor].state = RecoveryMutationStateV1::Submitted;
-                super::super::validate_recovery_intent(&resumed, ExecutionStep::RestartProof)
+                super::super::validate_recovery_intent(&resumed, ExecutionStep::Canary)
                     .expect("a submitted core child retains read-only recovery");
                 assert!(!super::super::recovery_ready_to_continue(
                     &resumed,
-                    ExecutionStep::RestartProof,
+                    ExecutionStep::Canary,
                 ));
             }
             if cursor > 0 {
                 resumed.mutations[cursor - 1].state = RecoveryMutationStateV1::Prepared;
                 assert!(
-                    super::super::validate_recovery_intent(&resumed, ExecutionStep::RestartProof)
+                    super::super::validate_recovery_intent(&resumed, ExecutionStep::Canary)
                         .is_err(),
-                    "the shorter plan cannot skip an unapplied predecessor"
+                    "the bootstrap plan cannot skip an unapplied predecessor"
                 );
             }
         }
-        let mut overrun = restart.clone();
-        overrun.next_mutation = 5;
-        assert!(
-            super::super::validate_recovery_intent(&overrun, ExecutionStep::RestartProof).is_err()
-        );
+        let mut overrun = canary.clone();
+        overrun.next_mutation = u16::try_from(canary.mutations.len() + 1).unwrap();
+        assert!(super::super::validate_recovery_intent(&overrun, ExecutionStep::Canary).is_err());
         assert!(build_recovery_intent(&admitted.inventory, ExecutionStep::EdgeVerify).is_none());
-        let envelopes = canary
-            .mutations
-            .iter()
-            .chain(&restart.mutations)
-            .filter(|mutation| mutation.kind != "host_restart")
-            .count();
         assert_eq!(
-            envelopes, 11,
-            "bootstrap and explicitly constructed restart intent retain immutable custody"
+            canary.mutations.len(),
+            8,
+            "the required bootstrap prefix retains every immutable child identity"
         );
         admitted.request.mutation_kind = "write_canary".to_owned();
         for phase in ["pre_edge", "restart-wave-1", "post_edge"] {

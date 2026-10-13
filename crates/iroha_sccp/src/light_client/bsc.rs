@@ -49,7 +49,16 @@
 //! or the blocks they assert cannot share one chain: one height with different hashes, or heights
 //! and times ordered inconsistently (Parlia timestamps strictly increase).
 
-use std::collections::BTreeMap;
+use super::state::SccpLcConsensusSetRefV1;
+use super::{
+    prepared::{LcMemory, LcSetOwner, SccpLcAttemptErrorV1, SccpNativeEventV1},
+    set_ref::{BscSetRef, BscValidatorRef, SetFrameRef},
+    state::writer::DeltaWriter,
+};
+use crate::native_memory::Buffer;
+
+#[cfg(test)]
+use super::state::{SccpLcInitialStateV1, SccpLcPurgeV1, state_hash};
 
 use core::fmt;
 
@@ -60,8 +69,8 @@ use iroha_data_model::{
         inbound::SccpSourceLocatorV1,
         light_client::{
             SccpLcCheckpointDataV1, SccpLcCheckpointOriginV1, SccpLcCheckpointV1,
-            SccpLcConsensusSetV1, SccpLcEquivocationFreezeV1, SccpLcFreezeReasonV1, SccpLcHeadV1,
-            SccpLcPointV1, SccpLightClientParamsV1, SccpLightClientV1,
+            SccpLcEquivocationFreezeV1, SccpLcFreezeReasonV1, SccpLcHeadV1, SccpLcPointV1,
+            SccpLightClientParamsV1, SccpLightClientV1,
         },
     },
 };
@@ -75,14 +84,13 @@ use super::{
     },
     proof::{SccpLcSetDataV1, SccpVerifiedProofV1},
     state::{
-        CheckpointRecorder, SccpLcDeltaV1, SccpLcInitialStateV1, SccpLcPurgeV1, SccpLcStateView,
-        SccpLcSupersessionV1, is_set_fresh, state_hash,
+        CheckpointRecorder, SccpLcDeltaV1, SccpLcStateView, SccpLcSupersessionV1, is_set_fresh,
     },
 };
 use crate::{
     ethereum_source::{
-        EthereumNativeMptProofV1, canonical_u64, parse_rlp_list, rlp_bytes, rlp_encode_bytes,
-        rlp_encode_list, rlp_encode_u64, rlp_h256, rlp_list_items,
+        EthereumNativeMptProofV1, canonical_u64, parse_rlp_list, rlp_bytes, rlp_h256,
+        rlp_list_items,
     },
     v1::{hashes::keccak256, network::tag},
 };
@@ -418,6 +426,8 @@ pub enum BscLcError {
     },
     /// A height or time overflows.
     Overflow,
+    /// Detached verifier scratch could not be allocated. Native attempts preserve typed refusal.
+    ResourceLimit,
     /// The receipt or event opening failed (the EVM rules shared with Ethereum).
     Receipt(EthereumLcError),
 }
@@ -470,6 +480,7 @@ impl fmt::Display for BscLcError {
                 write!(formatter, "stored set {set_id} is not a BSC validator set")
             }
             Self::Overflow => formatter.write_str("source height or time overflows"),
+            Self::ResourceLimit => formatter.write_str("BSC verifier scratch unavailable"),
             Self::Receipt(error) => write!(formatter, "{error}"),
         }
     }
@@ -480,6 +491,13 @@ impl std::error::Error for BscLcError {}
 impl From<BscLcError> for SccpLcError {
     fn from(value: BscLcError) -> Self {
         Self::Bsc(value)
+    }
+}
+
+fn detached_error(error: &SccpLcAttemptErrorV1) -> SccpLcError {
+    match error {
+        SccpLcAttemptErrorV1::Protocol(error) => *error,
+        _ => BscLcError::ResourceLimit.into(),
     }
 }
 
@@ -497,17 +515,17 @@ fn receipt_error(error: SccpLcError) -> SccpLcError {
 
 /// Fields of a decoded Parlia header.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct HeaderV1 {
+struct HeaderV1<'a> {
     hash: [u8; 32],
     parent_hash: [u8; 32],
     state_root: [u8; 32],
     receipts_root: [u8; 32],
     number: u64,
     time_ms: u64,
-    extra: Vec<u8>,
+    extra: &'a [u8],
 }
 
-impl HeaderV1 {
+impl HeaderV1<'_> {
     const fn point(&self) -> SccpLcPointV1 {
         SccpLcPointV1 {
             source_height: self.number,
@@ -531,7 +549,7 @@ impl HeaderV1 {
 /// 11 canonical integers, 12 the `extraData`; the millisecond part of the timestamp is the
 /// big-endian `u64` in the last 8 bytes of the mix digest (field 13), below 1 000, with the
 /// first 24 bytes zero. The remaining fields are bound by the hash only.
-fn decode_header(rlp: &[u8]) -> Result<HeaderV1, BscLcError> {
+fn decode_header(rlp: &[u8]) -> Result<HeaderV1<'_>, BscLcError> {
     if rlp.len() > MAX_HEADER_BYTES {
         return Err(BscLcError::MalformedHeader);
     }
@@ -562,16 +580,61 @@ fn decode_header(rlp: &[u8]) -> Result<HeaderV1, BscLcError> {
         receipts_root: hash32(5)?,
         number: integer(8)?,
         time_ms,
-        extra: rlp_bytes(items[12])
-            .ok_or(BscLcError::MalformedHeader)?
-            .to_vec(),
+        extra: rlp_bytes(items[12]).ok_or(BscLcError::MalformedHeader)?,
     })
+}
+
+/// At most 64 borrowed members, with no heap graph for the native announcement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Roster<'a> {
+    entries: [BscValidatorRef<'a>; BSC_MAX_VALIDATORS],
+    len: usize,
+}
+impl<'a> Roster<'a> {
+    fn empty() -> Self {
+        Self {
+            entries: [BscValidatorRef {
+                consensus_address: &[],
+                vote_public_key: &[],
+            }; BSC_MAX_VALIDATORS],
+            len: 0,
+        }
+    }
+    fn from_owned(values: &'a [BscValidatorV1]) -> Result<Self, BscLcError> {
+        if values.is_empty() || values.len() > BSC_MAX_VALIDATORS {
+            return Err(BscLcError::InvalidRoster);
+        }
+        let mut roster = Self::empty();
+        for value in values {
+            roster.entries[roster.len] = BscValidatorRef {
+                consensus_address: &value.consensus_address,
+                vote_public_key: &value.vote_public_key,
+            };
+            roster.len += 1;
+        }
+        Ok(roster)
+    }
+    /// Explicit detached boundary used only by public off-chain builders/bootstrap output.
+    fn into_owned(self) -> Vec<BscValidatorV1> {
+        self.iter()
+            .map(|v| BscValidatorV1 {
+                consensus_address: v.consensus_address.to_vec(),
+                vote_public_key: v.vote_public_key.to_vec(),
+            })
+            .collect()
+    }
+}
+impl<'a> core::ops::Deref for Roster<'a> {
+    type Target = [BscValidatorRef<'a>];
+    fn deref(&self) -> &Self::Target {
+        &self.entries[..self.len]
+    }
 }
 
 /// A validator set announced by an epoch checkpoint.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct AnnouncedSetV1 {
-    validators: Vec<BscValidatorV1>,
+struct AnnouncedSetV1<'a> {
+    validators: Roster<'a>,
     turn_length: u8,
 }
 
@@ -580,68 +643,67 @@ std::thread_local! {
     static BLS_KEY_VALIDATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// Check a roster's structure and return its vote keys: 1..=64 members, strictly ascending
-/// nonzero addresses, distinct 48-byte keys. The keys themselves are validated once, when the set
-/// is learned ([`validate_roster_keys`]).
-fn roster_keys(validators: &[BscValidatorV1]) -> Result<Vec<[u8; 48]>, BscLcError> {
+/// Canonical roster structure; fixed protocol maximum bounds every stack index.
+fn roster_keys(
+    validators: &[BscValidatorRef<'_>],
+) -> Result<([[u8; 48]; BSC_MAX_VALIDATORS], usize), BscLcError> {
     if validators.is_empty() || validators.len() > BSC_MAX_VALIDATORS {
         return Err(BscLcError::InvalidRoster);
     }
-    let mut keys = Vec::with_capacity(validators.len());
+    let mut keys = [[0; 48]; BSC_MAX_VALIDATORS];
     let mut previous: Option<[u8; 20]> = None;
-    for validator in validators {
-        let address = <[u8; 20]>::try_from(validator.consensus_address.as_slice())
+    for (index, validator) in validators.iter().enumerate() {
+        let address = <[u8; 20]>::try_from(validator.consensus_address)
             .map_err(|_| BscLcError::InvalidRoster)?;
-        let key = <[u8; 48]>::try_from(validator.vote_public_key.as_slice())
+        let key = <[u8; 48]>::try_from(validator.vote_public_key)
             .map_err(|_| BscLcError::InvalidRoster)?;
         if address == [0; 20]
             || previous.is_some_and(|prior| prior >= address)
-            || keys.contains(&key)
+            || keys[..index].contains(&key)
         {
             return Err(BscLcError::InvalidRoster);
         }
         previous = Some(address);
-        keys.push(key);
+        keys[index] = key;
     }
-    Ok(keys)
+    Ok((keys, validators.len()))
 }
 
-/// Validate every BLS vote key of a set being learned (point encoding and subgroup checks). A
-/// learned set is stored only after this succeeds, so stored sets are never re-validated.
-fn validate_roster_keys(validators: &[BscValidatorV1]) -> Result<(), BscLcError> {
-    for key in roster_keys(validators)? {
+/// Validate keys only when learning a new set, preserving the charged BLS work relation.
+fn validate_roster_keys(validators: &[BscValidatorRef<'_>]) -> Result<(), BscLcError> {
+    let (keys, len) = roster_keys(validators)?;
+    for key in &keys[..len] {
         #[cfg(test)]
         BLS_KEY_VALIDATIONS.with(|count| count.set(count.get().saturating_add(1)));
-        ethereum_bls_pop_validate_public_key(&key).map_err(|_| BscLcError::InvalidRoster)?;
+        ethereum_bls_pop_validate_public_key(key).map_err(|_| BscLcError::InvalidRoster)?;
     }
     Ok(())
 }
 
-/// The set an epoch checkpoint announces: after the 32-byte vanity, a count byte, `count`
-/// `(address ‖ BLS key)` entries and the turn length; then an optional attestation and the
-/// 65-byte seal. The roster is checked structurally; its keys are validated only if it is
-/// learned.
-fn announced_set(header: &HeaderV1) -> Result<AnnouncedSetV1, BscLcError> {
-    let middle = extra_middle(&header.extra)?;
+/// Borrow the exact epoch roster bytes after vanity and before attestation/seal.
+fn announced_set<'a>(header: &HeaderV1<'a>) -> Result<AnnouncedSetV1<'a>, BscLcError> {
+    let middle = extra_middle(header.extra)?;
     let count = usize::from(*middle.first().ok_or(BscLcError::MalformedExtra)?);
     let roster_end = count
         .checked_mul(VALIDATOR_BYTES)
         .and_then(|len| len.checked_add(1))
         .ok_or(BscLcError::MalformedExtra)?;
-    let roster = middle
+    let raw = middle
         .get(1..roster_end)
         .ok_or(BscLcError::MalformedExtra)?;
     let turn_length = *middle.get(roster_end).ok_or(BscLcError::MalformedExtra)?;
-    if turn_length == 0 || turn_length > MAX_TURN_LENGTH {
+    if count == 0 || count > BSC_MAX_VALIDATORS || turn_length == 0 || turn_length > MAX_TURN_LENGTH
+    {
         return Err(BscLcError::InvalidRoster);
     }
-    let validators = roster
-        .chunks_exact(VALIDATOR_BYTES)
-        .map(|entry| BscValidatorV1 {
-            consensus_address: entry[..20].to_vec(),
-            vote_public_key: entry[20..].to_vec(),
-        })
-        .collect::<Vec<_>>();
+    let mut validators = Roster::empty();
+    for entry in raw.chunks_exact(VALIDATOR_BYTES) {
+        validators.entries[validators.len] = BscValidatorRef {
+            consensus_address: &entry[..20],
+            vote_public_key: &entry[20..],
+        };
+        validators.len += 1;
+    }
     roster_keys(&validators)?;
     Ok(AnnouncedSetV1 {
         validators,
@@ -726,7 +788,7 @@ pub fn header_attestation(
     header_rlp: &[u8],
 ) -> Result<Option<(Vec<u8>, BscVoteV1)>, BscLcError> {
     let header = decode_header(header_rlp)?;
-    let middle = extra_middle(&header.extra)?;
+    let middle = extra_middle(header.extra)?;
     let raw = if profile.is_epoch_checkpoint(header.number) {
         let count = usize::from(*middle.first().ok_or(BscLcError::MalformedExtra)?);
         let skip = count
@@ -759,7 +821,7 @@ pub fn header_attestation(
 /// Returns a header, `extraData` or roster error.
 pub fn header_announced_set(header_rlp: &[u8]) -> Result<(Vec<BscValidatorV1>, u8), BscLcError> {
     let announced = announced_set(&decode_header(header_rlp)?)?;
-    Ok((announced.validators, announced.turn_length))
+    Ok((announced.validators.into_owned(), announced.turn_length))
 }
 
 /// Blocks after an epoch checkpoint before its announced set takes over, given the previous
@@ -788,12 +850,41 @@ struct VoteDataV1 {
 impl VoteDataV1 {
     /// `keccak256(rlp([source_number, source_hash, target_number, target_hash]))`.
     fn hash(&self) -> [u8; 32] {
-        keccak256(&[&rlp_encode_list(&[
-            rlp_encode_u64(self.source_number),
-            rlp_encode_bytes(&self.source_hash),
-            rlp_encode_u64(self.target_number),
-            rlp_encode_bytes(&self.target_hash),
-        ])])
+        // Each integer occupies at most 9 RLP bytes; the two hashes occupy 33 each.
+        // The payload is always 68..=84 bytes, so its list prefix is exactly f8 + u8 length.
+        fn integer(value: u64, bytes: &mut [u8; 86], cursor: &mut usize) {
+            if value == 0 {
+                bytes[*cursor] = 0x80;
+                *cursor += 1;
+            } else if value < 128 {
+                bytes[*cursor] = value.to_be_bytes()[7];
+                *cursor += 1;
+            } else {
+                let raw = value.to_be_bytes();
+                let skip = raw.iter().take_while(|byte| **byte == 0).count();
+                let len = 8 - skip;
+                bytes[*cursor] =
+                    0x80 + u8::try_from(len).expect("u64 RLP integer occupies at most eight bytes");
+                *cursor += 1;
+                bytes[*cursor..*cursor + len].copy_from_slice(&raw[skip..]);
+                *cursor += len;
+            }
+        }
+        let mut bytes = [0_u8; 86];
+        let mut cursor = 2;
+        integer(self.source_number, &mut bytes, &mut cursor);
+        bytes[cursor] = 0xa0;
+        cursor += 1;
+        bytes[cursor..cursor + 32].copy_from_slice(&self.source_hash);
+        cursor += 32;
+        integer(self.target_number, &mut bytes, &mut cursor);
+        bytes[cursor] = 0xa0;
+        cursor += 1;
+        bytes[cursor..cursor + 32].copy_from_slice(&self.target_hash);
+        cursor += 32;
+        bytes[0] = 0xf8;
+        bytes[1] = u8::try_from(cursor - 2).expect("vote RLP payload occupies at most 84 bytes");
+        keccak256(&[&bytes[..cursor]])
     }
 }
 
@@ -876,8 +967,8 @@ fn verify_quorum(
     validators: &[BscValidatorV1],
     attestation: &AttestationV1,
 ) -> Result<(), SccpLcError> {
-    let keys = roster_keys(validators)?;
-    let members = keys.len();
+    let roster = Roster::from_owned(validators)?;
+    let (keys, members) = roster_keys(&roster)?;
     if members < 64 && attestation.vote_address_set >> members != 0 {
         return Err(BscLcError::InsufficientQuorum {
             signers: attestation.vote_address_set.count_ones(),
@@ -885,14 +976,16 @@ fn verify_quorum(
         }
         .into());
     }
-    let signers = keys
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| attestation.vote_address_set & (1_u64 << index) != 0)
-        .map(|(_, key)| *key)
-        .collect::<Vec<_>>();
+    let mut signers = [[0_u8; 48]; BSC_MAX_VALIDATORS];
+    let mut signer_count = 0;
+    for (index, key) in keys[..members].iter().enumerate() {
+        if attestation.vote_address_set & (1_u64 << index) != 0 {
+            signers[signer_count] = *key;
+            signer_count += 1;
+        }
+    }
     let required = quorum(members);
-    let count = u32::try_from(signers.len()).unwrap_or(u32::MAX);
+    let count = u32::try_from(signer_count).unwrap_or(u32::MAX);
     if count < required {
         return Err(BscLcError::InsufficientQuorum {
             signers: count,
@@ -901,7 +994,7 @@ fn verify_quorum(
         .into());
     }
     ethereum_bls_pop_fast_aggregate_verify(
-        &signers,
+        &signers[..signer_count],
         &attestation.data.hash(),
         &attestation.signature,
     )
@@ -917,9 +1010,10 @@ fn quorum(members: usize) -> u32 {
 // Sets
 // ---------------------------------------------------------------------------------------------
 
-fn decode_set(set: &SccpLcConsensusSetV1) -> Result<BscValidatorSetV1, SccpLcError> {
+#[cfg(test)]
+fn decode_set(set: &SccpLcConsensusSetRefV1<'_>) -> Result<BscValidatorSetV1, SccpLcError> {
     let malformed = BscLcError::MalformedStoredSet { set_id: set.set_id };
-    let decoded = SccpLcSetDataV1::from_frame(&set.set_bytes).map_err(|_| malformed)?;
+    let decoded = SccpLcSetDataV1::from_frame(set.set_bytes).map_err(|_| malformed)?;
     let SccpLcSetDataV1::Bsc(data) = decoded else {
         return Err(malformed.into());
     };
@@ -929,97 +1023,48 @@ fn decode_set(set: &SccpLcConsensusSetV1) -> Result<BscValidatorSetV1, SccpLcErr
     Ok(data)
 }
 
-fn set_record(
-    data: BscValidatorSetV1,
-    valid_from_source_height: u64,
-) -> Result<SccpLcConsensusSetV1, SccpLcError> {
-    Ok(SccpLcConsensusSetV1 {
-        set_id: data.checkpoint_height,
-        valid_from_source_height,
-        superseded_at_source_ms: None,
-        set_bytes: SccpLcSetDataV1::Bsc(data).to_frame()?,
+/// Borrow stored and pending canonical bytes without cloning either graph.
+fn get_set<'a, V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    view: &'a V,
+    out: &'a D,
+    id: u64,
+) -> Option<SccpLcConsensusSetRefV1<'a>> {
+    out.find_set(id).or_else(|| {
+        view.consensus_set(NETWORK, id).map(|mut set| {
+            if let Some(value) = out.superseded().iter().find(|value| value.set_id == id) {
+                set.superseded_at_source_ms = Some(value.superseded_at_source_ms);
+            }
+            set
+        })
     })
 }
 
-/// Stored sets plus the sets an advance learns.
-struct Sets<'a, V: SccpLcStateView + ?Sized> {
-    view: &'a V,
-    learned: BTreeMap<u64, SccpLcConsensusSetV1>,
-    superseded: BTreeMap<u64, u64>,
+fn decode_set_native(
+    set: &SccpLcConsensusSetRefV1<'_>,
+    memory: &LcMemory<'_>,
+) -> Result<LcSetOwner, SccpLcAttemptErrorV1> {
+    let malformed = BscLcError::MalformedStoredSet { set_id: set.set_id };
+    let owner = memory
+        .decode_set(set.set_bytes, set.set_bytes.len())
+        .map_err(|error| match error {
+            SccpLcAttemptErrorV1::Protocol(SccpLcError::MalformedFrame(_)) => malformed.into(),
+            other => other,
+        })?;
+    if !matches!(owner.get(), SccpLcSetDataV1::Bsc(data) if data.checkpoint_height == set.set_id) {
+        return Err(malformed.into());
+    }
+    Ok(owner)
 }
-
-impl<'a, V: SccpLcStateView + ?Sized> Sets<'a, V> {
-    const fn new(view: &'a V) -> Self {
-        Self {
-            view,
-            learned: BTreeMap::new(),
-            superseded: BTreeMap::new(),
-        }
-    }
-
-    fn get(&self, set_id: u64) -> Option<SccpLcConsensusSetV1> {
-        self.learned.get(&set_id).cloned().or_else(|| {
-            self.view.consensus_set(NETWORK, set_id).map(|mut set| {
-                if let Some(at) = self.superseded.get(&set_id) {
-                    set.superseded_at_source_ms = Some(*at);
-                }
-                set
-            })
-        })
-    }
-
-    /// Learn `next`, announced at time `announced_ms`, as the successor of `previous`.
-    fn learn(
-        &mut self,
-        previous: u64,
-        next: SccpLcConsensusSetV1,
-        announced_ms: u64,
-    ) -> Result<(), SccpLcError> {
-        if let Some(existing) = self.get(next.set_id) {
-            if existing.set_bytes != next.set_bytes
-                || existing.valid_from_source_height != next.valid_from_source_height
-            {
-                return Err(SccpLcError::ConflictsWithStoredData(
-                    SccpLcConflictV1::ConsensusSet {
-                        set_id: next.set_id,
-                    },
-                ));
-            }
-            return Ok(());
-        }
-        if let Some(pending) = self.learned.get_mut(&previous) {
-            pending.superseded_at_source_ms = Some(announced_ms);
-        } else {
-            self.superseded.insert(previous, announced_ms);
-        }
-        self.learned.insert(next.set_id, next);
-        Ok(())
-    }
-
-    /// The delta of an advance: the learned and superseded sets, then `checkpoints` and `head`.
-    fn into_delta(
-        self,
-        checkpoints: Vec<SccpLcCheckpointV1>,
-        head: Option<SccpLcHeadV1>,
-    ) -> SccpLcDeltaV1 {
-        SccpLcDeltaV1 {
-            new_sets: self.learned.into_values().collect(),
-            superseded_sets: self
-                .superseded
-                .into_iter()
-                .map(|(set_id, superseded_at_source_ms)| SccpLcSupersessionV1 {
-                    set_id,
-                    superseded_at_source_ms,
-                })
-                .collect(),
-            checkpoints,
-            head,
-        }
+fn bsc_set(owner: &LcSetOwner) -> Result<&BscValidatorSetV1, SccpLcAttemptErrorV1> {
+    match owner.get() {
+        SccpLcSetDataV1::Bsc(data) => Ok(data),
+        _ => Err(SccpLcAttemptErrorV1::Invariant("BSC set owner tag")),
     }
 }
 
 /// The light client's view of freshness while a call runs.
-struct Ctx<'a> {
+struct Ctx<'a, 'm> {
+    memory: &'a LcMemory<'m>,
     profile: &'a BscChainProfileV1,
     params: &'a SccpLightClientParamsV1,
     now: u64,
@@ -1030,7 +1075,7 @@ struct Ctx<'a> {
     newest_seen_ms: u64,
 }
 
-impl Ctx<'_> {
+impl Ctx<'_, '_> {
     fn check_header_time(&self, header: &HeaderV1) -> Result<(), SccpLcError> {
         if !self.profile.supports_time(header.time_ms) {
             return Err(BscLcError::UnsupportedFork {
@@ -1047,7 +1092,7 @@ impl Ctx<'_> {
         Ok(())
     }
 
-    fn check_fresh(&self, set: &SccpLcConsensusSetV1) -> Result<(), SccpLcError> {
+    fn check_fresh(&self, set: &SccpLcConsensusSetRefV1<'_>) -> Result<(), SccpLcError> {
         let expiry = set.superseded_at_source_ms.unwrap_or(self.newest_seen_ms);
         if is_set_fresh(Some(expiry), self.params.ws_bound_ms, self.now) {
             Ok(())
@@ -1060,27 +1105,37 @@ impl Ctx<'_> {
     }
 
     /// Decode and link `headers` (1..=`max`), each in the fork window.
-    fn linked(
+    fn linked<'h>(
         &self,
-        headers: &[Vec<u8>],
+        headers: &'h [Vec<u8>],
         max: usize,
         kind: &'static str,
-    ) -> Result<Vec<HeaderV1>, SccpLcError> {
+    ) -> Result<Buffer<HeaderV1<'h>>, SccpLcAttemptErrorV1> {
         let count = headers.len();
         if count == 0 {
             return Err(SccpLcError::TooFewItems {
                 kind,
                 count,
                 min: 1,
-            });
+            }
+            .into());
         }
         if count > max {
-            return Err(SccpLcError::TooManyItems { kind, count, max });
+            return Err(SccpLcError::TooManyItems { kind, count, max }.into());
         }
-        let decoded = headers
-            .iter()
-            .map(|header| decode_header(header))
-            .collect::<Result<Vec<_>, _>>()?;
+        let allocation = self
+            .memory
+            .native()
+            .buffer(count)
+            .ok_or(BscLcError::ResourceLimit);
+        let mut decoded = self.memory.native().finish(allocation)?;
+        for header in headers {
+            decoded
+                .push(decode_header(header)?)
+                .ok_or(SccpLcAttemptErrorV1::Invariant(
+                    "BSC linked header capacity",
+                ))?;
+        }
         for (index, pair) in decoded.windows(2).enumerate() {
             let (parent, child) = (&pair[0], &pair[1]);
             if child.parent_hash != parent.hash
@@ -1097,18 +1152,17 @@ impl Ctx<'_> {
     }
 
     /// Verify `finality` under the stored set it names and return the vote data.
-    fn verify_finality<V: SccpLcStateView + ?Sized>(
+    fn verify_finality<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
         &self,
-        sets: &Sets<'_, V>,
+        view: &V,
+        out: &D,
         finality: &BscFinalityV1,
-    ) -> Result<VoteDataV1, SccpLcError> {
+    ) -> Result<VoteDataV1, SccpLcAttemptErrorV1> {
         let attestation = decode_attestation(&finality.attestation)?;
         let target = attestation.data.target_number;
-        let set = sets
-            .get(finality.set_id)
-            .ok_or(SccpLcError::UnknownSigningSet {
-                set_id: finality.set_id,
-            })?;
+        let set = get_set(view, out, finality.set_id).ok_or(SccpLcError::UnknownSigningSet {
+            set_id: finality.set_id,
+        })?;
         let not_covering = BscLcError::SetDoesNotCover {
             set_id: finality.set_id,
             target,
@@ -1119,12 +1173,12 @@ impl Ctx<'_> {
         match finality.successor_set_id {
             None if finality.set_id == self.newest => {}
             Some(successor_id) if finality.set_id != self.newest => {
-                let successor = sets
-                    .get(successor_id)
-                    .ok_or(SccpLcError::UnknownSigningSet {
+                let successor =
+                    get_set(view, out, successor_id).ok_or(SccpLcError::UnknownSigningSet {
                         set_id: successor_id,
                     })?;
-                if decode_set(&successor)?.previous_set_id != Some(finality.set_id)
+                if bsc_set(&decode_set_native(&successor, self.memory)?)?.previous_set_id
+                    != Some(finality.set_id)
                     || target >= successor.valid_from_source_height
                 {
                     return Err(not_covering.into());
@@ -1133,38 +1187,45 @@ impl Ctx<'_> {
             _ => return Err(not_covering.into()),
         }
         self.check_fresh(&set)?;
-        verify_quorum(&decode_set(&set)?.validators, &attestation)?;
+        verify_quorum(
+            &bsc_set(&decode_set_native(&set, self.memory)?)?.validators,
+            &attestation,
+        )?;
         Ok(attestation.data)
     }
 
     /// Reject an epoch checkpoint above the newest set's checkpoint that announces another set;
     /// a checkpoint at a stored set's height must announce that set.
-    fn check_announcements<V: SccpLcStateView + ?Sized>(
+    fn check_announcements<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
         &self,
-        sets: &Sets<'_, V>,
-        headers: &[HeaderV1],
-    ) -> Result<(), SccpLcError> {
-        let newest = newest_set(sets, self.newest)?;
+        view: &V,
+        out: &D,
+        headers: &[HeaderV1<'_>],
+    ) -> Result<(), SccpLcAttemptErrorV1> {
+        let owner = newest_set(view, out, self.newest, self.memory)?;
+        let newest = bsc_set(&owner)?;
         for header in headers
             .iter()
             .filter(|header| self.profile.is_epoch_checkpoint(header.number))
         {
             let announced = announced_set(header)?;
             if header.number > newest.checkpoint_height {
-                if !announces(&newest, &announced) {
+                if !announces(newest, &announced) {
                     return Err(BscLcError::UnlearnedTransition {
                         checkpoint_height: header.number,
                     }
                     .into());
                 }
-            } else if let Some(stored) = sets.get(header.number) {
-                let stored = decode_set(&stored)?;
-                if stored.checkpoint_hash != header.hash || !announces(&stored, &announced) {
+            } else if let Some(stored) = get_set(view, out, header.number) {
+                let stored_owner = decode_set_native(&stored, self.memory)?;
+                let stored = bsc_set(&stored_owner)?;
+                if stored.checkpoint_hash != header.hash || !announces(stored, &announced) {
                     return Err(SccpLcError::ConflictsWithStoredData(
                         SccpLcConflictV1::ConsensusSet {
                             set_id: header.number,
                         },
-                    ));
+                    )
+                    .into());
                 }
             }
         }
@@ -1172,19 +1233,29 @@ impl Ctx<'_> {
     }
 }
 
-fn newest_set<V: SccpLcStateView + ?Sized>(
-    sets: &Sets<'_, V>,
+fn newest_set<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    view: &V,
+    out: &D,
     newest: u64,
-) -> Result<BscValidatorSetV1, SccpLcError> {
-    decode_set(
-        &sets
-            .get(newest)
-            .ok_or(SccpLcError::UnknownSigningSet { set_id: newest })?,
+    memory: &LcMemory<'_>,
+) -> Result<LcSetOwner, SccpLcAttemptErrorV1> {
+    decode_set_native(
+        &get_set(view, out, newest).ok_or(SccpLcError::UnknownSigningSet { set_id: newest })?,
+        memory,
     )
 }
 
-fn announces(set: &BscValidatorSetV1, announced: &AnnouncedSetV1) -> bool {
-    set.validators == announced.validators && set.turn_length == announced.turn_length
+fn announces(set: &BscValidatorSetV1, announced: &AnnouncedSetV1<'_>) -> bool {
+    set.turn_length == announced.turn_length
+        && set.validators.len() == announced.validators.len()
+        && set
+            .validators
+            .iter()
+            .zip(announced.validators.iter())
+            .all(|(left, right)| {
+                left.consensus_address == right.consensus_address
+                    && left.vote_public_key == right.vote_public_key
+            })
 }
 
 fn count_bound(param: u32, hard: usize) -> usize {
@@ -1208,15 +1279,53 @@ fn check_source(data: &VoteDataV1, header: &HeaderV1) -> Result<(), SccpLcError>
 /// Both headers are consecutive epoch checkpoints in the fork window and not in the future, the
 /// checkpoint is fresh at `taira_now_ms`, and both rosters are valid. The installed set covers
 /// targets from `checkpoint + minerHistoryCheckLen(previous) + 1`.
+#[cfg(test)]
 pub(super) fn verify_bootstrap(
     profile: &BscChainProfileV1,
     params: &SccpLightClientParamsV1,
     bootstrap: &BscLcBootstrapV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcInitialStateV1, SccpLcError> {
+    let mut delta = SccpLcDeltaV1::default();
+    let head = verify_bootstrap_into(
+        profile,
+        params,
+        bootstrap,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut delta,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(SccpLcInitialStateV1 {
+        light_client: SccpLightClientV1 {
+            params: *params,
+            head,
+            frozen: None,
+            state_hash: state_hash(params, &head, None),
+        },
+        purge: SccpLcPurgeV1::DiscardUnvetted,
+        superseded_sets: delta.superseded_sets,
+        sets: delta.new_sets,
+        checkpoints: delta.checkpoints,
+    })
+}
+
+/// The bootstrap relation borrows both rosters and writes into the actual original output.
+pub(super) fn verify_bootstrap_into<D: DeltaWriter>(
+    profile: &BscChainProfileV1,
+    params: &SccpLightClientParamsV1,
+    bootstrap: &BscLcBootstrapV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    out: &mut D,
+) -> Result<SccpLcHeadV1, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let checkpoint = decode_header(&bootstrap.checkpoint_header)?;
     let previous = decode_header(&bootstrap.previous_checkpoint_header)?;
     let ctx = Ctx {
+        memory,
         profile,
         params,
         now: taira_now_ms,
@@ -1241,38 +1350,33 @@ pub(super) fn verify_bootstrap(
         )?)
         .and_then(|height| height.checked_add(1))
         .ok_or(BscLcError::Overflow)?;
-    let set = set_record(
-        BscValidatorSetV1 {
-            checkpoint_height: checkpoint.number,
-            checkpoint_hash: checkpoint.hash,
-            previous_set_id: None,
-            turn_length: announced.turn_length,
-            validators: announced.validators,
-        },
-        valid_from,
-    )?;
-    ctx.check_fresh(&set)?;
+    ctx.check_fresh(&SccpLcConsensusSetRefV1 {
+        set_id: checkpoint.number,
+        valid_from_source_height: valid_from,
+        superseded_at_source_ms: None,
+        set_bytes: &[],
+    })?;
+    let set = BscSetRef {
+        checkpoint_height: checkpoint.number,
+        checkpoint_hash: checkpoint.hash,
+        previous_set_id: None,
+        turn_length: announced.turn_length,
+        validators: &announced.validators,
+    };
+    out.encode_set(checkpoint.number, valid_from, None, &SetFrameRef::bsc(&set))
+        .map_err(Into::into)?;
+    out.checkpoint(SccpLcCheckpointV1 {
+        data: checkpoint.checkpoint(),
+        recorded_at_taira_ms: taira_now_ms,
+        origin: SccpLcCheckpointOriginV1::Parliament,
+    })
+    .map_err(Into::into)?;
     let head = SccpLcHeadV1 {
         latest_set_id: checkpoint.number,
         latest_finalized: checkpoint.point(),
         last_progress_taira_ms: taira_now_ms,
     };
-    Ok(SccpLcInitialStateV1 {
-        light_client: SccpLightClientV1 {
-            params: *params,
-            head,
-            frozen: None,
-            state_hash: state_hash(params, &head, None),
-        },
-        purge: SccpLcPurgeV1::DiscardUnvetted,
-        superseded_sets: Vec::new(),
-        sets: vec![set],
-        checkpoints: vec![SccpLcCheckpointV1 {
-            data: checkpoint.checkpoint(),
-            recorded_at_taira_ms: taira_now_ms,
-            origin: SccpLcCheckpointOriginV1::Parliament,
-        }],
-    })
+    Ok(head)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1287,6 +1391,33 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
     advance: &BscLcAdvanceV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcDeltaV1, SccpLcError> {
+    let mut delta = SccpLcDeltaV1::default();
+    delta.head = apply_advance_into(
+        profile,
+        view,
+        light_client,
+        advance,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut delta,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(delta)
+}
+
+/// Shared BSC kernel writing only into the caller's actual delta owner.
+pub(super) fn apply_advance_into<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    profile: &BscChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    advance: &BscLcAdvanceV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    out: &mut D,
+) -> Result<Option<SccpLcHeadV1>, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let params = &light_client.params;
     let count = advance.steps.len();
     if count == 0 {
@@ -1294,7 +1425,8 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
             kind: "advance steps",
             count,
             min: 1,
-        });
+        }
+        .into());
     }
     let max = count_bound(params.max_updates_per_advance, BSC_MAX_STEPS_PER_ADVANCE);
     if count > max {
@@ -1302,16 +1434,17 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
             kind: "advance steps",
             count,
             max,
-        });
+        }
+        .into());
     }
     let mut ctx = Ctx {
+        memory,
         profile,
         params,
         now: taira_now_ms,
         newest: light_client.head.latest_set_id,
         newest_seen_ms: light_client.head.latest_finalized.source_time_ms,
     };
-    let mut sets = Sets::new(view);
     let mut recorder = CheckpointRecorder::new(
         view,
         NETWORK,
@@ -1323,14 +1456,15 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
     for step in &advance.steps {
         let headers = ctx.linked(&step.headers, max_headers, "advance headers")?;
         let (first, last) = (&headers[0], &headers[headers.len() - 1]);
-        let data = ctx.verify_finality(&sets, &step.finality)?;
+        let data = ctx.verify_finality(view, out, &step.finality)?;
         check_source(&data, last)?;
-        let newest = newest_set(&sets, ctx.newest)?;
+        let newest_owner = newest_set(view, out, ctx.newest, memory)?;
+        let newest = bsc_set(&newest_owner)?;
         let transition = if profile.is_epoch_checkpoint(first.number)
             && first.number > newest.checkpoint_height
         {
             let announced = announced_set(first)?;
-            (!announces(&newest, &announced)).then_some(announced)
+            (!announces(newest, &announced)).then_some(announced)
         } else {
             None
         };
@@ -1350,22 +1484,41 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
                 if step.finality.set_id != ctx.newest || data.target_number >= valid_from {
                     return Err(invalid.into());
                 }
-                ctx.check_announcements(&sets, &headers[1..])?;
+                ctx.check_announcements(view, out, &headers[1..])?;
                 validate_roster_keys(&announced.validators)?;
-                let next = set_record(
-                    BscValidatorSetV1 {
-                        checkpoint_height: first.number,
-                        checkpoint_hash: first.hash,
-                        previous_set_id: Some(ctx.newest),
-                        turn_length: announced.turn_length,
-                        validators: announced.validators,
-                    },
-                    valid_from,
-                )?;
-                sets.learn(ctx.newest, next, first.time_ms)?;
+                let next = BscSetRef {
+                    checkpoint_height: first.number,
+                    checkpoint_hash: first.hash,
+                    previous_set_id: Some(ctx.newest),
+                    turn_length: announced.turn_length,
+                    validators: &announced.validators,
+                };
+                // Historical byte equality is equivalent to these canonical fields; the
+                // borrowed serializer is independently checked against the sole wire DTO.
+                if let Some(existing) = get_set(view, out, first.number) {
+                    let owner = decode_set_native(&existing, memory)?;
+                    let data = bsc_set(&owner)?;
+                    if existing.valid_from_source_height != valid_from
+                        || data.checkpoint_hash != first.hash
+                        || data.previous_set_id != Some(ctx.newest)
+                        || !announces(data, &announced)
+                    {
+                        return Err(SccpLcError::ConflictsWithStoredData(
+                            SccpLcConflictV1::ConsensusSet {
+                                set_id: first.number,
+                            },
+                        )
+                        .into());
+                    }
+                } else {
+                    out.supersede(ctx.newest, first.time_ms)
+                        .map_err(Into::into)?;
+                    out.encode_set(first.number, valid_from, None, &SetFrameRef::bsc(&next))
+                        .map_err(Into::into)?;
+                }
                 ctx.newest = first.number;
             }
-            None => ctx.check_announcements(&sets, &headers)?,
+            None => ctx.check_announcements(view, out, &headers)?,
         }
         recorder.record(first.checkpoint())?;
         recorder.record(last.checkpoint())?;
@@ -1382,14 +1535,14 @@ pub(super) fn apply_advance<V: SccpLcStateView + ?Sized>(
     }
     let moved = ctx.newest != light_client.head.latest_set_id
         || latest_finalized != light_client.head.latest_finalized;
-    Ok(sets.into_delta(
-        recorder.into_vec(),
-        moved.then_some(SccpLcHeadV1 {
-            latest_set_id: ctx.newest,
-            latest_finalized,
-            last_progress_taira_ms: taira_now_ms,
-        }),
-    ))
+    for checkpoint in recorder.into_records() {
+        out.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(moved.then_some(SccpLcHeadV1 {
+        latest_set_id: ctx.newest,
+        latest_finalized,
+        last_progress_taira_ms: taira_now_ms,
+    }))
 }
 
 /// Verify a `Backfill` segment and return the checkpoint of its first header.
@@ -1400,16 +1553,45 @@ pub(super) fn apply_backfill<V: SccpLcStateView + ?Sized>(
     segment: &BscHeaderSegmentV1,
     taira_now_ms: u64,
 ) -> Result<SccpLcDeltaV1, SccpLcError> {
+    let mut delta = SccpLcDeltaV1::default();
+    apply_backfill_into(
+        profile,
+        view,
+        light_client,
+        segment,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut delta,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(delta)
+}
+
+/// Shared backfill kernel with original-pool scratch and caller-owned output.
+pub(super) fn apply_backfill_into<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    profile: &BscChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    segment: &BscHeaderSegmentV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    out: &mut D,
+) -> Result<(), SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let count = segment.headers.len();
     if count < 2 {
         return Err(SccpLcError::TooFewItems {
             kind: "backfill headers",
             count,
             min: 2,
-        });
+        }
+        .into());
     }
     let params = &light_client.params;
     let ctx = Ctx {
+        memory,
         profile,
         params,
         now: taira_now_ms,
@@ -1437,10 +1619,10 @@ pub(super) fn apply_backfill<V: SccpLcStateView + ?Sized>(
         taira_now_ms,
     );
     recorder.record(headers[0].checkpoint())?;
-    Ok(SccpLcDeltaV1 {
-        checkpoints: recorder.into_vec(),
-        ..SccpLcDeltaV1::default()
-    })
+    for checkpoint in recorder.into_records() {
+        out.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1455,24 +1637,54 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
     proof: &BscSourceProofV1,
     taira_now_ms: u64,
 ) -> Result<SccpVerifiedProofV1, SccpLcError> {
+    let mut out = SccpLcDeltaV1::default();
+    let event = verify_proof_native(
+        profile,
+        view,
+        light_client,
+        proof,
+        taira_now_ms,
+        &LcMemory::detached(),
+        &mut out,
+    )
+    .map_err(|error| detached_error(&error))?;
+    Ok(SccpVerifiedProofV1 {
+        event: event.into_detached(),
+        checkpoints: out.checkpoints,
+    })
+}
+
+/// The sole BSC proof relation, preserving original-pool physical refusals.
+pub(super) fn verify_proof_native<V: SccpLcStateView + ?Sized, D: DeltaWriter>(
+    profile: &BscChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    proof: &BscSourceProofV1,
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+    out: &mut D,
+) -> Result<SccpNativeEventV1, SccpLcAttemptErrorV1>
+where
+    D::Error: Into<SccpLcAttemptErrorV1>,
+{
     let params = &light_client.params;
     let ctx = Ctx {
+        memory,
         profile,
         params,
         now: taira_now_ms,
         newest: light_client.head.latest_set_id,
         newest_seen_ms: light_client.head.latest_finalized.source_time_ms,
     };
-    let sets = Sets::new(view);
     let max = count_bound(params.max_ancestry_headers, BSC_MAX_SEGMENT_HEADERS);
     let headers = ctx.linked(&proof.headers, max, "ancestry headers")?;
-    ctx.check_announcements(&sets, &headers)?;
+    ctx.check_announcements(view, out, &headers)?;
     let (event, last) = (&headers[0], &headers[headers.len() - 1]);
     let mut recorder =
         CheckpointRecorder::new(view, NETWORK, SccpLcCheckpointOriginV1::Proof, taira_now_ms);
     match &proof.anchor {
         BscProofAnchorV1::Finality(finality) => {
-            check_source(&ctx.verify_finality(&sets, finality)?, last)?;
+            check_source(&ctx.verify_finality(view, out, finality)?, last)?;
             recorder.record(last.checkpoint())?;
         }
         BscProofAnchorV1::StoredCheckpoint(reference) => {
@@ -1494,52 +1706,72 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
         event.receipts_root,
         proof.transaction_index,
         &proof.receipt_proof,
+        memory,
     )
-    .map_err(receipt_error)?;
+    .map_err(|error| match error {
+        SccpLcAttemptErrorV1::Protocol(error) => {
+            SccpLcAttemptErrorV1::Protocol(receipt_error(error))
+        }
+        other => other,
+    })?;
     let locator = SccpSourceLocatorV1 {
         source_height: event.number,
         block_hash: event.hash,
         index_in_block: proof.transaction_index,
     };
     let event = ethereum::select_event(&receipt, proof.event, locator).map_err(receipt_error)?;
-    Ok(SccpVerifiedProofV1 {
-        event,
-        checkpoints: recorder.into_vec(),
-    })
+    for checkpoint in recorder.into_records() {
+        out.checkpoint(checkpoint).map_err(Into::into)?;
+    }
+    Ok(event)
 }
 
 // ---------------------------------------------------------------------------------------------
 // Equivocation
 // ---------------------------------------------------------------------------------------------
 
-/// What one verified record asserts: the voted target and the finalized blocks.
-struct ClaimsV1 {
+type BlockClaimV1 = (u64, [u8; 32], Option<u64>);
+
+/// A verified target and its borrowed header projection; no second block-vector copy.
+struct ClaimsV1<'a> {
     target: (u64, [u8; 32]),
-    /// `(height, hash, time)`; the attested source has no time without headers.
-    blocks: Vec<(u64, [u8; 32], Option<u64>)>,
+    source: BlockClaimV1,
+    headers: Option<Buffer<HeaderV1<'a>>>,
+}
+impl ClaimsV1<'_> {
+    fn blocks(&self) -> impl Iterator<Item = BlockClaimV1> + '_ {
+        self.headers
+            .as_ref()
+            .into_iter()
+            .flat_map(|headers| {
+                headers
+                    .iter()
+                    .map(|header| (header.number, header.hash, Some(header.time_ms)))
+            })
+            .chain(self.headers.is_none().then_some(self.source))
+    }
 }
 
-fn verify_evidence<V: SccpLcStateView + ?Sized>(
-    ctx: &Ctx<'_>,
+fn verify_evidence<'a, V: SccpLcStateView + ?Sized>(
+    ctx: &Ctx<'_, '_>,
     view: &V,
-    evidence: &BscLcEvidenceV1,
-) -> Result<ClaimsV1, SccpLcError> {
-    let sets = Sets::new(view);
-    let data = ctx.verify_finality(&sets, &evidence.finality)?;
-    let blocks = if evidence.headers.is_empty() {
-        vec![(data.source_number, data.source_hash, None)]
+    evidence: &'a BscLcEvidenceV1,
+) -> Result<ClaimsV1<'a>, SccpLcAttemptErrorV1> {
+    // Empty delta has no allocated backing and contributes no provisional authority.
+    let out = SccpLcDeltaV1::default();
+    let data = ctx.verify_finality(view, &out, &evidence.finality)?;
+    let headers = if evidence.headers.is_empty() {
+        None
     } else {
         let max = count_bound(ctx.params.max_ancestry_headers, BSC_MAX_SEGMENT_HEADERS);
         let headers = ctx.linked(&evidence.headers, max, "evidence headers")?;
         check_source(&data, &headers[headers.len() - 1])?;
-        headers
-            .iter()
-            .map(|header| (header.number, header.hash, Some(header.time_ms)))
-            .collect()
+        Some(headers)
     };
     Ok(ClaimsV1 {
         target: (data.target_number, data.target_hash),
-        blocks,
+        source: (data.source_number, data.source_hash, None),
+        headers,
     })
 }
 
@@ -1565,10 +1797,33 @@ pub(super) fn verify_equivocation<V: SccpLcStateView + ?Sized>(
     second: (&BscLcEvidenceV1, &[u8]),
     taira_now_ms: u64,
 ) -> Result<SccpLcFreezeReasonV1, SccpLcError> {
+    verify_equivocation_native(
+        profile,
+        view,
+        light_client,
+        first,
+        second,
+        taira_now_ms,
+        &LcMemory::detached(),
+    )
+    .map_err(|error| detached_error(&error))
+}
+
+/// Shared evidence verification preserves original frame ownership and typed native refusals.
+pub(super) fn verify_equivocation_native<V: SccpLcStateView + ?Sized>(
+    profile: &BscChainProfileV1,
+    view: &V,
+    light_client: &SccpLightClientV1,
+    first: (&BscLcEvidenceV1, &[u8]),
+    second: (&BscLcEvidenceV1, &[u8]),
+    taira_now_ms: u64,
+    memory: &LcMemory<'_>,
+) -> Result<SccpLcFreezeReasonV1, SccpLcAttemptErrorV1> {
     if first.1 == second.1 {
-        return Err(SccpLcError::EvidenceNotConflicting);
+        return Err(SccpLcError::EvidenceNotConflicting.into());
     }
     let ctx = Ctx {
+        memory,
         profile,
         params: &light_client.params,
         now: taira_now_ms,
@@ -1579,11 +1834,10 @@ pub(super) fn verify_equivocation<V: SccpLcStateView + ?Sized>(
     let b = verify_evidence(&ctx, view, second.0)?;
     let double_vote = a.target.0 == b.target.0 && a.target.1 != b.target.1;
     let blocks = a
-        .blocks
-        .iter()
-        .any(|x| b.blocks.iter().any(|y| blocks_conflict(*x, *y)));
+        .blocks()
+        .any(|x| b.blocks().any(|y| blocks_conflict(x, y)));
     if !double_vote && !blocks {
-        return Err(SccpLcError::EvidenceNotConflicting);
+        return Err(SccpLcError::EvidenceNotConflicting.into());
     }
     let mut hashes = [keccak256(&[first.1]), keccak256(&[second.1])];
     hashes.sort_unstable();
@@ -1621,21 +1875,21 @@ pub(super) fn is_aged(light_client: &SccpLightClientV1, taira_now_ms: u64) -> bo
 /// Supersession of an aged light client's newest set, recorded when a fresh bootstrap
 /// re-initializes it without a purge: the set was last seen announced at the newest finalized
 /// epoch checkpoint.
-pub(super) fn aged_supersessions<V: SccpLcStateView + ?Sized>(
+pub(super) fn aged_supersession<V: SccpLcStateView + ?Sized>(
     view: &V,
     light_client: &SccpLightClientV1,
-) -> Vec<SccpLcSupersessionV1> {
+) -> Option<SccpLcSupersessionV1> {
     let set_id = light_client.head.latest_set_id;
     if view
         .consensus_set(NETWORK, set_id)
         .is_some_and(|set| set.is_current())
     {
-        vec![SccpLcSupersessionV1 {
+        Some(SccpLcSupersessionV1 {
             set_id,
             superseded_at_source_ms: light_client.head.latest_finalized.source_time_ms,
-        }]
+        })
     } else {
-        Vec::new()
+        None
     }
 }
 
@@ -2076,7 +2330,7 @@ mod tests {
             advance(&chain, &mut memory, vec![step], deadline),
             Err(SccpLcError::StaleSigningSet { set_id: 5_000, .. })
         ));
-        assert_eq!(aged_supersessions(&memory, &light_client).len(), 1);
+        assert!(aged_supersession(&memory, &light_client).is_some());
     }
 
     /// A chain with a burn receipt at `height` and the receipt's proof.
@@ -2294,5 +2548,332 @@ mod tests {
         let attestation = chain.attestation(0, 3, 10);
         let parsed = parse_attestation(&attestation).expect("parses");
         assert_eq!(parsed.data.source_number, 10);
+    }
+    #[test]
+    fn fixed_vote_transcript_matches_canonical_rlp_at_all_integer_boundaries() {
+        use crate::ethereum_source::{rlp_encode_bytes, rlp_encode_list, rlp_encode_u64};
+        for source in [
+            0,
+            1,
+            127,
+            128,
+            255,
+            256,
+            65535,
+            65536,
+            u64::from(u32::MAX),
+            u64::MAX - 1,
+        ] {
+            for target in [0, 127, 128, 256, u64::MAX] {
+                let source_hash = [0x17; 32];
+                let target_hash = [0x29; 32];
+                let wire = rlp_encode_list(&[
+                    rlp_encode_u64(source),
+                    rlp_encode_bytes(&source_hash),
+                    rlp_encode_u64(target),
+                    rlp_encode_bytes(&target_hash),
+                ]);
+                assert_eq!(
+                    vote_data_hash(source, source_hash, target, target_hash),
+                    keccak256(&[&wire])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bsc_original_pool_refusal_requires_original_release_and_preserves_proof_for_retry() {
+        use crate::light_client::{
+            prepared::PreparedLcFrameV1,
+            state::admitted::{SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1, SccpLcDeltaReadV1},
+        };
+        use iroha_allocation::AllocationBudget;
+        let (chain, receipt_proof) = burn_chain(0x65, 5_390);
+        let (view, _) = installed(&chain, 5);
+        let now = SyntheticParliaChainV1::time_ms(5_400) + 2_000;
+        let step = chain.step(5_390, 5_400, 5_000, None);
+        let proof = BscSourceProofV1 {
+            anchor: BscProofAnchorV1::Finality(step.finality),
+            headers: step.headers,
+            transaction_index: 0,
+            receipt_proof,
+            event: transfer_selector(),
+        };
+        let lc = view.light_client(NETWORK).unwrap();
+        let expected = verify_proof(chain.profile(), &view, &lc, &proof, now).unwrap();
+        let wire = SccpSourceProofV1::Bsc(proof).to_frame().unwrap();
+        let pool = AllocationBudget::new(8 * 1024 * 1024);
+        let prepared = PreparedLcFrameV1::proof(&wire, wire.len(), &pool).unwrap();
+        let source_charge = pool.reserved_bytes();
+        let SccpSourceProofV1::Bsc(input) = prepared.get() else {
+            panic!("BSC");
+        };
+        let original = input.headers[0].as_ptr();
+        let memory = LcMemory::admitted(&pool, wire.len());
+        let mut out = SccpLcDeltaBuilderV1::new(
+            SccpLcDeltaCapacityV1 {
+                new_sets: 0,
+                superseded_sets: 0,
+                checkpoints: 2,
+                set_bytes: 0,
+            },
+            &pool,
+        )
+        .unwrap();
+        let owned = pool.reserved_bytes();
+        let blocker = pool.try_reserve_bytes(pool.limit_bytes() - owned).unwrap();
+        assert!(matches!(
+            verify_proof_native(chain.profile(), &view, &lc, input, now, &memory, &mut out),
+            Err(SccpLcAttemptErrorV1::Buffer(_))
+        ));
+        assert_eq!(input.headers[0].as_ptr(), original);
+        assert!(out.checkpoints().is_empty());
+        let unrelated = AllocationBudget::new(1024);
+        let unrelated_grant = unrelated.try_reserve_bytes(1024).unwrap();
+        drop(unrelated_grant);
+        assert!(matches!(
+            verify_proof_native(chain.profile(), &view, &lc, input, now, &memory, &mut out),
+            Err(SccpLcAttemptErrorV1::Buffer(_))
+        ));
+        drop(blocker);
+        assert_eq!(pool.reserved_bytes(), owned);
+        // Admit the entire header projection, then refuse the stored-set decode owner.
+        // Partial successful scratch must also return to the original pool on failure.
+        let header_bytes = input.headers.len() * size_of::<HeaderV1<'_>>();
+        let partial = pool
+            .try_reserve_bytes(pool.limit_bytes() - owned - header_bytes)
+            .unwrap();
+        assert!(matches!(
+            verify_proof_native(chain.profile(), &view, &lc, input, now, &memory, &mut out),
+            Err(SccpLcAttemptErrorV1::Admission(_)
+                | SccpLcAttemptErrorV1::Buffer(_)
+                | SccpLcAttemptErrorV1::Control(_)
+                | SccpLcAttemptErrorV1::Decode(_))
+        ));
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes() - header_bytes);
+        assert_eq!(input.headers[0].as_ptr(), original);
+        drop(partial);
+        assert_eq!(pool.reserved_bytes(), owned);
+        let event = verify_proof_native(chain.profile(), &view, &lc, input, now, &memory, &mut out)
+            .unwrap();
+        assert_eq!(event.into_detached(), expected.event);
+        assert_eq!(out.checkpoints(), expected.checkpoints);
+        assert_eq!(input.headers[0].as_ptr(), original);
+        assert_eq!(
+            pool.reserved_bytes(),
+            owned,
+            "all variable header, stored roster and receipt scratch retired"
+        );
+        let delta = out.finish(None);
+        drop(prepared);
+        assert_eq!(pool.reserved_bytes(), owned - source_charge);
+        drop(delta);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn bsc_admitted_transitions_preserve_canonical_delta_and_output_custody() {
+        use crate::light_client::{
+            prepared::PreparedLcFrameV1,
+            state::admitted::{SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1, SccpLcDeltaReadV1},
+        };
+        use iroha_allocation::AllocationBudget;
+        let chain = SyntheticParliaChainV1::new([0x66; 32], 21, 16)
+            .with_transition(7, 1, 24, 8)
+            .with_transition(9, 2, 31, 4);
+        let (view, _) = installed(&chain, 5);
+        let now = SyntheticParliaChainV1::time_ms(9_010) + 2_000;
+        let input = BscLcAdvanceV1 {
+            steps: vec![
+                chain.step(7_000, 7_002, 5_000, None),
+                chain.step(9_000, 9_002, 7_000, None),
+            ],
+        };
+        let lc = view.light_client(NETWORK).unwrap();
+        let expected = apply_advance(chain.profile(), &view, &lc, &input, now).unwrap();
+        let wire = SccpLcAdvanceV1::Bsc(input).to_frame().unwrap();
+        let pool = AllocationBudget::new(8 * 1024 * 1024);
+        let prepared = PreparedLcFrameV1::advance(&wire, wire.len(), &pool).unwrap();
+        let source_charge = pool.reserved_bytes();
+        let SccpLcAdvanceV1::Bsc(input) = prepared.get() else {
+            panic!("BSC");
+        };
+        let original = input.steps[0].headers[0].as_ptr();
+        let mut output = SccpLcDeltaBuilderV1::new(
+            SccpLcDeltaCapacityV1 {
+                new_sets: 2,
+                superseded_sets: 2,
+                checkpoints: 6,
+                set_bytes: wire.len(),
+            },
+            &pool,
+        )
+        .unwrap();
+        let head = apply_advance_into(
+            chain.profile(),
+            &view,
+            &lc,
+            input,
+            now,
+            &LcMemory::admitted(&pool, wire.len()),
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(input.steps[0].headers[0].as_ptr(), original);
+        let output = output.finish(head);
+        assert_eq!(output.head(), expected.head);
+        assert_eq!(output.checkpoints(), expected.checkpoints);
+        assert_eq!(output.superseded(), expected.superseded_sets);
+        assert_eq!(output.set_count(), expected.new_sets.len());
+        for (index, expected) in expected.new_sets.iter().enumerate() {
+            assert_eq!(output.set(index).unwrap(), expected.into());
+        }
+        let retained = pool.reserved_bytes();
+        assert!(retained > source_charge);
+        drop(prepared);
+        assert_eq!(pool.reserved_bytes(), retained - source_charge);
+        drop(output);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn bsc_bootstrap_original_pool_refusal_retry_and_output_custody() {
+        use crate::light_client::{
+            prepared::PreparedLcFrameV1,
+            state::admitted::{SccpLcDeltaBuilderV1, SccpLcDeltaCapacityV1, SccpLcDeltaReadV1},
+        };
+        use iroha_allocation::AllocationBudget;
+        let chain = SyntheticParliaChainV1::new([0x73; 32], 21, 16);
+        let bootstrap = chain.bootstrap(5);
+        let now = SyntheticParliaChainV1::time_ms(5_000) + 1_000;
+        let maximum = 1024 * 1024;
+        assert!(matches!(
+            PreparedLcFrameV1::bootstrap(&bootstrap.bytes, maximum, &AllocationBudget::new(0)),
+            Err(SccpLcAttemptErrorV1::Admission(_))
+        ));
+        let pool = AllocationBudget::new(8 * maximum);
+        let prepared = PreparedLcFrameV1::bootstrap(&bootstrap.bytes, maximum, &pool).unwrap();
+        let source_charge = pool.reserved_bytes();
+        let SccpLcBootstrapDataV1::Bsc(input) = prepared.get() else {
+            panic!("BSC")
+        };
+        let original = input.checkpoint_header.as_ptr();
+        let expected = verify_bootstrap(chain.profile(), &params(), input, now).unwrap();
+        let mut output = SccpLcDeltaBuilderV1::new(
+            SccpLcDeltaCapacityV1 {
+                new_sets: 1,
+                superseded_sets: 0,
+                checkpoints: 1,
+                set_bytes: maximum,
+            },
+            &pool,
+        )
+        .unwrap();
+        let owned = pool.reserved_bytes();
+        let blocked = pool.try_reserve_bytes(pool.limit_bytes() - owned).unwrap();
+        let memory = LcMemory::admitted(&pool, maximum);
+        for _ in 0..2 {
+            assert!(matches!(
+                verify_bootstrap_into(chain.profile(), &params(), input, now, &memory, &mut output),
+                Err(SccpLcAttemptErrorV1::Output(_))
+            ));
+            assert_eq!(output.set_count(), 0);
+            assert!(output.checkpoints().is_empty());
+            assert_eq!(input.checkpoint_header.as_ptr(), original);
+            let unrelated = AllocationBudget::new(1024);
+            drop(unrelated.try_reserve_bytes(1024).unwrap());
+        }
+        drop(blocked);
+        assert_eq!(pool.reserved_bytes(), owned);
+        let head =
+            verify_bootstrap_into(chain.profile(), &params(), input, now, &memory, &mut output)
+                .unwrap();
+        assert_eq!(head, expected.light_client.head);
+        assert_eq!(input.checkpoint_header.as_ptr(), original);
+        let output = output.finish(Some(head));
+        assert_eq!(output.set(0).unwrap(), (&expected.sets[0]).into());
+        assert_eq!(output.checkpoints(), expected.checkpoints);
+        let retained = pool.reserved_bytes();
+        drop(prepared);
+        assert_eq!(pool.reserved_bytes(), retained - source_charge);
+        assert!(
+            pool.reserved_bytes() > 0,
+            "canonical set and checkpoint remain owned"
+        );
+        drop(output);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn bsc_evidence_original_pool_refusal_retry_preserves_exact_signed_pair() {
+        use crate::light_client::prepared::PreparedLcEvidencePairV1;
+        use iroha_allocation::AllocationBudget;
+        let chain = SyntheticParliaChainV1::new([0x74; 32], 21, 16);
+        let (view, _) = installed(&chain, 5);
+        let now = SyntheticParliaChainV1::time_ms(5_400) + 2_000;
+        let first = SccpLcEvidenceV1::Bsc(BscLcEvidenceV1 {
+            finality: chain.step(5_400, 5_400, 5_000, None).finality,
+            headers: vec![chain.header(5_400).rlp],
+        })
+        .to_bytes()
+        .unwrap();
+        let second = SccpLcEvidenceV1::Bsc(BscLcEvidenceV1 {
+            finality: BscFinalityV1 {
+                set_id: 5_000,
+                successor_set_id: None,
+                attestation: chain.double_vote(5_000, 5_400),
+            },
+            headers: Vec::new(),
+        })
+        .to_bytes()
+        .unwrap();
+        let expected = verify_equivocation_with_profiles(
+            &profiles(&chain),
+            &view,
+            NETWORK,
+            &first,
+            &second,
+            now,
+        )
+        .unwrap();
+        let maximum = 1024 * 1024;
+        assert!(matches!(
+            PreparedLcEvidencePairV1::new(
+                first.as_bytes(),
+                second.as_bytes(),
+                maximum,
+                &AllocationBudget::new(0)
+            ),
+            Err(SccpLcAttemptErrorV1::Admission(_))
+        ));
+        let pool = AllocationBudget::new(8 * maximum);
+        let pair =
+            PreparedLcEvidencePairV1::new(first.as_bytes(), second.as_bytes(), maximum, &pool)
+                .unwrap();
+        let retained = pool.reserved_bytes();
+        let blocked = pool
+            .try_reserve_bytes(pool.limit_bytes() - retained)
+            .unwrap();
+        for _ in 0..2 {
+            assert!(matches!(
+                pair.verify(&profiles(&chain), &view, NETWORK, now),
+                Err(SccpLcAttemptErrorV1::Admission(_))
+            ));
+            let unrelated = AllocationBudget::new(1024);
+            drop(unrelated.try_reserve_bytes(1024).unwrap());
+        }
+        drop(blocked);
+        assert_eq!(pool.reserved_bytes(), retained);
+        assert_eq!(
+            pair.verify(&profiles(&chain), &view, NETWORK, now).unwrap(),
+            expected
+        );
+        assert_eq!(
+            pool.reserved_bytes(),
+            retained,
+            "roster and linked headers retired"
+        );
+        drop(pair);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

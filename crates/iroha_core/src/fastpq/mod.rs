@@ -131,10 +131,31 @@ pub struct FastpqPublicInputsTemplate {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FastpqWitnessContext {
     /// Public-input fields shared by every FASTPQ batch in the witness.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained witness projections to finalized-source dispatch; keep the original inventory and its exact captured context together"
+        )
+    )]
     pub(crate) public_inputs: Option<FastpqPublicInputsTemplate>,
     /// Authoritative ordered canonical transaction-wire commitment from block execution.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained witness projections to finalized-source dispatch; keep the original inventory and its exact captured context together"
+        )
+    )]
     pub(crate) tx_set_hash: Option<[u8; 32]>,
     /// Per-source dataspaces keyed by execution-call or typed native-purpose identity.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained witness projections to finalized-source dispatch; keep the original inventory and its exact captured context together"
+        )
+    )]
     pub(crate) entry_dataspaces: BTreeMap<Hash, [u8; 16]>,
     /// Keep the validator-owned inventory alive through background queue processing.
     /// Ownership retention is the purpose of this field; batch construction uses the
@@ -226,7 +247,7 @@ pub enum TranscriptBatchError {
 /// Canonical model-owned FASTPQ authority preimage, shared with portable readers.
 pub use iroha_data_model::block::proofs::fastpq_authority_digest_v1 as authority_digest;
 /// Compute the Poseidon digest of a transfer delta preimage.
-#[inline(always)]
+#[inline]
 #[must_use]
 pub fn poseidon_preimage_digest(delta: &TransferDeltaTranscript, batch_hash: &Hash) -> Hash {
     let mut scratch = PoseidonDigestScratch::default();
@@ -238,7 +259,7 @@ pub(crate) struct PoseidonDigestScratch {
     words: Vec<u64>,
 }
 /// Compute the canonical Poseidon digest using caller-owned scratch storage.
-#[inline(always)]
+#[inline]
 #[must_use]
 pub(crate) fn poseidon_preimage_digest_with_scratch(
     delta: &TransferDeltaTranscript,
@@ -252,7 +273,7 @@ pub(crate) fn poseidon_preimage_digest_with_scratch(
     append_transfer_digest_words(&mut scratch.words, delta, batch_hash);
     Hash::prehashed(halo2_poseidon::hash_u64_words_bytes(&scratch.words))
 }
-#[inline(always)]
+#[inline]
 fn append_encoded_words<W, T>(writer: &mut W, value: &T)
 where
     W: Write,
@@ -260,17 +281,17 @@ where
 {
     value.encode_to(writer);
 }
-#[inline(always)]
+#[inline]
 fn u64_from_le_bytes(bytes: &[u8]) -> u64 {
     debug_assert!(bytes.len() >= 8);
     u64::from_le_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ])
 }
-#[inline(always)]
-fn partial_u64_from_le_bytes(bytes: &[u8; 8], len: usize) -> u64 {
+#[inline]
+fn partial_u64_from_le_bytes(bytes: [u8; 8], len: usize) -> u64 {
     debug_assert!(len <= bytes.len());
-    let word = u64::from_le_bytes(*bytes);
+    let word = u64::from_le_bytes(bytes);
     match len {
         0 => 0,
         8 => word,
@@ -318,7 +339,7 @@ impl<'a> PoseidonWordPacker<'a> {
     }
     #[inline]
     fn finish(self) {
-        let delimiter_word = partial_u64_from_le_bytes(&self.pending_bytes, self.pending_len)
+        let delimiter_word = partial_u64_from_le_bytes(self.pending_bytes, self.pending_len)
             | (1u64 << (self.pending_len * 8));
         self.words.push(delimiter_word);
     }
@@ -693,18 +714,18 @@ fn finalize_transfer_transcript_digest_with_scratch(
     let [delta] = transcript.deltas.as_slice() else {
         return;
     };
-    if transcript.poseidon_preimage_digest.is_some() {
+    if let Some(existing) = transcript.poseidon_preimage_digest {
         #[cfg(debug_assertions)]
         {
-            let existing = transcript
-                .poseidon_preimage_digest
-                .expect("digest presence checked above");
+            let canonical =
+                poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, scratch);
             debug_assert_eq!(
-                existing,
-                poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, scratch),
+                existing, canonical,
                 "precomputed FASTPQ transfer transcript digest must match canonical digest",
             );
         }
+        #[cfg(not(debug_assertions))]
+        let _ = existing;
         return;
     }
     let digest = poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, scratch);
@@ -730,9 +751,10 @@ fn debug_assert_precomputed_transfer_transcript_digests(transcripts: &[TransferT
         let [delta] = transcript.deltas.as_slice() else {
             continue;
         };
+        let canonical =
+            poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, &mut scratch);
         debug_assert_eq!(
-            existing,
-            poseidon_preimage_digest_with_scratch(delta, &transcript.batch_hash, &mut scratch),
+            existing, canonical,
             "precomputed FASTPQ transfer transcript digest must match canonical digest",
         );
     }
@@ -1465,7 +1487,12 @@ mod tests {
     fn poseidon_word_packer_matches_delimited_little_endian_chunks() {
         for len in [0usize, 1, 7, 8, 9, 15, 16, 17, 63, 64, 65] {
             let input = (0..len)
-                .map(|idx| (idx as u8).wrapping_mul(17).wrapping_add(3))
+                .map(|idx| {
+                    u8::try_from((idx) & 0xff)
+                        .expect("masked fixture byte fits u8")
+                        .wrapping_mul(17)
+                        .wrapping_add(3)
+                })
                 .collect::<Vec<_>>();
             let mut words = Vec::new();
             {
@@ -1530,7 +1557,9 @@ mod tests {
         let mut expected = Vec::with_capacity(DIGEST_FINALIZE_PARALLEL_THRESHOLD);
         for idx in 0..DIGEST_FINALIZE_PARALLEL_THRESHOLD {
             let mut transcript = sample_transcript();
-            transcript.batch_hash = Hash::prehashed([idx as u8; Hash::LENGTH]);
+            transcript.batch_hash = Hash::prehashed(
+                [u8::try_from((idx) & 0xff).expect("masked fixture byte fits u8"); Hash::LENGTH],
+            );
             let delta = &transcript.deltas[0];
             expected.push(poseidon_preimage_digest(delta, &transcript.batch_hash));
             batch.push(delta, &transcript.batch_hash);
@@ -1544,7 +1573,9 @@ mod tests {
         let mut batch = PoseidonDigestBatch::with_capacity(DIGEST_FINALIZE_GPU_THRESHOLD);
         for idx in 0..DIGEST_FINALIZE_GPU_THRESHOLD {
             let mut transcript = sample_transcript();
-            transcript.batch_hash = Hash::prehashed([idx as u8; Hash::LENGTH]);
+            transcript.batch_hash = Hash::prehashed(
+                [u8::try_from((idx) & 0xff).expect("masked fixture byte fits u8"); Hash::LENGTH],
+            );
             batch.push(&transcript.deltas[0], &transcript.batch_hash);
         }
         assert_eq!(batch.hash_cpu_or_gpu(), batch.hash_cpu());
@@ -1556,7 +1587,9 @@ mod tests {
         let mut batch = PoseidonDigestBatch::with_capacity(DIGEST_FINALIZE_GPU_THRESHOLD);
         for idx in 0..DIGEST_FINALIZE_GPU_THRESHOLD {
             let mut transcript = sample_transcript();
-            transcript.batch_hash = Hash::prehashed([idx as u8; Hash::LENGTH]);
+            transcript.batch_hash = Hash::prehashed(
+                [u8::try_from((idx) & 0xff).expect("masked fixture byte fits u8"); Hash::LENGTH],
+            );
             batch.push(&transcript.deltas[0], &transcript.batch_hash);
         }
         let attempts = std::cell::Cell::new(0);
@@ -1647,7 +1680,9 @@ mod tests {
         let mut expected = Vec::with_capacity(DIGEST_FINALIZE_PARALLEL_THRESHOLD);
         for idx in 0..DIGEST_FINALIZE_PARALLEL_THRESHOLD {
             let mut transcript = sample_transcript();
-            transcript.batch_hash = Hash::prehashed([idx as u8; Hash::LENGTH]);
+            transcript.batch_hash = Hash::prehashed(
+                [u8::try_from((idx) & 0xff).expect("masked fixture byte fits u8"); Hash::LENGTH],
+            );
             transcript.poseidon_preimage_digest = None;
             expected.push(poseidon_preimage_digest(
                 &transcript.deltas[0],
@@ -2615,8 +2650,8 @@ mod tests {
         delta.from_balance_after = "157.501".parse().expect("non-negative FASTPQ quantity");
         delta.to_balance_before = "43.001".parse().expect("non-negative FASTPQ quantity");
         delta.to_balance_after = "43.501".parse().expect("non-negative FASTPQ quantity");
-        delta.from_smt_witness = Default::default();
-        delta.to_smt_witness = Default::default();
+        delta.from_smt_witness = iroha_data_model::fastpq::TransferSmtWitness::default();
+        delta.to_smt_witness = iroha_data_model::fastpq::TransferSmtWitness::default();
         second.poseidon_preimage_digest = None;
 
         let batch = batch_from_transcripts(

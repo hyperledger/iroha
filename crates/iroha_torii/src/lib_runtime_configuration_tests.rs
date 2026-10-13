@@ -1129,18 +1129,20 @@ mod appeal_finance_runtime_signer_tests {
     fn construction_rejects_missing_registry_before_checkpoint_or_state_access() {
         let configured = key(6);
         let authority = AccountId::new(configured.public_key().clone());
-        let mut config = iroha_config::parameters::actual::SorafsAppealFinanceSettlement::default();
-        config.submitter_signers = vec![
-            iroha_config::parameters::actual::SorafsAppealFinanceSignerBinding {
-                handle: "provider:appeal-current".to_owned(),
-                authority,
-                public_key: configured.public_key().clone(),
-                revision: 1,
-                policy_digest: [0xA1; 32],
-                valid_from_block_height: 1,
-                revoked_at_block_height: None,
-            },
-        ];
+        let config = iroha_config::parameters::actual::SorafsAppealFinanceSettlement {
+            submitter_signers: vec![
+                iroha_config::parameters::actual::SorafsAppealFinanceSignerBinding {
+                    handle: "provider:appeal-current".to_owned(),
+                    authority,
+                    public_key: configured.public_key().clone(),
+                    revision: 1,
+                    policy_digest: [0xA1; 32],
+                    valid_from_block_height: 1,
+                    revoked_at_block_height: None,
+                },
+            ],
+            ..Default::default()
+        };
         let storage_dir = tempfile::tempdir().expect("temporary storage directory");
         let checkpoint_runtime = Arc::new(UnexpectedCheckpointRuntime::default());
         let error = SoraFsAppealSettlementSubmitter::from_config(
@@ -1176,26 +1178,28 @@ mod appeal_finance_runtime_signer_tests {
         let transaction_key = key(13);
         let checkpoint_key = key(14);
         let authority = AccountId::new(transaction_key.public_key().clone());
-        let mut config = iroha_config::parameters::actual::SorafsAppealFinanceSettlement::default();
-        config.submitter_signers = vec![
-            iroha_config::parameters::actual::SorafsAppealFinanceSignerBinding {
-                handle: "provider:appeal-current".to_owned(),
-                authority,
-                public_key: transaction_key.public_key().clone(),
-                revision: 1,
-                policy_digest: [0xA1; 32],
-                valid_from_block_height: 1,
-                revoked_at_block_height: None,
-            },
-        ];
-        config.checkpoint_provider = Some(
-            iroha_config::parameters::actual::SorafsAppealFinanceCheckpointBinding {
-                handle: "kms:appeal-checkpoint".to_owned(),
-                public_key: checkpoint_key.public_key().clone(),
-                revision: 4,
-                policy_digest: [0xC4; 32],
-            },
-        );
+        let config = iroha_config::parameters::actual::SorafsAppealFinanceSettlement {
+            submitter_signers: vec![
+                iroha_config::parameters::actual::SorafsAppealFinanceSignerBinding {
+                    handle: "provider:appeal-current".to_owned(),
+                    authority,
+                    public_key: transaction_key.public_key().clone(),
+                    revision: 1,
+                    policy_digest: [0xA1; 32],
+                    valid_from_block_height: 1,
+                    revoked_at_block_height: None,
+                },
+            ],
+            checkpoint_provider: Some(
+                iroha_config::parameters::actual::SorafsAppealFinanceCheckpointBinding {
+                    handle: "kms:appeal-checkpoint".to_owned(),
+                    public_key: checkpoint_key.public_key().clone(),
+                    revision: 4,
+                    policy_digest: [0xC4; 32],
+                },
+            ),
+            ..Default::default()
+        };
         let runtime_signers = Arc::new(
             SoraFsAppealFinanceRuntimeSignersV1::new(vec![provider(
                 "provider:appeal-current",
@@ -1540,13 +1544,15 @@ mod sorafs_evidence_viewer_startup_tests {
             let supplied = |bit| (supplied_mask & (1_u16 << bit)) != 0_u16;
             let enabled_error = sorafs_evidence_viewer_dependency_error(
                 true,
-                supplied(0),
-                supplied(1),
-                supplied(2),
-                supplied(3),
-                supplied(4),
-                supplied(5),
-                supplied(6),
+                [
+                    supplied(0),
+                    supplied(1),
+                    supplied(2),
+                    supplied(3),
+                    supplied(4),
+                    supplied(5),
+                    supplied(6),
+                ],
             );
             assert_eq!(
                 enabled_error,
@@ -1555,13 +1561,15 @@ mod sorafs_evidence_viewer_startup_tests {
             );
             let disabled_error = sorafs_evidence_viewer_dependency_error(
                 false,
-                supplied(0),
-                supplied(1),
-                supplied(2),
-                supplied(3),
-                supplied(4),
-                supplied(5),
-                supplied(6),
+                [
+                    supplied(0),
+                    supplied(1),
+                    supplied(2),
+                    supplied(3),
+                    supplied(4),
+                    supplied(5),
+                    supplied(6),
+                ],
             );
             assert_eq!(
                 disabled_error,
@@ -2112,7 +2120,7 @@ mod gateway_runtime_config_tests {
     }
     #[derive(Debug)]
     /// Qualified local fixture transport; no feed request is permitted.
-    pub(super) struct TestComplianceFeedTransport;
+    pub struct TestComplianceFeedTransport;
     impl sorafs::gateway::GatewayComplianceFeedTransport for TestComplianceFeedTransport {
         fn qualification(
             &self,
@@ -2190,7 +2198,7 @@ mod gateway_runtime_config_tests {
         }
     }
     /// Governed gateway policy paired with the local fixture transport.
-    pub(super) fn compliance_config(
+    pub fn compliance_config(
         checkpoint_path: PathBuf,
     ) -> iroha_config::parameters::actual::SorafsGatewayCompliance {
         iroha_config::parameters::actual::SorafsGatewayCompliance {
@@ -2492,10 +2500,12 @@ mod gateway_runtime_config_tests {
     }
     #[test]
     fn compliance_enabled_without_runtime_transport_fails_closed() {
-        let mut config = iroha_config::parameters::actual::SorafsGateway::default();
-        config.compliance = Some(compliance_config(
-            std::env::temp_dir().join("unused-compliance-checkpoint.norito"),
-        ));
+        let config = iroha_config::parameters::actual::SorafsGateway {
+            compliance: Some(compliance_config(
+                std::env::temp_dir().join("unused-compliance-checkpoint.norito"),
+            )),
+            ..Default::default()
+        };
         let error = build_sorafs_gateway_security(&config, None, None, None)
             .err()
             .expect("missing compliance transport must reject construction");
@@ -2517,7 +2527,7 @@ mod por_runtime_readiness_tests {
             enabled: true,
             ..Default::default()
         };
-        config.drand.scheme = iroha_crypto::drand::UNCHAINED_G1_RFC9380_SCHEME.to_owned();
+        iroha_crypto::drand::UNCHAINED_G1_RFC9380_SCHEME.clone_into(&mut config.drand.scheme);
         config.drand.chain_hash =
             hex::decode("52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971")
                 .expect("chain hash")

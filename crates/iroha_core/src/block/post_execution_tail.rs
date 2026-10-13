@@ -21,6 +21,30 @@ impl ValidBlock {
         )?;
         // Monetary fees have already executed as signed scoped asset effects.
         // Native output metadata has no synthetic conversion or relay receipt owner.
+        let root_scope = if block.header().is_genesis() {
+            iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block)
+                .map_err(|error| {
+                    match crate::execution_attempt::genesis_read_attempt_error(error, |error| {
+                        Self::execution_context_error(error.to_string())
+                    }) {
+                        crate::execution_attempt::ExecutionAttemptError::Rejected(error) => error,
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                            BlockValidationError::ExecutionDeferred(reason)
+                        }
+                    }
+                })?
+                .sumeragi_context
+                .root_scope
+        } else {
+            state
+                .native_execution_tip()
+                .ok_or_else(|| {
+                    Self::execution_context_error(
+                        "SCCP finalization lacks its authenticated parent root scope",
+                    )
+                })?
+                .root_scope()
+        };
         // SCCP commitments and history are World writes of this block after all of its
         // transactions (`specs/sccp.md` §4.5), with the authenticated consensus inputs of its
         // height.
@@ -39,12 +63,13 @@ impl ValidBlock {
             state,
             &block.header(),
             sccp_inputs.as_ref(),
+            root_scope,
         )?;
         let committed_fragment_count =
             Self::validated_committed_fragment_count(state, advertised_fragments)?;
         Ok(crate::state::ExecutionOutputSealMetadata {
-            committed_fragment_count,
             sccp_finality_header,
+            committed_fragment_count,
         })
     }
 

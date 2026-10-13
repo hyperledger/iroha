@@ -22,8 +22,8 @@ pub(crate) fn record() -> VerifyingKeyRecord {
     )
 }
 /// Identical current and predecessor images with one exact inverse.
-pub(crate) fn world() -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(crate) fn world() -> World {
+    let mut world = World::default();
     let value = record();
     world
         .verifying_keys_by_circuit

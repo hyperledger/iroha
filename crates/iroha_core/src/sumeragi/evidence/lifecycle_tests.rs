@@ -164,7 +164,7 @@ fn signed_unadmitted_foreign_record_and_forged_carrier_metadata_never_restore() 
     let foreign_key = evidence_key(&evidence);
     assert_ne!(foreign_key, key);
     let mut foreign = original.canonical_projection();
-    foreign.evidence = evidence;
+    foreign.evidence = iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence);
     foreign.attribution = verified.into_attribution().get().clone();
     // Both artifact signatures and the complete current original attribution
     // are genuine. H3 admitted another proof, so no carrier admits this record.
@@ -219,7 +219,7 @@ fn original_terminal_evidence_replay_cannot_reenter_admission_or_change_records(
         &view,
         chain.state().state_view_generation(),
         6,
-        &[original.evidence.clone()],
+        &[original.native_evidence().unwrap().clone()],
     ) else {
         panic!("prior committed evidence is a replay fence after finality application");
     };
@@ -237,7 +237,7 @@ fn original_terminal_evidence_replay_cannot_reenter_admission_or_change_records(
 #[test]
 fn world_evidence_current_undo_and_cow_retain_original_proof_and_offender_allocations() {
     let (mut chain, key, pending) = pending_chain();
-    let proof_pointer = pending.evidence.native_frame().as_ptr();
+    let proof_pointer = pending.native_evidence().unwrap().native_frame().as_ptr();
     let offenders_pointer = pending.attribution.offenders.as_ptr();
     assert!(!pending.attribution.offenders.is_empty());
     let compact_pointer = pending.attribution.offenders[0]
@@ -249,7 +249,7 @@ fn world_evidence_current_undo_and_cow_retain_original_proof_and_offender_alloca
         .as_ptr();
     let copied = pending.clone();
     assert_eq!(
-        copied.evidence.native_frame().as_ptr(),
+        copied.native_evidence().unwrap().native_frame().as_ptr(),
         proof_pointer,
         "World COW must share the original paid proof allocation"
     );
@@ -281,7 +281,10 @@ fn world_evidence_current_undo_and_cow_retain_original_proof_and_offender_alloca
         EvidencePenaltyStatus::Applied { height: 5 }
     );
     for record in [previous, applied] {
-        assert_eq!(record.evidence.native_frame().as_ptr(), proof_pointer);
+        assert_eq!(
+            record.native_evidence().unwrap().native_frame().as_ptr(),
+            proof_pointer
+        );
         assert_eq!(record.attribution.offenders.as_ptr(), offenders_pointer);
         assert_eq!(
             record.attribution.offenders[0]

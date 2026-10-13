@@ -3,14 +3,17 @@
 //! Preparation never replaces a live config. Each stopped install is one atomic sibling rename;
 //! a retained original permits explicit pre-start recovery after a partial cohort install. A
 //! start-intent permanently closes restore authority. No legacy node schema is reintroduced.
-#![cfg_attr(all(test, not(target_os = "linux")), allow(dead_code))]
 
 use super::*;
+#[cfg(any(target_os = "linux", test))]
 use zeroize::Zeroizing;
 
 const LIMIT: u64 = 1024 * 1024;
+#[cfg(target_os = "linux")]
 const PREPARED: &str = "config-retirement-prepared.json";
+#[cfg(target_os = "linux")]
 const INSTALLED: &str = "config-retirement-installed.json";
+#[cfg(target_os = "linux")]
 const RESTORED: &str = "config-retirement-restored.json";
 const PREFIX: &str = "taira.validator-config-retirement";
 
@@ -123,6 +126,7 @@ fn stamp_value(value: &json::Value) -> Result<&Vec<json::Value>> {
 }
 
 /// Remove only the retired table. Every other TOML value is preserved exactly.
+#[cfg(any(target_os = "linux", test))]
 fn project(bytes: &[u8]) -> Result<(Zeroizing<Vec<u8>>, bool)> {
     ensure!(
         !bytes.is_empty() && bytes.len() as u64 <= LIMIT,

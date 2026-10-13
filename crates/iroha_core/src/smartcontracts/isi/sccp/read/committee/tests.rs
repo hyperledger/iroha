@@ -6,7 +6,16 @@ use norito::codec::{DecodeAll, Encode};
 
 #[test]
 fn retained_generation_view_preserves_exact_graph_lifecycle_and_wire_identity() {
-    let source = sample_generation(2);
+    use iroha_data_model::account::{AccountId, MultisigMember, MultisigPolicy};
+    let mut source = sample_generation(2);
+    // Preserve a nested universal-account graph at saturation, not merely flat keys.
+    let members = [0x61, 0x62].map(|seed| {
+        let pair =
+            iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519);
+        MultisigMember::new(pair.public_key().clone(), 1).unwrap()
+    });
+    source.members[0].as_mut().unwrap().validator =
+        AccountId::new_multisig(MultisigPolicy::new(2, members.to_vec()).unwrap());
     let budget = AllocationBudget::new(1 << 20);
     let mut original = RetainedSccpGeneration::admit(&source, &budget).unwrap();
     original.end = Some(SccpGenerationEndV1 {
@@ -35,6 +44,17 @@ fn retained_generation_view_preserves_exact_graph_lifecycle_and_wire_identity() 
     assert_eq!(budget.reserved_bytes(), occupied);
     let encoded = response.encode();
     let decoded = SccpGenerationV1::decode_all(&mut encoded.as_slice()).unwrap();
+    assert_eq!(decoded.generation, source.generation);
+    assert_eq!(decoded.committee_root, source.committee_root);
+    assert_eq!(decoded.cause, source.cause);
+    assert_eq!(decoded.start_height, source.start_height);
+    assert_eq!(decoded.start_timestamp_ms, source.start_timestamp_ms);
+    assert_eq!(decoded.start_lc, source.start_lc);
+    assert_eq!(decoded.validity_ms, source.validity_ms);
+    assert_eq!(decoded.deadline_ms, source.deadline_ms);
+    assert_eq!(decoded.grace_ms, source.grace_ms);
+    assert_eq!(decoded.progress_cap_ms, source.progress_cap_ms);
+    assert_eq!(decoded.liable_until_lc, source.liable_until_lc);
     assert_eq!(decoded.keys, source.keys);
     assert_eq!(decoded.members, source.members);
     assert_eq!(decoded.end, response.generation.end);

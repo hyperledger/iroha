@@ -343,7 +343,7 @@ impl Collector for ProjectionCollector {
     }
     fn collect(&self) -> Vec<proto::MetricFamily> {
         self.collector
-            .project(Ok(*self.observation.lock().unwrap()))
+            .project(Ok(&self.observation.lock().unwrap()))
     }
 }
 fn projection_fixture() -> (Metrics, Arc<Mutex<Snapshot>>, Snapshot) {
@@ -468,22 +468,21 @@ fn resource_concurrent_gathers_keep_whole_vectors_and_one_source_read_each() {
             );
         }
     });
-    let workers = registries
-        .iter()
-        .map(|registry| {
-            let metrics = registry.clone();
-            std::thread::spawn(move || {
-                for _ in 0..8 {
-                    let rows = samples(&metrics);
-                    if scalar(&rows, "available") == 1 {
-                        assert_complete(&rows);
-                    } else {
-                        unavailable(&rows, "busy");
-                    }
+    // Start every reader before joining any of them so their gathers can overlap.
+    let mut workers = Vec::with_capacity(registries.len());
+    for registry in &registries {
+        let metrics = registry.clone();
+        workers.push(std::thread::spawn(move || {
+            for _ in 0..8 {
+                let rows = samples(&metrics);
+                if scalar(&rows, "available") == 1 {
+                    assert_complete(&rows);
+                } else {
+                    unavailable(&rows, "busy");
                 }
-            })
-        })
-        .collect::<Vec<_>>();
+            }
+        }));
+    }
     let results = workers
         .into_iter()
         .map(std::thread::JoinHandle::join)
@@ -496,4 +495,18 @@ fn resource_concurrent_gathers_keep_whole_vectors_and_one_source_read_each() {
     assert_eq!(collector.source_reads.load(Ordering::Relaxed), 32);
     assert_complete(&samples(&registries[0]));
     assert_eq!(collector.source_reads.load(Ordering::Relaxed), 33);
+}
+
+#[test]
+fn integer_projection_preserves_every_checked_boundary() {
+    for value in [
+        0,
+        1,
+        u64::from(u32::MAX),
+        1_u64 << 32,
+        MAX_EXACT_INTEGER - 1,
+        MAX_EXACT_INTEGER,
+    ] {
+        assert_eq!(integer_projection(value).to_string(), value.to_string());
+    }
 }

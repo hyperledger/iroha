@@ -25,6 +25,7 @@ pub(super) trait WorldFieldAcquisition {
     fn try_initialize(&mut self, mode: BlockMode) -> Result<(), AdmittedStorageError>;
     fn release(&mut self);
     fn take_block(&mut self) -> Self::Block;
+    #[cfg(test)]
     fn into_block(self) -> Self::Block;
 }
 pub(super) struct OrdinaryAcquisition<A: BlockAcquisition>(pub(super) A);
@@ -40,6 +41,7 @@ impl<A: BlockAcquisition> WorldFieldAcquisition for OrdinaryAcquisition<A> {
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -68,6 +70,7 @@ impl<'a, V: mv::Value, C: Send + Sync + 'static> WorldFieldAcquisition
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -101,6 +104,7 @@ where
     fn take_block(&mut self) -> Self::Block {
         self.0.take_block()
     }
+    #[cfg(test)]
     fn into_block(self) -> Self::Block {
         self.0.into_block()
     }
@@ -126,6 +130,31 @@ impl IntoWorldField for super::TriggerSetBlock<'_> {
 // Only the admitted table needs a scope argument. The entire aggregate retains
 // that original scope until every ordinary and prepaid sibling has released.
 macro_rules! install_frozen_world_field {
+    ($fields:ident, $target:ident, $scope:expr, sccp_light_client_sets) => {
+        $fields
+            .sccp_light_client_sets
+            .install_frozen_publication_owned(&$target.sccp_light_client_sets, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliations) => {
+        $fields
+            .sccp_reconciliations
+            .install_frozen_publication_owned(&$target.sccp_reconciliations, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliation_proven) => {
+        $fields
+            .sccp_reconciliation_proven
+            .install_frozen_publication_owned(&$target.sccp_reconciliation_proven, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_pending_refund_amount) => {
+        $fields
+            .sccp_pending_refund_amount
+            .install_frozen_publication_owned(&$target.sccp_pending_refund_amount, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliation_due) => {
+        $fields
+            .sccp_reconciliation_due
+            .install_frozen_publication_owned(&$target.sccp_reconciliation_due, $scope)
+    };
     ($fields:ident, $target:ident, $scope:expr, sccp_anchor_chunks) => {
         $fields
             .sccp_anchor_chunks
@@ -135,6 +164,11 @@ macro_rules! install_frozen_world_field {
         $fields
             .sccp_committee_generations
             .install_frozen_publication_owned(&$target.sccp_committee_generations, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_forgery_offences) => {
+        $fields
+            .sccp_forgery_offences
+            .install_frozen_publication_owned(&$target.sccp_forgery_offences, $scope)
     };
     ($fields:ident, $target:ident, $scope:expr, $field:ident) => {
         $fields.$field.install_frozen_publication(&$target.$field)

@@ -26,7 +26,7 @@ use iroha_sccp::v1::{
     committee::{
         BLS12_381_HALF_P, BLS12_381_P, COMMITTEE_TAG, FP_LEN, IDENTITY_SIGNATURE,
         IDENTITY_SIGNATURE_EVM, KEY_LEN, SIGNATURE_LEN, committee_root, key_y,
-        signer_point_is_on_curve, signer_ys,
+        signer_point_is_on_curve,
     },
     destination::{DeploymentV1, Destination, DestinationFlavor},
     evidence::{
@@ -1389,8 +1389,14 @@ fn with_y(certificate: &Certificate, position: usize, y: &[u8; FP_LEN]) -> Certi
 /// A certificate of the committee `n4` with its members listed under the key bytes of
 /// `listed`, pinned under the root of those exact bytes in canonical order. The first three
 /// members sign with their genuine secrets, at the seats the order gives them; the fourth
-/// member does not sign.
-fn odd_committee(world: &World, listed: [[u8; KEY_LEN]; 4], height: u64) -> (Certificate, Pin) {
+/// member does not sign. `first_y` supplies the first member's EVM witness when its listed
+/// key is malformed; otherwise every witness is derived from its listed point.
+fn odd_committee(
+    world: &World,
+    listed: [[u8; KEY_LEN]; 4],
+    height: u64,
+    first_y: Option<[u8; FP_LEN]>,
+) -> (Certificate, Pin) {
     let n4 = &world.n4;
     let mut custom = listed.to_vec();
     custom.sort_unstable();
@@ -1424,7 +1430,16 @@ fn odd_committee(world: &World, listed: [[u8; KEY_LEN]; 4], height: u64) -> (Cer
     let mut certificate = Certificate {
         qc: qc.encode().to_vec(),
         committee: custom.concat(),
-        signer_ys: signer_ys(&custom, signers).expect("the listed keys are points"),
+        signer_ys: seats
+            .iter()
+            .flat_map(|seat| {
+                let key = &custom[*seat];
+                first_y
+                    .filter(|_| *key == listed[0])
+                    .or_else(|| key_y(key))
+                    .expect("a listed point or its explicit malformed-key witness")
+            })
+            .collect(),
         ..signed
     };
     certificate.meta.signer_indices = seats;
@@ -1435,7 +1450,7 @@ fn odd_committee(world: &World, listed: [[u8; KEY_LEN]; 4], height: u64) -> (Cer
 }
 
 /// The rows of `negative_certificates`, and the rows of `flavor_specific_certificates`:
-/// certificates that one flavour accepts and the other does not pin.
+/// certificates that one flavour accepts and the other rejects.
 fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
     let (n4, n7, n31, other4) = (&world.n4, &world.n7, &world.n31, &world.other4);
     let pin4 = Pin::of(n4);
@@ -1714,25 +1729,21 @@ fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
         ("key_flag_infinity_0xc0", 7350, keys[0][0] | 0x40),
         ("key_flag_uncompressed", 7351, keys[0][0] & 0x7f),
     ] {
-        let mut bad_keys = keys.clone();
-        bad_keys[0][0] = flag;
-        let pin = pin4.over(bad_keys.clone());
-        let certificate = Certificate {
-            committee: bad_keys.concat(),
-            ..world.certify_plain(
-                &with(header(n4, height), |x| {
-                    x.committee_root = pin.committee_root
-                }),
-                n4,
-            )
-        };
+        let mut bad_key = keys[0];
+        bad_key[0] = flag;
+        let (certificate, pin) = odd_committee(
+            world,
+            [bad_key, keys[1], keys[2], keys[3]],
+            height,
+            Some(ys[0]),
+        );
         out.add_under(
             label,
-            "committee key 0 with a bad flag byte, pinned under the root of those exact bytes",
+            "a signer key with a bad flag byte, pinned under the root of those exact bytes",
             &certificate,
             &pin,
             "n4",
-            evm_only("BadCommittee"),
+            [Some("BadCommittee"), Some("BadSignature")],
         );
     }
     // Signer coordinates that are no precompile input for a finite point (step 6): x ≥ p, and
@@ -1748,38 +1759,28 @@ fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
     for (label, description, bad_key, y, height) in [
         (
             "signer_x_ge_p",
-            "committee key 0 whose x (every coordinate bit set) is not below p, with its genuine y",
+            "member 0 listed under a key whose x (every coordinate bit set) is not below p, with its genuine y",
             x_ge_p,
             ys[0],
             7352,
         ),
         (
             "signer_zero_coordinates",
-            "committee key 0 with x = 0 and signerYs[0] = 0: the coordinates (0, 0)",
+            "member 0 listed under a key with x = 0 and its signer y = 0: the coordinates (0, 0)",
             zero_x,
             [0; FP_LEN],
             7353,
         ),
     ] {
-        let mut bad_keys = keys.clone();
-        bad_keys[0] = bad_key;
-        let pin = pin4.over(bad_keys.clone());
-        let certificate = Certificate {
-            committee: bad_keys.concat(),
-            ..world.certify_plain(
-                &with(header(n4, height), |x| {
-                    x.committee_root = pin.committee_root
-                }),
-                n4,
-            )
-        };
+        let (certificate, pin) =
+            odd_committee(world, [bad_key, keys[1], keys[2], keys[3]], height, Some(y));
         out.add_under(
             label,
             &format!("{description}, pinned under the root of those exact bytes"),
-            &with_y(&certificate, 0, &y),
+            &certificate,
             &pin,
             "n4",
-            evm_only("BadCommittee"),
+            [Some("BadCommittee"), Some("BadSignature")],
         );
     }
 
@@ -1959,7 +1960,7 @@ fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
     // in canonical order.
     let shift = g1_shift_outside_subgroup();
     let shifted = g1_plus(&keys[0], &shift);
-    let (certificate, pin) = odd_committee(world, [shifted, keys[1], keys[2], keys[3]], 7370);
+    let (certificate, pin) = odd_committee(world, [shifted, keys[1], keys[2], keys[3]], 7370, None);
     out.add_under(
         "signer_key_outside_g1",
         "member 0 listed under its key shifted by a point outside G1, with the genuine \
@@ -1973,31 +1974,28 @@ fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
         world,
         [shifted, g1_minus(&keys[1], &shift), keys[2], keys[3]],
         7371,
+        None,
     );
     let cancelling = Row {
         label: "signer_keys_outside_g1_cancelling",
         description: "members 0 and 1 listed under keys shifted by T and −T outside G1, with \
                       the genuine signature: neither key is in G1, the aggregate key is, and \
                       the pairing holds. EVM sees the aggregate only and accepts; the TON \
-                      outcome rests on the per-key checks of BLS_FASTAGGREGATEVERIFY (null \
-                      until the Acton harness pins them)",
+                      opcode BLS_FASTAGGREGATEVERIFY rejects each key outside G1 with BadSignature",
         committee: "n4",
         certificate: &certificate,
         pin: &pin,
         now_ms: world.now,
         evm: true,
-        ton: false,
+        ton: true,
     }
     .reference_json(false);
     assert_eq!(expected_of(&cancelling, "evm"), Some("ok"));
-    assert_eq!(
-        pin.outcome(DestinationFlavor::Ton, &certificate, world.now),
-        "BadSignature"
-    );
+    assert_eq!(expected_of(&cancelling, "ton"), Some("BadSignature"));
     // `apk = O`: member 2 listed under −(PK_0 + PK_1). The signature is the one members 0, 1
     // and 2 make.
     let rogue = g1_negated_sum(&keys[0], &keys[1]);
-    let (certificate, pin) = odd_committee(world, [keys[0], keys[1], rogue, keys[3]], 7372);
+    let (certificate, pin) = odd_committee(world, [keys[0], keys[1], rogue, keys[3]], 7372, None);
     out.add_under(
         "aggregate_key_identity",
         "the three signer keys sum to the identity (member 2 listed under −(PK_0 + PK_1)); σ \
@@ -2019,7 +2017,7 @@ fn negative_certificates(world: &World) -> (Vec<Value>, Vec<Value>) {
         },
         &pin,
         "n4",
-        evm_only("BadCommittee"),
+        [Some("BadCommittee"), Some("BadSignature")],
     );
     (out.rows, vec![cancelling])
 }
@@ -2066,7 +2064,7 @@ fn finality_document() -> Value {
                  is the `m` a verifier derives from its wire fields. The TON verification \
                  context is ton-mainnet with the placeholder minter account id 0x35…35. \
                  `flavor_specific_certificates` are certificates that one flavor accepts and \
-                 the other does not pin (rows of the same shape, without the pairing details)"
+                 the other rejects (rows of the same shape, without the pairing details)"
             )),
         ),
         ("constants", constants_json()),

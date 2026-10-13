@@ -40,11 +40,11 @@ import "sccp-test-vectors.gen"
 const PINNED_CERTIFICATES = 13
 const PINNED_NEGATIVE_CERTIFICATES = 54
 /// Negative rows with `expected.ton`, and the rows TON cannot express.
-const PINNED_NEGATIVES_WITH_TON_OUTCOME = 35
-const PINNED_NEGATIVES_WITHOUT_TON_OUTCOME = 19
+const PINNED_NEGATIVES_WITH_TON_OUTCOME = 41
+const PINNED_NEGATIVES_WITHOUT_TON_OUTCOME = 13
 /// Negative rows that the opcode decides: `expected.ton = BadSignature`
 /// without the identity signature, which the minter refuses before it.
-const PINNED_NEGATIVES_DECIDED_BY_THE_OPCODE = 11
+const PINNED_NEGATIVES_DECIDED_BY_THE_OPCODE = 17
 const PINNED_HASH_TO_G2_TRACES = 4
 const PINNED_TEST_KEYS = 35
 
@@ -1164,9 +1164,7 @@ get fun `test the identity signature is refused before the opcode and before the
 }
 
 get fun `test the minter answers BadSignature for stored keys the opcode refuses`() {
-    // The fixtures pin no TON outcome for these rows until a harness confirms
-    // the reading of §5.3.4 item 5 (`error_choices.
-    // ton_signer_key_refused_by_the_opcode`). This is that confirmation: a
+    // The shared models and fixtures pin the opcode's single verdict: a
     // stored signer key that is no canonical point, is the identity or lies
     // outside G1, and an identity aggregate, are all `BadSignature`.
     val rows: array<int> = [
@@ -1180,7 +1178,7 @@ get fun `test the minter answers BadSignature for stored keys the opcode refuses
     var i = 0;
     repeat (rows.size()) {
         val cert = vecNegativeCertificate(rows.get(i));
-        expect(cert.exit).toEqual(VEC_EXIT_UNPINNED);
+        expect(cert.exit).toEqual(SccpErrors.BadSignature as int);
         val env = vecDeployCertificate(cert);
         val res = vecSubmitCertificate(env, cert, null);
         expectOutcome(res, SccpErrors.BadSignature);
@@ -1200,7 +1198,7 @@ get fun `test the minter answers BadSignature for stored keys the opcode refuses
         i += 1;
     }
     expect(i).toEqual(6);
-    // the two rows the fixtures do pin for stored keys agree
+    // the other stored-key negatives agree
     expect(
         vecNegativeCertificate(VEC_NEG_SIGNER_KEY_OUTSIDE_G1).exit,
     ).toEqual(SccpErrors.BadSignature as int);
@@ -1209,42 +1207,16 @@ get fun `test the minter answers BadSignature for stored keys the opcode refuses
     ).toEqual(SccpErrors.BadSignature as int);
 }
 
-/// The negative certificate of `fixtures/sccp/finality_rust_v1.json`
-/// (`w3f_transcript_over_commit_digest`) in its TON form: a full quorum of
-/// the n = 4 test committee signs the commit digest `m` through the generic
-/// signing API of `iroha_crypto` (the w3f transcript) instead of the
-/// consensus API. Every other field is genuine. Its pin, keys and clock are
-/// those of the n = 4 rows of `finality_v1.json`.
-// TODO: WP-TON (builder): render this row from the fixture file in
-// `sccp-cert-vectors.gen.tolk` (`scripts/ton_sccp_builder.py vectors`), so
-// that its drift check covers it; the bytes below are copied from the
-// committed fixture.
-fun rustNegativeCertificate(): VecCertificate {
-    val shared = vecCertificate(VEC_CERT_N4_LOWEST_Q);
-    return {
-        pin: shared.pin,
-        pinKeys: shared.pinKeys,
-        initChecked: true,
-        initSeconds: shared.initSeconds,
-        nowSeconds: 1790003600,
-        signature: "8b4c2927f65ef62d69f2ebc8bc765ca2abb937d7aa9ba28370549490090327ec5f0d2ee9873fe0f849f36dce8b1eca3a0aa29d3a884a9af4e177a094eb471cbeccf4168dc21528671824cbee92f0dfb4e2247d684f6fd759cac02b79fab02379".hexToSlice(),
-        signers: 7,
-        qc: "000000000000004a709d7555624c623af6785e6f5dc826d4bc9e231669dae79ebab9a3aefe8829d70000000000000000b69a5d2d3b7bd773aa4ad767a2ebfc27ce7f785d7dbc9a0ca9b92d0e037b4597e4f0a268e11599cfe9840eb442dc9ccaedf53af9cb16053d097ae31a0c361d97".hexToSlice(),
-        head: "534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000001ce8000001a0c456868001000000027140b2fe9dbb189037d7c21b676b42cb07c6492d46ea3d9eeb9cfccce4be4ab20000000000000028".hexToSlice(),
-        tail: "1c9e4dc240ef4c4c99bdca794e0c649a45754ac755151f8f16961e78907c52ff000000000000000710c02431ff3976732e1b3d2b3f6cc4e488acf60e1fb31094be0a72a855afdc1400000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-        exit: SccpErrors.BadSignature as int,
-    };
-}
-
-/// `m` and `checkpoint_id` of the row above, as the fixture records them.
-const RUST_NEGATIVE_M = 0xa42132a3adb5c5d258d1d8dfe399bd96aaa46506e0fcf2416c4d913c93c445f5
-const RUST_NEGATIVE_CHECKPOINT_ID = 0xf949c4c2af8d966d31f7e17ce3e12e3709d677394b4094b0dc0a0109cffa873a
 /// Rows of `finality_rust_v1.json`.
 const PINNED_RUST_NEGATIVE_CERTIFICATES = 1
 
 get fun `test a w3f transcript signature over the commit digest is refused`() {
     var replayed = 0;
-    val cert = rustNegativeCertificate();
+    expect(VEC_RUST_NEGATIVE_CERTIFICATE_COUNT).toEqual(PINNED_RUST_NEGATIVE_CERTIFICATES);
+    val index = VEC_RUST_NEG_W3F_TRANSCRIPT_OVER_COMMIT_DIGEST;
+    val cert = vecRustNegativeCertificate(index);
+    val checkpointId = vecRustNegativeCheckpointIds().get(index);
+    val expectedMessage = vecRustNegativeMessages().get(index);
     // the row is of the n = 4 deployment of the other rows, and well formed
     expect(cert.pin.root).toEqual(VEC_COMMITTEE_N4_ROOT);
     expect(cert.pin.generation).toEqual(7);
@@ -1252,9 +1224,9 @@ get fun `test a w3f transcript signature over the commit digest is refused`() {
     expect(cert.pin.untilMs).toEqual(1791209600000);
     expect(cert.signature.remainingBitsCount()).toEqual(SCCP_SIGNATURE_BITS);
     expect(cert.qc.remainingBitsCount()).toEqual(SCCP_QC_FIXED_CELL_BITS);
-    expect(sccpCheckpointId(cert.head, cert.tail)).toEqual(RUST_NEGATIVE_CHECKPOINT_ID);
+    expect(sccpCheckpointId(cert.head, cert.tail)).toEqual(checkpointId);
     val message = derivedMessage(cert);
-    expect(message.bitsEqual(wordSlice(RUST_NEGATIVE_M))).toBeTrue();
+    expect(message.bitsEqual(wordSlice(expectedMessage))).toBeTrue();
     // the same signers under the consensus API give another signature, which verifies
     val committee = makeCommittee(vecCommitteeN4());
     val consensus = blsAggregateSign(committee.secretsOf(cert.signers), message);
@@ -1289,8 +1261,8 @@ get fun `test a w3f transcript signature over the commit digest is refused`() {
     replayExpectCheckpoints(
         env,
         1,
-        7400,
-        RUST_NEGATIVE_CHECKPOINT_ID,
+        vecRustNegativeHeights().get(index),
+        checkpointId,
         0,
         0,
         0,

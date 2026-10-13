@@ -769,7 +769,7 @@ fn immutable_snapshot_survives_path_replacement_without_reread() {
         vec![0_u8; PROOF_ATTACHMENT_BODY_MAX_BYTES_V1 as usize + 1],
     )
     .expect("replace path after immutable snapshot acquisition");
-    let report = process_attachment_snapshot_at(&loc, snapshot)
+    let report = process_attachment_snapshot_at(&loc, *snapshot)
         .expect("process immutable snapshot")
         .expect("immutable snapshot produces a report");
     assert!(report.ok, "path replacement affected snapshot: {report:?}");

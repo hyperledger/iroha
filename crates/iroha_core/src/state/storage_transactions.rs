@@ -1,5 +1,4 @@
 //! Multi-version append-only storage for canonical carrier and replay identities.
-#![allow(clippy::disallowed_types)]
 use iroha_allocation::shared::{Reserved, Shared};
 use iroha_allocation::{
     AllocationBudget, AllocationCharge, ChargedBuffer, ChargedBufferFromChargeError,
@@ -16,8 +15,7 @@ use std::sync::Arc;
 use std::{
     alloc::Layout,
     borrow::Borrow,
-    collections::{BTreeMap, HashSet},
-    hash::Hash,
+    collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -47,7 +45,7 @@ pub enum MembershipRestoreError {
 /// and the latest block's immutable keys and shared shell. Old readers retain
 /// their exact historical generation and tip.
 ///
-/// TODO: prepay the upstream ordinary carrier Vec and merge-carrier HashSet
+/// TODO: prepay the upstream ordinary carrier Vec and merge-carrier BTreeSet
 /// before their construction, and admit snapshot decoding/comparison scratch
 /// through its original snapshot owner before claiming complete admission.
 pub struct TransactionsStorage {
@@ -158,7 +156,7 @@ impl TipKeys {
     fn contains<Q>(&self, key: &Q) -> bool
     where
         Key: Borrow<Q>,
-        Q: Hash + Eq + Ord + ?Sized,
+        Q: Ord + ?Sized,
     {
         self.0
             .as_slice()
@@ -183,8 +181,8 @@ impl PartialEq for TipKeys {
 }
 impl Eq for TipKeys {}
 
-impl PartialEq<HashSet<Key>> for TipKeys {
-    fn eq(&self, other: &HashSet<Key>) -> bool {
+impl PartialEq<BTreeSet<Key>> for TipKeys {
+    fn eq(&self, other: &BTreeSet<Key>) -> bool {
         self.len() == other.len() && self.iter().all(|key| other.contains(key))
     }
 }
@@ -263,13 +261,13 @@ impl JsonSerializeTrait for BlockInfo {
 
 #[derive(crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize)]
 struct BlockInfoInput {
-    transactions: HashSet<Key>,
+    transactions: BTreeSet<Key>,
     height: NonZeroUsize,
 }
 
 fn admit_tip(
     budget: &AllocationBudget,
-    transactions: &HashSet<Key>,
+    transactions: &BTreeSet<Key>,
     height: Value,
 ) -> Result<Tip, MembershipAdmissionError> {
     let backing = Layout::array::<Key>(transactions.len()).map_err(|_| {
@@ -310,7 +308,7 @@ fn admit_tip(
         transactions: TipKeys(keys),
         height,
         #[cfg(test)]
-        retirement_observer: Default::default(),
+        retirement_observer: std::sync::OnceLock::default(),
     }))
 }
 
@@ -328,7 +326,7 @@ pub(crate) enum TipStageError {
 fn admit_tip_from_sources<I: ExactSizeIterator<Item = Key>>(
     budget: &AllocationBudget,
     ordinary: I,
-    merge: &HashSet<Key>,
+    merge: &BTreeSet<Key>,
     height: Value,
 ) -> Result<Tip, TipStageError> {
     let capacity = ordinary.len().checked_add(merge.len()).ok_or_else(|| {
@@ -395,7 +393,7 @@ fn admit_tip_from_sources<I: ExactSizeIterator<Item = Key>>(
         transactions: TipKeys(keys),
         height,
         #[cfg(test)]
-        retirement_observer: Default::default(),
+        retirement_observer: std::sync::OnceLock::default(),
     }))
 }
 impl TransactionsStorage {
@@ -514,7 +512,7 @@ impl TransactionsStorage {
             let mut guard = self.released.guard(self.write_lock.lock());
             let next_identity =
                 history::new_identity(&self.budget).expect("fixture identity admission");
-            let entrypoints = entrypoints.into_iter().collect::<HashSet<_>>();
+            let entrypoints = entrypoints.into_iter().collect::<BTreeSet<_>>();
             let latest = self.latest_block.load_full();
             let mut writer = self
                 .blocks
@@ -530,7 +528,7 @@ impl TransactionsStorage {
                     latest
                 }
                 Some(block) if block.height == height => {
-                    let mut updated = block.transactions.iter().copied().collect::<HashSet<_>>();
+                    let mut updated = block.transactions.iter().copied().collect::<BTreeSet<_>>();
                     updated.extend(entrypoints);
                     Some(admit_tip(&self.budget, &updated, height).expect("fixture tip admission"))
                 }
@@ -588,7 +586,7 @@ impl TransactionsStorage {
                 height <= latest.height,
                 "corruption must not advance the fixture frontier"
             );
-            let mut updated = latest.transactions.iter().copied().collect::<HashSet<_>>();
+            let mut updated = latest.transactions.iter().copied().collect::<BTreeSet<_>>();
             updated.remove(&entrypoint);
             let mut writer = self
                 .blocks
@@ -692,7 +690,7 @@ fn membership_at_cut<Q>(
 ) -> Option<Value>
 where
     Key: Borrow<Q>,
-    Q: Hash + Eq + Ord + ?Sized,
+    Q: Ord + ?Sized,
 {
     let latest = latest?;
     if !undo_latest && latest.transactions.contains(key) {
@@ -700,7 +698,7 @@ where
     } else {
         history
             .get(key)
-            .map(|height| *height)
+            .copied()
             .filter(|height| *height < latest.height)
     }
 }
@@ -711,7 +709,7 @@ pub trait TransactionsReadOnly {
     fn get<Q>(&self, key: &Q) -> Option<Value>
     where
         Key: Borrow<Q>,
-        Q: Hash + Eq + Ord + ?Sized;
+        Q: Ord + ?Sized;
 }
 /// Module for [`TransactionsView`] and it's related impls
 mod view {
@@ -728,7 +726,7 @@ mod view {
         fn get<Q>(&self, key: &Q) -> Option<Value>
         where
             Key: Borrow<Q>,
-            Q: Hash + Eq + Ord + ?Sized,
+            Q: Ord + ?Sized,
         {
             membership_at_cut(self.latest_block.as_deref(), &self.blocks, false, key)
         }
@@ -935,14 +933,6 @@ mod block {
     #[path = "membership_root.rs"]
     mod membership_root;
 
-    #[cfg(test)]
-    #[path = "detached_publication_tests.rs"]
-    mod detached_publication_tests;
-
-    #[cfg(test)]
-    #[path = "capture_tests.rs"]
-    mod capture_tests;
-
     enum MembershipPublication {
         Repeated,
         Replace {
@@ -963,10 +953,11 @@ mod block {
         }
         /// Return whether the staged canonical carrier has the exact height and
         /// entrypoint membership.
+        #[cfg(test)]
         pub(crate) fn has_exact_staged_block(
             &self,
             height: NonZeroUsize,
-            transactions: &HashSet<Key>,
+            transactions: &BTreeSet<Key>,
         ) -> bool {
             self._guard.identity();
             self.current_block
@@ -978,7 +969,7 @@ mod block {
         pub(crate) fn try_stage_block(
             &mut self,
             ordinary: &mut [Key],
-            merge: &HashSet<Key>,
+            merge: &BTreeSet<Key>,
             height: Value,
         ) -> Result<(), TipStageError> {
             self._guard.identity();
@@ -1019,7 +1010,7 @@ mod block {
         #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
         pub(crate) fn try_insert_block(
             &mut self,
-            transactions: HashSet<Key>,
+            transactions: BTreeSet<Key>,
             height: Value,
         ) -> Result<(), MembershipAdmissionError> {
             self._guard.identity();
@@ -1039,7 +1030,7 @@ mod block {
         }
         /// Infallible finite-pool fixture staging; runtime calls the typed path.
         #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
-        pub fn insert_block(&mut self, transactions: HashSet<Key>, height: Value) {
+        pub fn insert_block(&mut self, transactions: BTreeSet<Key>, height: Value) {
             self.try_insert_block(transactions, height)
                 .expect("fixture hot-tip admission");
         }
@@ -1359,12 +1350,12 @@ mod block {
         /// account for history-map insertion and reader retention before the
         /// writer is acquired. A refusal returns the original journal intact.
         /// This component does not establish aggregate State/finality authority.
-        pub(crate) fn try_prepare_publication<'storage, Installation, E>(
+        pub(crate) fn try_prepare_publication<Installation, E>(
             self,
-            storage: &'storage TransactionsStorage,
+            storage: &TransactionsStorage,
             admit: impl FnOnce(&Self, &TransactionsStorage) -> Result<Installation, E>,
         ) -> Result<
-            PreparedDetachedTransactionsBlock<'storage, Installation>,
+            PreparedDetachedTransactionsBlock<'_, Installation>,
             (
                 Self,
                 mv::PublicationPreparationError<E>,
@@ -1420,6 +1411,13 @@ mod block {
     }
     impl<Installation> PreparedDetachedTransactionsBlock<'_, Installation> {
         /// Release the physical writer and recover the same admitted journal.
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "TODO: connect aggregate abort cleanup; preserve exact original membership resources and defer notices until physical fences release"
+            )
+        )]
         pub(crate) fn abort(
             self,
         ) -> (DetachedTransactionsBlock, AbortedTransactions<Installation>) {
@@ -1460,7 +1458,7 @@ mod block {
         fn get<Q>(&self, key: &Q) -> Option<Value>
         where
             Key: Borrow<Q>,
-            Q: Hash + Eq + Ord + ?Sized,
+            Q: Ord + ?Sized,
         {
             self.block.get(key)
         }
@@ -1469,7 +1467,7 @@ mod block {
         fn get<Q>(&self, key: &Q) -> Option<Value>
         where
             Key: Borrow<Q>,
-            Q: Hash + Eq + Ord + ?Sized,
+            Q: Ord + ?Sized,
         {
             self._guard.identity();
             if let Some(height) = self
@@ -1483,6 +1481,12 @@ mod block {
             membership_at_cut(latest.as_deref(), &self.baseline, self.revert, key)
         }
     }
+    #[cfg(test)]
+    #[path = "capture_tests.rs"]
+    mod capture_tests;
+    #[cfg(test)]
+    #[path = "detached_publication_tests.rs"]
+    mod detached_publication_tests;
 }
 #[cfg(test)]
 pub(crate) use block::MembershipPredecessorStatus;
@@ -1540,8 +1544,8 @@ impl TransactionsBlock<'_> {
 
     /// Check the exact original membership owner without reading its history.
     pub(in crate::state) fn belongs_to(&self, storage: &TransactionsStorage) -> bool {
-        std::ptr::eq(self.latest_block_ref, &storage.latest_block)
-            && std::ptr::eq(self.blocks_ref, &storage.blocks)
+        std::ptr::eq(self.latest_block_ref, &raw const storage.latest_block)
+            && std::ptr::eq(self.blocks_ref, &raw const storage.blocks)
     }
 
     /// Bind this owner's exact predecessor and immutable pending membership row.
@@ -1679,7 +1683,7 @@ mod membership_projection {
         fn history_before(&self, key: &Key, ceiling: Value) -> Option<Value> {
             self.history
                 .get(key)
-                .map(|entry| *entry)
+                .copied()
                 .filter(|height| *height < ceiling)
         }
 
@@ -1870,18 +1874,6 @@ pub(in crate::state) use membership_projection::TransactionsMembershipTransition
 #[path = "storage_transactions/authority.rs"]
 pub(in crate::state) mod authority;
 
-#[cfg(test)]
-#[path = "storage_transactions_projection_tests.rs"]
-mod projection_tests;
-
-#[cfg(test)]
-#[path = "storage_transactions_preparation_tests.rs"]
-mod preparation_tests;
-
-#[cfg(test)]
-#[path = "storage_transactions_publication_tests.rs"]
-mod publication_tests;
-
 /// Module with serialization and deserialization of [`TransactionsStorage`]
 mod serialization {
     use super::*;
@@ -2070,6 +2062,41 @@ mod serialization {
         }
     }
 }
+
+#[cfg(test)]
+impl TransactionsStorage {
+    /// Hold the actual membership mutex after the original execution has frozen its journal.
+    /// This is a physical blocker, not an injected outcome or replacement predecessor.
+    pub(in crate::state) fn with_membership_publication_blocked_for_test<R>(
+        &self,
+        action: impl FnOnce() -> R,
+    ) -> R {
+        let blocker = self.released.guard(self.write_lock.lock());
+        let result = action();
+        drop(blocker);
+        result
+    }
+
+    /// Hold the actual native history writer while a caller probes publication.
+    pub(in crate::state) fn with_physical_publication_blocked_for_test<R>(
+        &self,
+        action: impl FnOnce() -> R,
+    ) -> R {
+        let blocker = self.history_released.guard(self.blocks.acquire_writer());
+        let result = action();
+        drop(blocker);
+        result
+    }
+}
+#[cfg(test)]
+#[path = "storage_transactions_preparation_tests.rs"]
+mod preparation_tests;
+#[cfg(test)]
+#[path = "storage_transactions_projection_tests.rs"]
+mod projection_tests;
+#[cfg(test)]
+#[path = "storage_transactions_publication_tests.rs"]
+mod publication_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2095,7 +2122,7 @@ mod tests {
     #[test]
     fn charged_tip_matches_canonical_hashset_json_after_duplicate_compaction() {
         let [ordinary, merge_key, extra] = get_keys();
-        let merge = HashSet::from([merge_key]);
+        let merge = BTreeSet::from([merge_key]);
         let charged = admit_tip_from_sources(
             &AllocationBudget::new(1024 * 1024),
             [ordinary, extra, ordinary].into_iter(),
@@ -2107,7 +2134,7 @@ mod tests {
         assert!(charged.transactions.contains(&ordinary));
         assert!(charged.transactions.contains(&merge_key));
         let former = BlockInfoInput {
-            transactions: HashSet::from([ordinary, extra, merge_key]),
+            transactions: BTreeSet::from([ordinary, extra, merge_key]),
             height: NonZeroUsize::MIN,
         };
         let former_tip_json = norito::json::to_json(&former).unwrap();
@@ -2115,11 +2142,7 @@ mod tests {
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
         block
-            .try_stage_block(
-                &mut vec![ordinary, extra, ordinary],
-                &merge,
-                NonZeroUsize::MIN,
-            )
+            .try_stage_block(&mut [ordinary, extra, ordinary], &merge, NonZeroUsize::MIN)
             .expect("canonical tip stages with duplicate ordinary input");
         block.commit().expect("publish charged snapshot tip");
         assert_eq!(
@@ -2133,9 +2156,9 @@ mod tests {
         let [ordinary, merge_key, changed] = get_keys();
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
-        let merge = HashSet::from([merge_key]);
+        let merge = BTreeSet::from([merge_key]);
         block
-            .try_stage_block(&mut vec![ordinary, ordinary], &merge, NonZeroUsize::MIN)
+            .try_stage_block(&mut [ordinary, ordinary], &merge, NonZeroUsize::MIN)
             .expect("admit first canonical tip");
         let remaining = storage.budget.limit_bytes() - storage.budget.reserved_bytes();
         let filler = storage
@@ -2147,10 +2170,10 @@ mod tests {
             storage.budget.limit_bytes()
         );
         block
-            .try_stage_block(&mut vec![ordinary, ordinary], &merge, NonZeroUsize::MIN)
+            .try_stage_block(&mut [ordinary, ordinary], &merge, NonZeroUsize::MIN)
             .expect("same canonical set uses the original charged tip");
         assert!(matches!(
-            block.try_stage_block(&mut vec![changed], &merge, NonZeroUsize::MIN),
+            block.try_stage_block(&mut [changed], &merge, NonZeroUsize::MIN),
             Err(TipStageError::ChangedPayload)
         ));
         assert_eq!(
@@ -2170,10 +2193,10 @@ mod tests {
         let [old_key, new_key] = get_keys();
         let [first, second] = get_values();
         let storage = TransactionsStorage::new();
-        let merge = HashSet::new();
+        let merge = BTreeSet::new();
         let mut first_block = storage.block();
         first_block
-            .try_stage_block(&mut vec![old_key], &merge, first)
+            .try_stage_block(&mut [old_key], &merge, first)
             .expect("first charged tip");
         first_block.commit().expect("first committed tip");
         let old_view = storage.view();
@@ -2216,7 +2239,7 @@ mod tests {
         let [key] = get_keys();
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
-        let merge = HashSet::from([key]);
+        let merge = BTreeSet::from([key]);
         let mut ordinary = vec![key];
         let remaining = storage.budget.limit_bytes() - storage.budget.reserved_bytes();
         let full_pool = storage
@@ -2336,7 +2359,7 @@ mod tests {
         let view1 = storage.view();
         {
             let mut block = storage.block_and_revert();
-            block.insert_block(HashSet::new(), v2);
+            block.insert_block(BTreeSet::new(), v2);
             block.commit().unwrap();
         }
         let view2 = storage.view();
@@ -2364,7 +2387,7 @@ mod tests {
         assert_eq!(view_before_revert.get(&tx_b), Some(height_b));
         {
             let mut block = storage.block_and_revert();
-            block.insert_block(HashSet::from([tx_b_prime]), height_b);
+            block.insert_block(BTreeSet::from([tx_b_prime]), height_b);
             block.commit().unwrap();
         }
         let view_after_revert = storage.view();
@@ -2556,7 +2579,7 @@ mod tests {
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
         let wrong_height = NonZeroUsize::new(2).unwrap();
-        block.insert_block(HashSet::from([key]), wrong_height);
+        block.insert_block(BTreeSet::from([key]), wrong_height);
         assert!(matches!(
             block.validate_commit(),
             Err(TransactionsBlockError::HeightMismatch {
@@ -2580,7 +2603,7 @@ mod tests {
             block.commit().unwrap();
         }
         let mut block = storage.block();
-        let transactions = HashSet::from([second_key]);
+        let transactions = BTreeSet::from([second_key]);
         let wrong_height = NonZeroUsize::new(first_height.get() + 2).unwrap();
         let expected_height = first_height.get() + 1;
         block.insert_block(transactions, wrong_height);
@@ -2666,7 +2689,7 @@ mod tests {
         let [value] = get_values();
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
-        let payload: HashSet<_> = HashSet::from([key]);
+        let payload: BTreeSet<_> = BTreeSet::from([key]);
         block.insert_block(payload.clone(), value);
         block.insert_block(payload, value);
         block.commit().unwrap();
@@ -2697,7 +2720,7 @@ mod tests {
         let [value1, value2] = get_values();
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
-        let payload = HashSet::from([key]);
+        let payload = BTreeSet::from([key]);
         block.insert_block(payload.clone(), value1);
         block.insert_block(payload, value2);
     }
@@ -2710,33 +2733,7 @@ mod tests {
         let [value] = get_values();
         let storage = TransactionsStorage::new();
         let mut block = storage.block();
-        block.insert_block(HashSet::from([key1]), value);
-        block.insert_block(HashSet::from([key2]), value);
-    }
-}
-
-#[cfg(test)]
-impl TransactionsStorage {
-    /// Hold the actual membership mutex after the original execution has frozen its journal.
-    /// This is a physical blocker, not an injected outcome or replacement predecessor.
-    pub(in crate::state) fn with_membership_publication_blocked_for_test<R>(
-        &self,
-        action: impl FnOnce() -> R,
-    ) -> R {
-        let blocker = self.released.guard(self.write_lock.lock());
-        let result = action();
-        drop(blocker);
-        result
-    }
-
-    /// Hold the actual native history writer while a caller probes publication.
-    pub(in crate::state) fn with_physical_publication_blocked_for_test<R>(
-        &self,
-        action: impl FnOnce() -> R,
-    ) -> R {
-        let blocker = self.history_released.guard(self.blocks.acquire_writer());
-        let result = action();
-        drop(blocker);
-        result
+        block.insert_block(BTreeSet::from([key1]), value);
+        block.insert_block(BTreeSet::from([key2]), value);
     }
 }

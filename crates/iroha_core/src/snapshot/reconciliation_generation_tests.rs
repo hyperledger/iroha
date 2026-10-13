@@ -180,7 +180,7 @@ async fn ordinary_signed_snapshot_rejects_kura_tail_loss_without_mutation() {
         .expect("original history read completes")
         .expect("original genesis is retained");
     let key_pair = checked_random_snapshot_keypair();
-    try_write_snapshot(&state, &snapshot_store_dir, &key_pair, TEST_CHUNK_SIZE)
+    try_write_snapshot(state, &snapshot_store_dir, &key_pair, TEST_CHUNK_SIZE)
         .expect("snapshot write");
     let pointer_before =
         std::fs::read(snapshot_store_dir.join(SNAPSHOT_CURRENT_FILE_NAME)).unwrap();
@@ -735,7 +735,7 @@ async fn snapshot_restore_reads_the_committed_zk_policy_under_divergent_node_set
         assert_eq!(policy_of(&snapshot_state.view().zk), policy);
         assert_eq!(policy_of(&snapshot_state.zk_snapshot()), policy);
         // The node contributed its local resources and nothing else.
-        assert!(node_validity_overrides(&snapshot_state.installed_zk()).is_empty());
+        assert!(node_validity_overrides(snapshot_state.installed_zk()).is_empty());
         assert_eq!(
             snapshot_state.installed_zk().trace.worker_threads,
             node.trace.worker_threads
@@ -935,10 +935,10 @@ async fn bound_generation_rejects_same_byte_directory_substitution() {
             .expect("snapshot payload limit fits u64");
     let bound = bind_current_snapshot_generation(&store_dir, payload_limit, TEST_CHUNK_SIZE)
         .expect("bind canonical generation");
-    let generation_dir = current_generation_dir(&store_dir);
-    let displaced_dir = generation_dir.with_extension("displaced");
-    std::fs::rename(&generation_dir, &displaced_dir).unwrap();
-    std::fs::create_dir(&generation_dir).unwrap();
+    let snapshot_directory = current_generation_dir(&store_dir);
+    let displaced_dir = snapshot_directory.with_extension("displaced");
+    std::fs::rename(&snapshot_directory, &displaced_dir).unwrap();
+    std::fs::create_dir(&snapshot_directory).unwrap();
     for name in [
         SNAPSHOT_FILE_NAME,
         SNAPSHOT_DIGEST_FILE_NAME,
@@ -946,7 +946,7 @@ async fn bound_generation_rejects_same_byte_directory_substitution() {
         SNAPSHOT_FAST_MANIFEST_FILE_NAME,
         SNAPSHOT_MERKLE_FILE_NAME,
     ] {
-        std::fs::copy(displaced_dir.join(name), generation_dir.join(name)).unwrap();
+        std::fs::copy(displaced_dir.join(name), snapshot_directory.join(name)).unwrap();
     }
     assert!(
         bound.verify_generation_unchanged().is_err(),
@@ -972,10 +972,10 @@ async fn current_pointer_never_selects_a_partial_generation() {
         bind_current_snapshot_generation(&store_dir, payload_limit, TEST_CHUNK_SIZE).is_err(),
         "a pointer to a missing generation must fail closed"
     );
-    let generation_dir = generations_dir.join(&digest);
-    std::fs::create_dir(&generation_dir).unwrap();
+    let snapshot_directory = generations_dir.join(&digest);
+    std::fs::create_dir(&snapshot_directory).unwrap();
     std::fs::write(
-        generation_dir.join(SNAPSHOT_FILE_NAME),
+        snapshot_directory.join(SNAPSHOT_FILE_NAME),
         b"partial generation",
     )
     .unwrap();

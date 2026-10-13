@@ -23,19 +23,47 @@ use std::{
     future::Future,
     sync::Arc,
 };
+/// Preserve the platform's device identity representation used by `MetadataExt::dev`.
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub fn stat_device_identity(stat: &rustix::fs::Stat) -> u64 {
+    #[cfg(target_vendor = "apple")]
+    {
+        u64::from_le_bytes(i64::from(stat.st_dev).to_le_bytes())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        stat.st_dev
+    }
+}
+
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+#[test]
+fn stat_device_identity_matches_native_metadata() {
+    use std::os::unix::fs::MetadataExt as _;
+    let file = tempfile::tempfile().expect("temporary file");
+    let stat = rustix::fs::fstat(&file).expect("native stat");
+    assert_eq!(stat_device_identity(&stat), file.metadata().unwrap().dev());
+    #[cfg(target_vendor = "apple")]
+    {
+        let mut signed_device = stat;
+        signed_device.st_dev = -1;
+        assert_eq!(stat_device_identity(&signed_device), u64::MAX);
+    }
+}
+
 /// MIME used in Torii for Norito encoding
 // note: no elegant way to associate it with generic `NoritoBody<T>`
 pub const NORITO_MIME_TYPE: &str = "application/x-norito";
 const JSON_MIME_TYPE: &str = "application/json";
-pub(crate) const MAX_ERROR_MESSAGE_CHARACTERS: usize = 1024;
-pub(crate) const MAX_ERROR_DETAIL_CHARACTERS: usize = 1024;
-pub(crate) const MAX_REJECT_CODE_BYTES: usize = 128;
+pub const MAX_ERROR_MESSAGE_CHARACTERS: usize = 1024;
+pub const MAX_ERROR_DETAIL_CHARACTERS: usize = 1024;
+pub const MAX_REJECT_CODE_BYTES: usize = 128;
 
 /// Current wall-clock time in Unix milliseconds, saturating at `u64::MAX`.
 ///
 /// A clock before the Unix epoch reports `0`.
 #[must_use]
-pub(crate) fn unix_now_ms() -> u64 {
+pub fn unix_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -45,7 +73,7 @@ pub(crate) fn unix_now_ms() -> u64 {
 }
 /// Count the leading zero bits of a big-endian byte string.
 #[must_use]
-pub(crate) fn leading_zero_bits(bytes: &[u8]) -> u32 {
+pub fn leading_zero_bits(bytes: &[u8]) -> u32 {
     let mut total = 0u32;
     for byte in bytes {
         if *byte == 0 {
@@ -60,7 +88,7 @@ pub(crate) fn leading_zero_bits(bytes: &[u8]) -> u32 {
 /// Whether `ip` is a globally routable unicast address (no private, loopback, link-local,
 /// multicast, documentation, benchmarking, shared, reserved, or transition ranges).
 #[must_use]
-pub(crate) fn is_public_ip(ip: std::net::IpAddr) -> bool {
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(ip) => is_public_ipv4(ip),
         std::net::IpAddr::V6(ip) => is_public_ipv6(ip),
@@ -106,7 +134,7 @@ fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
 /// Entity-tag opaque values are case-sensitive. A wildcard is accepted only as the sole
 /// validator, matching the HTTP field grammar.
 #[must_use]
-pub(crate) fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
+pub fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
     let Some(expected) = http_entity_tag_opaque(etag.as_bytes()) else {
         return false;
     };
@@ -230,7 +258,7 @@ mod cache_validator_tests {
 
 /// Bounded stable error code copied into response extensions for telemetry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HttpErrorCode(Arc<str>);
+pub struct HttpErrorCode(Arc<str>);
 impl HttpErrorCode {
     /// Return the bounded metric-label value.
     #[must_use]
@@ -250,7 +278,7 @@ impl HttpErrorCode {
 }
 /// Return whether a public error code is a bounded lower-snake-case identifier.
 #[must_use]
-pub(crate) fn is_valid_error_code(code: &str) -> bool {
+pub fn is_valid_error_code(code: &str) -> bool {
     !code.is_empty()
         && code.len() <= 64
         && code.bytes().enumerate().all(|(index, byte)| {
@@ -263,17 +291,17 @@ pub(crate) fn is_valid_error_code(code: &str) -> bool {
 /// still requires a non-empty value without surrounding whitespace or control
 /// characters so every first-party SDK observes the same finite contract.
 #[must_use]
-pub(crate) fn is_valid_error_message(message: &str) -> bool {
+pub fn is_valid_error_message(message: &str) -> bool {
     is_valid_bounded_public_text(message, MAX_ERROR_MESSAGE_CHARACTERS)
 }
 /// Return whether a public detail string is bounded exact text.
 #[must_use]
-pub(crate) fn is_valid_error_detail_text(value: &str) -> bool {
+pub fn is_valid_error_detail_text(value: &str) -> bool {
     is_valid_bounded_public_text(value, MAX_ERROR_DETAIL_CHARACTERS)
 }
 /// Return whether a protocol/domain rejection identifier is safe to expose.
 #[must_use]
-pub(crate) fn is_valid_reject_code(code: &str) -> bool {
+pub fn is_valid_reject_code(code: &str) -> bool {
     !code.is_empty()
         && code.len() <= MAX_REJECT_CODE_BYTES
         && code
@@ -609,7 +637,7 @@ pub fn current_response_format() -> ResponseFormat {
 }
 /// Supported representation declared by a typed request body.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TypedRequestContentFormat {
+pub enum TypedRequestContentFormat {
     /// Norito-backed JSON encoded as UTF-8.
     Json,
     /// Native Norito binary encoding.
@@ -620,7 +648,7 @@ pub(crate) enum TypedRequestContentFormat {
 ///
 /// JSON permits no parameter or exactly `charset=utf-8`; native Norito is parameter-free. Empty,
 /// malformed, duplicate, quality-weighted, and structured-suffix values fail closed.
-pub(crate) fn strict_typed_content_format(raw: &str) -> Option<TypedRequestContentFormat> {
+pub fn strict_typed_content_format(raw: &str) -> Option<TypedRequestContentFormat> {
     let declared = trim_optional_whitespace(raw);
     if declared.is_empty() {
         return None;
@@ -646,7 +674,7 @@ pub(crate) fn strict_typed_content_format(raw: &str) -> Option<TypedRequestConte
     None
 }
 /// Return whether `raw` is exactly one parameter-free concrete media type.
-pub(crate) fn is_parameter_free_media_type(
+pub fn is_parameter_free_media_type(
     raw: &str,
     expected_type: &str,
     expected_subtype: &str,
@@ -677,7 +705,7 @@ fn typed_request_media_rejection(
 /// admission middleware and body extractors so unsupported media cannot reach idempotency handling
 /// or body collection through a divergent second parsing path.
 #[allow(clippy::result_large_err)]
-pub(crate) fn typed_request_content_format(
+pub fn typed_request_content_format(
     headers: &axum::http::HeaderMap,
 ) -> Result<TypedRequestContentFormat, Response> {
     let mut content_types = headers.get_all(CONTENT_TYPE).iter();
@@ -759,7 +787,7 @@ pub(crate) fn typed_request_content_format(
 /// optional UTF-8 charset. It deliberately rejects structured-suffix JSON and native Norito so an
 /// endpoint cannot advertise a narrower protocol than it actually enforces.
 #[allow(clippy::result_large_err)]
-pub(crate) fn canonical_json_request_content_type(
+pub fn canonical_json_request_content_type(
     headers: &axum::http::HeaderMap,
 ) -> Result<(), Response> {
     match typed_request_content_format(headers)? {
@@ -776,7 +804,7 @@ pub(crate) fn canonical_json_request_content_type(
 /// Native-only endpoints accept one parameter-free media type; JSON and
 /// parameterized Norito declarations are deliberately not second protocols.
 #[allow(clippy::result_large_err)]
-pub(crate) fn norito_request_content_type(headers: &axum::http::HeaderMap) -> Result<(), Response> {
+pub fn norito_request_content_type(headers: &axum::http::HeaderMap) -> Result<(), Response> {
     let mut content_types = headers.get_all(CONTENT_TYPE).iter();
     let Some(value) = content_types.next() else {
         return Err(typed_request_media_rejection(
@@ -1273,7 +1301,7 @@ where
 }
 /// Failure to encode a response inside a caller-owned body reservation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum BoundedResponseEncodeError {
+pub enum BoundedResponseEncodeError {
     /// The exact canonical Norito frame is larger than the reserved body.
     BodyTooLarge {
         /// Exact encoded body length.
@@ -1321,7 +1349,7 @@ impl std::error::Error for BoundedResponseEncodeError {}
 /// limit before allocating their exactly sized destination. Custom JSON field
 /// writers remain an explicit certification boundary: unsupported legacy
 /// serializers fail without falling back to an unbounded `String`.
-pub(crate) fn respond_with_format_bounded<T>(
+pub fn respond_with_format_bounded<T>(
     value: T,
     format: ResponseFormat,
     max_body_bytes: usize,
@@ -1363,7 +1391,7 @@ where
     Ok(response)
 }
 /// Encode one canonical Norito frame into an exactly pre-sized bounded buffer.
-pub(crate) fn encode_norito_bounded<T>(
+pub fn encode_norito_bounded<T>(
     value: &T,
     max_body_bytes: usize,
 ) -> Result<Vec<u8>, BoundedResponseEncodeError>
@@ -1389,7 +1417,7 @@ where
 ///
 /// The returned string is allocated only after the checked sink has measured
 /// the complete representation and accepted it against `max_body_bytes`.
-pub(crate) fn encode_json_bounded<T>(
+pub fn encode_json_bounded<T>(
     value: &T,
     max_body_bytes: usize,
 ) -> Result<String, norito::json::BoundedJsonError>
@@ -1645,7 +1673,7 @@ pub mod extractors {
     pub struct Norito<T>(pub T);
     /// Server-owned bounds installed before an ordinary Norito body is read.
     #[derive(Clone, Copy, Debug)]
-    pub(crate) struct NoritoIngressLimits {
+    pub struct NoritoIngressLimits {
         /// Maximum raw request body retained by the extractor.
         pub(crate) max_body_bytes: usize,
         /// Aggregate allocation and structural limits for Norito decoding.
@@ -1679,10 +1707,9 @@ pub mod extractors {
                     .map_err(typed_body_rejection)?,
             };
             let decode = || T::decode_norito(body.as_ref());
-            let decoded = match ingress_limits {
-                Some(limits) => norito::with_decode_limits(limits.decode_limits, decode),
-                None => decode(),
-            };
+            let decoded = ingress_limits.map_or_else(decode, |limits| {
+                norito::with_decode_limits(limits.decode_limits, decode)
+            });
             decoded
                 .map(Norito)
                 .map_err(|error| norito_decode_rejection::<T>(&error))
@@ -1811,6 +1838,10 @@ pub mod extractors {
     /// Helper trait exposing versioned JSON decoding for selected Torii ingress payloads.
     pub trait SupportsVersionedJsonDecode: Sized {
         /// Decode a JSON request body carrying a versioned payload.
+        #[expect(
+            clippy::result_large_err,
+            reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+        )]
         fn decode_versioned_json_body(
             body: &Bytes,
             ingress_limits: Option<(usize, norito::DecodeLimits)>,
@@ -1867,7 +1898,7 @@ pub mod extractors {
     pub struct JsonOrNoritoVersioned<T>(pub T);
     /// Server-owned bounds installed by a pre-body admission extractor.
     #[derive(Clone, Copy, Debug)]
-    pub(crate) struct VersionedIngressLimits {
+    pub struct VersionedIngressLimits {
         /// Maximum raw request body retained by the extractor.
         pub(crate) max_body_bytes: usize,
         /// Aggregate allocation and structural limits for Norito decoding.
@@ -1899,17 +1930,18 @@ pub mod extractors {
             "The signed-query JSON body is not a valid canonical query representation.",
         )
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
+    )]
     fn decode_signed_query_json_with_limits(
         body: &Bytes,
         ingress_limits: Option<(usize, norito::DecodeLimits)>,
     ) -> Result<SignedQuery, Response> {
-        let (max_body_bytes, decode_limits) = ingress_limits.map_or_else(
-            || {
-                let body_bytes = body.len();
-                (body_bytes, signed_query_json_fallback_limits(body_bytes))
-            },
-            |limits| limits,
-        );
+        let (max_body_bytes, decode_limits) = ingress_limits.unwrap_or_else(|| {
+            let body_bytes = body.len();
+            (body_bytes, signed_query_json_fallback_limits(body_bytes))
+        });
         json::preflight_slice(
             body.as_ref(),
             json::JsonPreflightLimits::from_decode_limits(max_body_bytes, decode_limits),
@@ -1980,14 +2012,12 @@ pub mod extractors {
                     let decode = || {
                         <T as iroha_version::codec::DecodeVersioned>::decode_all_versioned(&body)
                     };
-                    match ingress_limits {
-                        Some(limits) => {
+                    ingress_limits
+                        .map_or_else(decode, |limits| {
                             norito::with_decode_limits_scope(limits.decode_limits, decode)
-                        }
-                        None => decode(),
-                    }
-                    .map(JsonOrNoritoVersioned)
-                    .map_err(versioned_decode_rejection::<T>)
+                        })
+                        .map(JsonOrNoritoVersioned)
+                        .map_err(versioned_decode_rejection::<T>)
                 }
                 super::TypedRequestContentFormat::Json => {
                     let json_limits = ingress_limits
@@ -2136,7 +2166,7 @@ pub mod extractors {
     #[allow(clippy::result_large_err)]
     /// Decode an already-admitted typed body after a caller-specific
     /// authentication boundary has run.
-    pub(crate) fn decode_body_as_norito_or_json<
+    pub fn decode_body_as_norito_or_json<
         T: JsonDeserializeOwned + SupportsNoritoDecode + 'static,
     >(
         body: &Bytes,
@@ -2442,7 +2472,7 @@ pub mod extractors {
             .is_some_and(|magnitude| magnitude != "0" && canonical_unsigned_decimal(magnitude))
     }
     #[cfg(test)]
-    pub(crate) mod tests {
+    pub mod tests {
         use super::*;
         use axum::{
             body::Body,
@@ -3623,7 +3653,8 @@ pub mod extractors {
         }
         #[test]
         fn typed_response_content_type_classifier_enforces_strict_syntax_and_charset() {
-            for valid in ["application/json; charset=utf-8"] {
+            {
+                let valid = "application/json; charset=utf-8";
                 assert_eq!(
                     super::super::typed_response_format_for_content_type(valid),
                     Some(super::super::ResponseFormat::Json),

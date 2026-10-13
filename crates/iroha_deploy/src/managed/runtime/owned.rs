@@ -83,12 +83,13 @@ struct BackgroundTasks {
 }
 impl BackgroundTasks {
     fn join_slot(slot: &mut Option<thread::JoinHandle<()>>, role: &str) -> Result<()> {
-        match slot.take() {
-            Some(task) => task
-                .join()
-                .map_err(|_| Error::Invalid(format!("owned {role} task panicked"))),
-            None => Ok(()),
-        }
+        slot.take().map_or_else(
+            || Ok(()),
+            |task| {
+                task.join()
+                    .map_err(|_| Error::Invalid(format!("owned {role} task panicked")))
+            },
+        )
     }
 
     fn join_all(&mut self) -> Result<()> {
@@ -101,17 +102,17 @@ impl BackgroundTasks {
             .then(|| invalid("owned background task panicked before replacement"));
         let failures = [activation, refresh, attachment, earlier];
         let mut failures = failures.into_iter().flatten();
-        match failures.next() {
-            None => Ok(()),
-            Some(first) => {
+        failures.next().map_or_else(
+            || Ok(()),
+            |first| {
                 let message = failures.fold(first.to_string(), |mut message, error| {
                     message.push_str("; ");
                     message.push_str(&error.to_string());
                     message
                 });
                 Err(Error::Invalid(message))
-            }
-        }
+            },
+        )
     }
 }
 
@@ -180,11 +181,11 @@ impl PeerProcesses {
         {
             return Err(invalid("original attachment task is still active"));
         }
-        if let Some(previous) = tasks.attachment.take() {
-            if let Err(error) = previous.join() {
-                tasks.replacement_panicked = true;
-                return Err(error);
-            }
+        if let Some(previous) = tasks.attachment.take()
+            && let Err(error) = previous.join()
+        {
+            tasks.replacement_panicked = true;
+            return Err(error);
         }
         tasks.attachment =
             remote::AttachmentWorker::start(store, name, prepared, Arc::clone(&tasks.cancelled))?;
@@ -366,7 +367,9 @@ impl PeerProcesses {
                 continue;
             }
             #[cfg(unix)]
-            if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+            if let Ok(raw_pid) = i32::try_from(child.id())
+                && let Some(pid) = rustix::process::Pid::from_raw(raw_pid)
+            {
                 let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
             }
             #[cfg(not(unix))]
@@ -481,7 +484,7 @@ impl OwnedGateway {
             let material = launch.validate();
             #[cfg(all(test, unix))]
             tests::batch_validation_tests::exit_material(&material);
-            let children = live.each_ref().map(|gateway| gateway.require_running());
+            let children = live.each_ref().map(OwnedGateway::require_running);
             material?;
             for child in children {
                 child?;

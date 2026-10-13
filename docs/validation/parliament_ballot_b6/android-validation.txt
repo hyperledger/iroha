@@ -1,0 +1,119 @@
+{
+  "schema": "parliament-ballot-android-b6-summary-v1",
+  "source_id": "044ecda041aefe175861344d821d019d88d38004b9c2297e68d6dafb8b8e65cb",
+  "all_execution_source_checks_match": true,
+  "postrun_checkout_observation": {
+    "all_match": false,
+    "at_utc": "2026-10-13T03:02:07.948081+00:00",
+    "mismatches": [
+      {
+        "expected_sha256": "ecfb0f0635527e68e3e329bfbde338e051912e10986839d66d8e384011e9e303",
+        "file": "Cargo.lock",
+        "observed_sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48"
+      }
+    ],
+    "scope": "Additional checkout observation after all eight execution source checks and all four device runs completed; does not alter the frozen binary/source identity.",
+    "stage": "postprocessing_after_completed_runs"
+  },
+  "source_file_count": 223,
+  "source_check_count": 8,
+  "samples_completed": 272,
+  "honest_acceptances": 272,
+  "late_invalid_rejections": 272,
+  "untimed_backend_challenge_mismatch_checks": 16,
+  "android_portable_accel_matching_pairs": 136,
+  "android_mac_matching_pairs": 272,
+  "comparison_fields": [
+    "proof_shake256_32",
+    "proof_bytes",
+    "retry_counter",
+    "challenge_attempts",
+    "statement_bytes",
+    "test_record_bytes",
+    "seats"
+  ],
+  "comparison_limit": "SHAKE256-32 proof digests, not byte-for-byte retained proof files; retry counters and lengths checked exactly.",
+  "summary_recomputed_from_samples": true,
+  "telemetry": [
+    {
+      "run": "accel-candidate31",
+      "samples": 17,
+      "owned_process_samples": 16,
+      "first_at_utc": "2026-10-13T02:47:32.506255+00:00",
+      "last_at_utc": "2026-10-13T02:50:07.961606+00:00",
+      "battery_level_first": 94,
+      "battery_level_last": 95,
+      "battery_temperature_tenths_c_min": 349,
+      "battery_temperature_tenths_c_max": 363,
+      "usb_powered_values": [
+        "true"
+      ],
+      "thermal_status_values": [
+        0
+      ],
+      "max_observed_rss_kib": 8104,
+      "max_observed_hwm_kib": 8360
+    },
+    {
+      "run": "accel-comparator3",
+      "samples": 5,
+      "owned_process_samples": 4,
+      "first_at_utc": "2026-10-13T02:50:08.157924+00:00",
+      "last_at_utc": "2026-10-13T02:50:45.562439+00:00",
+      "battery_level_first": 95,
+      "battery_level_last": 95,
+      "battery_temperature_tenths_c_min": 363,
+      "battery_temperature_tenths_c_max": 364,
+      "usb_powered_values": [
+        "true"
+      ],
+      "thermal_status_values": [
+        0
+      ],
+      "max_observed_rss_kib": 9508,
+      "max_observed_hwm_kib": 13348
+    },
+    {
+      "run": "portable-candidate31",
+      "samples": 37,
+      "owned_process_samples": 36,
+      "first_at_utc": "2026-10-13T02:51:08.231008+00:00",
+      "last_at_utc": "2026-10-13T02:57:09.195891+00:00",
+      "battery_level_first": 96,
+      "battery_level_last": 99,
+      "battery_temperature_tenths_c_min": 364,
+      "battery_temperature_tenths_c_max": 374,
+      "usb_powered_values": [
+        "true"
+      ],
+      "thermal_status_values": [
+        0
+      ],
+      "max_observed_rss_kib": 8012,
+      "max_observed_hwm_kib": 8524
+    },
+    {
+      "run": "portable-comparator3",
+      "samples": 23,
+      "owned_process_samples": 22,
+      "first_at_utc": "2026-10-13T02:57:09.375157+00:00",
+      "last_at_utc": "2026-10-13T03:00:48.282154+00:00",
+      "battery_level_first": 99,
+      "battery_level_last": 100,
+      "battery_temperature_tenths_c_min": 374,
+      "battery_temperature_tenths_c_max": 376,
+      "usb_powered_values": [
+        "true"
+      ],
+      "thermal_status_values": [
+        0
+      ],
+      "max_observed_rss_kib": 13116,
+      "max_observed_hwm_kib": 13628
+    }
+  ],
+  "qualification": false,
+  "production_approved": false,
+  "pixel_baseline_match": false,
+  "android_app_execution": false
+}

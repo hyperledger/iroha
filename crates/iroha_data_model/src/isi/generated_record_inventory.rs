@@ -911,6 +911,18 @@ record!(
     crate::isi::rwa::UnfreezeRwa,
     "iroha_data_model::isi::rwa::UnfreezeRwa"
 );
+// These two new records require the ordinary compiled fixture writer before
+// current captured identities can pass; never fabricate their canonical frames.
+record!(
+    chain_keepalive,
+    crate::isi::chain::Keepalive,
+    "iroha_data_model::isi::chain::Keepalive"
+);
+record!(
+    sccp_submit_sccp_forgery_evidence_v1,
+    crate::isi::sccp::SubmitSccpForgeryEvidenceV1,
+    "iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1"
+);
 record!(
     sccp_advance_sccp_light_client_v1,
     crate::isi::sccp::AdvanceSccpLightClientV1,
@@ -920,6 +932,11 @@ record!(
     sccp_initialize_sccp_v1,
     crate::isi::sccp::InitializeSccpV1,
     "iroha_data_model::isi::sccp::InitializeSccpV1"
+);
+record!(
+    sccp_prove_sccp_forged_mint_v1,
+    crate::isi::sccp::ProveSccpForgedMintV1,
+    "iroha_data_model::isi::sccp::ProveSccpForgedMintV1"
 );
 record!(
     sccp_record_sccp_message,
@@ -971,9 +988,6 @@ record!(
     crate::isi::settlement::SetFxCorridorPolicy,
     "iroha_data_model::isi::settlement::SetFxCorridorPolicy"
 );
-// TODO: Capture this new record's actual compiled canonical frame and refresh the
-// complete first-release inventory fixture before integrating the model proposal.
-// The missing capture remains a hard test failure; no guessed hash or bypass.
 record!(
     settlement_settle_atomic,
     crate::isi::settlement::SettleAtomic,
@@ -1656,3 +1670,14 @@ record!(
     "iroha_data_model::isi::staking::RegisterPublicLaneCandidate"
 );
 }
+
+record!(
+    sccp_accept_sccp_pause_panel_seat_v1,
+    crate::isi::sccp::AcceptSccpPausePanelSeatV1,
+    "iroha_data_model::isi::sccp::AcceptSccpPausePanelSeatV1"
+);
+record!(
+    sccp_endorse_sccp_fast_pause_v1,
+    crate::isi::sccp::EndorseSccpFastPauseV1,
+    "iroha_data_model::isi::sccp::EndorseSccpFastPauseV1"
+);

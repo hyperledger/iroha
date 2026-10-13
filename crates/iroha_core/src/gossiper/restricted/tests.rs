@@ -67,7 +67,7 @@ pub(in crate::gossiper) fn install_lane(
     block.sumeragi_lanes.get_mut().upsert(SumeragiLaneRecord {
         lane: LaneId::new(lane),
         dataspace: DataSpaceId::new(9),
-        incarnation: [lane as u8; 32],
+        incarnation: [u8::try_from(lane).expect("fixture value fits u8"); 32],
         params: SumeragiParameters::default(),
         da_layout: iroha_sumeragi::availability::recommended_data_availability_layout(),
         committee: members,

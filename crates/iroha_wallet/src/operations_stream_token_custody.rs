@@ -106,6 +106,11 @@ struct Plan {
     deadline_unix_ms: u64,
 }
 
+// Pure metadata from the actual retained Plan, never authority or a selection verdict.
+// The terminal reader can carry it only with the same freshly observed Request bytes.
+#[derive(Clone, Copy)]
+pub(super) struct RetainedPlanTimestamp(u64);
+
 impl StreamTokenCustodySelection {
     fn validate(&self, config: &Config) -> Result<Option<SignerCustodyControlStateV1>> {
         self.binding.validate()?;
@@ -346,13 +351,35 @@ impl CustodyExpectation<'_> {
         })
     }
     pub(super) fn verify(&self, record: &preparation::Selection<'_>) -> Result<()> {
+        self.verify_with_timestamp(record, None).map(|_| ())
+    }
+
+    pub(super) fn verify_with_timestamp(
+        &self,
+        record: &preparation::Selection<'_>,
+        previous: Option<RetainedPlanTimestamp>,
+    ) -> Result<RetainedPlanTimestamp> {
         let bytes = match (self, record.operation) {
             (Self::Configure(_), NativeOperation::StreamTokenCustodyConfigure { plan, .. })
             | (Self::Enroll(_), NativeOperation::StreamTokenCustodyEnroll { plan, .. }) => plan,
             _ => eyre::bail!("custody journal differs from the selected operation purpose"),
         };
-        let retained: Plan = decode_bounded(bytes, MAX_PLAN_BYTES)?;
-        let expected = self.plan(retained.validated_at_unix_ms)?;
+        // Keep a newly decoded Plan alive through the comparison, as in the original
+        // verifier. Inherited decoder callers always take this same decode/lifetime path.
+        let retained: Plan;
+        let timestamp = if let Some(timestamp) = previous {
+            timestamp
+        } else {
+            #[cfg(test)]
+            PLAN_READ_WORK.with(|work| work.set((work.get().0 + 1, work.get().1)));
+            retained = decode_bounded(bytes, MAX_PLAN_BYTES)?;
+            RetainedPlanTimestamp(retained.validated_at_unix_ms)
+        };
+        // Always admit the newly supplied request, build its exact expected Plan, and
+        // compare its canonical bytes and fee terms at the original error positions.
+        #[cfg(test)]
+        PLAN_READ_WORK.with(|work| work.set((work.get().0, work.get().1 + 1)));
+        let expected = self.plan(timestamp.0)?;
         let terms = record
             .operation
             .bounded_terms()
@@ -363,8 +390,23 @@ impl CustodyExpectation<'_> {
                 && terms.matches_options(self.options())?,
             "custody journal differs from original request or fee authorization"
         );
-        Ok(())
+        Ok(timestamp)
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static PLAN_READ_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+fn count_plan_read_work<T>(read: impl FnOnce() -> T) -> (T, (usize, usize)) {
+    PLAN_READ_WORK.with(|work| {
+        let before = work.get();
+        let result = read();
+        let after = work.get();
+        (result, (after.0 - before.0, after.1 - before.1))
+    })
 }
 
 impl AccountService {

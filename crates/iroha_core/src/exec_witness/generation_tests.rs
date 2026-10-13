@@ -52,7 +52,10 @@ fn transcript_map(seed: u8) -> BTreeMap<Hash, Vec<TransferTranscript>> {
 
 fn record(seed: u8, mode: TranscriptMode) {
     with_active_slot(|witness| {
-        witness.reads.entry(vec![0x11]).or_insert(vec![seed]);
+        witness
+            .reads
+            .entry(vec![0x11])
+            .or_insert_with(|| vec![seed]);
         witness.writes.insert(vec![0x22], vec![seed]);
     });
     match mode {

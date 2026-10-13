@@ -8,6 +8,7 @@ use super::{Error, leaves, store};
 use crate::state::{StateReadOnly, StateTransaction};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
+    governance::types::{GovernanceCertificateId, GovernanceCertificateV1},
     sccp::{
         control::{SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1},
         events::{SccpControlRecordedV1, SccpEvent},
@@ -21,11 +22,69 @@ use iroha_sccp::v1::control::{ControlLeafV1, control_leaf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ControlCauseV1 {
     /// Parliament (1) or fast pause (2).
-    pub track: u8,
+    pub(super) track: u8,
     /// Identity derived from the actual enacting certificate.
-    pub certificate_id: [u8; 32],
+    pub(super) certificate_id: [u8; 32],
     /// The same certificate's canonical effect-preimage hash.
-    pub effect_hash: [u8; 32],
+    pub(super) effect_hash: [u8; 32],
+}
+
+impl ControlCauseV1 {
+    /// Exact emergency certificate, only after its native same-pass enactment rechecks.
+    pub(super) fn from_fast_pause(
+        effect: &super::fast_pause::certification::EnactingPause,
+    ) -> Self {
+        let (certificate_id, effect_hash) = effect.cause();
+        Self {
+            track: iroha_sccp::v1::control::TRACK_FAST_PAUSE,
+            certificate_id,
+            effect_hash,
+        }
+    }
+
+    /// Bind the exact Parliament certificate selected by the due-effect executor.
+    ///
+    /// This constructor does not establish authorization by itself. Its caller must retain
+    /// the executor's exact due-height, attempt, proposal/effect and expected-head checks.
+    ///
+    /// # Errors
+    /// Refuses malformed certificates or zero native authority bindings.
+    pub(in crate::smartcontracts::isi) fn from_parliament_certificate(
+        certificate: &GovernanceCertificateV1,
+    ) -> Result<Self, Error> {
+        certificate
+            .validate()
+            .map_err(|error| refuse(format_args!("certificate: {error}")))?;
+        let cause = Self {
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+            certificate_id: *GovernanceCertificateId::derive_v1(certificate).as_bytes(),
+            effect_hash: certificate.effect_preimage_hash,
+        };
+        cause.require_supported()?;
+        Ok(cause)
+    }
+
+    fn require_supported(self) -> Result<(), Error> {
+        // This validation belongs to the Parliament constructor. Track two is
+        // issued only by the separate source-bound EnactingPause constructor.
+        if self.track != iroha_sccp::v1::control::TRACK_PARLIAMENT {
+            return Err(refuse("native fast-pause authority is unavailable"));
+        }
+        if self.certificate_id == [0; 32] || self.effect_hash == [0; 32] {
+            return Err(refuse("native certificate/effect binding is zero"));
+        }
+        Ok(())
+    }
+
+    /// Synthetic authority DATA for component tests; never a production certificate source.
+    #[cfg(test)]
+    pub(crate) fn for_test(certificate_id: [u8; 32], effect_hash: [u8; 32]) -> Self {
+        Self {
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+            certificate_id,
+            effect_hash,
+        }
+    }
 }
 
 fn refuse(reason: impl core::fmt::Display) -> Error {
@@ -279,7 +338,11 @@ mod tests {
             assert_eq!(leaves::leaf_count_at(&*stx.world, 7), 0);
         }
         for index in 0..leaves::MAX_LEAVES_PER_BLOCK {
-            leaves::allocate_leaf(&mut stx, SccpLeafRefV1::transfer([index as u8; 32])).unwrap();
+            leaves::allocate_leaf(
+                &mut stx,
+                SccpLeafRefV1::transfer([index.to_le_bytes()[0]; 32]),
+            )
+            .unwrap();
         }
         record_control(&mut stx, network, 1, cause(1, 1)).expect_err("full block");
         assert_eq!(store::routes::get(&*stx.world, &network), Some(&original));

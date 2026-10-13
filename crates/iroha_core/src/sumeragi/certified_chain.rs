@@ -1058,6 +1058,18 @@ fn verification_codec_error(
     .into()
 }
 
+mod funded_authority;
+
+/// A borrowed projection of one already established native authority owner.
+/// Construction is private; this type creates neither keys nor authority.
+#[derive(Clone, Copy)]
+struct AuthorityRef<'a> {
+    material: &'a ValidatorEpochContextV1,
+    epoch: EpochId,
+    committee: &'a Committee,
+    crypto: &'a dyn iroha_sumeragi::crypto::Crypto,
+}
+
 /// One complete epoch authority. Its crypto owner admits only this roster's original proofs.
 struct VerifiedAuthority {
     material: ValidatorEpochContextV1,
@@ -1067,6 +1079,15 @@ struct VerifiedAuthority {
 }
 
 impl VerifiedAuthority {
+    fn projection(&self) -> AuthorityRef<'_> {
+        AuthorityRef {
+            material: &self.material,
+            epoch: self.epoch,
+            committee: &self.committee,
+            crypto: &self.crypto,
+        }
+    }
+
     fn new(
         material: ValidatorEpochContextV1,
         height: u64,
@@ -1254,7 +1275,7 @@ impl PrefixVerifierContext {
             .map_err(|error| malformed(error.to_string()))?;
         let certificate =
             self.prepare_certificate(committed, &authority, Some(&config), artifacts)?;
-        verify_boundary_source(committed, &prefix.tip, &authority)?;
+        verify_boundary_source(committed, &prefix.tip, authority.projection())?;
         let schedule = prefix
             .schedule
             .advanced_with_validation(&committed.commitment().schedule, &mut prefix.validation)
@@ -1300,7 +1321,7 @@ impl PrefixVerifierContext {
         // graph or provide an independent physical scratch owner for AMX relaying.
         self.prepare_certificate_with_scratch_admission(
             committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             &mut state_certificate::query_scratch_admission,
@@ -1318,7 +1339,7 @@ impl PrefixVerifierContext {
     fn verify_commit_qc_original(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         commit_qc: &Qc,
     ) -> Result<(), ChainReadError> {
         check_result_scope(committed, self.root_scope)?;
@@ -1349,16 +1370,18 @@ impl PrefixVerifierContext {
         #[cfg(test)]
         relation_counts::qc(height);
         let checked = iroha_sumeragi::crypto::Verifier::new(
-            &authority.crypto,
+            authority.crypto,
             &self.instance,
             &authority.epoch,
-            &authority.committee,
+            authority.committee,
         )
         .verify_qc(commit_qc);
         checked.map_err(|error| ChainReadError::Certificate { height, error })?;
         Ok(())
     }
 
+    /// Fixture adapter over the production preparer with an injected scratch admission.
+    #[cfg(test)]
     fn verify_certificate_with_scratch_admission(
         &self,
         committed: CommittedBlock,
@@ -1369,7 +1392,7 @@ impl PrefixVerifierContext {
     ) -> Result<CertifiedBlock, VerificationReadError> {
         let certificate = self.prepare_certificate_with_scratch_admission(
             &committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             admit_scratch,
@@ -1380,7 +1403,7 @@ impl PrefixVerifierContext {
     fn prepare_certificate_with_scratch_admission(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
         admit_scratch: &mut dyn FnMut(usize) -> Result<(), ExecutionDeferred>,
@@ -1421,7 +1444,7 @@ impl PrefixVerifierContext {
         verify_availability(
             committed,
             config,
-            &authority.crypto,
+            authority.crypto,
             availability,
             admit_scratch,
         )?;
@@ -1436,7 +1459,7 @@ impl PrefixVerifierContext {
 fn verify_boundary_source(
     certified: &CommittedBlock,
     parent: &CommittedBlock,
-    authority: &VerifiedAuthority,
+    authority: AuthorityRef<'_>,
 ) -> Result<(), ChainReadError> {
     let height = certified.height();
     let malformed = |reason: String| ChainReadError::Committee { height, reason };
@@ -1479,7 +1502,7 @@ fn verify_boundary_source(
 fn verify_availability(
     committed: &CommittedBlock,
     config: &iroha_sumeragi::types::HeightConfig,
-    crypto: &BlsCrypto,
+    crypto: &dyn iroha_sumeragi::crypto::Crypto,
     prepared: Option<(
         iroha_sumeragi::availability::AvailabilityFrame,
         iroha_sumeragi::availability::PayloadBytes,
@@ -2062,7 +2085,7 @@ fn authenticate_genesis_with(
         .instance_id(
             &BlsCrypto::new(),
             NetworkId::from_genesis_hash(genesis.hash()),
-            &chain_id.to_string(),
+            chain_id.as_ref(),
         )
         .map_err(|_| ChainReadError::ForeignGenesis)?;
     Ok((epoch, instance, root_scope))
@@ -2292,7 +2315,7 @@ pub struct CertifiedChain<'v, V: StateReadOnly + ?Sized> {
     // Only AMX transfers its actual constructor acquisition into this same reader. The
     // genesis body/control lives above; raw bytes and original source retire here after
     // the prefix/terminal graphs at the caller's existing scoped chain drop.
-    _amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
+    amx_genesis_authentication: Option<iroha_data_model::sumeragi_finality::OriginalGenesisRead>,
     amx_genesis_source: Option<native_acquisition::NativeCarrierAcquisition<'v>>,
 }
 
@@ -2355,7 +2378,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
             #[cfg(test)]
             terminal_probe: parking_lot::Mutex::new(None),
             proof_source_genesis: None,
-            _amx_genesis_authentication: None,
+            amx_genesis_authentication: None,
             amx_genesis_source: None,
         }
     }
@@ -2885,7 +2908,9 @@ pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,
 };
-pub(crate) use state_certificate::{ParentServiceError, VerifiedParentService};
+pub(crate) use state_certificate::{
+    ParentServiceError, ParentServicePreparation, VerifiedParentService,
+};
 
 #[cfg(test)]
 pub(crate) mod relation_counts;
@@ -2911,3 +2936,6 @@ fn fixture_result_preimage(
     bytes.extend_from_slice(&norito::encode_canonical(body).unwrap());
     bytes
 }
+
+#[cfg(test)]
+pub(crate) use state_certificate::{ParentServiceAdmissionProbe, observe_parent_service_admission};

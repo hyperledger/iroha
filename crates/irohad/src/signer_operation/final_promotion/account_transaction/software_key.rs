@@ -150,7 +150,10 @@ pub(super) fn validate_request_payload(
         })
         .ok_or(Error::Payload)?;
     if payload.authority != AccountId::new(binding.public_key.clone())
-        || payload.network_id().map(|id| id.as_bytes()) != Some(&binding.network_id)
+        || payload
+            .network_id()
+            .map(iroha_data_model::NetworkId::as_bytes)
+            != Some(&binding.network_id)
         || instructions.len() != 1
         || instruction.deployment_id != *deployment_id
         || !matches!(

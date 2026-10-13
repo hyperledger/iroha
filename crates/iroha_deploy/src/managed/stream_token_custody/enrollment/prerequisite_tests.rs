@@ -90,10 +90,7 @@ fn renewal_contexts_verify_configuration_and_read_initial_history_once() {
         utc,
         &fixture.options,
     );
-    let original = history
-        .original()
-        .unwrap()
-        .expect("actual signed renewal body");
+    let original = history.original().expect("actual signed renewal body");
     let (validated, configurations, wallets) =
         counted(|| fixture.owner.validate_renewal_context(original, deadline));
     validated.unwrap();
@@ -311,7 +308,7 @@ fn generated_authorization_verifies_configure_once_and_rechecks_each_call() {
         counted(|| turn.authorize_retained(&fixture.owner, &history, deadline));
     assert!(authorized.unwrap().origin().unwrap() == original_origin);
     assert_eq!(configurations, 1);
-    assert!(history.original().unwrap().is_none());
+    assert!(history.original().is_none());
     assert_eq!(fixture.native.chain.height(), 4);
     assert!(peers.requests.lock().unwrap().is_empty());
     peers.finish();
@@ -744,103 +741,104 @@ fn prerequisite_epoch_workspace_keeps_original_phase_source_refusal_and_same_sou
         .retained_initial_prerequisite(deadline)
         .unwrap();
     let paths = retained_paths(&fixture);
-    let mut validation = EpochValidationScope::new();
-    let mut imports = CheckpointImports::new(&fixture.owner.authority, Some(&mut validation));
-    let configured = fixture
-        .owner
-        .read_configuration_with_imports(deadline, &mut imports)
-        .unwrap();
-    let RetainedConfiguration {
-        owner: _,
-        original,
-        signed,
-        carrier,
-        policy,
-        finalized,
-    } = configured;
-    drop((original, signed, carrier));
-    // Same retained workspace, independently selected Initial original and observed wallet.
-    // Mutation occurs after Configure succeeded, at the genuine synchronous phase boundary.
-    let (selected, interval) = fixture
-        .owner
-        .inspect_initial_selection_with_imports(&policy, &mut imports)
-        .unwrap()
-        .unwrap();
-    let directory = PrivateDirectory::open_exact(selected.directory().path()).unwrap();
-    let carrier = directory.read("carrier.nrt", MAX_CHECKPOINT_BYTES).unwrap();
-    directory
-        .write_atomic("carrier.nrt", &[0xff], PublishMode::Replace)
-        .unwrap();
-    let error = fixture
-        .owner
-        .verify_retained_enrollment_with_imports(
-            CustodyPurpose::InitialEnroll,
-            &policy,
-            Some(interval),
-            &finalized,
-            selected,
-            deadline,
-            &mut imports,
-        )
-        .err()
-        .expect("changed carrier must refuse");
-    assert!(
-        matches!(error, crate::managed::Error::Invalid(message) if message == "invalid retained native operation checkpoint")
-    );
-    directory
-        .write_atomic("carrier.nrt", &carrier, PublishMode::Replace)
-        .unwrap();
-    let restored = fixture
-        .owner
-        .initial_prerequisite_after_configuration_with_imports(
-            policy.clone(),
+    {
+        let mut validation = EpochValidationScope::new();
+        let mut imports = CheckpointImports::new(&fixture.owner.authority, Some(&mut validation));
+        let configured = fixture
+            .owner
+            .read_configuration_with_imports(deadline, &mut imports)
+            .unwrap();
+        let RetainedConfiguration {
+            owner: _,
+            original,
+            signed,
+            carrier,
+            policy,
             finalized,
-            deadline,
-            &mut imports,
-        )
-        .unwrap();
-    assert_eq!(restored.policy, expected.policy);
-    assert_same(&restored.enrollment, &expected.enrollment);
+        } = configured;
+        drop((original, signed, carrier));
+        // Same retained workspace, independently selected Initial original and observed wallet.
+        // Mutation occurs after Configure succeeded, at the genuine synchronous phase boundary.
+        let (selected, interval) = fixture
+            .owner
+            .inspect_initial_selection_with_imports(&policy, &mut imports)
+            .unwrap()
+            .unwrap();
+        let directory = PrivateDirectory::open_exact(selected.directory().path()).unwrap();
+        let carrier = directory.read("carrier.nrt", MAX_CHECKPOINT_BYTES).unwrap();
+        directory
+            .write_atomic("carrier.nrt", &[0xff], PublishMode::Replace)
+            .unwrap();
+        let error = fixture
+            .owner
+            .verify_retained_enrollment_with_imports(
+                EnrollmentVerification {
+                    purpose: CustodyPurpose::InitialEnroll,
+                    policy: &policy,
+                    interval: Some(interval),
+                    configured: &finalized,
+                    deadline,
+                },
+                selected,
+                &mut imports,
+            )
+            .expect_err("changed carrier must refuse");
+        assert!(
+            matches!(error, crate::managed::Error::Invalid(message) if message == "invalid retained native operation checkpoint")
+        );
+        directory
+            .write_atomic("carrier.nrt", &carrier, PublishMode::Replace)
+            .unwrap();
+        let restored = fixture
+            .owner
+            .initial_prerequisite_after_configuration_with_imports(
+                policy.clone(),
+                finalized,
+                deadline,
+                &mut imports,
+            )
+            .unwrap();
+        assert_eq!(restored.policy, expected.policy);
+        assert_same(&restored.enrollment, &expected.enrollment);
 
-    // The actual initial observed wallet callback cannot be skipped by a matching epoch.
-    let (path, name, maximum) = &paths[7];
-    assert_eq!(*name, "operation.json");
-    let wallet = PrivateDirectory::open_exact(path).unwrap();
-    let before = wallet.read(name, *maximum).unwrap();
-    wallet
-        .write_atomic(name, &[0xff], PublishMode::Replace)
-        .unwrap();
-    let (refused, configurations, wallets) = counted(|| {
-        fixture
-            .owner
-            .initial_prerequisite_after_configuration_with_imports(
-                policy.clone(),
-                finalized,
-                deadline,
-                &mut imports,
-            )
-    });
-    assert!(refused.is_err());
-    assert_eq!(configurations, 0);
-    assert_eq!(wallets, 1);
-    wallet
-        .write_atomic(name, &before, PublishMode::Replace)
-        .unwrap();
-    let (restored, configurations, wallets) = counted(|| {
-        fixture
-            .owner
-            .initial_prerequisite_after_configuration_with_imports(
-                policy.clone(),
-                finalized,
-                deadline,
-                &mut imports,
-            )
-    });
-    assert_eq!(configurations, 0);
-    assert_eq!(wallets, 1);
-    assert_same(&restored.unwrap().enrollment, &expected.enrollment);
-    drop(imports);
-    drop(validation);
+        // The actual initial observed wallet callback cannot be skipped by a matching epoch.
+        let (path, name, maximum) = &paths[7];
+        assert_eq!(*name, "operation.json");
+        let wallet = PrivateDirectory::open_exact(path).unwrap();
+        let before = wallet.read(name, *maximum).unwrap();
+        wallet
+            .write_atomic(name, &[0xff], PublishMode::Replace)
+            .unwrap();
+        let (refused, configurations, wallets) = counted(|| {
+            fixture
+                .owner
+                .initial_prerequisite_after_configuration_with_imports(
+                    policy.clone(),
+                    finalized,
+                    deadline,
+                    &mut imports,
+                )
+        });
+        assert!(refused.is_err());
+        assert_eq!(configurations, 0);
+        assert_eq!(wallets, 1);
+        wallet
+            .write_atomic(name, &before, PublishMode::Replace)
+            .unwrap();
+        let (restored, configurations, wallets) = counted(|| {
+            fixture
+                .owner
+                .initial_prerequisite_after_configuration_with_imports(
+                    policy.clone(),
+                    finalized,
+                    deadline,
+                    &mut imports,
+                )
+        });
+        assert_eq!(configurations, 0);
+        assert_eq!(wallets, 1);
+        assert_same(&restored.unwrap().enrollment, &expected.enrollment);
+    }
     let (fresh, configurations, wallets) =
         counted(|| fixture.owner.retained_initial_prerequisite(deadline));
     assert_eq!((configurations, wallets), (1, 1));

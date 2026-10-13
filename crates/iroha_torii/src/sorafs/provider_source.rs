@@ -20,7 +20,7 @@ fn now_secs() -> Result<u64, StatusCode> {
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
-pub(crate) async fn read_source(
+pub async fn read_source(
     State(state): State<SharedAppState>,
     Extension(verified): Extension<crate::app_auth::VerifiedCanonicalRequest>,
     body: Bytes,

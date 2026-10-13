@@ -376,7 +376,7 @@ fn install_node_pipeline_keeps_local_resources_and_ignores_validity_values() {
         "every validity value is reported"
     );
     assert_eq!(
-        local_resources_of(&state.installed_pipeline()),
+        local_resources_of(state.installed_pipeline()),
         local_resources_of(&node)
     );
     assert_eq!(
@@ -781,6 +781,7 @@ fn amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above() {
     let default_node = Pipeline::default();
     for node in [None, Some(divergent_node_pipeline(&default_node))] {
         // The limits the host of a block enforces come from the committed policy.
+        type Edit = fn(&mut PipelineValidityPolicyV1);
         let limits_of = |policy: &PipelineValidityPolicyV1| {
             let mut state = state_with(Some(policy));
             if let Some(node) = node.clone() {
@@ -848,7 +849,6 @@ fn amx_budgets_accept_exactly_the_committed_budget_and_reject_one_unit_above() {
         // Each unit cost: one nanosecond more per instruction, per memory
         // access or per syscall moves the same program over the budget by
         // exactly its count of that unit.
-        type Edit = fn(&mut PipelineValidityPolicyV1);
         let unit_costs: [(Edit, u64); 3] = [
             (|policy| policy.amx_per_instruction_ns += 1, instructions),
             (|policy| policy.amx_per_memory_access_ns += 1, loads),

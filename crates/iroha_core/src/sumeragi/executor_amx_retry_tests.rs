@@ -24,7 +24,7 @@ fn original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry() {
                     assert!(worker.parent_applied(&block), "the actual execution parent is applied");
                     // Borrow the production Worker's typed result before the public
                     // Execute transport projects local failures into a diagnostic string.
-                    let Err(PublicationError::Deferred(refusal)) = worker.run_execution(&block, hash) else {
+                    let Err(PublicationError::Deferred(refusal)) = worker.run_execution(&block, hash, false) else {
                         panic!("the original Candidate must return its typed local deferral");
                     };
                     let first = observer.snapshot();
@@ -66,10 +66,10 @@ fn original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry() {
                         assert!(std::ptr::eq(view.world().sumeragi_amx_participant().canonical().unwrap(),
                             original.canonical().unwrap()), "visibility publication does not publish fee/debit/escrow effects");
                     }
-                    let retry_attempt = worker.run_execution(&block, hash);
+                    let retry_attempt = worker.run_execution(&block, hash, false);
                     assert!(matches!(&retry_attempt, Ok(Some(_))),
                         "same original paid candidate must retry after genuine capacity release: {retry_attempt:?}");
-                    let Ok(Some(ExecOutcome::Valid(public_result))) = worker.execute(&block, hash) else {
+                    let Ok(Some(ExecOutcome::Valid(public_result))) = worker.execute(&block, hash, false) else {
                         panic!("same original paid candidate must retry after genuine capacity release");
                     };
                     assert_eq!(Some(public_result), retry_attempt.unwrap(),
@@ -131,6 +131,9 @@ fn with_original_paid_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
+                            parent_service:
+                                crate::sumeragi::certified_chain::ParentServicePreparation::default(
+                                ),
                         };
                         let original = attempt.original_decoded(&pool).unwrap();
                         test(
@@ -376,7 +379,7 @@ fn original_paid_amx_worker_retry_reauthenticates_changed_native_parent() {
                     let original = worker.state.view().world().sumeragi_amx_participant().clone();
                     let observer = crate::sumeragi::amx::NativeLegRetryObservation::occupy_after_first_completion();
                     assert!(worker.parent_applied(&block));
-                    let Err(PublicationError::Deferred(refusal)) = worker.run_execution(&block, hash) else {
+                    let Err(PublicationError::Deferred(refusal)) = worker.run_execution(&block, hash, false) else {
                         panic!("the original Candidate must defer after completing the paid leg");
                     };
                     assert_eq!(observer.snapshot().0, 1);
@@ -391,7 +394,7 @@ fn original_paid_amx_worker_retry_reauthenticates_changed_native_parent() {
                     assert!(worker.parent_applied(&changed), "the height/hash gate alone cannot authorize a changed parent result");
                     assert_ne!(changed.header().parent_result, block.header().parent_result);
                     let changed_hash = changed.hash(&**worker.context.crypto.as_ref().unwrap());
-                    assert!(matches!(worker.execute(&changed, changed_hash), Ok(Some(ExecOutcome::Invalid))),
+                    assert!(matches!(worker.execute(&changed, changed_hash, false), Ok(Some(ExecOutcome::Invalid))),
                         "fresh native successor authentication must reject a changed committed parent result");
                     assert_eq!(observer.snapshot().0, 1, "changed parent never reuses or decodes a monetary leg");
                     assert_eq!(observer.snapshot().1, 1, "changed parent never reaches current monetary execution");
@@ -580,6 +583,7 @@ fn with_original_paid_multisig_bank(
                             decoded: None,
                             returned_refusal: None,
                             amx_legs: None,
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                         };
                             let original = attempt.original_decoded(&pool).unwrap();
                             test(
@@ -819,7 +823,7 @@ fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later
                     let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
                     let pool = worker.state.ivm_execution_budget();
                     let observation = crate::sumeragi::amx::NativeLegRetryObservation::observe_rejected_prefix();
-                    assert!(matches!(worker.run_execution(&block, hash), Ok(Some(_))), "the actual validator must continue after rejected A and execute genuine B");
+                    assert!(matches!(worker.run_execution(&block, hash, false), Ok(Some(_))), "the actual validator must continue after rejected A and execute genuine B");
                     let (visits, cause, bytes) = observation.partial_snapshot();
                     assert_eq!(visits, 1);
                     assert_eq!(cause.as_deref(), Some(ordinary.as_str()));
@@ -837,6 +841,7 @@ fn rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later
                         block_hash: hash, source: block.clone(),
                         decoder: iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&pool).unwrap(),
                         decoded: None, returned_refusal: None, amx_legs: None,
+        parent_service: crate::sumeragi::certified_chain::ParentServicePreparation::default(),
                     };
                     let original = attempt.original_decoded(&pool).unwrap();
                     let inputs = original.external_entrypoints_slice();

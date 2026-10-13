@@ -19,7 +19,7 @@ impl NativePreparation for TestProofs {
             Some(&source.released().frozen),
             KagemushaWalletEffectV1::Retiring,
         );
-        let c = &mut retiring.capsule;
+        let mut c = retiring.capsule.body().clone();
         c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
             lineage: fold.lineage.clone(),
         };
@@ -34,6 +34,11 @@ impl NativePreparation for TestProofs {
             &c.payment_digest,
         )
         .unwrap();
+        retiring.capsule = c
+            .freeze()
+            .expect("valid synthetic body")
+            .seal([0; 32])
+            .expect("synthetic opening");
         archive::encode(&retiring)
     }
 
@@ -47,8 +52,8 @@ impl NativePreparation for TestProofs {
         let prepared: FrozenTransition = archive::decode(plan)?;
         prepared.validate()?;
         if request.user_request().map(|request| &request.action) != Some(&OperationActionV1::Retire)
-            || prepared.capsule.predecessor_capsule_digest
-                != source.released().frozen.capsule.capsule_digest().unwrap()
+            || prepared.capsule.body().predecessor_capsule_digest
+                != source.released().frozen.capsule.custody_digest()
         {
             return Err(Error::Invalid("test plan binding"));
         }
@@ -110,6 +115,7 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
         .unwrap()
         .frozen
         .capsule
+        .body()
         .operation_id;
     assert_ne!(
         actual, request.request_id,
@@ -350,7 +356,7 @@ fn load_request_intake_preserves_actual_model_refusal_before_publication() {
         let error =
             norito::with_decode_limits_scope(limits, || request.validate(&scheme)).unwrap_err();
         assert!(matches!(error, Error::DecodeResource(ref original)
-            if original.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
         assert_eq!(request, unchanged);
         request.validate(&scheme).unwrap();
     }
@@ -468,8 +474,9 @@ fn source_rotation_does_not_rebase_a_durable_plan_or_repeat_proving() {
         .plan_preparation(&NativeIntentV1::user(request()), &source, &mut custody)
         .unwrap();
     let mut other: FrozenTransition = archive::decode(&plan).unwrap();
-    other.capsule.successor_state.core.state_nonce = field(91);
-    rebind_frozen_successor(&mut other);
+    let mut body = other.capsule.body().clone();
+    body.successor_state.core.state_nonce = field(91);
+    rebind_frozen_successor(&mut other, body);
     wallet.commit(other).unwrap();
     let count = wallet.proofs.preparations.load(Ordering::SeqCst);
     wallet.proofs.fail_preparation_proof = false;
@@ -528,9 +535,9 @@ fn prepared_capsule_keeps_exact_durable_plan_after_completion_and_restart() {
     assert_eq!(plan.request, NativeIntentV1::user(request()));
     assert_eq!(
         plan.source,
-        released.frozen.capsule.predecessor_capsule_digest
+        released.frozen.capsule.body().predecessor_capsule_digest
     );
-    let capsule = released.frozen.capsule.capsule_digest().unwrap();
+    let capsule = released.frozen.capsule.custody_digest();
     let bad = manifest
         .capsule_plans
         .set(&mut wallet.archive, capsule, &[7; 31])
@@ -558,4 +565,110 @@ fn native_intent_is_canonical_and_does_not_decode_the_foreign_request_layout() {
     assert!(NativeIntentV1::decode(&archive::encode(&request).unwrap(), &scheme).is_err());
     assert!(NativeIntentV1::decode(&[bytes, vec![0]].concat(), &scheme).is_err());
     assert!(NativeIntentV1::decode(&vec![0; REQUEST_MAX_BYTES + 1], &scheme).is_err());
+}
+
+#[test]
+fn model_intake_refusal_preserves_all_refresh_receive_and_unload_originals_before_preparation() {
+    let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
+    let credential: KagemushaWalletCredentialV1 = fixture("KagemushaWalletCredentialV1");
+    // Intake validates canonical shape only. The empty set confers no issuer authority;
+    // actual preparation must still authenticate every required signer and relation.
+    let certificates =
+        archive::encode(&KagemushaWalletCertificateSetV1::new(vec![]).unwrap()).unwrap();
+    let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
+    let mut actions = vec![OperationActionV1::Receive {
+        payment: payment.to_canonical_bytes().unwrap(),
+        payer_credential: credential.to_canonical_bytes().unwrap(),
+        certificates: certificates.clone(),
+    }];
+    use KagemushaWalletPolicyUpdateKindV1 as K;
+    for (kind, update) in [
+        (K::Credential, credential.to_canonical_bytes().unwrap()),
+        (
+            K::SchemePolicy,
+            fixture::<KagemushaWalletSchemePolicyV1>("KagemushaWalletSchemePolicyV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            K::Blacklist,
+            fixture::<KagemushaWalletBlacklistV1>("KagemushaWalletBlacklistV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            K::TimeAnchor,
+            fixture::<KagemushaWalletTimeAnchorV1>("KagemushaWalletTimeAnchorV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+        (
+            K::QuotaShare,
+            fixture::<KagemushaWalletQuotaShareV1>("KagemushaWalletQuotaShareV1")
+                .to_canonical_bytes()
+                .unwrap(),
+        ),
+    ] {
+        actions.push(OperationActionV1::Refresh {
+            kind,
+            update,
+            certificates: certificates.clone(),
+        });
+    }
+    actions.push(OperationActionV1::Unload {
+        amount: 1,
+        charge: Some(ChargeOriginalsV1 {
+            quote: fixture::<KagemushaWalletChargeQuoteV1>("KagemushaWalletChargeQuoteV1")
+                .to_canonical_bytes()
+                .unwrap(),
+            certificates,
+        }),
+    });
+    for action in actions {
+        let request = OperationRequestV1 {
+            request_id: [73; 32],
+            action,
+        };
+        request.validate(&scheme).unwrap();
+        let exact = archive::encode(&request).unwrap();
+        let mut w = wallet();
+        // Resolve the mock ledger scope outside the constrained decoder. No fixture
+        // construction or proof authority is introduced inside the observed read.
+        w.proofs.ledger_scope = Some((scheme.clone(), "wallet-test-chain".into()));
+        let root = w.manifest().unwrap().0;
+        for limits in [
+            norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+        ] {
+            let direct = norito::with_decode_limits_scope(limits, || request.validate(&scheme));
+            assert!(matches!(direct, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            let public = norito::with_decode_limits_scope(limits, || w.execute(request.clone()));
+            assert!(matches!(public, Err(Error::DecodeResource(ref cause))
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+            assert_eq!(archive::encode(&request).unwrap(), exact);
+            assert_eq!(w.manifest().unwrap().0, root);
+            assert_eq!(w.custody.signatures, 0);
+            assert_eq!(w.proofs.preparations.load(Ordering::SeqCst), 0);
+            assert_eq!(w.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                OperationRequestV1::decode(&exact, &scheme).unwrap(),
+                request
+            );
+        }
+        let mut invalid = request;
+        match &mut invalid.action {
+            OperationActionV1::Receive { payment, .. } => *payment = vec![0],
+            OperationActionV1::Refresh { update, .. } => *update = vec![0],
+            OperationActionV1::Unload {
+                charge: Some(charge),
+                ..
+            } => charge.quote = vec![0],
+            _ => unreachable!(),
+        }
+        assert!(matches!(
+            invalid.validate(&scheme),
+            Err(Error::Invalid("G1 validation"))
+        ));
+    }
 }

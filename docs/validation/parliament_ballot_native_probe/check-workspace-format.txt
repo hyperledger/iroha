@@ -1,0 +1,666 @@
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/alias_setup.rs:1240:
+             [],
+             accounts
+                 .iter()
+[31m-                .map(|id| Account::new(id.clone()).build(id)),
+(B[m[32m+                .cloned()
+(B[m[32m+                .map(|id| Account::new(id.clone()).build(&id)),
+(B[m             [],
+         )
+     }
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/block.rs:9578:
+         );
+         let kura = Kura::blank_kura_for_testing();
+         let query_handle = LiveQueryStore::start_test();
+[31m-        
+(B[m[32m+
+(B[m         State::new_with_chain_and_network_id_for_testing(
+             world,
+             kura,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/kura/fastpq_artifact_store.rs:1101:
+                 &iroha_config::parameters::actual::LaneConfig::default(),
+             );
+             assert!(reopened.is_err(), "{invalid}");
+[31m-            let error = reopened
+(B[m[31m-                .expect_err("invalid FASTPQ inventory fails startup");
+(B[m[32m+            let error = reopened.expect_err("invalid FASTPQ inventory fails startup");
+(B[m             assert!(
+                 matches!(&error, Error::IO(source, _) if source.to_string().contains("FASTPQ")),
+                 "{invalid}: {error}"
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/kura/resident_inventory_tests.rs:176:
+         lengths([self.values.len()])
+     }
+     fn resident_complete(&self) -> bool {
+[31m-        assert!(!self.panic_on_complete, "interrupt expanded completeness callback");
+(B[m[32m+        assert!(
+(B[m[32m+            !self.panic_on_complete,
+(B[m[32m+            "interrupt expanded completeness callback"
+(B[m[32m+        );
+(B[m         self.complete
+     }
+     fn failure_invalidation_mask() -> u32 {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/kura.rs:10833:
+         super::Kura::remove_transaction_entrypoint_height(&mut index, height_two);
+         assert!(!index.indexed_heights.contains(&height_two));
+         assert!(!index.incomplete_heights.contains(&height_two));
+[31m-        assert!(
+(B[m[31m-            !index.kaigi_signal_candidates[&call_id].contains_key(&height_two)
+(B[m[31m-        );
+(B[m[32m+        assert!(!index.kaigi_signal_candidates[&call_id].contains_key(&height_two));
+(B[m         index.indexed_heights.insert(height_two);
+         insert_kaigi_signal_test_locator(
+             &mut index,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/query/musubi_pin_outbox/tests.rs:473:
+     let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 128);
+     let cut = match norito::with_decode_limits_scope(zero, || proof.finish()) {
+         Ok(success) => success,
+[31m-        Err(error) => panic!("metadata-only finish must not allocate a second canonical frame: {error:?}"),
+(B[m[32m+        Err(_) => panic!("metadata-only finish must not allocate a second canonical frame"),
+(B[m     };
+     assert_ne!(cut.check_block_hash(), [0; 32]);
+     drop(reader);
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/authorization_v1.rs:368:
+         let column = KaigiAuthorizationPublicInputsV1 { context, outputs }
+             .instance()
+             .to_vec();
+[31m-        verify_public_inputs_v1(std::slice::from_ref(&column), &context, &commitment, &nullifier).unwrap();
+(B[m[32m+        verify_public_inputs_v1(
+(B[m[32m+            std::slice::from_ref(&column),
+(B[m[32m+            &context,
+(B[m[32m+            &commitment,
+(B[m[32m+            &nullifier,
+(B[m[32m+        )
+(B[m[32m+        .unwrap();
+(B[m         for row in 0..30 {
+             let mut changed = column.clone();
+             changed[row] += Fp::from(1);
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/kaigi/privacy/authorization_v1.rs:388:
+             );
+         }
+         assert!(
+[31m-            verify_public_inputs_v1(std::slice::from_ref(&column), &context, &[255; 32], &nullifier).is_err()
+(B[m[32m+            verify_public_inputs_v1(
+(B[m[32m+                std::slice::from_ref(&column),
+(B[m[32m+                &context,
+(B[m[32m+                &[255; 32],
+(B[m[32m+                &nullifier
+(B[m[32m+            )
+(B[m[32m+            .is_err()
+(B[m         );
+         assert!(verify_public_inputs_v1(&[column], &context, &commitment, &[255; 32]).is_err());
+     }
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/query/ordinary_memory.rs:2143:
+     #[test]
+     fn stored_exact_requires_and_bounds_pagination_before_execution() {
+         let query_limits = QueryLimits::new(16);
+[31m-        
+(B[m[32m+
+(B[m         let error =
+             ensure_iterable_params(&params, OrdinaryCursorMode::Stored, query_limits, limits())
+                 .expect_err("exact count without a limit must fail closed");
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration/tests.rs:73:
+     let mut block = state.block(header(4));
+     let mut stx = block.transaction();
+     let record = resolved(1, 1);
+[31m-    install(&mut stx, std::slice::from_ref(&record));
+(B[m[32m+    install(&mut stx, &[record.clone()]);
+(B[m     let pin = sample_pin(&record);
+     assert_eq!(
+         &**retained_pin(&*stx.world, &pin, 16_000, 86_400_000, 3).unwrap(),
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration/tests.rs:171:
+     let mut stx = block.transaction();
+     let mut record = resolved(1, 1);
+     let pin = sample_pin(&record);
+[31m-    install(&mut stx, std::slice::from_ref(&record));
+(B[m[32m+    install(&mut stx, &[record.clone()]);
+(B[m     store::committee_current::set(&mut stx, 2);
+     assert!(retained_pin(&*stx.world, &pin, 0, 0, 3).is_err());
+     store::committee_current::set(&mut stx, 1);
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration/tests.rs:484:
+     store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+     escrow::create_route_escrows(&mut stx).unwrap();
+     let record = resolved(1, 1);
+[31m-    install(&mut stx, std::slice::from_ref(&record));
+(B[m[32m+    install(&mut stx, &[record.clone()]);
+(B[m     let identity = original_identity(&stx).unwrap();
+     for action in [
+         ton_action(&record, &identity),
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/init.rs:452:
+             config
+                 .genesis_instructions
+                 .push(SampleInstructions::initialize().into());
+[31m-            let Err(error) = CertifiedTestChain::start(config) else {
+(B[m[31m-                panic!("G1 requires every original registration");
+(B[m[31m-            };
+(B[m[32m+            let error = CertifiedTestChain::start(config)
+(B[m[32m+                .err()
+(B[m[32m+                .expect("G1 requires every original registration");
+(B[m             assert!(
+                 format!("{error:?}").contains("InvalidGeneration"),
+                 "{registered}: {error:?}"
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs:60:
+ 
+ /// Maximum native generation transitions in one catch-up response (§6).
+ pub const MAX_NATIVE_ROTATIONS: usize = 16;
+[32m+pub mod evidence;
+(B[m /// Borrowed, request-funded registry and governance metadata.
+ pub mod governance_metadata;
+ /// Request-funded light-client metadata.
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs:66:
+ pub mod light_client_metadata;
+ /// Borrowed, request-funded message metadata.
+ pub mod message_metadata;
+[31m-pub mod evidence;
+(B[m mod reconciliation;
+ pub use reconciliation::forgery_hold;
+ mod fast_pause;
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sorafs_orderbook.rs:4803:
+                 before.custody_balances[index]
+             );
+         }
+[31m-        for (index, expected_marker) in expected_markers.iter().enumerate() {
+(B[m[32m+        for index in 0..2 {
+(B[m             assert!(
+                 read_trade(state_transaction.world(), fixture.trade_ids[index])
+                     .expect("read absent two-fill trade")
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/sorafs_orderbook.rs:4828:
+                     &child_id,
+                 )
+                 .expect("read two-fill channel marker"),
+[31m-                *expected_marker
+(B[m[32m+                expected_markers[index]
+(B[m             );
+         }
+     }
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_relation/work_tests.rs:75:
+                     Err(failure.original)
+                 }
+             }
+[31m-            Err(error) => panic!("only the actual inherited codec refusal is expected: {error:?}"),
+(B[m[32m+            Err(_) => panic!("only the actual inherited codec refusal is expected"),
+(B[m         }
+     }
+ }
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_publication_tests.rs:97:
+     macro_rules! busy {
+         ($field:ident) => {{
+             let busy = set.$field.block();
+[31m-            let (returned, error, cleanup) = journal
+(B[m[32m+            let (returned, error, _cleanup) = journal
+(B[m                 .try_prepare_publication(&set, |_, _| Ok::<_, ()>(()))
+                 .err()
+                 .expect("busy component");
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_publication_tests.rs:104:
+[31m-            drop(cleanup);
+(B[m[32m+            drop(_cleanup);
+(B[m             assert!(
+                 matches!(
+                     error,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_publication_tests.rs:145:
+     mutate_all(&mut block);
+     let journal = capture(block);
+     let pointer = contract_touch_pointer(&journal);
+[31m-    let (journal, error, cleanup) = journal
+(B[m[32m+    let (journal, error, _cleanup) = journal
+(B[m         .try_prepare_publication(&set, |_, _| {
+             assert_all_writers_released(&set);
+             Err::<(), _>("capacity")
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_publication_tests.rs:152:
+         })
+         .err()
+         .expect("resource refusal");
+[31m-    drop(cleanup);
+(B[m[32m+    drop(_cleanup);
+(B[m     assert!(matches!(error, SetPublicationError::Admission("capacity")));
+     let installation_released = Arc::new(AtomicBool::new(false));
+[31m-    let (journal, error, cleanup) = journal
+(B[m[32m+    let (journal, error, _cleanup) = journal
+(B[m         .try_prepare_publication(&set, |_, target| {
+             target.contracts.block().commit();
+             Ok::<_, ()>(TriggerInstallation {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/smartcontracts/isi/triggers/set_publication_tests.rs:165:
+         })
+         .err()
+         .expect("late changed component");
+[31m-    drop(cleanup);
+(B[m[32m+    drop(_cleanup);
+(B[m     assert!(matches!(
+         error,
+         SetPublicationError::Component {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/authority_registry/grouped_ownership/asset_definitions.rs:474:
+                 let Some(definition) = lookup(rows, image, id, work)? else {
+                     return Err(corrupt(GroupMismatch::ForeignMember));
+                 };
+[31m-                if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)? {
+(B[m[32m+                if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)?
+(B[m[32m+                {
+(B[m                     return Err(corrupt(GroupMismatch::ForeignMember));
+                 }
+             }
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/storage_transactions/block/capture_tests.rs:30:
+             Ordering::SeqCst,
+         );
+         self.calls.fetch_add(1, Ordering::SeqCst);
+[31m-        assert!(!self.panic_after_probe.swap(false, Ordering::SeqCst), "injected membership wake panic after physical probes")
+(B[m[32m+        assert!(
+(B[m[32m+            !self.panic_after_probe.swap(false, Ordering::SeqCst),
+(B[m[32m+            "injected membership wake panic after physical probes"
+(B[m[32m+        )
+(B[m     }
+ }
+ 
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/storage_transactions/block/membership_append_tests.rs:573:
+             let ended = catch_unwind(AssertUnwindSafe(|| {
+                 let _release = release;
+                 let _prepared = prepared;
+[31m-                assert!(!unwind, "outer completion unwinds after retaining original cleanup")
+(B[m[32m+                assert!(
+(B[m[32m+                    !unwind,
+(B[m[32m+                    "outer completion unwinds after retaining original cleanup"
+(B[m[32m+                )
+(B[m             }));
+             assert_eq!(ended.is_err(), unwind);
+             assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/storage_transactions_projection_tests.rs:229:
+             &original_latest,
+             &storage.latest_block.load_full().unwrap()
+         ));
+[31m-        assert_eq!(
+(B[m[31m-            storage.blocks.read().get(&prior).copied(),
+(B[m[31m-            Some(height(1))
+(B[m[31m-        );
+(B[m[32m+        assert_eq!(storage.blocks.read().get(&prior).copied(), Some(height(1)));
+(B[m         assert!(storage.blocks.read().get(&tip_only).is_none());
+     }
+     let mut replacement = storage.block_and_revert();
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/world_acquisition/placement.rs:182:
+ }
+ #[cfg(test)]
+ fn after_field_placement(initialized: usize) {
+[31m-    assert!(FAIL_AFTER_FIELD.with(|value| value.get()) != Some(initialized), "injected original field placement failure");
+(B[m[32m+    assert!(
+(B[m[32m+        FAIL_AFTER_FIELD.with(|value| value.get()) != Some(initialized),
+(B[m[32m+        "injected original field placement failure"
+(B[m[32m+    );
+(B[m }
+ #[cfg(test)]
+ pub(in crate::state) fn with_placement_failure<R>(field: usize, action: impl FnOnce() -> R) -> R {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/world_state_snapshot/reserve_policy/tests.rs:309:
+         .remove(reserve_state_key().clone());
+     assert!(
+         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
+[31m-            .unwrap_err().clone()
+(B[m[32m+            .unwrap_err()
+(B[m[32m+            .clone()
+(B[m             .contains("absence differs")
+     );
+     let mut changed = ReserveStateV1::decode_frame(original).unwrap();
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/world_state_snapshot/reserve_policy/tests.rs:320:
+     );
+     assert!(
+         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
+[31m-            .unwrap_err().clone()
+(B[m[32m+            .unwrap_err()
+(B[m[32m+            .clone()
+(B[m             .contains("typed target")
+     );
+     world
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state/world_state_snapshot/reserve_policy/tests.rs:335:
+     );
+     assert!(
+         reserve_policy_originals(&proof.world, &world, &f.manager, &budget)
+[31m-            .unwrap_err().clone()
+(B[m[32m+            .unwrap_err()
+(B[m[32m+            .clone()
+(B[m             .contains("typed target")
+     );
+     // The uncommitted overlay is a mutation specimen, never native authority.
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/state.rs:26800:
+     }
+     #[cfg(test)]
+     /// Lookup a DA commitment by `(lane_id, epoch, sequence)`.
+[32m+    #[must_use]
+(B[m     fn find_da_commitment_by_lane_epoch_sequence(
+         &self,
+         lane_id: u32,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/epoch_election/owned.rs:115:
+         unsafe_code,
+         reason = "audited exact canonical allocation transfer with retained original-pool custody"
+     )]
+[31m-    #[expect(clippy::large_types_passed_by_value, reason = "the pulse is transferred into the retained native execution inputs")]
+(B[m[32m+    #[expect(
+(B[m[32m+        clippy::large_types_passed_by_value,
+(B[m[32m+        reason = "the pulse is transferred into the retained native execution inputs"
+(B[m[32m+    )]
+(B[m     pub(crate) fn into_execution_inputs(
+         self,
+         after_next_params: crate::sumeragi::schedule::ChainParamsRecord,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/evidence/tests.rs:67:
+     let evidence = Evidence::from_native(&conflict(&chain, 2)).unwrap();
+     let view = chain.state().view();
+     let generation = chain.state().state_view_generation();
+[31m-    let mut read =
+(B[m[31m-        admission::AdmissionRead::capture(chain.state(), &view, generation, 3, std::slice::from_ref(&evidence))
+(B[m[31m-            .unwrap();
+(B[m[32m+    let mut read = admission::AdmissionRead::capture(
+(B[m[32m+        chain.state(),
+(B[m[32m+        &view,
+(B[m[32m+        generation,
+(B[m[32m+        3,
+(B[m[32m+        std::slice::from_ref(&evidence),
+(B[m[32m+    )
+(B[m[32m+    .unwrap();
+(B[m     read.complete().unwrap();
+     let admissions = read.finish().unwrap();
+     let attribution = admissions.as_slice()[0].attribution();
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/evidence/tests.rs:90:
+         );
+     }
+     assert!(
+[31m-        admission::AdmissionRead::capture(chain.state(), &view, generation, 2, std::slice::from_ref(&evidence))
+(B[m[31m-            .is_err()
+(B[m[32m+        admission::AdmissionRead::capture(
+(B[m[32m+            chain.state(),
+(B[m[32m+            &view,
+(B[m[32m+            generation,
+(B[m[32m+            2,
+(B[m[32m+            std::slice::from_ref(&evidence)
+(B[m[32m+        )
+(B[m[32m+        .is_err()
+(B[m     );
+     assert!(
+         admission::AdmissionRead::capture(
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/evidence/tests.rs:156:
+     let generation = state.state_view_generation();
+     let parent = state.view();
+     assert_eq!(parent.height(), 2);
+[31m-    let mut captured =
+(B[m[31m-        admission::AdmissionRead::capture(&state, &parent, generation, 3, std::slice::from_ref(&evidence))
+(B[m[31m-            .unwrap();
+(B[m[32m+    let mut captured = admission::AdmissionRead::capture(
+(B[m[32m+        &state,
+(B[m[32m+        &parent,
+(B[m[32m+        generation,
+(B[m[32m+        3,
+(B[m[32m+        std::slice::from_ref(&evidence),
+(B[m[32m+    )
+(B[m[32m+    .unwrap();
+(B[m     assert!(captured.matches(generation, 3, std::slice::from_ref(&evidence)));
+     chain.commit(Vec::new());
+     assert!(
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/executor/preparation/tests.rs:657:
+                     panic!("storage source erased: {failure:?}")
+                 };
+                 assert!(
+[31m-                    matches!((owner, source), (
+(B[m[32m+                    matches!(
+(B[m[32m+                        (owner, source),
+(B[m[32m+                        (
+(B[m                             0,
+                             PublicationDeferral::StateStorage(StateStorageAdmissionError::World(
+                                 mv::storage::AdmittedStorageError::Busy { .. },
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/executor/preparation/tests.rs:664:
+                             )),
+[31m-                        )
+(B[m[31m-                        | (
+(B[m[32m+                        ) | (
+(B[m                             1,
+                             PublicationDeferral::BlockHashAdmission(BlockHashAdmissionError::Busy(
+                                 _,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/executor/preparation/tests.rs:670:
+                             )),
+[31m-                        )
+(B[m[31m-                        | (
+(B[m[32m+                        ) | (
+(B[m                             2,
+                             PublicationDeferral::MembershipAdmission(
+                                 MembershipAdmissionError::Busy(_),
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/sumeragi/executor/preparation/tests.rs:676:
+                             ),
+[31m-                        )),
+(B[m[32m+                        )
+(B[m[32m+                    ),
+(B[m                     "the actual refusing owner is retained: {source:?}"
+                 );
+                 assert!(
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/validation_fee_rewards/beneficiary/tests.rs:117:
+             .get(&allocated_key)
+             .unwrap()
+             .clone();
+[31m-        let active_registry =
+(B[m[31m-            crate::validation_fee::tests::policy_registry(std::slice::from_ref(&policy), std::slice::from_ref(&binding));
+(B[m[32m+        let active_registry = crate::validation_fee::tests::policy_registry(
+(B[m[32m+            std::slice::from_ref(&policy),
+(B[m[32m+            std::slice::from_ref(&binding),
+(B[m[32m+        );
+(B[m         let mut retained_registry = active_registry.clone();
+         retained_registry.payout_policies.entries =
+             vec![crate::validation_fee::tests::payout_registry_entry(
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/validation_fee_rewards/exposure.rs:573:
+ 
+     #[test]
+     fn encoded_byte_capacity_rolls_over_before_entry_capacity() {
+[31m-        let member_count = (1..16).rfind(|count| ensure_reward_identity(&multisig(0, *count)).is_ok())
+(B[m[32m+        let member_count = (1..16)
+(B[m[32m+            .rfind(|count| ensure_reward_identity(&multisig(0, *count)).is_ok())
+(B[m             .unwrap();
+         let mut stakes = (0..MAX_REWARD_RECIPIENTS)
+             .map(|index| {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_core/src/validation_fee_rewards/exposure_budget_tests.rs:13:
+ 
+ #[test]
+ fn maximum_mandatory_page_corpus_fits_reserved_evidence_budget() {
+[31m-    let member_count = (1..16).rfind(|count| ensure_reward_identity(&super::tests::multisig(0, *count)).is_ok())
+(B[m[32m+    let member_count = (1..16)
+(B[m[32m+        .rfind(|count| ensure_reward_identity(&super::tests::multisig(0, *count)).is_ok())
+(B[m         .unwrap();
+     let validators = (0..MAX_REWARD_VALIDATORS)
+         .map(|index| {
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_test_network/src/bin/taira_beacon_bootstrap.rs:830:
+         && error
+             .downcast_ref::<TransactionDispatchOutcomeUnknownError>()
+             .is_none()
+[31m-        {
+(B[m[31m-            return Err(eyre!(
+(B[m[31m-                "transaction dispatch refused; exact signed wire is retained for read-only recovery"
+(B[m[31m-            ));
+(B[m[31m-        }
+(B[m[32m+    {
+(B[m[32m+        return Err(eyre!(
+(B[m[32m+            "transaction dispatch refused; exact signed wire is retained for read-only recovery"
+(B[m[32m+        ));
+(B[m[32m+    }
+(B[m     recover_applied(
+         client,
+         &transaction,
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_torii/src/sorafs/api.rs:24472:
+             .map(|()| ManifestDigest::new(bytes))
+     });
+     let limit = normalize_limit(query.limit);
+[31m-    let requested_offset = query.offset.and_then(|value| usize::try_from(value).ok()).unwrap_or(0);
+(B[m[32m+    let requested_offset = query
+(B[m[32m+        .offset
+(B[m[32m+        .and_then(|value| usize::try_from(value).ok())
+(B[m[32m+        .unwrap_or(0);
+(B[m     let (attestation, page) = match pin_projection_with_attestation(&state, |world| {
+         collect_replication_order_page(world, requested_offset, limit, |record| {
+             status_filter.is_none_or(|filter| filter.matches_record(record.status))
+Diff in /Users/mtakemiya/dev/iroha/crates/iroha_torii_shared/src/route_catalog.rs:4649:
+     /// Read original standing panel, rounds and emergency hold state.
+     pub const FAST_PAUSE: RouteDescriptor = public_get("sccp.fast_pause", "/v1/sccp/fast-pause");
+     /// Read one original committed SCCP forgery report.
+[31m-    pub const EVIDENCE: RouteDescriptor = public_get("sccp.evidence.read", "/v1/sccp/evidence/{evidence_id}");
+(B[m[32m+    pub const EVIDENCE: RouteDescriptor =
+(B[m[32m+        public_get("sccp.evidence.read", "/v1/sccp/evidence/{evidence_id}");
+(B[m     /// Read a bounded page of original committed SCCP forgery reports.
+[31m-    pub const EVIDENCE_PAGE: RouteDescriptor = public_get("sccp.evidence.list", "/v1/sccp/evidence");
+(B[m[32m+    pub const EVIDENCE_PAGE: RouteDescriptor =
+(B[m[32m+        public_get("sccp.evidence.list", "/v1/sccp/evidence");
+(B[m     /// Read a retained original Kura anchor witness for evidence construction.
+     pub const EVIDENCE_ANCHOR: RouteDescriptor =
+         public_get("sccp.evidence.anchor", "/v1/sccp/evidence/anchor/{height}");
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:707:
+         self.names = opened.names;
+         self.profiles = opened.profiles;
+         if let Ok(profiles) = &self.profiles
+[31m-            && !profiles.contains(&self.private_network) {
+(B[m[31m-                self.private_network = profiles.first().cloned().unwrap_or_default();
+(B[m[31m-            }
+(B[m[32m+            && !profiles.contains(&self.private_network)
+(B[m[32m+        {
+(B[m[32m+            self.private_network = profiles.first().cloned().unwrap_or_default();
+(B[m[32m+        }
+(B[m         match opened.selected {
+             Ok(Some(selected)) => self.install_selection(selected),
+             Ok(None) => self.clear_network(),
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:968:
+                         }
+                     });
+                 if chosen != selected
+[31m-                    && let Some(name) = chosen {
+(B[m[31m-                        self.select(name);
+(B[m[31m-                    }
+(B[m[32m+                    && let Some(name) = chosen
+(B[m[32m+                {
+(B[m[32m+                    self.select(name);
+(B[m[32m+                }
+(B[m                 if self.selected.is_none() {
+                     ui.add(
+                         egui::TextEdit::singleline(&mut self.new_name)
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1192:
+                         ui.label(&entry.detail);
+                         ui.horizontal(|ui| {
+                             if let Some(json) = &entry.json
+[31m-                                && ui.button("Copy JSON").clicked() {
+(B[m[31m-                                    ui.ctx().copy_text(json.clone());
+(B[m[31m-                                }
+(B[m[32m+                                && ui.button("Copy JSON").clicked()
+(B[m[32m+                            {
+(B[m[32m+                                ui.ctx().copy_text(json.clone());
+(B[m[32m+                            }
+(B[m                             if let Some(bytes) = &entry.norito_bytes
+[31m-                                && ui.button("Copy Norito hex").clicked() {
+(B[m[31m-                                    ui.ctx().copy_text(hex::encode(bytes));
+(B[m[31m-                                }
+(B[m[32m+                                && ui.button("Copy Norito hex").clicked()
+(B[m[32m+                            {
+(B[m[32m+                                ui.ctx().copy_text(hex::encode(bytes));
+(B[m[32m+                            }
+(B[m                         });
+                         ui.monospace(entry.json.as_deref().unwrap_or(&entry.raw));
+                     });
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1255:
+                 .clicked()
+                 && let (Some(workspace), Some(selected)) =
+                     (self.workspace.clone(), self.selected.as_ref())
+[31m-                {
+(B[m[31m-                    let name = selected.network.prepared().context.name.clone();
+(B[m[31m-                    let peer = self.peer;
+(B[m[31m-                    self.spawn(move || {
+(B[m[31m-                        Message::Logs(
+(B[m[31m-                            workspace
+(B[m[31m-                                .logs(&name, Some(peer), 64 * 1024)
+(B[m[31m-                                .map_err(|e| e.to_string()),
+(B[m[31m-                        )
+(B[m[31m-                    });
+(B[m[31m-                }
+(B[m[32m+            {
+(B[m[32m+                let name = selected.network.prepared().context.name.clone();
+(B[m[32m+                let peer = self.peer;
+(B[m[32m+                self.spawn(move || {
+(B[m[32m+                    Message::Logs(
+(B[m[32m+                        workspace
+(B[m[32m+                            .logs(&name, Some(peer), 64 * 1024)
+(B[m[32m+                            .map_err(|e| e.to_string()),
+(B[m[32m+                    )
+(B[m[32m+                });
+(B[m[32m+            }
+(B[m         });
+         ui.add(
+             egui::TextEdit::multiline(&mut self.logs)
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1359:
+                 egui::Button::new("Review transaction"),
+             )
+             .clicked()
+[31m-            && let Some(selected) = &self.selected {
+(B[m[31m-                match drafts_from_json_str(&self.drafts)
+(B[m[31m-                    .map_err(|e| e.to_string())
+(B[m[31m-                    .and_then(|drafts| selected.network.preview(&drafts).map_err(|e| e.to_string()))
+(B[m[31m-                {
+(B[m[31m-                    Ok(preview) => {
+(B[m[31m-                        self.preview = Some(preview);
+(B[m[31m-                        self.submitted_hash = None;
+(B[m[31m-                    }
+(B[m[31m-                    Err(error) => self.error = Some(error),
+(B[m[32m+            && let Some(selected) = &self.selected
+(B[m[32m+        {
+(B[m[32m+            match drafts_from_json_str(&self.drafts)
+(B[m[32m+                .map_err(|e| e.to_string())
+(B[m[32m+                .and_then(|drafts| selected.network.preview(&drafts).map_err(|e| e.to_string()))
+(B[m[32m+            {
+(B[m[32m+                Ok(preview) => {
+(B[m[32m+                    self.preview = Some(preview);
+(B[m[32m+                    self.submitted_hash = None;
+(B[m                 }
+[32m+                Err(error) => self.error = Some(error),
+(B[m             }
+[32m+        }
+(B[m         if let Some(preview) = &self.preview {
+             ui.separator();
+             public_value(ui, "Authority", preview.authority());
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1390:
+                 && let (Some(selected), Some(handle)) = (
+                     &self.selected,
+                     self.runtime.as_ref().map(|r| r.handle().clone()),
+[31m-                ) {
+(B[m[31m-                    let network = selected.network.clone();
+(B[m[31m-                    let peer = self.peer;
+(B[m[31m-                    let preview = preview.clone();
+(B[m[31m-                    self.submitted_hash = Some(preview.hash().to_owned());
+(B[m[31m-                    self.spawn(move || Message::Submitted(handle.block_on(network.submit(peer, &preview)).map(|commit| format!("Applied {} in block {}", preview.hash(), commit.block_height))
+(B[m[32m+                )
+(B[m[32m+            {
+(B[m[32m+                let network = selected.network.clone();
+(B[m[32m+                let peer = self.peer;
+(B[m[32m+                let preview = preview.clone();
+(B[m[32m+                self.submitted_hash = Some(preview.hash().to_owned());
+(B[m[32m+                self.spawn(move || Message::Submitted(handle.block_on(network.submit(peer, &preview)).map(|commit| format!("Applied {} in block {}", preview.hash(), commit.block_height))
+(B[m                         .map_err(|e| format!("Transaction {}: {e}. Keep this original hash when checking an uncertain outcome.", preview.hash()))));
+[31m-                }
+(B[m[32m+            }
+(B[m         }
+     }
+ 
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1625:
+             });
+         });
+         if let Some(accepted) = decision
+[31m-            && let Some(review) = self.review.take() {
+(B[m[31m-                let _ = review.decision.send(accepted);
+(B[m[31m-            }
+(B[m[32m+            && let Some(review) = self.review.take()
+(B[m[32m+        {
+(B[m[32m+            let _ = review.decision.send(accepted);
+(B[m[32m+        }
+(B[m     }
+ 
+     fn private_dataspace_dialog(&mut self, context: &egui::Context) {
+Diff in /Users/mtakemiya/dev/iroha/mochi/mochi-ui-egui/src/gui.rs:1728:
+             });
+         }
+         if let Some(dialog) = &mut self.localnet_dialog
+[31m-            && let Some(action) = dialog.show(context, &self.names, self.busy) {
+(B[m[31m-                self.localnet_dialog = None;
+(B[m[31m-                if let LocalnetDialogAction::Start(name) = action {
+(B[m[31m-                    self.start_localnet(name);
+(B[m[31m-                }
+(B[m[32m+            && let Some(action) = dialog.show(context, &self.names, self.busy)
+(B[m[32m+        {
+(B[m[32m+            self.localnet_dialog = None;
+(B[m[32m+            if let LocalnetDialogAction::Start(name) = action {
+(B[m[32m+                self.start_localnet(name);
+(B[m             }
+[32m+        }
+(B[m         self.private_dataspace_dialog(context);
+         self.review_dialog(context);
+         context.request_repaint_after(Duration::from_millis(100));

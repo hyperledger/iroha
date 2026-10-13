@@ -42,7 +42,7 @@ fn balance(
         .world
         .assets()
         .get(&AssetId::of(asset.clone(), who.clone()))
-        .map_or(Quantity::zero(), |value| value.0.clone())
+        .map_or_else(Quantity::zero, |value| value.0.clone())
 }
 
 fn write(key: &str) -> InstructionBox {

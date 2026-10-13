@@ -1,0 +1,7 @@
+$ python3.11 -m pytest scripts/tests/parliament_ballot_request_accounting_test.py scripts/tests/parliament_ballot_resource_contract_test.py -q
+.........................................                                [100%]
+41 passed in 0.80s
+
+$ python3.11 scripts/check_parliament_ballot_request_accounting.py --require-qualified
+Candidate request component: True; qualification: False
+exit: 2 (required refusal)

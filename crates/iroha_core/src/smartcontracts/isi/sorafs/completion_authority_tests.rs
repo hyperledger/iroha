@@ -137,18 +137,18 @@ mod dedicated_completion_authority_tests {
             );
         }
         grant(&mut stx, &bob(), selected.provider_id);
-        let mut stale = selected.clone();
-        stale.expected_authority.completion_signer = alice();
-        assert!(stale.execute(&bob(), &mut stx).is_err());
-        let mut stale = selected.clone();
-        stale.expected_authority.provider_owner = bob();
-        assert!(stale.execute(&bob(), &mut stx).is_err());
-        let mut stale = selected.clone();
-        stale.expected_assignment_revision += 1;
-        assert!(stale.execute(&bob(), &mut stx).is_err());
-        let mut stale = selected.clone();
-        stale.finalized_anchor.block_hash = [0xEE; 32];
-        assert!(stale.execute(&bob(), &mut stx).is_err());
+        let mut outdated = selected.clone();
+        outdated.expected_authority.completion_signer = alice();
+        assert!(outdated.execute(&bob(), &mut stx).is_err());
+        let mut outdated = selected.clone();
+        outdated.expected_authority.provider_owner = bob();
+        assert!(outdated.execute(&bob(), &mut stx).is_err());
+        let mut outdated = selected.clone();
+        outdated.expected_assignment_revision += 1;
+        assert!(outdated.execute(&bob(), &mut stx).is_err());
+        let mut outdated = selected.clone();
+        outdated.finalized_anchor.block_hash = [0xEE; 32];
+        assert!(outdated.execute(&bob(), &mut stx).is_err());
         assert_eq!(
             stx.world.replication_orders.get(&selected.order_id),
             Some(&before)

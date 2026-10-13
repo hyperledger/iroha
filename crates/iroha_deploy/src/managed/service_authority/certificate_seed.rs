@@ -52,7 +52,7 @@ impl Drop for ScopeGuard<'_> {
                 .owner
                 .selected
                 .lock()
-                .unwrap_or_else(|e| e.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if selected
                 .as_ref()
                 .is_some_and(|current| Arc::ptr_eq(current, &progress))

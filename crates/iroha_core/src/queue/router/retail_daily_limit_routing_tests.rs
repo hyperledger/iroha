@@ -58,7 +58,7 @@ fn fixture() -> (State, Nexus, KeyPair, RetailDailyLimitPolicyV1) {
         )
         .build(&owner)],
     );
-    let native = &mut world.smart_contract_state_mut_for_testing();
+    let native = world.smart_contract_state_mut_for_testing();
     native.insert(
         crate::state::retail_daily_limit_state::policy_key(
             &policy.asset_definition_id,

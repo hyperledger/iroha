@@ -124,7 +124,7 @@ fn fixture() -> Value {
     })
 }
 
-pub(crate) fn emit() {
+pub fn emit() {
     println!(
         "{}",
         norito::json::to_json(&fixture()).expect("public execute DATA JSON")

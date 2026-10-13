@@ -110,7 +110,7 @@ fn backwards_utc_cannot_extend_retained_renewal_timer_across_a_fresh_observation
         original_utc - 60_000,
         original_utc + 10_000,
         original_utc + 120_000,
-        mono - Duration::from_secs(7),
+        mono.checked_sub(Duration::from_secs(7)).unwrap(),
         original_utc,
     )
     .unwrap();

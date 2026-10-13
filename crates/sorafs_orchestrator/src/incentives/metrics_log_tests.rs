@@ -585,3 +585,54 @@ fn metrics_log_writer_preflights_full_canonical_output() {
         );
     }
 }
+
+#[test]
+fn reward_config_retains_original_metrics_open_path_and_filesystem_cause() {
+    use std::error::Error as _;
+
+    let temp = tempdir().unwrap();
+    let occupied = temp.path().join("occupied");
+    std::fs::write(&occupied, b"existing file").unwrap();
+    let mut config = engine(500, 500, 0).config().clone();
+    let requested = occupied.join("metrics.log");
+    config.metrics_log_path = Some(requested.clone());
+    let error = RelayRewardEngine::new(config.clone()).unwrap_err();
+    assert!(error.to_string().contains(&format!("{requested:?}")));
+    let RewardConfigError::MetricsLog { path, source } = error else {
+        panic!("expected original log-opening failure");
+    };
+    assert_eq!(path, requested);
+    assert!(
+        source
+            .source()
+            .unwrap()
+            .downcast_ref::<io::Error>()
+            .is_some()
+    );
+    let MetricsLogOpenError::CreateDir { path, source } = source else {
+        panic!("expected failed parent-directory creation");
+    };
+    assert_eq!(path, occupied);
+    let expected = std::fs::create_dir_all(&occupied).unwrap_err();
+    assert_eq!(source.kind(), expected.kind());
+    assert_eq!(source.raw_os_error(), expected.raw_os_error());
+
+    config.metrics_log_path = Some(temp.path().to_path_buf());
+    let error = RelayRewardEngine::new(config).unwrap_err();
+    let RewardConfigError::MetricsLog { path, source } = error else {
+        panic!("expected log file open failure");
+    };
+    assert_eq!(path, temp.path());
+    let MetricsLogOpenError::Open { path, source } = source else {
+        panic!("expected failed log file open");
+    };
+    assert_eq!(path, temp.path());
+    let expected = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(temp.path())
+        .unwrap_err();
+    assert_eq!(source.kind(), expected.kind());
+    assert_eq!(source.raw_os_error(), expected.raw_os_error());
+    assert_eq!(std::fs::read(occupied).unwrap(), b"existing file");
+}

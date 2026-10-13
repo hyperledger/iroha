@@ -292,8 +292,8 @@ fn ensure_private_instruction(
     })?;
     let parameter = instruction.as_any().is::<SetParameter>();
     if target.dataspace.is_some_and(|target| target != dataspace)
-        || target.global && !(bootstrap && parameter)
-        || parameter && !bootstrap
+        || target.global && !parameter
+        || !bootstrap && parameter
     {
         return Err(denied(
             "private root cannot execute foreign or global-control instructions",

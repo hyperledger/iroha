@@ -201,9 +201,7 @@ fn lifecycle_rejects_replayed_payload_hash() {
     let first = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.002",
-        None,
-        Some("status-1".to_owned()),
-        None,
+        (None, Some("status-1".to_owned()), None),
         "same-payload-hash".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -211,9 +209,7 @@ fn lifecycle_rejects_replayed_payload_hash() {
     let replay = IsoMessageMetadata::inbound(
         "generic-iso20022",
         "pacs.002",
-        None,
-        Some("status-2".to_owned()),
-        None,
+        (None, Some("status-2".to_owned()), None),
         "same-payload-hash".to_owned(),
         "snapshot".to_owned(),
         false,
@@ -274,9 +270,11 @@ fn lifecycle_profile_mismatch_does_not_mutate_original() {
     let lifecycle_metadata = IsoMessageMetadata::inbound(
         "swift-cbpr-plus",
         "pacs.002",
-        Some("swift.cbprplus.02".to_owned()),
-        Some("profile-status-biz".to_owned()),
-        None,
+        (
+            Some("swift.cbprplus.02".to_owned()),
+            Some("profile-status-biz".to_owned()),
+            None,
+        ),
         "profile-status-payload".to_owned(),
         "snapshot".to_owned(),
         false,

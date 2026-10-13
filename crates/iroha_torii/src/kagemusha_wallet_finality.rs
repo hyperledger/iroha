@@ -28,7 +28,7 @@ use iroha_model_base::peer::PeerId;
 
 /// Original decode refusal stays typed until the HTTP transport boundary renders a response.
 #[derive(Debug, thiserror::Error)]
-pub(super) enum Error {
+pub enum Error {
     /// Availability, shape or bounded transport refusal.
     #[error("{0}")]
     Unavailable(&'static str),
@@ -187,7 +187,7 @@ fn response_frame<T: norito::core::NoritoSerialize>(
 }
 
 /// Read exactly one named boundary as DATA; no source-supplied successor is followed.
-pub(super) fn epoch(
+pub fn epoch(
     view: &StateView<'_>,
     payer: &AccountId,
     receipt: &KagemushaWalletLoadReceiptV1,
@@ -218,7 +218,7 @@ pub(super) fn epoch(
 
 /// Return only the receipt certificate and counted event path as untrusted DATA.
 /// The phone must authenticate its retained epoch and BLS certificate before Advance.
-pub(super) fn evidence(
+pub fn evidence(
     view: &StateView<'_>,
     source: &CommittedLoadReceipts<'_, '_>,
     payer: &AccountId,
@@ -267,7 +267,7 @@ pub(super) fn evidence(
 mod tests {
     use super::*;
     use iroha_core::{
-        state::{StateReadOnly as _, World},
+        state::World,
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_crypto::{Algorithm, KeyPair};

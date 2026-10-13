@@ -297,7 +297,10 @@ fn capture_rejects_unsealed_replaced_contexts_and_changed_source_caches() {
                 seal_native_source(&mut block, &mut native_source).unwrap();
 
                 match mutation {
-                    0 => block.fastpq_source_captures = Default::default(),
+                    0 => {
+                        block.fastpq_source_captures =
+                            crate::fastpq::FastpqSourceCaptureAccumulator::default()
+                    }
                     1 => block.fastpq_source_context = None,
                     2 => {
                         Arc::make_mut(block.fastpq_source_context.as_mut().unwrap())

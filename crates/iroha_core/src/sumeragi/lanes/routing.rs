@@ -71,6 +71,11 @@ impl<W: WorldReadOnly> RoutingInputs<'_, W> {
     /// The sole execution route of a transaction at the next global height.
     /// Lane zero owns the signed root scope; another lane keeps its original record's
     /// dataspace even when the global chain rescues the transaction directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn execution_route(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -121,6 +126,11 @@ impl<W: WorldReadOnly> RoutingInputs<'_, W> {
 
     /// The lane of `tx` at global height `height`. An unresolved or inactive concrete
     /// dataspace fails closed; it must never be executed in the universal dataspace.
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn route(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -245,6 +255,11 @@ pub struct RoutingSnapshot {
 
 impl RoutingSnapshot {
     /// The routing inputs of the committed state `view` (for the height after its tip).
+    ///
+    /// # Errors
+    ///
+    /// Returns the original resource deferral if reading the committed routing
+    /// authority cannot complete.
     pub fn of(
         view: &impl StateReadOnly,
     ) -> Result<Self, crate::execution_attempt::ExecutionDeferred> {

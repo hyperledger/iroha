@@ -706,10 +706,10 @@ impl Desktop {
         self.workspace = Some(opened.workspace);
         self.names = opened.names;
         self.profiles = opened.profiles;
-        if let Ok(profiles) = &self.profiles {
-            if !profiles.contains(&self.private_network) {
-                self.private_network = profiles.first().cloned().unwrap_or_default();
-            }
+        if let Ok(profiles) = &self.profiles
+            && !profiles.contains(&self.private_network)
+        {
+            self.private_network = profiles.first().cloned().unwrap_or_default();
         }
         match opened.selected {
             Ok(Some(selected)) => self.install_selection(selected),
@@ -968,10 +968,10 @@ impl Desktop {
                             ui.selectable_value(&mut chosen, Some(name.clone()), name);
                         }
                     });
-                if chosen != selected {
-                    if let Some(name) = chosen {
-                        self.select(name);
-                    }
+                if chosen != selected
+                    && let Some(name) = chosen
+                {
+                    self.select(name);
                 }
                 if self.selected.is_none() {
                     ui.add(
@@ -1193,15 +1193,15 @@ impl Desktop {
                         ui.label(&entry.subtitle);
                         ui.label(&entry.detail);
                         ui.horizontal(|ui| {
-                            if let Some(json) = &entry.json {
-                                if ui.button("Copy JSON").clicked() {
-                                    ui.ctx().copy_text(json.clone());
-                                }
+                            if let Some(json) = &entry.json
+                                && ui.button("Copy JSON").clicked()
+                            {
+                                ui.ctx().copy_text(json.clone());
                             }
-                            if let Some(bytes) = &entry.norito_bytes {
-                                if ui.button("Copy Norito hex").clicked() {
-                                    ui.ctx().copy_text(hex::encode(bytes));
-                                }
+                            if let Some(bytes) = &entry.norito_bytes
+                                && ui.button("Copy Norito hex").clicked()
+                            {
+                                ui.ctx().copy_text(hex::encode(bytes));
                             }
                         });
                         ui.monospace(entry.json.as_deref().unwrap_or(&entry.raw));
@@ -1257,20 +1257,18 @@ impl Desktop {
                     egui::Button::new("Read latest logs"),
                 )
                 .clicked()
-            {
-                if let (Some(workspace), Some(selected)) =
+                && let (Some(workspace), Some(selected)) =
                     (self.workspace.clone(), self.selected.as_ref())
-                {
-                    let name = selected.network.prepared().context.name.clone();
-                    let peer = self.peer;
-                    self.spawn(move || {
-                        Message::Logs(
-                            workspace
-                                .logs(&name, Some(peer), 64 * 1024)
-                                .map_err(|e| e.to_string()),
-                        )
-                    });
-                }
+            {
+                let name = selected.network.prepared().context.name.clone();
+                let peer = self.peer;
+                self.spawn(move || {
+                    Message::Logs(
+                        workspace
+                            .logs(&name, Some(peer), 64 * 1024)
+                            .map_err(|e| e.to_string()),
+                    )
+                });
             }
         });
         ui.add(
@@ -1365,18 +1363,17 @@ impl Desktop {
                 egui::Button::new("Review transaction"),
             )
             .clicked()
+            && let Some(selected) = &self.selected
         {
-            if let Some(selected) = &self.selected {
-                match drafts_from_json_str(&self.drafts)
-                    .map_err(|e| e.to_string())
-                    .and_then(|drafts| selected.network.preview(&drafts).map_err(|e| e.to_string()))
-                {
-                    Ok(preview) => {
-                        self.preview = Some(preview);
-                        self.submitted_hash = None;
-                    }
-                    Err(error) => self.error = Some(error),
+            match drafts_from_json_str(&self.drafts)
+                .map_err(|e| e.to_string())
+                .and_then(|drafts| selected.network.preview(&drafts).map_err(|e| e.to_string()))
+            {
+                Ok(preview) => {
+                    self.preview = Some(preview);
+                    self.submitted_hash = None;
                 }
+                Err(error) => self.error = Some(error),
             }
         }
         if let Some(preview) = &self.preview {
@@ -1395,18 +1392,17 @@ impl Desktop {
                     egui::Button::new("Submit reviewed transaction"),
                 )
                 .clicked()
-            {
-                if let (Some(selected), Some(handle)) = (
+                && let (Some(selected), Some(handle)) = (
                     &self.selected,
                     self.runtime.as_ref().map(|r| r.handle().clone()),
-                ) {
-                    let network = selected.network.clone();
-                    let peer = self.peer;
-                    let preview = preview.clone();
-                    self.submitted_hash = Some(preview.hash().to_owned());
-                    self.spawn(move || Message::Submitted(handle.block_on(network.submit(peer, &preview)).map(|commit| format!("Applied {} in block {}", preview.hash(), commit.block_height))
+                )
+            {
+                let network = selected.network.clone();
+                let peer = self.peer;
+                let preview = preview.clone();
+                self.submitted_hash = Some(preview.hash().to_owned());
+                self.spawn(move || Message::Submitted(handle.block_on(network.submit(peer, &preview)).map(|commit| format!("Applied {} in block {}", preview.hash(), commit.block_height))
                         .map_err(|e| format!("Transaction {}: {e}. Keep this original hash when checking an uncertain outcome.", preview.hash()))));
-                }
             }
         }
     }
@@ -1634,10 +1630,10 @@ impl Desktop {
                 }
             });
         });
-        if let Some(accepted) = decision {
-            if let Some(review) = self.review.take() {
-                let _ = review.decision.send(accepted);
-            }
+        if let Some(accepted) = decision
+            && let Some(review) = self.review.take()
+        {
+            let _ = review.decision.send(accepted);
         }
     }
 
@@ -1738,12 +1734,12 @@ impl Desktop {
                 });
             });
         }
-        if let Some(dialog) = &mut self.localnet_dialog {
-            if let Some(action) = dialog.show(context, &self.names, self.busy) {
-                self.localnet_dialog = None;
-                if let LocalnetDialogAction::Start(name) = action {
-                    self.start_localnet(name);
-                }
+        if let Some(dialog) = &mut self.localnet_dialog
+            && let Some(action) = dialog.show(context, &self.names, self.busy)
+        {
+            self.localnet_dialog = None;
+            if let LocalnetDialogAction::Start(name) = action {
+                self.start_localnet(name);
             }
         }
         self.private_dataspace_dialog(context);

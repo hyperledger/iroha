@@ -227,8 +227,8 @@ pub enum SingularQueryJson {
     },
     /// Looks up one immutable native settlement business receipt.
     FindSettlementReceiptById {
-        /// Exact committed business settlement identifier.
-        id: String,
+        /// Exact owner-qualified committed business settlement identifier.
+        id: crate::isi::SettlementId,
     },
     /// Fetches the complete protected native FX corridor policy registry.
     FindFxCorridorPolicyRegistry,
@@ -298,10 +298,9 @@ impl SingularQueryJson {
         if payload.len() != 1 || !payload.contains_key("id") {
             return Err(QueryJsonError::InvalidField("payload", "id"));
         }
-        let id = payload_required_string(payload, "id")?;
-        id.parse::<crate::isi::SettlementId>()
+        let id = json::from_value::<crate::isi::SettlementId>(payload["id"].clone())
             .map_err(|_| QueryJsonError::InvalidField("payload", "id"))?;
-        Ok(Self::FindSettlementReceiptById { id: id.to_owned() })
+        Ok(Self::FindSettlementReceiptById { id })
     }
     fn parse_fx_corridor_policy_by_id(payload: &Map) -> Result<Self, QueryJsonError> {
         Ok(Self::FindFxCorridorPolicyById {
@@ -458,11 +457,17 @@ impl SingularQueryJson {
                 );
                 map.insert("payload".to_owned(), Value::Object(payload));
             }
-            Self::FindTriggerById { id }
-            | Self::FindFeeSponsorProgramById { id }
-            | Self::FindSettlementReceiptById { id } => {
+            Self::FindTriggerById { id } | Self::FindFeeSponsorProgramById { id } => {
                 let mut payload = Map::new();
                 payload.insert("id".to_owned(), Value::String(id.clone()));
+                map.insert("payload".to_owned(), Value::Object(payload));
+            }
+            Self::FindSettlementReceiptById { id } => {
+                let mut payload = Map::new();
+                payload.insert(
+                    "id".to_owned(),
+                    json::to_value(id).expect("settlement id serializes"),
+                );
                 map.insert("payload".to_owned(), Value::Object(payload));
             }
             Self::FindFxCorridorPolicyById { policy_id } => {
@@ -701,9 +706,6 @@ impl SingularQueryJson {
                 ))
             }
             SingularQueryJson::FindSettlementReceiptById { id } => {
-                let id = id
-                    .parse::<crate::isi::SettlementId>()
-                    .map_err(|_| QueryJsonError::InvalidField("payload", "id"))?;
                 Ok(SingularQueryBox::FindSettlementReceiptById(
                     crate::query::settlement::FindSettlementReceiptById::new(id),
                 ))
@@ -1878,9 +1880,15 @@ mod settlement_receipt_query_tests {
 
     #[test]
     fn settlement_receipt_query_json_is_exact_and_roundtrips() {
-        let source = SingularQueryJson::FindSettlementReceiptById {
-            id: "business_receipt".to_owned(),
-        };
+        let id = crate::isi::SettlementId::new(
+            crate::account::AccountId::new(
+                iroha_crypto::KeyPair::from_seed(vec![81; 32], iroha_crypto::Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            ),
+            "business_receipt".parse().unwrap(),
+        );
+        let source = SingularQueryJson::FindSettlementReceiptById { id: id.clone() };
         let value = source.to_value();
         assert_eq!(
             SingularQueryJson::from_value(&value).expect("exact query"),
@@ -1890,7 +1898,7 @@ mod settlement_receipt_query_tests {
         let SingularQueryBox::FindSettlementReceiptById(query) = boxed else {
             panic!("exact variant");
         };
-        assert_eq!(query.id.to_string(), "business_receipt");
+        assert_eq!(query.id, id);
         let frame = norito::encode_canonical(&query).expect("query frame");
         let decoded: crate::query::settlement::FindSettlementReceiptById =
             norito::decode_from_bytes(&frame).expect("typed query decode");

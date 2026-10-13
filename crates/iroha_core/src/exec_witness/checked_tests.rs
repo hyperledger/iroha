@@ -66,7 +66,7 @@ fn checked_drain_validates_raw_map_under_lock_before_returning_exact_content() {
     record_marker();
     let map_address: *const BTreeMap<Hash, Vec<TransferTranscript>> = {
         let g = lock_slot();
-        &g.fastpq_transcripts
+        &raw const g.fastpq_transcripts
     };
     let mut calls = 0;
     let witness = drain_exec_witness_checked(|raw| {

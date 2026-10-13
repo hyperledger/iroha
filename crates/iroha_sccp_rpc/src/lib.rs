@@ -8,7 +8,9 @@
 //!   secret headers;
 //! - blocking HTTP over rustls with one wall-clock deadline per attempt, and
 //!   `norito::json` parsing under per-route byte caps and decode limits
-//!   ([`limits`]);
+//!   ([`limits`]); receipt proofs instead decode JSON incrementally into a bounded
+//!   canonical RLP spool, retaining unrelated leaf hashes rather than receipt graphs.
+//!   The configured whole-response ceiling and attempt deadline still apply;
 //! - EVM JSON-RPC, the beacon light-client API and a TON ADNL-TCP liteclient;
 //! - builders for light-client advances, backfills, bootstraps, inbound
 //!   proofs and void proofs.
@@ -30,3 +32,6 @@ pub use beacon::BeaconClient;
 pub use endpoints::{Backoff, EndpointSet, FailoverPolicy, HttpEndpointKind, PollBudget};
 pub use evm::EvmClient;
 pub use http::{HttpConfig, HttpTransport, RpcError};
+
+mod receipt_stream;
+mod receipt_trie;

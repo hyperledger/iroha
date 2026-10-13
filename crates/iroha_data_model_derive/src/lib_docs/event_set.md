@@ -18,6 +18,11 @@ pub struct AnotherEvent;
 
 The macro will generate a `TestEventSet` struct.
 
+Enums with up to 32 variants use a `u32` bitmap; enums with 33–64 variants
+use a `u64` bitmap. More than 64 variants are rejected. The generated schema
+reports that exact integer representation. Adding the 33rd event therefore
+changes the set's binary layout and requires updating its wire fixtures.
+
 Every caller declares the generated set's own nominal Norito identity with
 `#[event_set(schema_name = "...")]`. The identity must be a nonempty string
 literal without surrounding whitespace or control characters. Missing,

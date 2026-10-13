@@ -19,7 +19,7 @@ use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 /// Original outer HTTP deadline, captured before route admission or physical work.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct RouteExecutionDeadline(pub(crate) Instant);
+pub struct RouteExecutionDeadline(pub(crate) Instant);
 
 struct CancelOnDrop {
     // Retire the charged control before the last original query credit, including
@@ -51,7 +51,7 @@ impl CancelOnDrop {
 
 /// Current single-proof and interval responses share one actual native producer.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Selection {
+pub enum Selection {
     /// Preserve the existing standalone canonical proof response shape.
     Single(u64),
     /// Retain at most 64 consecutive canonical proofs without another response graph.
@@ -82,7 +82,7 @@ impl Selection {
 }
 
 /// Exact body extent accompanies the already prepaid HTTP source; no collection follows.
-pub(crate) struct PreparedResponse {
+pub struct PreparedResponse {
     /// Already admitted canonical body retaining its original query owner.
     pub(crate) response: AxResponse,
     /// Complete encoded HTTP content extent, including canonical outer framing.
@@ -111,12 +111,14 @@ fn source_error(error: FinalityProofIntervalReadError) -> Error {
                 message: "The original State publication has not completed.".to_owned(),
             }
         }
-        FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Backing(_))
-        | FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Destination(
-            ProofDestinationError::Admission(_)
-            | ProofDestinationError::Buffer(_)
-            | ProofDestinationError::Key(_),
-        )) => native_projection_response::capacity(),
+        FinalityProofIntervalReadError::Proof(
+            NativeFinalityProofIntervalError::Backing(_)
+            | NativeFinalityProofIntervalError::Destination(
+                ProofDestinationError::Admission(_)
+                | ProofDestinationError::Buffer(_)
+                | ProofDestinationError::Key(_),
+            ),
+        ) => native_projection_response::capacity(),
         FinalityProofIntervalReadError::Proof(NativeFinalityProofIntervalError::Proof(
             iroha_core::sumeragi::finality::ProofError::Deferred(original),
         )) => canonical_history::query_attempt_error(
@@ -192,7 +194,7 @@ impl norito::json::JsonSerialize for BorrowedInterval<'_> {
 }
 
 /// Produce and encode under the original physical worker, response and deadline owners.
-pub(crate) async fn prepare(
+pub async fn prepare(
     state: Arc<CoreState>,
     selection: Selection,
     format: ResponseFormat,
@@ -272,7 +274,8 @@ pub(crate) async fn prepare(
     .await
 }
 
-async fn run_with_stop<T, F>(
+/// Run finite native proof production under one physical admission and cancellation owner.
+pub async fn run_with_stop<T, F>(
     admission: QueryAdmissionPermit,
     owner: history_producer::HistoryProducerOwner,
     work: F,

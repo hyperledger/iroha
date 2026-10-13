@@ -7,7 +7,7 @@ fn session_for_generation(
     generation: u64,
 ) -> (RetainedFinalizedGlobalThresholdBeaconSessionV1, Vec<PeerId>) {
     let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
-    let peers = authority.validators.iter().cloned().collect::<Vec<_>>();
+    let peers = authority.validators.clone();
     let session_id = *Hash::new_from_chunks(&[
         b"committee-generation-binding-test",
         &generation.to_le_bytes(),
@@ -21,8 +21,8 @@ fn session_for_generation(
             attempt_id: session_id,
             authority_generation: generation,
             roster_hash: crate::beacon::global_threshold_beacon_roster_hash_v1(&peers),
-            committee_size: peers.len() as u16,
-            threshold: ((peers.len() - 1) / 3 + 1) as u16,
+            committee_size: u16::try_from(peers.len()).expect("fixture value fits u16"),
+            threshold: u16::try_from((peers.len() - 1) / 3 + 1).expect("fixture value fits u16"),
             start_height: 1,
             commitments_end_height: 2,
             deliveries_end_height: 3,

@@ -138,10 +138,11 @@ impl Pool {
         if bytes == 0 {
             return;
         }
-        // Credits become reusable immediately, even if this thread must defer
-        // notification until its physical writer guards have been released.
+        // Credits and callback-free thread retries become available immediately.
+        // Arbitrary callbacks still wait for this thread's physical writer guards.
         let previous = self.reserved.fetch_sub(bytes, Ordering::AcqRel);
         debug_assert!(previous >= bytes, "allocation custody cannot refund twice");
+        self.released.capacity_returned();
         self.notify_refund();
     }
 
@@ -305,6 +306,47 @@ pub struct OwnedAllocationScope {
 }
 
 impl OwnedAllocationScope {
+    /// Allocate the original scope control from an already retained exact charge.
+    /// A foreign or wrong-layout charge is returned before allocator work; an
+    /// allocator refusal returns that same charge without linking any TLS scope.
+    ///
+    /// # Errors
+    /// Returns unchanged charge custody and the precise local refusal.
+    pub fn try_from_charge(
+        budget: &AllocationBudget,
+        charge: AllocationCharge,
+    ) -> Result<Self, (AllocationCharge, OwnedScopeError)> {
+        if !charge.belongs_to(budget) {
+            return Err((charge, OwnedScopeError::ForeignPool));
+        }
+        let expected = Self::allocation_layout();
+        if charge.layout() != expected {
+            let actual = charge.layout();
+            return Err((charge, OwnedScopeError::LayoutMismatch { expected, actual }));
+        }
+        let control = crate::shared::Shared::try_new(
+            OwnedRefundControl {
+                record: RefundScope::new(&budget.pool, ptr::null()),
+                active_owners: AtomicUsize::new(0),
+            },
+            charge,
+        )
+        .map_err(|(_record, charge, error)| {
+            (
+                charge,
+                OwnedScopeError::Allocator {
+                    layout: error.layout(),
+                },
+            )
+        })?;
+        let control = AllocationScopeControl {
+            control,
+            budget: budget.clone(),
+        };
+        Ok(control
+            .try_activate()
+            .expect("new original control is inactive"))
+    }
     /// Exact original allocation retained until the last active or inactive owner releases.
     pub fn allocation_layout() -> Layout {
         crate::shared::Shared::<OwnedRefundControl, AllocationCharge>::layout()
@@ -352,8 +394,35 @@ impl Clone for OwnedAllocationScope {
     }
 }
 
+/// Local refusal constructing an original prepaid refund-scope control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnedScopeError {
+    /// The offered charge belongs to another original pool.
+    ForeignPool,
+    /// The offered charge does not describe this exact physical control.
+    LayoutMismatch {
+        /// Actual required control layout.
+        expected: Layout,
+        /// Offered original charge layout.
+        actual: Layout,
+    },
+    /// The allocator refused the already admitted control layout.
+    Allocator {
+        /// Original requested layout.
+        layout: Layout,
+    },
+}
+
 impl Drop for OwnedAllocationScope {
     fn drop(&mut self) {
+        struct Deactivate<'a>(&'a AtomicUsize);
+        impl Drop for Deactivate<'_> {
+            fn drop(&mut self) {
+                // Callback unwind has already drained the original cohort.
+                // A new activation acquires all previous record operations.
+                self.0.store(0, Ordering::Release);
+            }
+        }
         let control = &self.control.control;
         let count = control.active_owners.load(Ordering::Relaxed);
         if count > 1 {
@@ -364,14 +433,6 @@ impl Drop for OwnedAllocationScope {
             .active_owners
             .store(REFUND_SCOPE_RETIRING, Ordering::Relaxed);
         control.record.unlink();
-        struct Deactivate<'a>(&'a AtomicUsize);
-        impl Drop for Deactivate<'_> {
-            fn drop(&mut self) {
-                // Callback unwind has already drained the original cohort.
-                // A new activation acquires all previous record operations.
-                self.0.store(0, Ordering::Release);
-            }
-        }
         let _deactivate = Deactivate(&control.active_owners);
         if control.record.pending.load(Ordering::Relaxed) {
             self.control.budget.pool.notify_refund();
@@ -415,7 +476,7 @@ impl AllocationBudget {
                 limit: RwLock::new(limit_bytes),
                 reserved: AtomicUsize::new(0),
                 peak_reserved: AtomicUsize::new(0),
-                released: ReleaseNotification::default(),
+                released: ReleaseNotification::for_capacity(),
             }),
         }
     }
@@ -445,6 +506,7 @@ impl AllocationBudget {
         *limit = limit_bytes;
         drop(limit);
         if grew {
+            self.pool.released.capacity_returned();
             self.pool.notify_refund();
         }
     }
@@ -492,9 +554,11 @@ impl AllocationBudget {
 
     /// Defer this thread's refund notifications through a synchronous operation.
     ///
-    /// Freed allocation credits become available immediately. Only wakes for
-    /// this exact pool wait until the closure returns or unwinds. Nested scopes
-    /// for the same pool coalesce; other pools and other threads notify normally.
+    /// Freed allocation credits become available immediately. Arbitrary task
+    /// callbacks for this exact pool wait until the closure returns or unwinds;
+    /// callback-free native thread parking observes actual returned credits.
+    /// Nested scopes for the same pool coalesce; other pools and other threads
+    /// notify normally.
     /// Entering, recording refunds and leaving the scope allocate no storage.
     /// User waker callbacks can still allocate or panic when notification runs.
     ///

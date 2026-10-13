@@ -57,6 +57,9 @@ use super::{
 };
 use body_history::{BodyHistory, SigningTurn};
 use journal::{Action, Original};
+#[path = "stream_token_custody/initial_admission.rs"]
+mod initial_admission;
+use initial_admission::InitialAdmission;
 #[path = "stream_token_custody/enrollment.rs"]
 mod enrollment;
 #[path = "stream_token_custody/renewal.rs"]
@@ -81,6 +84,10 @@ pub struct ManagedCustodyProgress {
     Clone, Copy, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema,
 )]
 #[norito_schema(name = "iroha_deploy::managed::ManagedCustodyEnrollmentInterval")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "Public absolute timestamps retain explicit Unix-millisecond units"
+)]
 pub struct ManagedCustodyEnrollmentInterval {
     /// Inclusive original beginning of the attester's authorization, in Unix milliseconds.
     pub issued_at_unix_ms: u64,
@@ -90,6 +97,13 @@ pub struct ManagedCustodyEnrollmentInterval {
     pub deadline_unix_ms: u64,
 }
 
+/// Independently selected carrier floor; it is a rejection bound, never completion evidence.
+#[derive(Clone, Copy)]
+pub(in crate::managed) struct EnrollmentFloor {
+    pub height: u64,
+    pub block_hash: [u8; 32],
+}
+
 /// Held native private custody for one generated Global network's Configure and Enroll.
 ///
 /// The generated manager, role signer and attester remain distinct. Opening authenticates the
@@ -97,6 +111,12 @@ pub struct ManagedCustodyEnrollmentInterval {
 /// provisioning. Renewals have separate bounded sequence journals; no original is reset.
 pub struct ManagedStreamTokenCustody {
     authority: ServiceAuthority,
+}
+
+/// Original custody body paired with the purpose selected by its caller.
+struct SelectedCustodyOperation {
+    purpose: CustodyPurpose,
+    original: Selected<Original>,
 }
 
 #[derive(Clone, Copy)]
@@ -183,6 +203,7 @@ impl ManagedStreamTokenCustody {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn open_existing(
         prepared: &PreparedLocalnet,
         provider: iroha_data_model::sorafs::capacity::ProviderId,
@@ -241,7 +262,7 @@ impl ManagedStreamTokenCustody {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("configure")?;
-        let original = self.select_configuration(&directory, policy, options.deadline)?;
+        let (original, _) = self.select_configuration(&directory, policy, options.deadline)?;
         journal::explicit(
             &directory,
             &original,
@@ -252,19 +273,32 @@ impl ManagedStreamTokenCustody {
         )?;
         self.advance_configure(options.deadline)
     }
-    fn select_configuration(
+    fn select_configuration<'a>(
         &mut self,
-        directory: &PrivateDirectory,
+        directory: &'a PrivateDirectory,
         policy: &SignerCustodyPolicyV1,
         deadline: Instant,
-    ) -> Result<Original> {
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        self.select_configuration_using(directory, policy, deadline, Self::observe)
+    }
+    fn select_configuration_using<'a>(
+        &mut self,
+        directory: &'a PrivateDirectory,
+        policy: &SignerCustodyPolicyV1,
+        deadline: Instant,
+        observe: impl FnOnce(
+            &mut Self,
+            &SignerCustodyBindingV1,
+            Instant,
+        ) -> Result<(FinalityVerifier, VerifiedStreamTokenCustodyStateV1)>,
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_configuration(policy)?;
             self.validate_original(&original, CustodyPurpose::Configure)?;
-            return Ok(original);
+            return Ok((original, None));
         }
         require_empty(directory)?;
-        let (verifier, current) = self.observe(&policy.binding, deadline)?;
+        let (verifier, current) = observe(self, &policy.binding, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial custody configuration already exists"));
         }
@@ -274,8 +308,9 @@ impl ManagedStreamTokenCustody {
             checkpoint: checkpoint_bytes(&verifier)?,
         };
         self.validate_original(&original, CustodyPurpose::Configure)?;
-        journal::publish_intent(directory, &original)?;
-        Ok(original)
+        let admission = journal::publish_intent(directory, &original)?
+            .map(|published| InitialAdmission::new(published, verifier, current));
+        Ok((original, admission))
     }
 
     /// Retain an independently attested first body after exact native Configure inclusion.
@@ -298,7 +333,7 @@ impl ManagedStreamTokenCustody {
         }
         let history = if existing
             .as_ref()
-            .is_some_and(|h| h.original().is_ok_and(|o| o.is_some()) && !h.has_pending())
+            .is_some_and(|h| h.original().is_some() && !h.has_pending())
         {
             existing.ok_or_else(|| invalid("selected enrollment absent"))?
         } else {
@@ -390,13 +425,14 @@ impl ManagedStreamTokenCustody {
         }
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("configure")?;
-        let original = self.select_configuration(&directory, policy, deadline)?;
+        let (original, admission) = self.select_configuration(&directory, policy, deadline)?;
         self.select_generated_attempt(
             &directory,
             &original,
             &HistoryScope::FixedBody,
             authorization,
             deadline,
+            admission,
         )?;
         self.advance(
             CustodyPurpose::Configure,
@@ -435,7 +471,7 @@ impl ManagedStreamTokenCustody {
             .as_ref()
             .map(|history| -> Result<bool> {
                 Ok(!history.has_pending()
-                    && history.original()?.is_some()
+                    && history.original().is_some()
                     && (history.preserve_paid_body(self)? || !history.body_expired()?))
             })
             .transpose()?
@@ -471,7 +507,7 @@ impl ManagedStreamTokenCustody {
         };
         authorization.validate(&self.authority, purpose, deadline)?;
         let (directory, original, scope) = history.dispatch()?;
-        self.select_generated_attempt(directory, original, scope, authorization, deadline)?;
+        self.select_generated_attempt(directory, original, scope, authorization, deadline, None)?;
         let selected = history.into_reparsed_selected(self)?;
         self.advance_selected(
             CustodyPurpose::InitialEnroll,
@@ -488,6 +524,7 @@ impl ManagedStreamTokenCustody {
         scope: &HistoryScope,
         authorization: &dyn DispatchAuthorization,
         deadline: Instant,
+        mut admission: Option<InitialAdmission<'_>>,
     ) -> Result<()> {
         let purpose = original.dispatch_purpose()?;
         let account = self.wallet()?;
@@ -496,14 +533,18 @@ impl ManagedStreamTokenCustody {
             Action::Enroll { validity, .. } => Some(validity.expires_at_unix_ms),
         };
         let account = authorization.bind_account(account)?;
-        attempts::generated(
-            directory,
-            purpose,
-            original.digest()?,
-            scope,
-            authorization,
-            deadline,
-            body_expiry,
+        let inspection = body_history::NativeClosureInspector::new(original, &account, deadline);
+        attempts::generated_native(
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: directory,
+                purpose,
+                semantic: original.digest()?,
+                scope,
+                authorization,
+                deadline,
+                body_expiry,
+            },
+            &inspection,
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?
@@ -519,7 +560,9 @@ impl ManagedStreamTokenCustody {
                     .request(attempt.terms(), observation, deadline)?
                     .retain(&account, &attempt.wallet_path())
             },
-            |_, deadline| self.fresh_original_predecessor(original, deadline),
+            |prerequisite, deadline| {
+                self.initial_prerequisite(original, &mut admission, prerequisite, deadline)
+            },
             |attempt| match &original.action {
                 Action::Configure(_) => Ok(true),
                 Action::Enroll { validity, .. } => {
@@ -572,14 +615,14 @@ impl ManagedStreamTokenCustody {
             || historical.context_id() != tip.context_id()
             || !matches_predecessor(
                 &original.selection,
-                historical.current().map(|record| record.record()),
+                historical.current().map(iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCustodyRecordV1::record),
             )
         {
             return Err(ManagedBootstrapFailure::EnrollmentPredecessorChanged.into());
         }
         if !matches_predecessor(
             &original.selection,
-            current.current().map(|record| record.record()),
+            current.current().map(iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCustodyRecordV1::record),
         ) {
             return Err(ManagedBootstrapFailure::EnrollmentPredecessorChanged.into());
         }
@@ -714,16 +757,14 @@ impl ManagedStreamTokenCustody {
         // One recovery may reuse only the existing two exact, validated epoch contexts.
         // Every original source, wallet, carrier and active decode admission remains fresh.
         let mut validation = EpochValidationScope::new();
-        let result = self.recover_selected_with_validation(
+        self.recover_selected_with_validation(
             policy,
             fees,
             deadline,
             purpose,
             mode,
             Some(&mut validation),
-        );
-        drop(validation);
-        result
+        )
     }
 
     fn recover_selected_with_validation(
@@ -885,8 +926,39 @@ impl ManagedStreamTokenCustody {
         deadline: Instant,
         mode: Mode<'_>,
         observe_current: bool,
-        mut validation: Option<&mut EpochValidationScope>,
+        validation: Option<&mut EpochValidationScope>,
     ) -> Result<ManagedCustodyProgress> {
+        self.advance_selected_with_preflight(
+            SelectedCustodyOperation { purpose, original },
+            deadline,
+            mode,
+            observe_current,
+            validation,
+            |owner, binding, deadline| {
+                let observed = owner.authority.observe_finality(deadline)?;
+                let current = owner.read_current(binding, &observed, deadline).ok();
+                Ok((observed, current))
+            },
+        )
+    }
+
+    // One native acquisition seam, shared by production and genuine component mutation tests.
+    // The current predicate, wallets, fees, signing and dispatch remain below this boundary.
+    fn advance_selected_with_preflight(
+        &mut self,
+        operation: SelectedCustodyOperation,
+        deadline: Instant,
+        mode: Mode<'_>,
+        observe_current: bool,
+        mut validation: Option<&mut EpochValidationScope>,
+        preflight: impl FnOnce(
+            &mut Self,
+            &SignerCustodyBindingV1,
+            Instant,
+        )
+            -> Result<(FinalityVerifier, Option<VerifiedStreamTokenCustodyStateV1>)>,
+    ) -> Result<ManagedCustodyProgress> {
+        let SelectedCustodyOperation { purpose, original } = operation;
         let directory = original.directory();
         self.validate_original_with_imports(
             &original,
@@ -930,7 +1002,7 @@ impl ManagedStreamTokenCustody {
             && let Some(finalized) = {
                 let mut imports =
                     CheckpointImports::new(&self.authority, validation.as_deref_mut());
-                imports.retained_finality(&directory, transaction)?
+                imports.retained_finality(directory, transaction)?
             }
         {
             // Immutable original inclusion survives a current peer/quorum outage. Freshness
@@ -988,14 +1060,18 @@ impl ManagedStreamTokenCustody {
                 current,
             });
         }
-        let observed = self.authority.observe_finality(deadline)?;
-        let current = self
-            .read_current(&original.selection.binding, &observed, deadline)
-            .ok();
+        // Read-only signed recovery has no preparation or dispatch effect for this predecessor
+        // preflight to authorize. Its fresh post-resume carrier and current proofs stay separate.
+        let (_preflight_observation, current) = if mode.submits() {
+            let (observed, current) = preflight(self, &original.selection.binding, deadline)?;
+            (Some(observed), current)
+        } else {
+            (None, None)
+        };
         let unchanged = current.as_ref().is_some_and(|state| {
             matches_predecessor(
                 &original.selection,
-                state.current().map(|current| current.record()),
+                state.current().map(iroha_data_model::sorafs::stream_token_custody::proof::VerifiedStreamTokenCustodyRecordV1::record),
             )
         });
         if needs_prepare {
@@ -1029,7 +1105,7 @@ impl ManagedStreamTokenCustody {
         verify_custody()?;
         let transaction = match retained_transaction {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let mut report = match original.request(deadline)? {
             journal::Request::Configure(request) => {
@@ -1064,8 +1140,8 @@ impl ManagedStreamTokenCustody {
         }
         verify_custody()?;
         let finalized = if let Some(retained) = {
-            let mut imports = CheckpointImports::new(&self.authority, validation.as_deref_mut());
-            imports.retained_finality(&directory, &transaction)?
+            let mut imports = CheckpointImports::new(&self.authority, validation);
+            imports.retained_finality(directory, &transaction)?
         } {
             Some(retained)
         } else {
@@ -1076,7 +1152,7 @@ impl ManagedStreamTokenCustody {
                 ServiceAuthority::observe_finality,
                 |authority, observed, deadline| {
                     authority.advance_carrier(
-                        &directory,
+                        directory,
                         &original.checkpoint,
                         &transaction,
                         &report,
@@ -1096,6 +1172,7 @@ impl ManagedStreamTokenCustody {
             None
         };
         verify_custody()?;
+        drop(original);
         Ok(ManagedCustodyProgress {
             transaction_status: report.status,
             finalized,
@@ -1179,12 +1256,13 @@ impl ManagedStreamTokenCustody {
                 account.verify_stream_token_custody_enroll_journal(&path, &request)
             }
         }
-        .map_err(|_error| {
+        .map_err(|error| {
             #[cfg(test)]
             crate::managed::native_operation::deadline_diagnostics::wallet_error(
                 "wallet signed journal verification",
-                &_error,
+                &error,
             );
+            drop(error);
             invalid("custody wallet differs from original request")
         })
     }
@@ -1284,20 +1362,20 @@ fn matches_predecessor(
         &iroha_data_model::sorafs::stream_token_custody::StreamTokenCustodyControlRecordV1,
     >,
 ) -> bool {
-    match current {
-        None => {
+    current.map_or_else(
+        || {
             selection.current.is_none()
                 && selection.expected_revision == 0
                 && selection.expected_digest == [0; 32]
-        }
-        Some(current) => {
+        },
+        |current| {
             selection.current.as_ref() == Some(current)
                 && selection.expected_revision == current.revision
                 && current
                     .canonical_digest()
                     .is_ok_and(|digest| digest == selection.expected_digest)
-        }
-    }
+        },
+    )
 }
 
 fn validate_interval(interval: ManagedCustodyEnrollmentInterval, now: u64) -> Result<()> {
@@ -1350,3 +1428,7 @@ mod borrowed_tip_tests;
 #[cfg(test)]
 #[path = "stream_token_custody/enrollment_inventory_tests.rs"]
 mod enrollment_inventory_tests;
+
+#[cfg(test)]
+#[path = "stream_token_custody/initial_admission_tests.rs"]
+mod initial_admission_tests;

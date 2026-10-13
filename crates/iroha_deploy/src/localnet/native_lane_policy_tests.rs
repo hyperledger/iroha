@@ -121,7 +121,7 @@ fn generated_taira_genesis_signs_one_lane_policy_for_every_catalog_lane() {
     let topology = manifest
         .transactions()
         .iter()
-        .flat_map(|tx| tx.topology())
+        .flat_map(iroha_genesis::RawGenesisTx::topology)
         .map(|entry| {
             (
                 entry.peer.clone(),
@@ -213,7 +213,7 @@ fn generated_taira_genesis_admits_the_public_bpng_dataspace() {
         .expect("bound Taira genesis")
         .transactions()
         .iter()
-        .flat_map(|tx| tx.topology())
+        .flat_map(iroha_genesis::RawGenesisTx::topology)
         .map(|entry| entry.peer.clone())
         .collect::<Vec<_>>();
     roster.sort();

@@ -7,8 +7,8 @@ calldata committees) unless marked `ton` (one certificate per `sccp_checkpoint`
 message, keys in storage, three checkpoint slots, `next_keys`).
 
 A TON-flavored scenario runs on the TON route: Taira's leaves target
-`ton-mainnet`, the destination word is the minter account id (a placeholder,
-`TON_DESTINATION_WORD`) and recipients are 36-byte TON accounts. A real minter
+`ton-mainnet`, the destination word is the harness-installed minter account id
+(`TON_DESTINATION_WORD`) and recipients are 36-byte TON accounts. A real minter
 computes its lane and its word from its own chain and address, so a row on any
 other route could not be replayed against it.
 
@@ -57,7 +57,8 @@ PIN_START = 1000
 EVM_DESTINATION_WORD = bytes(12) + rep(0x22, 20)
 RECIPIENT = rep(0x44, 20)
 # The TON route of the TON-flavored scenarios. The destination word of a minter is its account id, which its
-# StateInit fixes; this one is a placeholder (`control_v1.json` lists the same value under `destination_words`).
+# StateInit fixes; the Acton harness installs its fixture minter at this account id
+# (`control_v1.json` lists the same value under `destination_words`).
 TON_DESTINATION_WORD = rep(0x35)
 # A TON recipient: `addr_std` in workchain 0 (`be32(0) ‖ account_id`).
 TON_RECIPIENT = bytes(4) + rep(0x44, 32)
@@ -1115,7 +1116,7 @@ def build() -> dict:
         "point, or the TON message of §5.3.2 (`ton_call_names`). An EVM scenario runs on ethereum-mainnet with the "
         "destination word word(0x22…22) and 20-byte recipients. A TON scenario runs on ton-mainnet: Taira's leaves "
         "use lane_bytes(sora-taira, ton-mainnet), recipients are 36-byte accounts of workchain 0, and the destination "
-        "word is the placeholder minter account id 0x35…35. Events list "
+        "word is the harness-installed minter account id 0x35…35. Events list "
         "the SCCP events only (the ERC-20 Transfer of a mint is implied). "
         "`state_after.checkpoints` is a set (sorted by height for readability). `ton_replayable` marks EVM scenarios "
         "that a TON harness replays as one sccp_checkpoint message per step (using each certificate's `ton` form and "
@@ -1176,17 +1177,15 @@ def build() -> dict:
         "committees": {name: committees[name].as_json() for name in sorted(committees, key=lambda n: int(n[1:]))},
         "certificates": pool.entries,
         "scenarios": rendered,
-        "todo": [
-            "TODO(TON contract work package): TON finalize and void rows through the bucket round trip (§5.3.4) are not "
-            "modelled. The ton_* scenarios contain only steps the minter decides alone: checkpoints, controls, and "
-            "finalize, void and voidFrozen steps that it refuses before any bucket message",
-            "TODO(TON contract work package): the TON destination word 0x35…35 is a placeholder account id. The "
-            "refusals of the ton_* scenarios do not depend on it; the applied controls of "
-            "ton_checkpoint_use_after_rotation and ton_same_height_block_ref_with_history do (their leaves commit to "
-            "the word), so the Acton harness either installs the minter at that account id or the rows are "
-            "regenerated with the address its StateInit gives",
-            "TODO(TON contract work package): the Acton harness confirms that BLS_FASTAGGREGATEVERIFY refuses a signer "
-            "key that is no canonical point, is the identity or lies outside G1 (error_choices."
-            "ton_signer_key_refused_by_the_opcode); until then no TON row pins those inputs",
+        "model_scope": [
+            "TON finalize and void bucket round trips and bounce recovery (§5.3.4) are covered by the Acton "
+            "contract harness. These atomic-model ton_* scenarios contain only steps the minter decides alone: "
+            "checkpoints, controls, and finalize, void and voidFrozen steps that it refuses before any bucket message",
+            "The Acton harness installs the minter at account id 0x35…35 in workchain 0. The applied controls of "
+            "ton_checkpoint_use_after_rotation and ton_same_height_block_ref_with_history commit to that "
+            "destination word in their leaves",
+            "The Acton harness and finality_v1.json pin BadSignature when BLS_FASTAGGREGATEVERIFY refuses a signer "
+            "key that is no canonical point, is the identity or lies outside G1 "
+            "(error_choices.ton_signer_key_refused_by_the_opcode)",
         ],
     }

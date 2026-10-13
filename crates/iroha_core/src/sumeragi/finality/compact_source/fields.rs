@@ -2,6 +2,8 @@
 
 use std::convert::Infallible;
 
+use iroha_crypto::Hash;
+
 use iroha_data_model::{
     block::{
         BlockHeader, BlockPayload, BlockResult, BlockSignatures, CommitCertificate, SignedBlock,
@@ -28,6 +30,7 @@ pub(super) const SCRATCH_BYTES: usize = super::MAX_COMMIT_CERTIFICATE_BYTES_V1;
 pub(super) struct Selected<'a> {
     pub(super) header: BlockHeader,
     pub(super) components: [&'a [u8]; 3],
+    pub(super) executed_wire_identity: (u64, Hash),
 }
 
 pub(super) fn select(bytes: &[u8]) -> std::result::Result<Selected<'_>, norito::Error> {
@@ -52,6 +55,7 @@ fn select_fields(bytes: &[u8]) -> std::result::Result<Selected<'_>, norito::Erro
         source: bytes,
         header: None,
         components: None,
+        execution_fields: [None; 3],
     };
     archive.decode_exact_with::<SignedBlock, _, _>(|payload| {
         let (_, used) = SignedBlock::decode_fields(payload, &mut fields)
@@ -59,7 +63,18 @@ fn select_fields(bytes: &[u8]) -> std::result::Result<Selected<'_>, norito::Erro
         Ok(((), used))
     })?;
     let spans = fields.components.ok_or(norito::Error::LengthMismatch)?;
+    let [Some(signatures), Some(payload), Some(result)] = fields.execution_fields else {
+        return Err(norito::Error::LengthMismatch);
+    };
+    let execution = ExecutedWire {
+        signatures: EncodedField(signatures.get(bytes)?),
+        payload: EncodedField(payload.get(bytes)?),
+        result: EncodedField(result.get(bytes)?),
+        commit_certificate: None,
+    };
+    let executed_wire_identity = execution.identity()?;
     Ok(Selected {
+        executed_wire_identity,
         header: fields.header.ok_or(norito::Error::LengthMismatch)?,
         components: [
             spans[0].get(bytes)?,
@@ -73,6 +88,7 @@ struct BlockFields<'a> {
     source: &'a [u8],
     header: Option<BlockHeader>,
     components: Option<[SequenceSpan; 3]>,
+    execution_fields: [Option<SequenceSpan>; 3],
 }
 impl FieldDestination for BlockFields<'_> {
     type Error = Infallible;
@@ -94,8 +110,19 @@ macro_rules! opaque {
         }
     };
 }
-opaque!(BlockFields<'_>, 0, BlockSignatures);
-opaque!(BlockFields<'_>, 2, Option<BlockResult>);
+macro_rules! execution_field {
+    ($index:literal, $field:ty) => {
+        impl DecodeField<$index, $field> for BlockFields<'_> {
+            type Value = ();
+            fn decode_field(&mut self, field: CanonicalField<'_, $field>) -> Result<()> {
+                self.execution_fields[$index] = Some(span(self.source, field.bytes())?);
+                Ok(())
+            }
+        }
+    };
+}
+execution_field!(0, BlockSignatures);
+execution_field!(2, Option<BlockResult>);
 opaque!(PayloadFields, 1, Vec<TransactionEntrypoint>);
 opaque!(PayloadFields, 2, Option<DaCommitmentBundle>);
 opaque!(PayloadFields, 3, Option<DaProofPolicyBundle>);
@@ -111,6 +138,7 @@ opaque!(PayloadFields, 7, Option<BlockExecutionContextBundle>);
 impl DecodeField<1, BlockPayload> for BlockFields<'_> {
     type Value = ();
     fn decode_field(&mut self, field: CanonicalField<'_, BlockPayload>) -> Result<()> {
+        self.execution_fields[1] = Some(span(self.source, field.bytes())?);
         field.with_payload(|bytes| {
             let mut payload = PayloadFields(None);
             let (_, used) = BlockPayload::decode_fields(bytes, &mut payload)?;
@@ -192,4 +220,78 @@ impl<const INDEX: usize> DecodeField<INDEX, Vec<u8>> for CertificateFields<'_> {
             Ok(())
         })
     }
+}
+
+// This projection preserves the three exact original field payloads, including every
+// executed lane entrypoint and output, and changes only the certificate to None. The
+// canonical SignedBlock record decoder supplies the spans and Norito owns all framing.
+// No nested body is decoded or copied, and these bytes confer no authority until their
+// identity matches the independently verified result's execution commitment.
+struct EncodedField<'a>(&'a [u8]);
+impl norito::core::SerializePayload for EncodedField<'_> {
+    fn serialize(
+        &self,
+        writer: &mut norito::core::Encoder<'_>,
+    ) -> std::result::Result<(), norito::Error> {
+        writer.write_all(self.0).map_err(Into::into)
+    }
+    fn encoded_len_exact(&self) -> Option<usize> {
+        Some(self.0.len())
+    }
+}
+
+#[derive(norito::Encode)]
+struct ExecutedWire<'a> {
+    signatures: EncodedField<'a>,
+    payload: EncodedField<'a>,
+    result: EncodedField<'a>,
+    commit_certificate: Option<CommitCertificate>,
+}
+impl norito::NoritoSchema for ExecutedWire<'_> {
+    fn nominal_name() -> String {
+        <SignedBlock as norito::NoritoSchema>::nominal_name()
+    }
+    fn frame_name() -> String {
+        <SignedBlock as norito::NoritoSchema>::frame_name()
+    }
+    fn static_frame_name() -> Option<&'static str> {
+        <SignedBlock as norito::NoritoSchema>::static_frame_name()
+    }
+}
+impl ExecutedWire<'_> {
+    fn identity(&self) -> std::result::Result<(u64, Hash), norito::Error> {
+        let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+        let length = norito::canonical_frame_len(self)?
+            .checked_add(1)
+            .and_then(|length| u64::try_from(length).ok())
+            .ok_or(norito::Error::LengthMismatch)?;
+        let mut codec_error = None;
+        let hash = Hash::new_from_writer(|writer| {
+            writer.write_all(&[1])?;
+            norito::core::write_canonical_to_writer(self, writer).map_err(|error| {
+                codec_error = Some(error);
+                std::io::Error::other("canonical original executed frame encoding failed")
+            })
+        });
+        if let Some(error) = codec_error {
+            return Err(error);
+        }
+        Ok((length, hash.map_err(norito::Error::from)?))
+    }
+}
+
+fn span(source: &[u8], bytes: &[u8]) -> std::result::Result<SequenceSpan, norito::Error> {
+    let start = bytes
+        .as_ptr()
+        .addr()
+        .checked_sub(source.as_ptr().addr())
+        .ok_or(norito::Error::LengthMismatch)?;
+    let end = start
+        .checked_add(bytes.len())
+        .ok_or(norito::Error::LengthMismatch)?;
+    let span = SequenceSpan { start, end };
+    if span.get(source)? != bytes {
+        return Err(norito::Error::LengthMismatch);
+    }
+    Ok(span)
 }

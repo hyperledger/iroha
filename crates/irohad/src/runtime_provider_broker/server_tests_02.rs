@@ -2633,13 +2633,12 @@ fn start_broker(
         )
     });
     if let Err(error) = ready_receiver.recv_timeout(Duration::from_secs(2)) {
-        if error == mpsc::RecvTimeoutError::Disconnected {
-            panic!(
-                "{}: broker thread exited before readiness: {:?}",
-                diagnostics[3],
-                server.join(),
-            );
-        }
+        assert!(
+            error != mpsc::RecvTimeoutError::Disconnected,
+            "{}: broker thread exited before readiness: {:?}",
+            diagnostics[3],
+            server.join(),
+        );
         panic!("{}: {error}", diagnostics[3]);
     }
     endpoint_identity(&policy).expect(diagnostics[4]);

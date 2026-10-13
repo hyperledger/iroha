@@ -21,7 +21,7 @@ use iroha_core::{
     query::native_musubi_storage::{
         NativeMusubiStorageObservationV1, with_native_musubi_storage_v1,
     },
-    state::{State, StateReadOnly as _},
+    state::State,
 };
 use iroha_crypto::KeyPair;
 use iroha_data_model::{
@@ -46,13 +46,17 @@ use std::{
 };
 
 const MAX_ROW_BYTES: usize = 1024 * 1024;
-const LIMITS: norito::DecodeLimits = norito::DecodeLimits::new(
-    16 * 1024 * 1024,
-    16 * 1024 * 1024,
-    16 * 1024 * 1024,
-    8 * MUSUBI_MAX_CAR_BYTES_V1 as usize,
-    64,
-);
+fn decode_limits() -> Result<norito::DecodeLimits, BackendError> {
+    let allocated_bytes =
+        usize::try_from(8 * MUSUBI_MAX_CAR_BYTES_V1).map_err(|_| BackendError::Retryable)?;
+    Ok(norito::DecodeLimits::new(
+        16 * 1024 * 1024,
+        16 * 1024 * 1024,
+        16 * 1024 * 1024,
+        allocated_bytes,
+        64,
+    ))
+}
 
 /// Configured operator ceilings; the public-pin principal remains separately native-priced.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -220,7 +224,7 @@ impl NativeMusubiStorageBackendV1 {
             now / 1_000,
             |facts| {
                 if facts.complete {
-                    self.response(request, facts).map(Some)
+                    Self::response(request, &facts).map(Some)
                 } else {
                     Ok(None)
                 }
@@ -228,9 +232,8 @@ impl NativeMusubiStorageBackendV1 {
         )?
     }
     fn response(
-        &self,
         request: &MusubiStorageCoordinationRequestV1,
-        facts: NativeMusubiStorageObservationV1<'_>,
+        facts: &NativeMusubiStorageObservationV1<'_>,
     ) -> Result<MusubiStorageCoordinationResponseV1> {
         ensure!(facts.complete, "native replication has not completed");
         let original = &request.finalized_registration.registration;
@@ -322,37 +325,33 @@ impl NativeMusubiStorageBackendV1 {
             "native storage caller deadline expired"
         );
         let (id, source) = self.selected_source(request, verified.canonical_request_digest())?;
-        let authorization = match self.pin.original_operation(id)? {
-            Some(original) => {
-                // Expiry forbids further effects, not independently observed completion. This
-                // path retains the original request/authorization and never stages or dispatches.
-                if let NativeMusubiPinProgressV1::Finalized(pin) = self.pin.observe_operation(id)? {
-                    if let Some(response) = read_current_for_call(
-                        verified.authorization_expires_at_ms(),
-                        verified.deadline(),
-                        &mut ClockSample(&self.clock),
-                        |now| self.observe(request, &pin, now),
-                    )? {
-                        return Ok(response);
-                    }
-                }
-                original.authorization
-            }
-            None => {
-                let selected = self.limits.authorization(
-                    verified.observed_at_unix_ms(),
+        let authorization = if let Some(original) = self.pin.original_operation(id)? {
+            // Expiry forbids further effects, not independently observed completion. This
+            // path retains the original request/authorization and never stages or dispatches.
+            if let NativeMusubiPinProgressV1::Finalized(pin) = self.pin.observe_operation(id)?
+                && let Some(response) = read_current_for_call(
                     verified.authorization_expires_at_ms(),
-                )?;
-                selected
-                    .check_effect_boundary(&mut ClockSample(&self.clock), verified.deadline())?;
-                self.pin.prepare_operation(
-                    id,
-                    verified.canonical_request_digest(),
-                    &source,
-                    selected.clone(),
-                )?;
-                selected
+                    verified.deadline(),
+                    &mut ClockSample(&self.clock),
+                    |now| self.observe(request, &pin, now),
+                )?
+            {
+                return Ok(response);
             }
+            original.authorization
+        } else {
+            let selected = self.limits.authorization(
+                verified.observed_at_unix_ms(),
+                verified.authorization_expires_at_ms(),
+            )?;
+            selected.check_effect_boundary(&mut ClockSample(&self.clock), verified.deadline())?;
+            self.pin.prepare_operation(
+                id,
+                verified.canonical_request_digest(),
+                &source,
+                selected.clone(),
+            )?;
+            selected
         };
         // Never renew a retained UTC ceiling from this call's newer signed authorization.
         authorization.check_effect_boundary(&mut ClockSample(&self.clock), verified.deadline())?;
@@ -377,7 +376,7 @@ impl MusubiStorageCoordinationBackendV1 for NativeMusubiStorageBackendV1 {
         &self,
         request: &MusubiStorageCoordinationRequestV1,
     ) -> Result<(), BackendError> {
-        norito::with_decode_limits_scope(LIMITS, || -> Result<()> {
+        norito::with_decode_limits_scope(decode_limits()?, || -> Result<()> {
             let (id, _) = self.selected_source(request, request.canonical_request_digest()?)?;
             ensure!(
                 self.pin.original_operation(id)?.is_some(),
@@ -399,7 +398,7 @@ impl MusubiStorageCoordinationBackendV1 for NativeMusubiStorageBackendV1 {
         &mut self,
         request: &VerifiedStorageCoordinationRequestV1<'_>,
     ) -> Result<MusubiStorageCoordinationResponseV1, BackendError> {
-        norito::with_decode_limits_scope(LIMITS, || self.coordinate(request))
+        norito::with_decode_limits_scope(decode_limits()?, || self.coordinate(request))
             .map_err(|_| BackendError::Retryable)
     }
 }

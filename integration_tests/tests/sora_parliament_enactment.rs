@@ -1,16 +1,18 @@
 //! Shared real four-validator threshold beacon, timed-OVN ballot and certificate enactment.
 //! All transitions are submitted as signed transactions; there is no direct certificate/state setup.
 use super::*;
+use iroha::data_model::prelude::AssetId;
 
-pub(crate) struct EnactedFixture {
+pub struct EnactedFixture {
     pub(crate) attempt_id: GovernanceAttemptId,
     pub(crate) height: u64,
+    /// Exact network-bound beacon used by callers that continue the enacted lifecycle.
     pub(crate) logical_beacon: BeaconSessionId,
 }
 
-/// Positive corridor genesis: proof-valid beacon custody and the short signed NPoS epoch
+/// Positive corridor genesis: proof-valid beacon custody and the short signed `NPoS` epoch
 /// whose native pre-boundary pulses are the only sortition slots.
-pub(crate) fn builder(builder: NetworkBuilder) -> NetworkBuilder {
+pub fn builder(builder: NetworkBuilder) -> NetworkBuilder {
     with_signed_npos_epoch(
         builder_with_signer_modes(builder, POSITIVE_BEACON_SIGNER_MODES),
         CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS,
@@ -18,8 +20,8 @@ pub(crate) fn builder(builder: NetworkBuilder) -> NetworkBuilder {
 }
 
 /// The same citizen and governance genesis with caller-selected beacon custody and no
-/// explicit NPoS snapshot, so the network signs the default epoch length.
-pub(crate) fn builder_with_signer_modes(
+/// explicit `NPoS` snapshot, so the network signs the default epoch length.
+pub fn builder_with_signer_modes(
     builder: NetworkBuilder,
     signer_modes: [ParliamentBeaconSignerMode; VALIDATOR_COUNT],
 ) -> NetworkBuilder {
@@ -61,23 +63,29 @@ pub(crate) fn builder_with_signer_modes(
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
                 )
                 .write(["gov", "citizenship_bond_amount"], "0")
-                .write(["gov", "min_enactment_delay"], MIN_ENACTMENT_DELAY as i64)
+                .write(
+                    ["gov", "min_enactment_delay"],
+                    i64::try_from(MIN_ENACTMENT_DELAY)
+                        .expect("fixture phase length fits TOML integer"),
+                )
                 .write(["gov", "parliament_alternate_size"], 0_i64)
                 .write(
                     ["gov", "parliament_invitation_phase_blocks"],
-                    INVITATION_PHASE_BLOCKS as i64,
+                    i64::try_from(INVITATION_PHASE_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(["gov", "parliament_public_finding_phase_blocks"], 20_i64)
-                .write(["gov", "rules_committee_size"], BODY_SEATS as i64)
-                .write(["gov", "agenda_council_size"], BODY_SEATS as i64)
-                .write(["gov", "interest_panel_size"], BODY_SEATS as i64)
-                .write(["gov", "review_panel_size"], BODY_SEATS as i64)
-                .write(["gov", "oversight_committee_size"], BODY_SEATS as i64)
-                .write(["gov", "policy_jury_size"], BODY_SEATS as i64)
-                .write(["gov", "confirmation_jury_size"], BODY_SEATS as i64)
+                .write(["gov", "rules_committee_size"], i64::from(BODY_SEATS))
+                .write(["gov", "agenda_council_size"], i64::from(BODY_SEATS))
+                .write(["gov", "interest_panel_size"], i64::from(BODY_SEATS))
+                .write(["gov", "review_panel_size"], i64::from(BODY_SEATS))
+                .write(["gov", "oversight_committee_size"], i64::from(BODY_SEATS))
+                .write(["gov", "policy_jury_size"], i64::from(BODY_SEATS))
+                .write(["gov", "confirmation_jury_size"], i64::from(BODY_SEATS))
                 .write(
                     ["gov", "parliament_timed_ovn", "registration_phase_blocks"],
-                    REGISTRATION_PHASE_BLOCKS as i64,
+                    i64::try_from(REGISTRATION_PHASE_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(
                     [
@@ -85,19 +93,23 @@ pub(crate) fn builder_with_signer_modes(
                         "parliament_timed_ovn",
                         "survivor_freeze_phase_blocks",
                     ],
-                    SURVIVOR_PHASE_BLOCKS as i64,
+                    i64::try_from(SURVIVOR_PHASE_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(
                     ["gov", "parliament_timed_ovn", "commitment_phase_blocks"],
-                    COMMITMENT_PHASE_BLOCKS as i64,
+                    i64::try_from(COMMITMENT_PHASE_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(
                     ["gov", "parliament_timed_ovn", "release_delay_blocks"],
-                    RELEASE_DELAY_BLOCKS as i64,
+                    i64::try_from(RELEASE_DELAY_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(
                     ["gov", "parliament_timed_ovn", "opening_phase_blocks"],
-                    OPENING_PHASE_BLOCKS as i64,
+                    i64::try_from(OPENING_PHASE_BLOCKS)
+                        .expect("fixture phase length fits TOML integer"),
                 )
                 .write(["gov", "parliament_timed_ovn", "max_ballot_retries"], 0_i64)
                 .write(["gov", "parliament_timed_ovn", "max_corpus_entries"], 8_i64);
@@ -116,7 +128,7 @@ pub(crate) fn builder_with_signer_modes(
 
 // Caller-registered citizens are absent from the network's fee bootstrap. Fund them with
 // ordinary signed transfers using the exact XOR definition in the signed NPoS parameters.
-pub(crate) async fn fund_citizen_fees(
+pub async fn fund_citizen_fees(
     network: &iroha_test_network::Network,
     client: &Client,
     citizens: &[AccountId],
@@ -160,7 +172,7 @@ pub(crate) async fn fund_citizen_fees(
     .await
 }
 
-pub(crate) async fn enact(
+pub async fn enact(
     network: &iroha_test_network::Network,
     proposal: ProposalKind,
     preliminary: Vec<InstructionBox>,
@@ -170,7 +182,7 @@ pub(crate) async fn enact(
     let citizens = citizen_accounts(&citizen_keys);
     let client = network.client();
     fund_citizen_fees(network, &client, &citizens).await?;
-    let ordered_roster = ordered_validator_roster(&network, &client).await?;
+    let ordered_roster = ordered_validator_roster(network, &client).await?;
     let beacon_budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
     let beacon_record = deterministic_parliament_beacon_key_record_v1(
         network.network_id(),
@@ -201,7 +213,7 @@ pub(crate) async fn enact(
     .await?;
     let lifecycle_certificates = [
         InstructionBox::from(lifecycle_certificate(
-            &network,
+            network,
             &ordered_roster,
             ThresholdKeyLifecycleActionV1::FinalizeGlobalBeaconKey,
             beacon_record.session.session_id,
@@ -210,7 +222,7 @@ pub(crate) async fn enact(
             install_height,
         )?),
         InstructionBox::from(lifecycle_certificate(
-            &network,
+            network,
             &ordered_roster,
             ThresholdKeyLifecycleActionV1::InstallParliamentTleKey,
             *tle_public_state.key_session_id.as_bytes(),
@@ -220,7 +232,7 @@ pub(crate) async fn enact(
         )?),
     ];
     let submission_authority_height = current_height(&client).await?;
-    let submission_roster = ordered_validator_roster(&network, &client).await?;
+    let submission_roster = ordered_validator_roster(network, &client).await?;
     if submission_roster != ordered_roster {
         return Err(eyre!(
             "threshold-key installation roster changed between fixture derivation and submission"
@@ -301,7 +313,7 @@ pub(crate) async fn enact(
     let mut election_ids = BTreeMap::new();
     let mut request_ids = Vec::new();
     let mut request_registrations = Vec::new();
-    for body in expected_bodies.iter().copied() {
+    for &body in &expected_bodies {
         let election_id = BodyElectionAttemptId::derive_v1(attempt_id, body, 0);
         let request = SortitionRequestV1::try_new_canonical(
             attempt_id,
@@ -360,7 +372,7 @@ pub(crate) async fn enact(
         exact_block(
             &client,
             sortition_pulse.finalized_chain_anchor.height,
-            &network
+            network
         )
         .await?
         .header()
@@ -368,7 +380,7 @@ pub(crate) async fn enact(
         sortition_pulse.finalized_chain_anchor.block_hash,
     );
     let (expected_anchor, expected_context) = finality::certified_pulse_context(
-        &network,
+        network,
         &client,
         sortition_pulse_height,
         &sortition_pulse,
@@ -403,9 +415,9 @@ pub(crate) async fn enact(
     )
     .await?;
     let drawn = read_attempt(&client, attempt_id).await?;
-    for body in expected_bodies.iter().copied() {
+    for body in &expected_bodies {
         let election = drawn
-            .election(election_ids.get(&body).expect("body election id"))
+            .election(election_ids.get(body).expect("body election id"))
             .expect("simultaneous body election exists");
         assert_eq!(
             election.pulse_id(),
@@ -435,7 +447,7 @@ pub(crate) async fn enact(
         .map(|body| {
             invitation_state
                 .election(&election_ids[&body])
-                .and_then(|election| election.invitation_close_height())
+                .and_then(iroha_core::governance::parliament::ParliamentElectionStateV1::invitation_close_height)
                 .expect("invitation deadline is frozen")
         })
         .collect::<Vec<_>>();
@@ -446,7 +458,7 @@ pub(crate) async fn enact(
     );
     let mut invitations_by_member =
         BTreeMap::<AccountId, Vec<(ParliamentBody, BodyElectionAttemptId)>>::new();
-    for body in expected_bodies.iter().copied() {
+    for &body in &expected_bodies {
         let election = invitation_state
             .election(&election_ids[&body])
             .expect("drawn election");
@@ -479,7 +491,7 @@ pub(crate) async fn enact(
         .checked_add(1)
         .ok_or_else(|| eyre!("invitation close height overflow"))?;
     advance_to_execution_predecessor(
-        &network,
+        network,
         &client,
         roster_seal_height,
         "canonical Parliament roster sealing",
@@ -498,7 +510,7 @@ pub(crate) async fn enact(
     assert_eq!(current_height(&client).await?, roster_seal_height);
     let sealed = read_attempt(&client, attempt_id).await?;
     let mut body_ids = BTreeMap::<ParliamentBody, BodyInstanceId>::new();
-    for body in expected_bodies.iter().copied() {
+    for &body in &expected_bodies {
         let instance = sealed
             .sealed_body_for_role(body)
             .expect("every simultaneous draw seals one body");
@@ -639,7 +651,6 @@ pub(crate) async fn enact(
     assert_eq!(current_height(&client).await?, registered_at_height);
     let registered_response = read_on_dedicated_thread({
         let client = client.client().clone();
-        let ballot_attempt_id = (ballot_attempt_id).clone();
         move || client.get_parliament_timed_ovn_casting_context(ballot_attempt_id)
     })
     .await?;
@@ -707,7 +718,7 @@ pub(crate) async fn enact(
     )
     .await?;
     advance_to_execution_predecessor(
-        &network,
+        network,
         &client,
         registration_close_height,
         "timed-OVN registration close",
@@ -726,7 +737,6 @@ pub(crate) async fn enact(
     );
     let registration_closed = read_on_dedicated_thread({
         let client = client.client().clone();
-        let ballot_attempt_id = (ballot_attempt_id).clone();
         move || client.get_parliament_timed_ovn_casting_context(ballot_attempt_id)
     })
     .await?;
@@ -767,7 +777,7 @@ pub(crate) async fn enact(
     )
     .await?;
     advance_to_execution_predecessor(
-        &network,
+        network,
         &client,
         survivor_freeze_height,
         "timed-OVN survivor freeze",
@@ -795,7 +805,6 @@ pub(crate) async fn enact(
     .await?;
     let survivors_response = read_on_dedicated_thread({
         let client = client.client().clone();
-        let ballot_attempt_id = (ballot_attempt_id).clone();
         move || client.get_parliament_timed_ovn_casting_context(ballot_attempt_id)
     })
     .await?;
@@ -850,7 +859,7 @@ pub(crate) async fn enact(
     )
     .await?;
     advance_to_execution_predecessor(
-        &network,
+        network,
         &client,
         commitment_close_height,
         "timed-OVN commitment close",
@@ -916,7 +925,7 @@ pub(crate) async fn enact(
     // and the wait below never ends. Replace everything from the ballot registration to the
     // final release with the anonymous ballot (specs/parliament_private_ballot_design.md
     // 12.2 step 4); every caller of this fixture is ignored until then.
-    advance_to_autonomous_predecessor(&network, &client, release_height, "timed-OVN release pulse")
+    advance_to_autonomous_predecessor(network, &client, release_height, "timed-OVN release pulse")
         .await?;
     network.ensure_blocks(release_height).await?;
     assert_eq!(
@@ -926,10 +935,10 @@ pub(crate) async fn enact(
     );
     let mut release_pulses = Vec::with_capacity(network.peers().len());
     for peer in network.peers() {
-        release_pulses.push(pulse_at(&peer.client(), release_height, &network).await?);
+        release_pulses.push(pulse_at(&peer.client(), release_height, network).await?);
     }
     assert!(release_pulses.windows(2).all(|pair| pair[0] == pair[1]));
-    let release_pulse = release_pulses[0].clone();
+    let release_pulse = release_pulses[0];
     assert_eq!(release_pulse.height, release_height);
     assert_eq!(release_pulse.session_id, beacon_record.session.session_id);
     assert_eq!(release_pulse.roster_hash, beacon_record.session.roster_hash);
@@ -946,7 +955,7 @@ pub(crate) async fn enact(
         exact_block(
             &client,
             release_pulse.finalized_chain_anchor.height,
-            &network
+            network
         )
         .await?
         .header()
@@ -954,8 +963,7 @@ pub(crate) async fn enact(
         release_pulse.finalized_chain_anchor.block_hash,
     );
     let (expected_anchor, expected_context) =
-        finality::certified_pulse_context(&network, &client, release_height, &release_pulse)
-            .await?;
+        finality::certified_pulse_context(network, &client, release_height, &release_pulse).await?;
     verify_finalized_global_threshold_beacon_pulse_v1(
         &validated_beacon_session,
         &release_pulse,
@@ -996,7 +1004,6 @@ pub(crate) async fn enact(
     network.ensure_blocks(opening_height).await?;
     let release_context = read_on_dedicated_thread({
         let client = client.client().clone();
-        let ballot_attempt_id = (ballot_attempt_id).clone();
         move || client.get_parliament_tle_release_context(ballot_attempt_id)
     })
     .await?;
@@ -1018,13 +1025,12 @@ pub(crate) async fn enact(
         let peer_client = peer.client();
         let peer_context = read_on_dedicated_thread({
             let client = peer_client.client().clone();
-            let ballot_attempt_id = (ballot_attempt_id).clone();
             move || client.get_parliament_tle_release_context(ballot_attempt_id)
         })
         .await?;
         assert_eq!(peer_context, release_context);
         let partial = release_partial(
-            read_on_dedicated_thread({
+            &read_on_dedicated_thread({
                 let client = peer_client.client().clone();
                 let release_context = (peer_context).clone();
                 move || client.post_parliament_tle_partial_release(&release_context)
@@ -1180,7 +1186,7 @@ pub(crate) async fn enact(
     .await?;
 
     advance_to_autonomous_predecessor(
-        &network,
+        network,
         &client,
         certificate.enact_at_height,
         "automatic exact-height Parliament enactment",
@@ -1189,12 +1195,6 @@ pub(crate) async fn enact(
     let enacted_height = certificate.enact_at_height;
     network.ensure_blocks(enacted_height).await?;
     assert_eq!(current_height(&client).await?, enacted_height);
-    let enacted_response = read_on_dedicated_thread({
-        let client = client.client().clone();
-        let attempt_id = (attempt_id).clone();
-        move || client.get_parliament_attempt(attempt_id)
-    })
-    .await?;
     let enacted = read_attempt(&client, attempt_id).await?;
     assert_eq!(enacted.attempt().status, GovernanceAttemptStatusV1::Enacted);
     assert_eq!(enacted.attempt().stage, GovernanceStageV1::Enactment);

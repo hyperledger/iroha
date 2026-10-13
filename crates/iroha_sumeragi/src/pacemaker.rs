@@ -184,13 +184,27 @@ pub fn validate_chain(chain: &ChainParams, transport_limit: u64) -> Result<(), C
 /// # Errors
 /// Invalid chain/layout bounds or an unencodable admitted payload maximum.
 pub fn validate_height(config: &HeightConfig, transport_limit: u64) -> Result<(), ConfigError> {
-    validate_chain(&config.params, transport_limit)?;
-    config
-        .epoch
+    validate_height_parts(&config.epoch, &config.params, transport_limit)
+}
+
+/// Validate the inline height fields before an owner materializes its committee graph.
+///
+/// This is the sole chain/layout/transport relation used by [`validate_height`].
+/// It neither admits a committee nor authenticates the origin of these parameters.
+///
+/// # Errors
+/// Returns the same first chain, layout or payload-bound error as [`validate_height`].
+pub fn validate_height_parts(
+    epoch: &crate::types::EpochConfig,
+    params: &ChainParams,
+    transport_limit: u64,
+) -> Result<(), ConfigError> {
+    validate_chain(params, transport_limit)?;
+    epoch
         .da_layout
         .validate()
         .map_err(ConfigError::AvailabilityLayout)?;
-    if u64::from(config.params.max_block_bytes) > config.epoch.da_layout.max_payload_size_bytes {
+    if u64::from(params.max_block_bytes) > epoch.da_layout.max_payload_size_bytes {
         return Err(ConfigError::PayloadAboveAvailabilityLimit);
     }
     Ok(())
@@ -470,6 +484,44 @@ impl Pacemaker {
 mod tests {
     use super::*;
     use crate::types::{Committee, PublicKey};
+
+    #[test]
+    fn borrowed_height_fields_preserve_exact_chain_layout_transport_error_order() {
+        let original = config(4, ChainParams::default());
+        let mut candidates = vec![original.clone()];
+        let mut changed = original.clone();
+        changed.params.block_time = changed.params.payload_retry_interval + 1;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.params.block_time = 0;
+        changed.params.payload_retry_interval = 0;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.epoch.da_layout.max_payload_size_bytes = 1;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.epoch.da_layout.parity_shards = 0;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.params.block_time = changed.params.payload_retry_interval + 1;
+        changed.epoch.da_layout.parity_shards = 0;
+        candidates.push(changed);
+        for candidate in candidates {
+            for limit in [0, u64::from(candidate.params.max_block_bytes), u64::MAX] {
+                assert_eq!(
+                    validate_height_parts(&candidate.epoch, &candidate.params, limit),
+                    validate_height(&candidate, limit)
+                );
+            }
+        }
+        let mut conflicting = original;
+        conflicting.params.block_time = conflicting.params.payload_retry_interval + 1;
+        conflicting.epoch.da_layout.parity_shards = 0;
+        assert_eq!(
+            validate_height_parts(&conflicting.epoch, &conflicting.params, 0),
+            Err(ConfigError::BlockTimeAbovePayloadRetry)
+        );
+    }
 
     #[test]
     fn height_configuration_requires_valid_encodable_signed_layout() {

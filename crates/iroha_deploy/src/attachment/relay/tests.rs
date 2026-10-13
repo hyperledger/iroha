@@ -156,14 +156,14 @@ fn a_relay_turn_cannot_prepare_or_claim_anchoring_without_fresh_parent_quorum() 
     };
     let options = BoundedTransactionOptions {
         fee_payment: FeePaymentIntent::authority(vec![], None),
-        max_total_fees: Default::default(),
+        max_total_fees: std::collections::BTreeMap::default(),
         deadline: Instant::now() + Duration::from_secs(10),
     };
     assert!(
         store
             .relay_once(
                 &child,
-                RelayParent {
+                &mut RelayParent {
                     config: &config(&fixture, false),
                     bootstrap: &bootstrap,
                     finality: &mut finality,

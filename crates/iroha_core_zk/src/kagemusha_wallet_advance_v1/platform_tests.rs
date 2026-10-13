@@ -148,7 +148,7 @@ fn selected_capability(
     );
     let capsule = bootstrap_capsule(&f);
     let selected = enrollment
-        .select(capsule.head_marker_state().expect("head"), BOOT_A)
+        .select(capsule.head_marker_state(), BOOT_A)
         .expect("select");
     let KagemushaWalletMarkerPublicationV1::Durable(durable) =
         kagemusha_wallet_publish_marker_v1(&store, selected).expect("publish")
@@ -400,7 +400,7 @@ fn wallet_advance_v1_platform_receipt_signer_freezes_and_verifies() {
         successor: iroha_data_model::kagemusha::KagemushaWalletStateCommitmentV1 { value: [4; 32] },
         statement_digest: [6; 32],
         proof_digest: [7; 32],
-        capsule_digest: *capability.capsule_digest(),
+        capsule_commitment: [8; 32],
         payment_digest: [0; 32],
     };
     platform.set_mode(SignModeV1::Der);
@@ -424,10 +424,7 @@ fn wallet_advance_v1_platform_receipt_signer_rechecks_the_marker_on_disk() {
     let f = wallet_fixture(0x54);
     let released = f
         .enrollment_record(BOOT_A)
-        .select(
-            bootstrap_capsule(&f).head_marker_state().expect("head"),
-            BOOT_A,
-        )
+        .select(bootstrap_capsule(&f).head_marker_state(), BOOT_A)
         .expect("select")
         .release([0xc5; 32], BOOT_A)
         .expect("release");

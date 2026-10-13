@@ -293,7 +293,7 @@ mod publication_capture_phase_tests {
             let storage = TransactionsStorage::new();
             let mut block = storage.block();
             block.insert_block(
-                std::collections::HashSet::from([Key::from_untyped_unchecked(
+                std::collections::BTreeSet::from([Key::from_untyped_unchecked(
                     iroha_crypto::Hash::new(b"detached-membership-terminal-phase"),
                 )]),
                 std::num::NonZeroUsize::new(1).unwrap(),

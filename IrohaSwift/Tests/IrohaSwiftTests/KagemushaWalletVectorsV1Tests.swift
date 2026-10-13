@@ -7,7 +7,7 @@ import XCTest
 /// `kagemusha_wallet_v1` vector test, and checks the Swift wallet wire helpers against it.
 ///
 /// Poseidon values are computed only by the native Rust core; these tests never recompute one.
-/// They check every SHA-256 role (the 20 roles, including NEW unsigned E1 policies, with every retired role rejected), frame,
+/// They check every SHA-256 role (the 21 roles, including NEW unsigned E1 policies, with every retired role rejected), frame,
 /// envelope and signature vector (each over its 32-byte Poseidon signing message), the σ-field
 /// element lists, the `P_bytes` packing of every large-input digest and signing message, the
 /// depth-32 indexed-tree openings, the limb-ordered blacklist and the verifying-key allowlist,
@@ -16,7 +16,7 @@ import XCTest
 final class KagemushaWalletVectorsV1Tests: XCTestCase {
   private typealias Wire = KagemushaWalletWireV1
 
-  /// The 59 domains: 33 protocol hashes, 16 signing messages, 10 signed objects.
+  /// The 60 domains: 34 protocol hashes, 16 signing messages, 10 signed objects.
   private static let poseidonDomains = [
     "kgwcore1",
     "kgwrest1",
@@ -51,6 +51,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     "kgwcsts1",
     "kgwcrdd1",
     "kgwopid1",
+    "kgwcapc1",
     "kgwcert1",
     "kgwcred1",
     "kgwrnch1",
@@ -228,7 +229,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testFrameSchemaHashesFollowFrameNames() throws {
     let frames = try objects(loadFixture(), "frames")
-    XCTAssertEqual(frames.count, 28)
+    XCTAssertEqual(frames.count, 29)
     var sawEnvelope = false
     for frame in frames {
       let name = try string(frame, "frame_name")
@@ -251,7 +252,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testDigestVectorsRecomputeEveryRole() throws {
     let vectors = try objects(loadFixture(), "digests")
-    XCTAssertEqual(KagemushaWalletDigestRoleV1.allCases.count, 20)
+    XCTAssertEqual(KagemushaWalletDigestRoleV1.allCases.count, 21)
     // One vector per role, in the order of the Rust `KagemushaWalletDigestRoleV1::ALL`.
     XCTAssertEqual(
       try vectors.map { try string($0, "role") },
@@ -338,7 +339,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     // 16 signing domains in Rust declaration order, each with its exact transcript length.
     let domains = KagemushaWalletSigningDomainV1.allCases
     XCTAssertEqual(domains.count, 16)
-    XCTAssertEqual(domains.map(\.rawValue), Array(Self.poseidonDomains[33..<49]))
+    XCTAssertEqual(domains.map(\.rawValue), Array(Self.poseidonDomains[34..<50]))
     for domain in domains {
       XCTAssertEqual(domain.rawValue.utf8.count, 8, domain.rawValue)
     }
@@ -892,9 +893,46 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertTrue(
       types.isSuperset(of: [
         "KagemushaWalletPaymentV1", "KagemushaWalletPackageV1", "KagemushaWalletMarkerV1",
-        "KagemushaWalletRecoveryCapsuleV1", "KagemushaWalletCompletionRecordV1",
+        "KagemushaWalletRecoveryBodyV1", "KagemushaWalletRecoveryCapsuleV1",
+        "KagemushaWalletCompletionRecordV1",
         "KagemushaWalletFoldRecordV1", "KagemushaWalletVerifyingKeyAllowlistV1",
       ]))
+  }
+
+  func testCapsuleCommitmentSeparatesPublicReceiptFromPrivateCustody() throws {
+    let fixture = try loadFixture()
+    let commitment = try object(fixture, "capsule_commitment")
+    XCTAssertEqual(try string(commitment, "body_type"), "KagemushaWalletRecoveryBodyV1")
+    XCTAssertEqual(try string(commitment, "wrapper_type"), "KagemushaWalletRecoveryCapsuleV1")
+    let wrapperBytes = try objectFrame(fixture, "KagemushaWalletRecoveryCapsuleV1", variant: "Receive")
+    let wrapper = try VectorFrame(wrapperBytes)
+    let fields = try wrapper.fields(wrapper.root)
+    XCTAssertEqual(fields.count, 2)
+    guard fields.count == 2 else { return }
+    let body = try wrapper.byteVector(fields[0])
+    XCTAssertEqual(body, try objectFrame(fixture, "KagemushaWalletRecoveryBodyV1", variant: "Receive"))
+    XCTAssertEqual(wrapper.data(fields[1]), try hexData(string(commitment, "opening_le32_hex")))
+    XCTAssertTrue(Wire.isCanonicalFieldValue(wrapper.data(fields[1])))
+    XCTAssertEqual(Wire.digest(role: .capsuleBody, body: body), try hexData(string(commitment, "body_digest_hex")))
+    let privateDigest = try hexData(string(commitment, "private_custody_digest_hex"))
+    let publicCommitment = try hexData(string(commitment, "public_receipt_commitment_hex"))
+    XCTAssertEqual(Wire.digest(role: .capsule, body: wrapperBytes), privateDigest)
+    XCTAssertTrue(Wire.isCanonicalFieldValue(publicCommitment))
+    XCTAssertNotEqual(publicCommitment, Data(count: 32))
+    XCTAssertNotEqual(privateDigest, publicCommitment)
+    let completion = try VectorFrame(objectFrame(fixture, "KagemushaWalletCompletionRecordV1", variant: "Receive"))
+    let record = try completion.fields(completion.root)
+    XCTAssertEqual(record.count, 6)
+    guard record.count == 6 else { return }
+    XCTAssertEqual(completion.data(record[3]), privateDigest)
+    let receipt = try completion.fields(record[4])
+    XCTAssertEqual(receipt.count, 5)
+    guard receipt.count == 5 else { return }
+    XCTAssertEqual(completion.data(receipt[2]), publicCommitment)
+    let transcript = try signedBody(fixture, object: "Receive receipt binding the Payment digest")
+    XCTAssertEqual(transcript.count, 338)
+    guard transcript.count == 338 else { return }
+    XCTAssertEqual(Data(transcript[274..<306]), publicCommitment)
   }
 
   func testQuotaRefreshRetainsCanonicalFullPredecessorUsageWitness() throws {
@@ -943,13 +981,30 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       try bool(capsuleVector, "stand_in_proof"), "structural sample is not proof acceptance")
     let capsule = try VectorFrame(hexData(string(capsuleVector, "canonical_hex")))
     let capsuleFields = try capsule.fields(capsule.root)
-    XCTAssertEqual(capsuleFields.count, 14, "capsule field layout is unchanged")
-    let retained = try capsule.sequence(capsuleFields[12]).map { try capsule.fields($0) }
+    XCTAssertEqual(capsuleFields.count, 2, "selected wrapper retains body and opening")
+    guard capsuleFields.count == 2 else { return }
+    let opening = capsule.data(capsuleFields[1])
+    XCTAssertTrue(Wire.isCanonicalFieldValue(opening))
+    let bodyBytes = try capsule.byteVector(capsuleFields[0])
+    let body = try VectorFrame(bodyBytes)
+    let bodyIdentity = try XCTUnwrap(objects(fixture, "frames").first {
+      $0["type"] as? String == "KagemushaWalletRecoveryBodyV1"
+    })
+    XCTAssertEqual(body.schema, try noritoSchemaHash(forTypeName: string(bodyIdentity, "frame_name")))
+    XCTAssertLessThanOrEqual(bodyBytes.count, try int(bodyIdentity, "max_bytes"))
+    let decodedBody = try XCTUnwrap(noritoDecodeFrame(bodyBytes))
+    XCTAssertEqual(decodedBody.header.flags, NoritoHeader.compactLen)
+    XCTAssertEqual(decodedBody.header.compression, .none)
+    XCTAssertEqual(decodedBody.paddingLength, 8)
+    let bodyFields = try body.fields(body.root)
+    XCTAssertEqual(bodyFields.count, 14, "all original recovery body fields are retained")
+    guard bodyFields.count == 14 else { return }
+    let retained = try body.sequence(bodyFields[12]).map { try body.fields($0) }
     XCTAssertEqual(retained.count, 3)
     let input = try XCTUnwrap(
-      retained.first { readLE32(capsule.payload, at: $0[0].lowerBound) == 10 })
+      retained.first { readLE32(body.payload, at: $0[0].lowerBound) == 10 })
     XCTAssertEqual(input.count, 2)
-    XCTAssertEqual(try capsule.byteVector(input[1]), original)
+    XCTAssertEqual(try body.byteVector(input[1]), original)
   }
 
   // MARK: Field encodings
@@ -1043,6 +1098,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       "credit_status_digest",
       "credited_digest",
       "operation_id",
+      "capsule_commitment",
       "signing_certificate",
       "signing_credential",
       "signing_renewal_challenge",

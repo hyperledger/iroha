@@ -1,3 +1,4 @@
+//! Buffer views, mutation, ownership transitions and invalid slice controls.
 #![warn(rust_2018_idioms)]
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -85,12 +86,12 @@ fn fmt_write() {
 
     let mut a = BytesMut::with_capacity(64);
     write!(a, "{}", &s[..64]).unwrap();
-    assert_eq!(a, s[..64].as_bytes());
+    assert_eq!(a, &s.as_bytes()[..64]);
 
     let mut b = BytesMut::with_capacity(64);
     write!(b, "{}", &s[..32]).unwrap();
     write!(b, "{}", &s[32..64]).unwrap();
-    assert_eq!(b, s[..64].as_bytes());
+    assert_eq!(b, &s.as_bytes()[..64]);
 
     let mut c = BytesMut::with_capacity(64);
     write!(c, "{}", s).unwrap();
@@ -156,10 +157,12 @@ fn slice_oob_2() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "range start must not be greater than end: 5 <= 3")]
 fn slice_start_greater_than_end() {
     let a = Bytes::from(&b"hello world"[..]);
-    a.slice(5..3);
+    let reversed = std::ops::Range { start: 5, end: 3 };
+    assert!(reversed.start > reversed.end);
+    a.slice(reversed);
 }
 
 #[test]
@@ -431,7 +434,10 @@ fn fns_defined_for_bytes_mut() {
     let _ = bytes.as_mut_ptr();
 
     // Iterator
-    let v: Vec<u8> = bytes.as_ref().iter().cloned().collect();
+    let mut v = Vec::new();
+    for byte in bytes.as_ref() {
+        v.push(*byte);
+    }
     assert_eq!(&v[..], bytes);
 }
 
@@ -632,7 +638,7 @@ fn extend_past_lower_limit_of_size_hint() {
     }
 
     let mut bytes = BytesMut::with_capacity(5);
-    bytes.extend(Iter(std::iter::repeat(0).take(10)));
+    bytes.extend(Iter(std::iter::repeat_n(0, 10)));
     assert_eq!(bytes.len(), 10);
 }
 
@@ -1108,7 +1114,7 @@ fn test_bytes_into_vec() {
     eprintln!("4");
     let b2 = b1.clone();
 
-    eprintln!("{:#?}", (&*b1).as_ptr());
+    eprintln!("{:#?}", b1.as_ptr());
 
     // shared.is_unique() = False
     eprintln!("5");
@@ -1359,12 +1365,12 @@ fn test_bytesmut_from_bytes_promotable_even_arc_offset() {
 #[test]
 fn try_reclaim_empty() {
     let mut buf = BytesMut::new();
-    assert_eq!(false, buf.try_reclaim(6));
+    assert!(!buf.try_reclaim(6));
     buf.reserve(6);
-    assert_eq!(true, buf.try_reclaim(6));
+    assert!(buf.try_reclaim(6));
     let cap = buf.capacity();
     assert!(cap >= 6);
-    assert_eq!(false, buf.try_reclaim(cap + 1));
+    assert!(!buf.try_reclaim(cap + 1));
 
     let mut buf = BytesMut::new();
     buf.reserve(6);
@@ -1373,8 +1379,8 @@ fn try_reclaim_empty() {
     let mut split = buf.split();
     drop(buf);
     assert_eq!(0, split.capacity());
-    assert_eq!(true, split.try_reclaim(6));
-    assert_eq!(false, split.try_reclaim(cap + 1));
+    assert!(split.try_reclaim(6));
+    assert!(!split.try_reclaim(cap + 1));
 }
 
 #[test]
@@ -1382,17 +1388,17 @@ fn try_reclaim_vec() {
     let mut buf = BytesMut::with_capacity(6);
     buf.put_slice(b"abc");
     // Reclaiming a ludicrous amount of space should calmly return false
-    assert_eq!(false, buf.try_reclaim(usize::MAX));
+    assert!(!buf.try_reclaim(usize::MAX));
 
-    assert_eq!(false, buf.try_reclaim(6));
+    assert!(!buf.try_reclaim(6));
     buf.advance(2);
     assert_eq!(4, buf.capacity());
     // We can reclaim 5 bytes, because the byte in the buffer can be moved to the front. 6 bytes
     // cannot be reclaimed because there is already one byte stored
-    assert_eq!(false, buf.try_reclaim(6));
-    assert_eq!(true, buf.try_reclaim(5));
+    assert!(!buf.try_reclaim(6));
+    assert!(buf.try_reclaim(5));
     buf.advance(1);
-    assert_eq!(true, buf.try_reclaim(6));
+    assert!(buf.try_reclaim(6));
     assert_eq!(6, buf.capacity());
 }
 
@@ -1403,27 +1409,27 @@ fn try_reclaim_arc() {
     let x = buf.split().freeze();
     buf.put_slice(b"def");
     // Reclaiming a ludicrous amount of space should calmly return false
-    assert_eq!(false, buf.try_reclaim(usize::MAX));
+    assert!(!buf.try_reclaim(usize::MAX));
 
     let y = buf.split().freeze();
     let z = y.clone();
-    assert_eq!(false, buf.try_reclaim(6));
+    assert!(!buf.try_reclaim(6));
     drop(x);
     drop(z);
-    assert_eq!(false, buf.try_reclaim(6));
+    assert!(!buf.try_reclaim(6));
     drop(y);
-    assert_eq!(true, buf.try_reclaim(6));
+    assert!(buf.try_reclaim(6));
     assert_eq!(6, buf.capacity());
     assert_eq!(0, buf.len());
     buf.put_slice(b"abc");
     buf.put_slice(b"def");
     assert_eq!(6, buf.capacity());
     assert_eq!(6, buf.len());
-    assert_eq!(false, buf.try_reclaim(6));
+    assert!(!buf.try_reclaim(6));
     buf.advance(4);
-    assert_eq!(true, buf.try_reclaim(4));
+    assert!(buf.try_reclaim(4));
     buf.advance(2);
-    assert_eq!(true, buf.try_reclaim(6));
+    assert!(buf.try_reclaim(6));
 }
 
 #[test]

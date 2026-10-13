@@ -3,7 +3,7 @@
 //! Domain tags, contract bounds, codec and
 //! domain ids, profile tags and route ids shared by Taira and every destination. Current
 //! EVM selectors and event topics are owned by `destination_abi`. Every hash in
-//! this module is written out as a literal and recomputed from its canonical string by the golden
+//! this module is written out as a literal and recomputed from its canonical preimage by the golden
 //! tests below, so a typo in either the string or the value fails the build's test suite.
 
 use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
@@ -133,6 +133,18 @@ pub const SECP256K1_N: [u8; 32] =
 pub const SECP256K1_HALF_N: [u8; 32] =
     hex32("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0");
 
+/// Exact keyless CREATE2 proxy runtime required on both Ethereum and BSC (§5.2.1).
+pub const SCCP_EVM_DEPLOYER_RUNTIME: [u8; 69] = [
+    0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xe0, 0x36, 0x01, 0x60, 0x00, 0x81, 0x60, 0x20, 0x82, 0x37, 0x80, 0x35, 0x82, 0x82, 0x34, 0xf5,
+    0x80, 0x15, 0x15, 0x60, 0x39, 0x57, 0x81, 0x82, 0xfd, 0x5b, 0x80, 0x82, 0x52, 0x50, 0x50, 0x50,
+    0x60, 0x14, 0x60, 0x0c, 0xf3,
+];
+/// Keccak-256 of [`SCCP_EVM_DEPLOYER_RUNTIME`], independently pinned by the EVM model.
+pub const SCCP_EVM_DEPLOYER_RUNTIME_HASH: [u8; 32] =
+    hex32("2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989");
+
 // ---------------------------------------------------------------------------------------------
 // TON cell layout (§5.3.1, §5.3.2)
 // ---------------------------------------------------------------------------------------------
@@ -147,6 +159,18 @@ pub const TON_HASH_CHUNK_HASHES: usize = 3;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn deterministic_proxy_runtime_matches_the_independent_evm_hash() {
+        use crate::v1::hashes::keccak256;
+        assert_eq!(SCCP_EVM_DEPLOYER_RUNTIME.len(), 69);
+        assert_eq!(
+            keccak256(&[&SCCP_EVM_DEPLOYER_RUNTIME]),
+            SCCP_EVM_DEPLOYER_RUNTIME_HASH
+        );
+        let model = include_str!("../../../../contracts/evm/sccp/test/sccp_v1_fixtures.test.js");
+        assert!(model.contains("2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989"));
+    }
+
     #[test]
     fn domain_tags_have_the_spec_lengths() {
         assert_eq!(PAYLOAD_TAG.len(), 15);

@@ -1,6 +1,7 @@
 //! Exact Q source derivation, self-verifying proof tasks and original restoration.
 
 use crate::kagemusha_wallet_artifacts_v1::producer_inventory::ImportedQV1;
+use iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1;
 use iroha_kagemusha_proof::{
     q_sigma::{SigmaSlotWitness, native::IncomingSigma},
     q_signature::SignatureWitness,
@@ -22,14 +23,25 @@ pub(super) enum QProgressV1 {
     Complete(Vec<q_checkpoint::Original>),
 }
 
+/// Public deterministic nonce for Q's non-hiding local fold, never fresh entropy.
+/// The immutable owner couples this commitment to the private custody digest;
+/// caller preparation has already verified its retained completion and receipt.
+fn local_fold_nonce(capsule: &KagemushaWalletRecoveryCapsuleV1) -> Fq {
+    p_bytes_native::<Fq>(
+        u64::from_le_bytes(*b"kgwqnon1"),
+        &capsule.receipt_commitment(),
+    )
+}
+
 impl NativeFoldWorkerV1 {
-    /// Restore each exact source Q and produce one next Q proof. The source digest
-    /// is the selected released capsule identity, never a caller's free checkpoint tag.
+    /// Restore each exact source Q and produce one next Q proof. The selected immutable
+    /// capsule supplies both its private checkpoint identity and public nonce commitment;
+    /// neither is an independent caller tag. Preparation has verified the matching receipt.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn q_stage(
         &self,
         route: OperationRoute,
-        source: [u8; 32],
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
         input: &QSourcesV1,
         checkpoints: &[Vec<u8>],
         originals: &mut dyn OriginalSourceV1,
@@ -37,6 +49,7 @@ impl NativeFoldWorkerV1 {
     ) -> Result<QProgressV1, Error> {
         cancellation.check()?;
         let q = proof(self.sources.q(route))?;
+        let source = capsule.custody_digest();
         if source == [0; 32]
             || input.signatures.len() != q.signatures().len()
             || checkpoints.len() > q.keys().len()
@@ -45,10 +58,12 @@ impl NativeFoldWorkerV1 {
         }
         let params = proof(self.installed.verifier().vesta_parameters(16))?;
         let q_params = self.installed.verifier().pallas_parameters();
-        // Repeating the same released capsule uses the same public local-fold
-        // nonce. Proof hiding still uses fresh OS randomness; the retained exact
-        // proof wins after checkpoint publication and is never regenerated there.
-        let salt = p_bytes_native::<Fq>(u64::from_le_bytes(*b"kgwqnon1"), &source);
+        // This query depends only on the signed public commitment, never private h.
+        // Repeating exact W repeats this public nonce; zero is a valid derived salt.
+        // Q absorbs it and every ordered input before its fold challenges. It supplies
+        // no fresh private entropy. Proof hiding still uses fresh OS randomness, while
+        // an existing checkpoint must return its verified original proof bytes.
+        let salt = local_fold_nonce(capsule);
         let sigma = proof(q.sigma().prepare(
             input.own.clone(),
             input.incoming.clone(),
@@ -132,5 +147,120 @@ impl NativeFoldWorkerV1 {
         )?;
         cancellation.check()?;
         Ok(QProgressV1::Checkpoint(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kagemusha_wallet_state_v1::tests::fixture;
+    use iroha_data_model::kagemusha::kagemusha_wallet_v1::{
+        KagemushaWalletCompletionRecordV1, KagemushaWalletRequestV1,
+        KagemushaWalletRetainedInputRoleV1,
+    };
+
+    // Signed shared DATA fixtures exercise the immutable owner and receipt/custody joins.
+    // Stand-in sigma/Omega bytes do not establish an actual Q proof or C12 privacy.
+    #[test]
+    fn q_nonce_uses_public_commitment_and_restores_exactly() {
+        let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
+        let domain = u64::from_le_bytes(*b"kgwqnon1");
+        let nonce = local_fold_nonce(&capsule);
+        assert_eq!(
+            nonce,
+            p_bytes_native::<Fq>(domain, &capsule.receipt_commitment())
+        );
+        assert_ne!(
+            nonce,
+            p_bytes_native::<Fq>(domain, &capsule.custody_digest())
+        );
+        let bytes = capsule.to_canonical_bytes();
+        let restored =
+            KagemushaWalletRecoveryCapsuleV1::decode_canonical(&bytes, &capsule.body().scheme_id)
+                .unwrap();
+        assert_eq!(restored.to_canonical_bytes(), bytes);
+        assert_eq!(restored.custody_digest(), capsule.custody_digest());
+        assert_eq!(local_fold_nonce(&restored), nonce);
+
+        // Test-only resealing creates distinct original owners; production restoration
+        // never samples or reseals. Canonical opening zero remains accepted.
+        let mut one = [0; 32];
+        one[0] = 1;
+        for opening in [[0; 32], one] {
+            let changed = capsule
+                .body()
+                .clone()
+                .freeze()
+                .unwrap()
+                .seal(opening)
+                .unwrap();
+            assert_eq!(changed.body(), capsule.body());
+            assert_ne!(changed.custody_digest(), capsule.custody_digest());
+            assert_ne!(changed.receipt_commitment(), capsule.receipt_commitment());
+            assert_ne!(local_fold_nonce(&changed), nonce);
+            assert_eq!(
+                local_fold_nonce(&changed),
+                p_bytes_native::<Fq>(domain, &changed.receipt_commitment())
+            );
+        }
+    }
+
+    #[test]
+    fn q_nonce_source_keeps_private_and_public_completion_joins_distinct() {
+        let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
+        let completion: KagemushaWalletCompletionRecordV1 =
+            fixture("KagemushaWalletCompletionRecordV1");
+        let original = capsule
+            .body()
+            .retained_inputs
+            .iter()
+            .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
+            .expect("exact retained Request original");
+        let request: KagemushaWalletRequestV1 = norito::decode_canonical_with_limits(
+            &original.bytes,
+            norito::canonical_decode_limits(original.bytes.len()),
+        )
+        .expect("canonical retained Request");
+        request.validate().expect("signed retained Request");
+        assert_eq!(request.body.scheme_id, capsule.body().scheme_id);
+        let credential = &request.receiver_credential;
+        completion
+            .verify(credential, &capsule)
+            .expect("signed fixture authority");
+        completion.require_capsule(&capsule).unwrap();
+        assert_eq!(completion.capsule_digest, capsule.custody_digest());
+        assert_eq!(
+            completion.receipt.capsule_commitment,
+            capsule.receipt_commitment()
+        );
+        assert_ne!(
+            completion.capsule_digest,
+            completion.receipt.capsule_commitment
+        );
+
+        let changed = capsule
+            .body()
+            .clone()
+            .freeze()
+            .unwrap()
+            .seal([0; 32])
+            .unwrap();
+        assert_eq!(changed.body(), capsule.body());
+        assert!(completion.require_capsule(&changed).is_err());
+        // Replacing only h cannot authorize another public d or the old receipt.
+        let mut swapped = completion.clone();
+        swapped.capsule_digest = changed.custody_digest();
+        assert!(swapped.require_capsule(&changed).is_err());
+        assert!(swapped.verify(credential, &changed).is_err());
+        // The converse must fail too: a correct new d cannot replace private source h.
+        let mut swapped = completion.clone();
+        swapped.receipt.capsule_commitment = changed.receipt_commitment();
+        assert!(swapped.require_capsule(&changed).is_err());
+        assert!(swapped.verify(credential, &changed).is_err());
+        // A structurally joined pair still cannot authenticate changed receipt/output bytes.
+        swapped.capsule_digest = changed.custody_digest();
+        swapped.require_capsule(&changed).unwrap();
+        assert!(swapped.verify(credential, &changed).is_err());
+        assert_ne!(local_fold_nonce(&changed), local_fold_nonce(&capsule));
     }
 }

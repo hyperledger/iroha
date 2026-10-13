@@ -243,11 +243,9 @@ class SettlementExecutionOrder(str, Enum):
 
 
 class SettlementAtomicity(str, Enum):
-    """Atomicity policy controlling how partial failures are handled."""
+    """All-or-nothing policy for native bilateral settlement."""
 
     ALL_OR_NOTHING = "all_or_nothing"
-    COMMIT_FIRST_LEG = "commit_first_leg"
-    COMMIT_SECOND_LEG = "commit_second_leg"
 
 
 @dataclass(frozen=True)

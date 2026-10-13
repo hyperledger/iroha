@@ -21,7 +21,7 @@ use parking_lot::{Condvar, Mutex};
 
 use super::{
     AnchorView, TransactionCheck,
-    executor::{AnchorSource, LaneTransactions},
+    executor::{AnchorSource, LaneSelectionError, LaneTransactions},
     routing::RoutingSnapshot,
 };
 use crate::{
@@ -140,11 +140,14 @@ impl AnchorView for GlobalAnchors {
             return Ok(None);
         };
         let view = self.state.view();
+        if height.get() > view.height() {
+            return Ok(None);
+        }
         let block = view
-            .kura()
-            .get_block(height, &view.execution_budget())
+            .canonical_history()
+            .executed_block(height, |_, _| Ok(()))
             .map_err(|error| error.map_rejection(std::io::Error::other))?;
-        Ok(block.and_then(|block| u64::try_from(block.header().creation_time().as_millis()).ok()))
+        Ok(u64::try_from(block.header().creation_time().as_millis()).ok())
     }
 }
 
@@ -194,13 +197,24 @@ pub struct QueueLaneTransactions {
     lane: LaneId,
     queue: Arc<Queue>,
     state: Arc<State>,
+    time_source: iroha_primitives::time::TimeSource,
 }
 
 impl QueueLaneTransactions {
-    /// The share of `lane` in `queue`, routed with `state`.
+    /// The share of `lane` in `queue`, routed with `state` and paced by the proposer clock.
     #[must_use]
-    pub fn new(lane: LaneId, queue: Arc<Queue>, state: Arc<State>) -> Self {
-        Self { lane, queue, state }
+    pub fn new(
+        lane: LaneId,
+        queue: Arc<Queue>,
+        state: Arc<State>,
+        time_source: iroha_primitives::time::TimeSource,
+    ) -> Self {
+        Self {
+            lane,
+            queue,
+            state,
+            time_source,
+        }
     }
 }
 
@@ -215,7 +229,7 @@ impl LaneTransactions for QueueLaneTransactions {
         height: u64,
         max_bytes: usize,
         skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, LaneSelectionError> {
         let view = self.state.view();
         let Some(pending) = self
             .queue
@@ -227,10 +241,19 @@ impl LaneTransactions for QueueLaneTransactions {
         let inputs = routing.inputs(view.world());
         let mut selected = Vec::new();
         let mut bytes = 0usize;
+        let wall_time = self.time_source.now();
+        let mut future = false;
         for transaction in pending {
-            if skip.contains(&transaction.hash_as_entrypoint())
-                || inputs.route(&transaction, height)? != Some(self.lane)
+            if skip.contains(&transaction.hash_as_entrypoint()) {
+                continue;
+            }
+            if !cfg!(all(test, sumeragi_core_mutation = "HC259"))
+                && transaction.as_ref().creation_time() > wall_time
             {
+                future = true;
+                continue;
+            }
+            if inputs.route(&transaction, height)? != Some(self.lane) {
                 continue;
             }
             let next = bytes.saturating_add(transaction.encoded_len());
@@ -240,6 +263,9 @@ impl LaneTransactions for QueueLaneTransactions {
             bytes = next;
             selected.push(AsRef::<SignedTransaction>::as_ref(&transaction).clone());
         }
+        if selected.is_empty() && future {
+            return Err(LaneSelectionError::ClockAhead);
+        }
         Ok(selected)
     }
 }
@@ -247,6 +273,25 @@ impl LaneTransactions for QueueLaneTransactions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lane_anchor_time_requires_original_canonical_execution_history() {
+        crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-lane-anchor-clock-test")
+            .spawn(|| {
+                let chain = crate::sumeragi::test_chain::CertifiedTestChain::start(
+                    crate::sumeragi::test_chain::TestChainConfig::new(crate::state::World::new(), 1_000),
+                ).unwrap();
+                let anchors = GlobalAnchors::new(chain.state().clone(), Arc::new(AppliedWatch::new(1, None)));
+                let expected = u64::try_from(chain.committed(1).block().header().creation_time().as_millis()).unwrap();
+                assert_eq!(anchors.creation_time_ms(1).unwrap(), Some(expected));
+                assert_eq!(anchors.creation_time_ms(2).unwrap(), None);
+                chain.kura().corrupt_canonical_body_for_testing(NonZeroUsize::MIN).unwrap();
+                assert!(anchors.creation_time_ms(1).is_err(), "an applied anchor cannot derive clock authority from unavailable canonical execution bytes");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn original_runner_watch_keeps_preexisting_and_concurrent_admission_stop_and_height() {

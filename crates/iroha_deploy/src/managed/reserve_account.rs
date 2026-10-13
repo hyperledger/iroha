@@ -206,13 +206,15 @@ impl ManagedReserveAccountRegistration {
             .map_err(|_| invalid("cannot open reserve registration wallet"))?;
         let account = authorization.bind_account(account)?;
         attempts::generated(
-            &directory,
-            purpose,
-            original.digest()?,
-            &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
-            authorization,
-            deadline,
-            None,
+            crate::managed::native_operation::attempts::GeneratedSelection {
+                operation: &directory,
+                purpose,
+                semantic: original.digest()?,
+                scope: &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+                authorization,
+                deadline,
+                body_expiry: None,
+            },
             |attempt| {
                 account
                     .inspect_reserve_account_registration_preparation_in_parent(
@@ -368,7 +370,7 @@ impl ManagedReserveAccountRegistration {
         };
         let needs_prepare = retained.is_none();
         if let Some(transaction) = &retained
-            && let Some(finalized) = self.authority.retained_finality(&directory, transaction)?
+            && let Some(finalized) = self.authority.retained_finality(directory, transaction)?
         {
             self.validate_carrier(&original, &finalized)?;
             let current = observe_current
@@ -406,8 +408,12 @@ impl ManagedReserveAccountRegistration {
                 };
             return Ok(progress(status, None, None));
         }
-        // Existing signed work remains observable during a current-state/quorum outage.
-        let observed = self.authority.observe_finality(deadline).ok();
+        // Only preparation or dispatch can consume this absence preflight. Signed read-only
+        // recovery still resumes the exact wallet and authenticates fresh finality below.
+        let observed = mode
+            .submits()
+            .then(|| self.authority.observe_finality(deadline).ok())
+            .flatten();
         let current = observed
             .as_ref()
             .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
@@ -440,7 +446,7 @@ impl ManagedReserveAccountRegistration {
         verify_custody()?;
         let transaction = match retained {
             Some(transaction) => transaction,
-            None => self.verify_wallet(&directory, &original, deadline)?,
+            None => self.verify_wallet(directory, &original, deadline)?,
         };
         let request = original.request(deadline);
         let mut report = account
@@ -472,7 +478,7 @@ impl ManagedReserveAccountRegistration {
         let finalized = if report.status == OperationStatus::Applied {
             if let Some(observed) = &observed {
                 self.authority.advance_carrier(
-                    &directory,
+                    directory,
                     &original.checkpoint,
                     &transaction,
                     &report,
@@ -580,7 +586,7 @@ impl ManagedReserveAccountRegistration {
             .map_err(|_| invalid("invalid original reserve registration checkpoint"))?
             .verify_global_scope(
                 self.authority.config.network_id,
-                &self.authority.config.chain.to_string(),
+                self.authority.config.chain.as_ref(),
             )
             .map_err(|_| invalid("original reserve checkpoint is not the selected Global root"))?;
         Ok(())

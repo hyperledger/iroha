@@ -366,11 +366,9 @@ impl LiteClient {
 
     /// Moves the next query to the liteserver after the one that answered
     /// last, for callers whose verification rejected that liteserver's data.
-    /// `TonBuilder::rotate_endpoints` calls it, and the keeper does so after a
-    /// build that failed.
-    // TODO(WP9): the keeper does not observe on-chain rejections of its
-    // submitted advances, and the wallet and CLI do not rotate after a local
-    // verification failure yet.
+    /// `TonBuilder::rotate_endpoints` is used by original keeper admission and the
+    /// wallet/CLI's bounded local build-and-verify retries. Changed state, profile
+    /// support, local resource refusal and generic commit failures do not rotate it.
     pub fn rotate_preferred(&self) {
         self.servers.rotate_preferred();
     }

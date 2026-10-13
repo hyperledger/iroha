@@ -60,6 +60,7 @@ pub struct PreparedNetworkPublication {
 /// The manifest digest is authenticated separately, for example by an admitted native public-inputs
 /// record. It must not be chosen from the same untrusted manifest being admitted. Some manifest
 /// fields, including the address discriminant, are not repeated in signed genesis instructions.
+#[derive(Clone, Copy)]
 pub struct PinnedPublicationGenesis<'a> {
     /// Original canonical signed-genesis bytes selected independently of proof transport.
     pub signed_genesis: &'a [u8],
@@ -135,7 +136,7 @@ pub fn prepare_network_publication(
     };
     let checkpoint = checkpoint_from_proofs(&anchor, proofs)?;
     prepare_checkpoint(
-        checkpoint,
+        &checkpoint,
         manifest.chain_discriminant(),
         policy,
         signer,
@@ -230,7 +231,7 @@ impl FinalitySource for OfflineProofSource {
 }
 
 fn prepare_checkpoint(
-    checkpoint: SumeragiFinalityCheckpoint,
+    checkpoint: &SumeragiFinalityCheckpoint,
     discriminant: u16,
     policy: NetworkPublicationPolicy,
     signer: &KeyPair,
@@ -250,7 +251,7 @@ fn prepare_checkpoint(
         policy.network_name.clone(),
         policy.release_public_key,
         policy.serial,
-        policy.checkpoint_url,
+        &policy.checkpoint_url,
     )?])?;
     let canonical_checkpoint = checkpoint
         .encode_canonical()
@@ -275,7 +276,7 @@ fn prepare_checkpoint(
         checkpoint_block_hash: checkpoint.block_hash().into(),
     };
     let checkpoint_bytes =
-        SignedNetworkCheckpoint::sign(release.clone(), &checkpoint, signer.private_key())?
+        SignedNetworkCheckpoint::sign(release.clone(), checkpoint, signer.private_key())?
             .encode_canonical()?;
     let profile_bytes = profiles.encode_installation()?;
     Ok(PreparedNetworkPublication {

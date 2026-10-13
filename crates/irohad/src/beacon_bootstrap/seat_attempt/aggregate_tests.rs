@@ -53,7 +53,7 @@ pub(super) fn through_original_aggregate_head(
 
 /// Move only the actual completed producer after its original H4/private/head barriers.
 /// This helper never constructs private components, a fake native result or a checked source.
-pub(crate) fn genuine_aggregate_owner(
+pub fn genuine_aggregate_owner(
     budget: &AllocationBudget,
 ) -> (
     ValidatedGlobalThresholdBeaconSessionV1,

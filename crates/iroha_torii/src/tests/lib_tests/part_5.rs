@@ -48,7 +48,7 @@ async fn norito_rpc_gate_records_metrics() {
                 iroha_config::parameters::defaults::torii::transport::norito_rpc::mtls_trusted_proxy_cidrs(),
         };
     let app = mk_norito_rpc_test_harness(cfg.clone()).await;
-    let metrics = app.telemetry.metrics().await;
+    let metrics = app.telemetry.metrics();
     let trusted_remote = Some("127.0.0.1".parse().expect("trusted proxy"));
     let untrusted_remote = Some("198.51.100.10".parse().expect("untrusted proxy"));
     let mut headers = HeaderMap::new();
@@ -96,7 +96,7 @@ async fn norito_rpc_gate_records_metrics() {
                 iroha_config::parameters::defaults::torii::transport::norito_rpc::mtls_trusted_proxy_cidrs(),
         };
     let mtls_app = mk_norito_rpc_test_harness(mtls_cfg.clone()).await;
-    let mtls_metrics = mtls_app.telemetry.metrics().await;
+    let mtls_metrics = mtls_app.telemetry.metrics();
     assert!(
         mtls_app
             .check_norito_rpc_allowed(&HeaderMap::new(), trusted_remote)
@@ -133,11 +133,13 @@ async fn norito_rpc_gate_records_metrics() {
             .get(),
         2
     );
-    let mut disabled_cfg = actual::NoritoRpcTransport::default();
-    disabled_cfg.enabled = false;
-    disabled_cfg.stage = actual::NoritoRpcStage::Disabled;
+    let disabled_cfg = actual::NoritoRpcTransport {
+        enabled: false,
+        stage: actual::NoritoRpcStage::Disabled,
+        ..Default::default()
+    };
     let disabled_app = mk_norito_rpc_test_harness(disabled_cfg.clone()).await;
-    let disabled_metrics = disabled_app.telemetry.metrics().await;
+    let disabled_metrics = disabled_app.telemetry.metrics();
     assert!(
         disabled_app
             .check_norito_rpc_allowed(&HeaderMap::new(), trusted_remote)
@@ -1362,4 +1364,35 @@ fn contract_rejection_maps_to_unprocessable_entity() {
         Error::Query(ValidationFail::ContractRejected(rejection)).status_code(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
+}
+#[test]
+fn settlement_replay_maps_to_conflict_without_claiming_new_success() {
+    use iroha_data_model::executor::settlement::{
+        SettlementReplayDispositionV1, SettlementReplayV1,
+    };
+    let payer = iroha_data_model::account::AccountId::new(
+        iroha_crypto::KeyPair::from_seed(vec![0x72; 32], iroha_crypto::Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    for disposition in [
+        SettlementReplayDispositionV1::AlreadySettled,
+        SettlementReplayDispositionV1::ConflictingIntent,
+    ] {
+        let replay = SettlementReplayV1 {
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                payer.clone(),
+                "customer-payment-9".parse().unwrap(),
+            ),
+            disposition,
+            committed_block_height: 42,
+            committed_block_hash: iroha_crypto::HashOf::from_untyped_unchecked(
+                iroha_crypto::Hash::new(b"original settlement"),
+            ),
+        };
+        assert_eq!(
+            Error::Query(ValidationFail::SettlementReplay(Box::new(replay))).status_code(),
+            StatusCode::CONFLICT,
+        );
+    }
 }

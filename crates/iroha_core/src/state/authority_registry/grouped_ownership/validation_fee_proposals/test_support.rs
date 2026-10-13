@@ -52,9 +52,9 @@ pub(in crate::state) fn proposal(kind: u8, height: u64) -> GovernanceProposalRec
                     })
                     .collect(),
                 max_sbd_per_attempt_minor: 1000,
-                max_sbd_per_day_minor: 100000,
+                max_sbd_per_day_minor: 100_000,
                 min_interval_ms: 60000,
-                max_source_age_ms: 300000,
+                max_source_age_ms: 300_000,
                 max_slippage_bps: 100,
                 validator_lane_id: custody.validator_lane_id,
                 min_reward_claim_xor_minor: 1,
@@ -83,8 +83,8 @@ pub(in crate::state) fn proposal(kind: u8, height: u64) -> GovernanceProposalRec
     }
 }
 
-pub(in crate::state) fn fixture() -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(in crate::state) fn fixture() -> World {
+    let mut world = World::default();
     for kind in 0..3 {
         world
             .governance_proposals

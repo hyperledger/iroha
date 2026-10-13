@@ -94,14 +94,22 @@ async fn assert_body_retains_route_lease(kind: CapabilityRangeKind, consume: boo
 #[tokio::test]
 async fn car_route_body_retains_concurrency_until_eof_or_cancellation() {
     for consume in [false, true] {
-        assert_body_retains_route_lease(CapabilityRangeKind::Car, consume).await;
+        Box::pin(assert_body_retains_route_lease(
+            CapabilityRangeKind::Car,
+            consume,
+        ))
+        .await;
     }
 }
 
 #[tokio::test]
 async fn chunk_route_body_retains_concurrency_until_eof_or_cancellation() {
     for consume in [false, true] {
-        assert_body_retains_route_lease(CapabilityRangeKind::Chunk, consume).await;
+        Box::pin(assert_body_retains_route_lease(
+            CapabilityRangeKind::Chunk,
+            consume,
+        ))
+        .await;
     }
 }
 #[derive(Clone, Copy)]

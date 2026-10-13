@@ -4,6 +4,15 @@ use super::*;
 use crate::managed::service_authority::CheckpointImports;
 use iroha_data_model::sumeragi_finality::EpochValidationScope;
 
+#[derive(Clone, Copy)]
+struct EnrollmentVerification<'a> {
+    purpose: CustodyPurpose,
+    policy: &'a SignerCustodyPolicyV1,
+    interval: Option<ManagedCustodyEnrollmentInterval>,
+    configured: &'a ManagedTransactionFinality,
+    deadline: Instant,
+}
+
 /// Exact original enrollment with independently authenticated successful wallet inclusion.
 ///
 /// This is historical evidence only. Native current custody, revocation, time and signer
@@ -164,8 +173,10 @@ impl ManagedStreamTokenCustody {
         self.select_retained_current_enrollment(
             policy,
             initial_interval,
-            minimum_height,
-            minimum_block_hash,
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: minimum_height,
+                block_hash: minimum_block_hash,
+            },
             &current,
             now_ms()?,
             deadline,
@@ -176,12 +187,15 @@ impl ManagedStreamTokenCustody {
         &self,
         policy: &SignerCustodyPolicyV1,
         initial_interval: ManagedCustodyEnrollmentInterval,
-        minimum_height: u64,
-        minimum_block_hash: [u8; 32],
+        floor: EnrollmentFloor,
         current: &VerifiedStreamTokenCustodyStateV1,
         observed_at_unix_ms: u64,
         deadline: Instant,
     ) -> Result<RetainedCustodyEnrollment> {
+        let EnrollmentFloor {
+            height: minimum_height,
+            block_hash: minimum_block_hash,
+        } = floor;
         let retained = self.retained_head_material_at(
             policy,
             initial_interval,
@@ -201,8 +215,10 @@ impl ManagedStreamTokenCustody {
         self.verify_enrollment_at(
             &retained,
             policy,
-            height,
-            hash,
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height,
+                block_hash: hash,
+            },
             current,
             observed_at_unix_ms,
             deadline,
@@ -272,8 +288,10 @@ impl ManagedStreamTokenCustody {
         self.verify_enrollment_at(
             enrollment,
             policy,
-            minimum_height,
-            minimum_block_hash,
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: minimum_height,
+                block_hash: minimum_block_hash,
+            },
             &current,
             now_ms()?,
             deadline,
@@ -283,16 +301,19 @@ impl ManagedStreamTokenCustody {
     /// Check historical enrollment against a separately authenticated same-cut current proof.
     /// The proof's sole native verifier owns provenance; this method adds exact original-profile,
     /// enrollment and floor checks, with no signing, HTTP or durable state publication.
-    pub(crate) fn verify_enrollment_at(
+    pub(in crate::managed) fn verify_enrollment_at(
         &self,
         enrollment: &RetainedCustodyEnrollment,
         policy: &SignerCustodyPolicyV1,
-        minimum_height: u64,
-        minimum_block_hash: [u8; 32],
+        floor: EnrollmentFloor,
         current: &VerifiedStreamTokenCustodyStateV1,
         observed_at_unix_ms: u64,
         deadline: Instant,
     ) -> Result<()> {
+        let EnrollmentFloor {
+            height: minimum_height,
+            block_hash: minimum_block_hash,
+        } = floor;
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
         self.match_current_enrollment(
@@ -325,8 +346,10 @@ impl ManagedStreamTokenCustody {
         self.verify_enrollment_at(
             enrollment,
             policy,
-            minimum_height,
-            minimum_block_hash,
+            crate::managed::stream_token_custody::EnrollmentFloor {
+                height: minimum_height,
+                block_hash: minimum_block_hash,
+            },
             &current,
             now_ms()?,
             deadline,
@@ -450,18 +473,17 @@ impl ManagedStreamTokenCustody {
             return Err(invalid("retained enrollment policy differs"));
         }
         let original = self.required_enrollment_with_imports(purpose, &mut imports)?;
-        let result = self.verify_retained_enrollment_with_imports(
-            purpose,
-            policy,
-            interval,
-            &configured,
+        self.verify_retained_enrollment_with_imports(
+            EnrollmentVerification {
+                purpose,
+                policy,
+                interval,
+                configured: &configured,
+                deadline,
+            },
             original,
-            deadline,
             &mut imports,
-        );
-        drop(imports);
-        drop(validation);
-        result
+        )
     }
 
     /// Consume one canonical initial selection after verifying Configure once. The same owned
@@ -473,10 +495,7 @@ impl ManagedStreamTokenCustody {
     ) -> Result<RetainedInitialPrerequisite> {
         let mut validation = EpochValidationScope::new();
         let mut imports = CheckpointImports::new(&self.authority, Some(&mut validation));
-        let result = self.retained_initial_prerequisite_with_imports(deadline, &mut imports);
-        drop(imports);
-        drop(validation);
-        result
+        self.retained_initial_prerequisite_with_imports(deadline, &mut imports)
     }
 
     pub(super) fn retained_initial_prerequisite_with_imports(
@@ -504,15 +523,12 @@ impl ManagedStreamTokenCustody {
         // The initial body and its carrier share pure work only until this call returns.
         let mut validation = EpochValidationScope::new();
         let mut imports = CheckpointImports::new(&self.authority, Some(&mut validation));
-        let result = self.initial_prerequisite_after_configuration_with_imports(
+        self.initial_prerequisite_after_configuration_with_imports(
             policy,
             configured,
             deadline,
             &mut imports,
-        );
-        drop(imports);
-        drop(validation);
-        result
+        )
     }
 
     fn initial_prerequisite_after_configuration_with_imports(
@@ -526,12 +542,14 @@ impl ManagedStreamTokenCustody {
             .inspect_initial_selection_with_imports(&policy, imports)?
             .ok_or_else(|| invalid("original initial enrollment dispatch is not selected"))?;
         let enrollment = self.verify_retained_enrollment_with_imports(
-            CustodyPurpose::InitialEnroll,
-            &policy,
-            Some(interval),
-            &configured,
+            EnrollmentVerification {
+                purpose: CustodyPurpose::InitialEnroll,
+                policy: &policy,
+                interval: Some(interval),
+                configured: &configured,
+                deadline,
+            },
             original,
-            deadline,
             imports,
         )?;
         Ok(RetainedInitialPrerequisite { policy, enrollment })
@@ -548,26 +566,31 @@ impl ManagedStreamTokenCustody {
         deadline: Instant,
     ) -> Result<RetainedCustodyEnrollment> {
         self.verify_retained_enrollment_with_imports(
-            purpose,
-            policy,
-            interval,
-            configured,
+            EnrollmentVerification {
+                purpose,
+                policy,
+                interval,
+                configured,
+                deadline,
+            },
             original,
-            deadline,
             &mut CheckpointImports::new(&self.authority, None),
         )
     }
 
     fn verify_retained_enrollment_with_imports(
         &self,
-        purpose: CustodyPurpose,
-        policy: &SignerCustodyPolicyV1,
-        interval: Option<ManagedCustodyEnrollmentInterval>,
-        configured: &ManagedTransactionFinality,
+        verification: EnrollmentVerification<'_>,
         original: Selected<Original>,
-        deadline: Instant,
         imports: &mut CheckpointImports<'_, '_>,
     ) -> Result<RetainedCustodyEnrollment> {
+        let EnrollmentVerification {
+            purpose,
+            policy,
+            interval,
+            configured,
+            deadline,
+        } = verification;
         let directory = original.directory();
         self.validate_original_with_imports(&original, purpose, imports)?;
         let Action::Enroll { enrollment, .. } = &original.action else {
@@ -595,9 +618,9 @@ impl ManagedStreamTokenCustody {
                 ));
             }
         }
-        let transaction = self.verify_wallet(&directory, &original, deadline)?;
+        let transaction = self.verify_wallet(directory, &original, deadline)?;
         let finalized = imports
-            .retained_finality(&directory, &transaction)?
+            .retained_finality(directory, &transaction)?
             .ok_or_else(|| invalid("enrollment requires independent original inclusion"))?;
         if finalized.height <= configured.height {
             return Err(invalid("enrollment carrier predates original Configure"));
@@ -609,6 +632,7 @@ impl ManagedStreamTokenCustody {
         let bytes = enrollment.clone();
         self.authority.validate_profile()?;
         require_deadline(deadline)?;
+        drop(original);
         Ok(RetainedCustodyEnrollment {
             bytes,
             statement: record.statement,
@@ -715,7 +739,7 @@ impl ManagedStreamTokenCustody {
         let original = journal::required_original(&operation)?;
         let directory = original.directory();
         self.validate_original_with_imports(&original, CustodyPurpose::Configure, imports)?;
-        let signed = self.verify_wallet(&directory, &original, deadline)?;
+        let signed = self.verify_wallet(directory, &original, deadline)?;
         // Retain the same bytes fed to the sole native decoder, never a later path reread.
         let carrier = read_optional(directory, "carrier.nrt", MAX_CHECKPOINT_BYTES)?
             .ok_or_else(|| invalid("configuration requires independent original inclusion"))?;

@@ -142,10 +142,11 @@ pub(crate) fn successor_head(
                     }
                     let commitment = completed.commitment;
                     let signatures_digest = completed.signatures_digest;
+                    let execution_expired = record.execution.recorded_at_unix_ms
+                        >= record.reservation.expires_at_unix_ms;
                     if record.execution.authority != record.reserved.authority
                         || record.execution.height <= record.reserved.height
-                        || record.execution.recorded_at_unix_ms
-                            >= record.reservation.expires_at_unix_ms
+                        || execution_expired
                         || previous.audit.sequence.checked_add(1) != Some(commitment.audit.sequence)
                         || commitment.audit.digest == [0; 32]
                         || commitment.audit.digest == previous.audit.digest

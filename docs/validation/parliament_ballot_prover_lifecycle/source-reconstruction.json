@@ -1,0 +1,63 @@
+{
+  "helper_sha256": "895bfe75537f86de9d365ebbfcc1d76ff6b0bf0771bbfce137da5cd263b6957c",
+  "passed": true,
+  "read_only": true,
+  "scopes": {
+    "attempts/source-drift-during-accel": {
+      "archived_substitutions": [
+        {
+          "actual": "9f3631b0526be4315a48cd38416e18c7c8455353cbe2484b6ccb488eda4ded41",
+          "expected": "9f3631b0526be4315a48cd38416e18c7c8455353cbe2484b6ccb488eda4ded41",
+          "live_sha256": "9309acbbc67fd463069f4d9e37c024e09bdfb1753dafc0e83acf7ba49ad77d13",
+          "matched": true,
+          "selected": "docs/validation/parliament_ballot_prover_lifecycle/attempts/source-drift-during-accel/build-norito-lib.rs.template",
+          "source": "crates/norito/src/lib.rs"
+        },
+        {
+          "actual": "bf0aa83f7c1828e917f8ade621a53c7a9ecafc471cfe5a39ce7a39997537228f",
+          "expected": "bf0aa83f7c1828e917f8ade621a53c7a9ecafc471cfe5a39ce7a39997537228f",
+          "live_sha256": "651876e6b013fc79d8723e9212b0da979b28cc130b388a26820483b01d06c3b7",
+          "matched": true,
+          "selected": "docs/validation/parliament_ballot_prover_lifecycle/attempts/source-drift-during-accel/run_validation.py.template",
+          "source": "docs/validation/parliament_ballot_prover_lifecycle/run_validation.py"
+        }
+      ],
+      "entries": 242,
+      "matched": 242,
+      "mismatches": [],
+      "source_manifest_sha256": "9a981c42da2309804092e306cf7db8820fa1968ed7db84c8db42496e8f2fb80a"
+    },
+    "supplemental": {
+      "archived_substitutions": [
+        {
+          "actual": "43d86d2a44695a01f837835000636ee7d0e983d2a10922105140f5c29ecca8d4",
+          "expected": "43d86d2a44695a01f837835000636ee7d0e983d2a10922105140f5c29ecca8d4",
+          "live_sha256": "9309acbbc67fd463069f4d9e37c024e09bdfb1753dafc0e83acf7ba49ad77d13",
+          "matched": true,
+          "selected": "docs/validation/parliament_ballot_prover_lifecycle/supplemental/build-norito-lib.rs.template",
+          "source": "crates/norito/src/lib.rs"
+        }
+      ],
+      "entries": 243,
+      "matched": 243,
+      "mismatches": [],
+      "source_manifest_sha256": "d69e9435e7958df4e1d3ec0a397c2167f77da5e03f19c70ed66f6370757c969c"
+    },
+    "test-campaign": {
+      "archived_substitutions": [
+        {
+          "actual": "b7d640fdc4463bdcc4ce14acfcc4dc72b1239c48d06a7a6fa24f5d99bbee765e",
+          "expected": "b7d640fdc4463bdcc4ce14acfcc4dc72b1239c48d06a7a6fa24f5d99bbee765e",
+          "live_sha256": "9309acbbc67fd463069f4d9e37c024e09bdfb1753dafc0e83acf7ba49ad77d13",
+          "matched": true,
+          "selected": "docs/validation/parliament_ballot_prover_lifecycle/test-campaign/build-norito-lib.rs.template",
+          "source": "crates/norito/src/lib.rs"
+        }
+      ],
+      "entries": 242,
+      "matched": 242,
+      "mismatches": [],
+      "source_manifest_sha256": "1c1b08bd757712a4f146188569c0d6fd5897dd1662c6b0edbddcf1bf3de59c06"
+    }
+  }
+}

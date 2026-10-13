@@ -34,12 +34,12 @@ impl Source {
         )
         .unwrap();
         let original = retained_original(
-            &capsule.retained_inputs,
+            &capsule.body().retained_inputs,
             KagemushaWalletRetainedInputRoleV1::Request,
         )
         .unwrap();
         let request: KagemushaWalletRequestV1 = norito::decode_from_bytes(original).unwrap();
-        let mut before = capsule.successor_state;
+        let mut before = capsule.body().successor_state;
         let mut tree = KagemushaWalletIndexedTreeV1::new();
         let other = KagemushaWalletRedeemLeafV1 {
             ordinal: 2,
@@ -76,7 +76,7 @@ impl Source {
             receipt,
             insertion,
             after_root: tree.root(),
-            relation: capsule.statement.relation_id,
+            relation: capsule.body().statement.relation_id,
         }
     }
 

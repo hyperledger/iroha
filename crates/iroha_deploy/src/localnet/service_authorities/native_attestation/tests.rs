@@ -48,7 +48,7 @@ fn fresh_global_initializes_exact_policy_once_and_profile_reads_do_not_take_live
         .unwrap()
         .unwrap();
     let root = storage(&prepared, 0);
-    assert_eq!(plan.attestation_journal_policy(), policy());
+    assert_eq!(crate::localnet::service_authorities::RetainedProviderServicePlan::attestation_journal_policy(), policy());
     let native = NativeMusubiProviderAttestationCustodyV1::open(
         &root,
         plan.network_id(),

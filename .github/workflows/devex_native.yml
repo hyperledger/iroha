@@ -170,8 +170,43 @@ jobs:
         run: cargo test --locked --release -p musubi --lib -- --test-threads=1
       - name: Test shared desktop services and GUI actions
         run: cargo test --locked --release -p mochi-core -p mochi-ui --features mochi-ui/gui --lib --bins -- --test-threads=1
+      - name: Build standalone Kagami release bundle
+        run: cargo run --locked --release -p xtask --features dev-tools --bin xtask -- kagami-bundle --profile release --out target/devex-kagami-native
+      - name: Exercise standalone Kagami installed flows
+        env:
+          IROHA_DEVEX_BUNDLE_BIN: ${{ github.workspace }}/target/devex-kagami-native/kagami-${{ matrix.bundle_host }}-release/bin
+        run: |
+          cargo test --locked --release -p xtask --features dev-tools --bin xtask mochi::developer_smoke::tests::installed_runtime_without_configuration -- --exact --ignored --test-threads=1 --nocapture
+          cargo test --locked --release -p xtask --features dev-tools --bin xtask mochi::developer_smoke::cold_start_smoke::tests::installed_bytecode_and_package_start_without_configuration -- --exact --ignored --test-threads=1 --nocapture
       - name: Build complete release bundle and exercise all deployment inputs
         run: cargo run --locked --release -p xtask --features dev-tools --bin xtask -- mochi-bundle --profile release --out target/devex-native --matrix target/devex-native/matrix.json --smoke
+      - name: Extract the Mochi deliverable into a fresh installed directory
+        env:
+          BUNDLE_HOST: ${{ matrix.bundle_host }}
+        run: |
+          python - <<'PYEXTRACT'
+          import os
+          from pathlib import Path
+          import platform
+          import subprocess
+          import tempfile
+
+          name = "mochi-" + os.environ["BUNDLE_HOST"] + "-release"
+          archive = Path("target/devex-native", name + ".tar.gz").resolve(strict=True)
+          installed = Path(tempfile.mkdtemp(prefix="mochi-extracted-", dir=os.environ["RUNNER_TEMP"]))
+          subprocess.run(["tar", "-xzf", str(archive), "-C", str(installed)], check=True)
+          runtime_relative = "Mochi.app/Contents/MacOS" if platform.system() == "Darwin" else "bin"
+          runtime = (installed / name / runtime_relative).resolve(strict=True)
+          mochi = runtime / ("mochi.exe" if platform.system() == "Windows" else "mochi")
+          subprocess.run([str(mochi), "--help"], check=True, cwd=installed)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("IROHA_DEVEX_BUNDLE_BIN=" + str(runtime) + "\n")
+              output.write("IROHA_TEST_RUNTIME_DIRECTORY=" + str(runtime) + "\n")
+          PYEXTRACT
+      - name: Exercise extracted Mochi installed flows
+        run: |
+          cargo test --locked --release -p xtask --features dev-tools --bin xtask mochi::developer_smoke::tests::installed_runtime_without_configuration -- --exact --ignored --test-threads=1 --nocapture
+          cargo test --locked --release -p xtask --features dev-tools --bin xtask mochi::developer_smoke::cold_start_smoke::tests::installed_bytecode_and_package_start_without_configuration -- --exact --ignored --test-threads=1 --nocapture
       - name: Exercise native private validators, persistence and listener isolation
         run: cargo test --locked --release -p iroha_deploy --lib managed::tests::installed::installed_private_root_lifecycle_and_listener_isolation -- --exact --ignored --test-threads=1 --nocapture
       - name: Exercise disposable parent attachment and private payload isolation
@@ -185,6 +220,7 @@ jobs:
             target/devex-native/host.json
             target/devex-native/matrix.json
             target/devex-native/mochi-*/manifest.json
+            target/devex-kagami-native/kagami-*/manifest.json
             target/devex-native/*.tar.gz
             target/devex-native/*.zip
           if-no-files-found: warn

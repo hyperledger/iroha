@@ -60,18 +60,20 @@ pub fn executable_self_registers_authority(executable: &Executable, authority: &
 /// proposal envelope path, whose authorisation is established from multisig membership rather
 /// than a materialised authority account, and the SCCP rules of
 /// [`crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority`]: a keeper
-/// advance from any authority (`specs/sccp.md` §4.19).
+/// advance or sole forgery-evidence submission from any authority (`specs/sccp.md` §4.19).
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     executable_self_registers_authority(executable, authority)
+        || (crate::smartcontracts::isi::sccp::keepalive::is_standalone(executable)
+            && authority
+                .try_signatory()
+                .is_some_and(|key| key.algorithm() == iroha_crypto::Algorithm::Ed25519))
         || matches!(
             executable,
             Executable::Instructions(instructions)
                 if instructions_allow_multisig_envelope_authority(instructions)
         )
-        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(
-            executable, authority,
-        )
+        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(executable)
 }
 
 pub(crate) fn instructions_allow_multisig_envelope_authority(
@@ -81,9 +83,9 @@ pub(crate) fn instructions_allow_multisig_envelope_authority(
         && instructions.iter().all(|instruction| {
             matches!(
                 MultisigInstructionBox::try_from(instruction),
-                Ok(MultisigInstructionBox::Propose(_))
-                    | Ok(MultisigInstructionBox::Approve(_))
-                    | Ok(MultisigInstructionBox::Cancel(_))
+                Ok(MultisigInstructionBox::Propose(_)
+                    | MultisigInstructionBox::Approve(_)
+                    | MultisigInstructionBox::Cancel(_))
             )
         })
 }

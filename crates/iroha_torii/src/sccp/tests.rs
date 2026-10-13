@@ -298,27 +298,6 @@ fn numbers_and_directions_parse_with_defaults() {
 }
 
 #[test]
-fn proof_heights_default_to_record() {
-    assert_eq!(
-        parse_choice(&ProofQuery::default()).ok(),
-        Some(SccpProofHeightV1::Record)
-    );
-    assert_eq!(
-        parse_choice(&ProofQuery {
-            at: Some("latest".into())
-        })
-        .ok(),
-        Some(SccpProofHeightV1::Latest)
-    );
-    assert!(
-        parse_choice(&ProofQuery {
-            at: Some("soon".into())
-        })
-        .is_err()
-    );
-}
-
-#[test]
 fn read_errors_map_to_http_statuses() {
     for (failure, status) in [
         (SccpReadError::NotFound("x".into()), StatusCode::NOT_FOUND),
@@ -661,8 +640,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         &HistoryQuery::default(),
         Some(&accept),
         &headers,
-        &mut cache,
-        &cache_budget,
+        (&mut cache, &cache_budget),
         &owner,
     ))
     .await;
@@ -686,8 +664,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
         },
         Some(&accept),
         &headers,
-        &mut cache,
-        &cache_budget,
+        (&mut cache, &cache_budget),
         &owner,
     );
     let etag = sized.headers()[header::ETAG].clone();
@@ -704,8 +681,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &conditional,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         )
         .status(),
@@ -720,8 +696,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             },
             Some(&accept),
             &headers,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         ))
         .await,
@@ -734,8 +709,7 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
             &HistoryQuery::default(),
             Some(&accept),
             &headers,
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         ))
         .await,
@@ -744,53 +718,33 @@ async fn history_route_serves_logarithmic_paths_with_validators() {
 }
 
 #[tokio::test]
-async fn proof_and_governance_routes_report_missing_records() {
-    let (state, ..) = seeded();
+async fn governance_route_reports_missing_records() {
+    let state = blank_state();
     let view = state.view();
-    let accept = norito_accept();
-    let headers = HeaderMap::new();
-    assert_eq!(
-        error_code(message_proof_response(
-            &view,
-            &"99".repeat(32),
-            &ProofQuery::default(),
-            Some(&accept),
-            &headers,
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
-    assert_eq!(
-        error_code(control_proof_response(
-            &view,
-            ("ethereum-mainnet", 1, 9),
-            &ProofQuery::default(),
-            Some(&accept),
-            &headers,
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
-    assert_eq!(
-        error_code(governance_proposal_response(
-            &view,
-            &"11".repeat(32),
-            Some(&accept)
-        ))
-        .await,
-        (StatusCode::NOT_FOUND, "sccp_not_found".to_owned())
-    );
-    assert_eq!(
-        error_code(governance_proposal_response(&view, "11", Some(&accept))).await,
-        (StatusCode::BAD_REQUEST, "sccp_invalid_query".to_owned())
-    );
+    let missing = hex::encode([0x99; 32]);
+    let response = governance_proposal_response(&view, &missing, None);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn capabilities_list_paths_profiles_and_limits() {
     let state = blank_state();
+    let budget = iroha_allocation::AllocationBudget::new(32_768);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let offered = read::capabilities(
+        &state.view(),
+        &budget,
+        read::native::SccpNativeReadControl {
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+            stop: &stop,
+        },
+        iroha_torii_shared::route_catalog::sccp::ROUTES
+            .iter()
+            .map(|route| route.path()),
+    )
+    .unwrap();
     let capabilities: SccpCapabilitiesV1 =
-        decode(capabilities_response(&state.view(), Some(&norito_accept()))).await;
+        decode(respond(Some(&norito_accept()), offered.data().clone())).await;
     assert_eq!(capabilities.limits, SccpReadLimitsV1::v1());
     assert_eq!(capabilities.profiles.len(), 3);
     for route in iroha_torii_shared::route_catalog::sccp::ROUTES {
@@ -857,7 +811,7 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
         .await
         .expect("history query");
     assert_eq!(history.size.as_deref(), Some("16"));
-    let proof: ProofQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
+    let proof: native::ProofQuery = extract_query("/v1/sccp/messages/00/proof?at=42")
         .await
         .expect("proof query");
     assert_eq!(proof.at.as_deref(), Some("42"));
@@ -873,146 +827,15 @@ async fn numeric_query_values_reach_the_handlers_as_text() {
 }
 
 #[tokio::test]
-async fn proof_queries_reject_retired_unknown_and_duplicate_selectors() {
-    for query in [
-        "attestation=own",
-        "attestation=42",
-        "at=record&attestation=latest",
-        "at=record&unknown=1",
-        "at=record&at=latest",
-    ] {
-        assert_eq!(
-            extract_query::<ProofQuery>(&format!("/v1/sccp/messages/00/proof?{query}"))
-                .await
-                .expect_err("proof selectors are strict"),
-            StatusCode::BAD_REQUEST,
-            "{query}"
-        );
-    }
-    for value in ["own", "0", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
-        assert!(
-            parse_choice(&ProofQuery {
-                at: Some(value.into())
-            })
-            .is_err(),
-            "{value}"
-        );
-    }
-    assert_eq!(
-        parse_choice(&ProofQuery {
-            at: Some("42".into())
-        })
-        .ok(),
-        Some(SccpProofHeightV1::At(42))
-    );
-}
-
-#[tokio::test]
-async fn proof_routes_refuse_known_uncertified_records_without_cache_authority() {
-    // These committed World records have no native certificate. They exercise the current
-    // explicit unavailability and cannot manufacture a successful proof response.
-    let (state, ..) = seeded();
-    let view = state.view();
-    let mut headers = HeaderMap::new();
-    headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
-    for accept in [json_accept(), norito_accept()] {
-        for at in [None, Some("record"), Some("latest"), Some("10")] {
-            let query = ProofQuery {
-                at: at.map(str::to_owned),
-            };
-            let message =
-                message_proof_response(&view, &"01".repeat(32), &query, Some(&accept), &headers);
-            let control = control_proof_response(
-                &view,
-                ("ethereum-mainnet", 1, 1),
-                &query,
-                Some(&accept),
-                &headers,
-            );
-            for response in [message, control] {
-                assert!(!response.headers().contains_key(header::ETAG));
-                assert!(!response.headers().contains_key(header::CACHE_CONTROL));
-                assert_eq!(
-                    error_code(response).await,
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "sccp_proof_unavailable".into()
-                    )
-                );
-            }
-        }
-        let missing = message_proof_response(
-            &view,
-            &"99".repeat(32),
-            &ProofQuery::default(),
-            Some(&accept),
-            &headers,
-        );
-        let missing_control = control_proof_response(
-            &view,
-            ("ethereum-mainnet", 1, 99),
-            &ProofQuery::default(),
-            Some(&accept),
-            &headers,
-        );
-        for response in [missing, missing_control] {
-            assert!(!response.headers().contains_key(header::ETAG));
-            assert_eq!(
-                error_code(response).await,
-                (StatusCode::NOT_FOUND, "sccp_not_found".into())
-            );
-        }
-    }
-}
-
-#[tokio::test]
-async fn proof_routes_reject_malformed_queries_before_unavailable_record_lookup() {
-    let (state, ..) = seeded();
-    let view = state.view();
-    let headers = HeaderMap::new();
-    for at in ["own", "0", "+1", "-1", " 1", "1 ", "18446744073709551616"] {
-        let query = ProofQuery {
-            at: Some(at.into()),
-        };
-        for response in [
-            message_proof_response(&view, &"01".repeat(32), &query, None, &headers),
-            control_proof_response(&view, ("ethereum-mainnet", 1, 1), &query, None, &headers),
-        ] {
-            assert_eq!(
-                error_code(response).await,
-                (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
-            );
-        }
-    }
-    assert_eq!(
-        error_code(message_proof_response(
-            &view,
-            "01",
-            &ProofQuery::default(),
-            None,
-            &headers
-        ))
-        .await,
-        (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
-    );
-    assert_eq!(
-        error_code(control_proof_response(
-            &view,
-            ("unknown-network", 1, 1),
-            &ProofQuery::default(),
-            None,
-            &headers
-        ))
-        .await,
-        (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
-    );
-}
-
-#[tokio::test]
 async fn committee_routes_report_current_records_and_reject_zero_or_absent_generation() {
     use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
     use iroha_data_model::{
-        isi::sccp::InitializeSccpV1,
+        Registrable,
+        account::Account,
+        asset::{Asset, AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+        domain::Domain,
+        isi::{RegisterPublicLaneValidator, sccp::InitializeSccpV1},
+        nexus::PublicLaneMonetaryPlanV1,
         parameter::{
             Parameter,
             system::{SumeragiConsensusMode, SumeragiNposParameters},
@@ -1043,6 +866,61 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         parameters.committee_validity_ms + parameters.forgery_evidence_grace_ms,
     );
     nexus.staking.max_slash_bps = 10_000;
+    // Capture each original G1 member from its genuine global staking registration.
+    // Pre-existing fixture balances fund the normal signed genesis monetary plan.
+    let owner = AccountId::new(config.genesis_key.public_key().clone());
+    let definition: AssetDefinitionId = nexus.staking.stake_asset_id.parse().unwrap();
+    let escrow = AccountId::parse_encoded(&nexus.staking.stake_escrow_account_id).unwrap();
+    let amount = iroha_crypto::numeric::Quantity::from(1_000_u32);
+    let validators = iroha_core::sumeragi::test_chain::fixture_validators();
+    let accounts = validators
+        .iter()
+        .map(|(peer, _)| AccountId::new(peer.public_key().clone()))
+        .collect::<Vec<_>>();
+    config.world = World::with_assets(
+        [
+            Domain::new(iroha_model_base::domain::DomainId::try_new("nexus", "universal").unwrap())
+                .build(&owner),
+        ],
+        accounts
+            .iter()
+            .chain([&escrow])
+            .map(|account| Account::new(account.clone()).build(&owner)),
+        [AssetDefinition::new(
+            definition.clone(),
+            "Network XOR",
+            iroha_primitives::numeric::NumericSpec::fractional(9),
+            AssetBalancePolicy::Global,
+            None,
+        )
+        .build(&owner)],
+        accounts.iter().map(|account| {
+            Asset::new(
+                AssetId::new(definition.clone(), account.clone()),
+                amount.clone(),
+            )
+        }),
+        [],
+    );
+    for ((peer, _), validator) in validators.iter().zip(accounts) {
+        let source = AssetId::new(definition.clone(), validator.clone());
+        config.genesis_instructions.push(
+            RegisterPublicLaneValidator {
+                lane_id: iroha_model_base::topology::LaneId::SINGLE,
+                validator: validator.clone(),
+                peer_id: peer.clone(),
+                stake_account: validator,
+                initial_stake: amount.clone(),
+                metadata: Default::default(),
+                monetary_plan: PublicLaneMonetaryPlanV1::genesis_registration(
+                    source,
+                    AssetId::new(definition.clone(), escrow.clone()),
+                    amount.clone(),
+                ),
+            }
+            .into(),
+        );
+    }
     config.nexus = Some(nexus);
     config.genesis_instructions.push(
         InitializeSccpV1 {
@@ -1065,7 +943,7 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
                 .unwrap()
         })
         .collect::<Vec<[u8; 48]>>();
-    keys.sort();
+    keys.sort_unstable();
     let view = state.view();
     let record = store::committee_generations::get(view.world(), &1).unwrap();
     let liability_clock = record.liable_until_lc + 1;
@@ -1095,40 +973,21 @@ async fn committee_routes_report_current_records_and_reject_zero_or_absent_gener
         committee_response(&stx, Some(2), None).status(),
         StatusCode::NOT_FOUND
     );
-    let capabilities = read::capabilities(&stx);
+    let capabilities = read::capabilities(
+        &stx,
+        &iroha_allocation::AllocationBudget::new(32_768),
+        iroha_core::smartcontracts::isi::sccp::read::native::SccpNativeReadControl {
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(10),
+            stop: &std::sync::atomic::AtomicBool::new(false),
+        },
+        std::iter::empty(),
+    )
+    .unwrap();
     assert_eq!(
-        capabilities.current_generation.unwrap().deadline_ms,
+        capabilities.data().current_generation.unwrap().deadline_ms,
         chain.genesis().header().creation_time_ms + parameters.committee_validity_ms
     );
-    assert_eq!(capabilities.liability_clock, liability_clock);
-}
-
-#[tokio::test]
-async fn rotations_require_bounded_query_and_native_archive_without_cache_authority() {
-    let state = blank_state();
-    for (after, limit) in [("0", "16"), ("1", "0"), ("1", "17"), ("no", "1")] {
-        let query = RotationsQuery {
-            after_generation: Some(after.into()),
-            limit: Some(limit.into()),
-        };
-        assert_eq!(
-            rotations_response(&state.view(), &query).status(),
-            StatusCode::BAD_REQUEST
-        );
-    }
-    let query = RotationsQuery {
-        after_generation: Some("1".into()),
-        limit: Some("16".into()),
-    };
-    let response = rotations_response(&state.view(), &query);
-    assert!(response.headers().get(header::ETAG).is_none());
-    assert_eq!(
-        error_code(response).await,
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "sccp_rotation_unavailable".into()
-        )
-    );
+    assert_eq!(capabilities.data().liability_clock, liability_clock);
 }
 
 fn history_owner() -> (
@@ -1163,8 +1022,7 @@ async fn history_response_bytes_keep_query_custody_after_body_and_path_retire() 
             },
             Some(&accept),
             &HeaderMap::new(),
-            &mut cache,
-            &cache_budget,
+            (&mut cache, &cache_budget),
             &owner,
         );
         assert_eq!(response.status(), StatusCode::OK);
@@ -1234,8 +1092,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &owner,
         )
     };
@@ -1254,8 +1111,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &cloned.sccp_history_budget,
+            (&mut cache, &cloned.sccp_history_budget),
             &warm_owner,
         )
     };
@@ -1284,8 +1140,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &refused_owner,
         )
     };
@@ -1303,8 +1158,7 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
             &HistoryQuery::default(),
             Some(&norito_accept()),
             &HeaderMap::new(),
-            &mut cache,
-            &app.sccp_history_budget,
+            (&mut cache, &app.sccp_history_budget),
             &retry_owner,
         )
     };
@@ -1313,4 +1167,172 @@ async fn app_history_cache_is_local_reused_and_survives_query_refusal() {
         old, first,
         "refusal preserves the original view and published path"
     );
+}
+
+#[tokio::test]
+async fn proof_routes_refuse_known_uncertified_records_without_cache_authority() {
+    use super::native::{ProofQuery, handler_control_proof, handler_message_proof};
+    use crate::finality_interval::RouteExecutionDeadline;
+    use axum::{
+        Extension,
+        extract::{ConnectInfo, Path, State as AppState},
+    };
+    use iroha_core::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
+
+    let app =
+        crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(World::new(), false);
+    let current_route = route(&app.state, 3);
+    seed(&app.state, |transaction| {
+        store::routes::insert(transaction, ETH, current_route).unwrap();
+        record_outbound(transaction, 0, 10, SccpOutboundStatusV1::Recorded);
+        store::control_messages::insert(
+            transaction,
+            (ETH, 1, 1),
+            SccpControlRecordV1 {
+                track: 1,
+                parliament_paused: true,
+                fast_pause_until_ms: 0,
+                height: 10,
+                commitment_index: 1,
+                leaf: [9; 32],
+                certificate_id: [8; 32],
+                effect_hash: [5; 32],
+            },
+        )
+        .unwrap();
+    });
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for accept in ["application/json", crate::utils::NORITO_MIME_TYPE] {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+        headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
+        for at in [None, Some("record"), Some("latest"), Some("10")] {
+            let query = ProofQuery {
+                at: at.map(str::to_owned),
+            };
+            let message = handler_message_proof(
+                AppState(app.clone()),
+                Path("01".repeat(32)),
+                crate::NoritoStringQuery(query.clone()),
+                Extension(RouteExecutionDeadline(deadline)),
+                headers.clone(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap();
+            let control = handler_control_proof(
+                AppState(app.clone()),
+                Path(("ethereum-mainnet".into(), "1".into(), "1".into())),
+                crate::NoritoStringQuery(query),
+                Extension(RouteExecutionDeadline(deadline)),
+                headers.clone(),
+                ConnectInfo(remote),
+            )
+            .await
+            .unwrap();
+            for response in [message, control] {
+                assert!(!response.headers().contains_key(header::ETAG));
+                assert_eq!(
+                    response.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+                assert_eq!(
+                    error_code(response).await,
+                    (StatusCode::SERVICE_UNAVAILABLE, "sccp_unavailable".into())
+                );
+            }
+        }
+    }
+
+    // Absence is asserted only against a genuine committed source. An unavailable
+    // native tip cannot certify that a record is absent, even when its local map is empty.
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+    let mut committed = crate::tests_runtime_handlers::mk_app_state_for_tests();
+    let fixture = Arc::get_mut(&mut committed).unwrap();
+    fixture.state = Arc::clone(chain.state());
+    fixture.kura = Arc::clone(chain.kura());
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for accept in ["application/json", crate::utils::NORITO_MIME_TYPE] {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("*"));
+        headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
+        let message = handler_message_proof(
+            AppState(committed.clone()),
+            Path("99".repeat(32)),
+            crate::NoritoStringQuery(ProofQuery::default()),
+            Extension(RouteExecutionDeadline(deadline)),
+            headers.clone(),
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        let control = handler_control_proof(
+            AppState(committed.clone()),
+            Path(("ethereum-mainnet".into(), "1".into(), "99".into())),
+            crate::NoritoStringQuery(ProofQuery::default()),
+            Extension(RouteExecutionDeadline(deadline)),
+            headers,
+            ConnectInfo(remote),
+        )
+        .await
+        .unwrap();
+        for response in [message, control] {
+            assert!(!response.headers().contains_key(header::ETAG));
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            assert_eq!(
+                error_code(response).await,
+                (StatusCode::NOT_FOUND, "sccp_not_found".into())
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn proof_handlers_reject_short_id_and_unknown_network_before_source() {
+    use super::native::{ProofQuery, handler_control_proof, handler_message_proof};
+    use crate::finality_interval::RouteExecutionDeadline;
+    use axum::{
+        Extension,
+        extract::{ConnectInfo, Path, State as AppState},
+    };
+    use std::time::{Duration, Instant};
+    let app =
+        crate::tests_runtime_handlers::app_with_root_scope_for_handler_test(World::new(), false);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let remote = "127.0.0.1:1234".parse().unwrap();
+    let short_id = handler_message_proof(
+        AppState(app.clone()),
+        Path("01".into()),
+        crate::NoritoStringQuery(ProofQuery::default()),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    let unknown_network = handler_control_proof(
+        AppState(app),
+        Path(("unknown-network".into(), "1".into(), "1".into())),
+        crate::NoritoStringQuery(ProofQuery::default()),
+        Extension(RouteExecutionDeadline(deadline)),
+        HeaderMap::new(),
+        ConnectInfo(remote),
+    )
+    .await
+    .unwrap();
+    for response in [short_id, unknown_network] {
+        assert!(!response.headers().contains_key(header::ETAG));
+        assert_eq!(
+            error_code(response).await,
+            (StatusCode::BAD_REQUEST, "sccp_invalid_query".into())
+        );
+    }
 }

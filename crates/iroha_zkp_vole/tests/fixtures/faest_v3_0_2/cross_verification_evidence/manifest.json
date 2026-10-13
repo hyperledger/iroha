@@ -1,0 +1,115 @@
+{
+  "file_count": 27,
+  "files": {
+    "crates/iroha_zkp_vole/examples/faest_cross_verify.rs": {
+      "bytes": 3746,
+      "sha256": "1ea5f2875e794f2bc2e86e101146b705843ce6d38d9b60713f3e846275262dbb"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/README.md": {
+      "bytes": 15652,
+      "sha256": "ba4dd0d16d08c86b701558eaf6c2ab19f0e28ebccf21d93b328a61acf8a65e9e"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification.md": {
+      "bytes": 11757,
+      "sha256": "aa5bcafa298c5ee03fa892cec00ecba8e36d74e5a9612814ac939c9ab69bb2ea"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/build_receipt.json": {
+      "bytes": 1984,
+      "sha256": "e09003015ce4c5c429f6a39ccfcbeed20953ea55df04328b7a8db948b84df4b2"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/driver-tests.txt": {
+      "bytes": 1100,
+      "sha256": "7b4d6785102c9b9e867d92f86ddd4d304779593de93ffdbe8b3ce0ef3005cad1"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/recovery.txt": {
+      "bytes": 1260,
+      "sha256": "4d70e284570929842ad880725e7fd96403fd8f48c95f6751704e73119e8261b9"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/recovery_cases.jsonl.txt": {
+      "bytes": 1071696,
+      "sha256": "2ab35b1f5acef93cbbb8d29694ead52dbe49e45b4244517cc54a38f7c0d8fd18"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/recovery_commands.txt": {
+      "bytes": 17530,
+      "sha256": "d1c6132114fc50d92dd1c7e8e7cc00029da461f59e4bbf32bddaec2d7abf7220"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/recovery_receipt.json": {
+      "bytes": 2050,
+      "sha256": "18b1c4966bb3a9155fb2fd67fa55be74f8d419740eb83e12d843955fe93f83c5"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/recovery_report.json": {
+      "bytes": 562219,
+      "sha256": "9ffa39ad41faa56088e5627ba76efa20b0846419ef5e853b041c49c4bcafba7f"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/build-root-Cargo.lock.template": {
+      "bytes": 306994,
+      "sha256": "dc55d38cf752be174f1e270b0c3ff7d292bdaed5f7d8297daf2225d4249c1c48"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/build_receipt.json": {
+      "bytes": 1984,
+      "sha256": "e09003015ce4c5c429f6a39ccfcbeed20953ea55df04328b7a8db948b84df4b2"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/campaign.txt": {
+      "bytes": 2230,
+      "sha256": "ff05097c3fad5a9bcd4c78b169b52f06f7a1b621638ed834eefa8eea171cd8bd"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/commands.txt": {
+      "bytes": 289215,
+      "sha256": "b33ed5decf73244d318cd3bcd71d91d268af715d8da313a81c403f2ee8f0cf84"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/driver_used.py": {
+      "bytes": 13814,
+      "sha256": "f75da4a204a3bc6b6da1bcdd2c6689c9f0e953e6ae77601ac7e909c61537517a"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rejected_publication/rejection.json": {
+      "bytes": 1114,
+      "sha256": "63e51a9e3e8093e3a623bc89fafe6a99581f52bfb4bc5d73d78e0236c722c55a"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rust-accel-build.txt": {
+      "bytes": 553,
+      "sha256": "6f5badc5e56006b5b3c3cbf6eae3ccfe9336629451fd68ec2617865bdc609ba1"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rust-accel-clippy.txt": {
+      "bytes": 633,
+      "sha256": "909678d7a3991568217a3bd2eedf15a73582d49f2f4a95471e252fb75fef9427"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rust-example-test.txt": {
+      "bytes": 864,
+      "sha256": "53f33e5d8e76ca81de20ce11bd68560bdf73bad961e3847db0d00a732b2ee6fb"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rust-portable-build.txt": {
+      "bytes": 536,
+      "sha256": "2499940ed013a2c486a5dd65cd2ce8332eed19d23347cfd36543a1e5d04da8b5"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/rust-portable-clippy.txt": {
+      "bytes": 1028,
+      "sha256": "750ee8bede721dbe7e562308da056e4440bb70ce194512c78dd9c99ba15cb4f0"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/summary.json": {
+      "bytes": 9642,
+      "sha256": "cea7995f2495546a17ba1947674e63b5d7cfb1814db7cab013e40385fbccb2f5"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/upstream_compile_commands.json": {
+      "bytes": 115297,
+      "sha256": "b83be142e7d901ace3915d561957a88c4403b4cca700e341135800f6ee46c3d0"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verification_evidence/upstream_config.h.txt": {
+      "bytes": 574,
+      "sha256": "2ef07319db4839e04b4bc600ac8fc2e16ecb25e4ab8c3e4221a9d4ecd9603d3c"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/cross_verify_upstream.py": {
+      "bytes": 15087,
+      "sha256": "4767b59e9a9956bfacfc1b439f8896098a39f0647d72cef993a6141ad7afc9e2"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/recover_cross_verification.py": {
+      "bytes": 7924,
+      "sha256": "c28f92f5405a67b75981b8c62db4c44c43ba78d14006bec51b1d79d0cebe8eb3"
+    },
+    "crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/test_cross_verify_upstream.py": {
+      "bytes": 4447,
+      "sha256": "fa777ef65048d82958ad810369179ce5057728c46076caecdb148b72d287547b"
+    }
+  },
+  "scope": "Reference-mode interoperability diagnostic; original rejected publication and separate frozen-input positive recovery are distinct. No security qualification.",
+  "security_qualified": false
+}

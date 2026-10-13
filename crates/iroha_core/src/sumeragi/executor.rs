@@ -142,6 +142,9 @@ const PAYLOAD_OVERHEAD: usize =
 pub struct ExecutorContext {
     /// The node's state.
     pub state: Arc<State>,
+    /// Local Unix clock for proposal pacing and uncertified execution deferral only.
+    /// Certified execution, apply and replay never use it for a deterministic verdict.
+    pub time_source: iroha_primitives::time::TimeSource,
     /// Mandatory original-pool archive of complete context values from each native execution.
     pub native_context_archive: Arc<NativeContextArchive>,
     /// The transaction queue (peeked by the builder, cleaned after apply); `None` until the
@@ -330,6 +333,7 @@ enum Request {
     Execute(
         AvailableBody,
         Hash32,
+        bool,
         mpsc::SyncSender<Result<Option<ExecOutcome>, PublicationError>>,
     ),
     Discard(u64, Vec<Hash32>),
@@ -405,6 +409,7 @@ fn require_body_admission(
 pub struct StateExecutor {
     /// The same pool as the worker, checked before retaining a queued certificate.
     execution_budget: iroha_allocation::AllocationBudget,
+    prepare_clock: super::crypto::prepare_clock::PrepareClock,
     requests: Option<mpsc::SyncSender<Request>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -432,6 +437,13 @@ impl StateExecutor {
     /// Move the one already-published original witness to complete-effect work.
     /// The caller must retain actual native execution authority; this performs no
     /// proof dispatch and accepts no advertised roots or replacement witness.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO: connect finalized-source proof dispatch only after durable artifact admission; move the exact native-certified original witness once"
+        )
+    )]
     pub(crate) fn take_finalized_fastpq_source(
         &self,
         native: super::certified_chain::AuthenticatedExecutionBlock,
@@ -463,11 +475,17 @@ impl StateExecutor {
         // already owns bounded control ingress and the original publication retry.
         let (requests, rx) = mpsc::sync_channel(1);
         let execution_budget = context.state.ivm_execution_budget();
+        let prepare_clock = super::crypto::prepare_clock::PrepareClock::new(
+            &execution_budget,
+            context.time_source.clone(),
+        )
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::WouldBlock, error))?;
+        let worker_prepare_clock = prepare_clock.clone();
         #[cfg(test)]
         let exit_hook = shutdown_tests::take_exit_hook();
         let thread =
             super::threads::sumeragi_thread_builder("sumeragi-state-exec").spawn(move || {
-                run(&context, &rx);
+                run(&context, &rx, worker_prepare_clock);
                 #[cfg(test)]
                 if let Some(exit_hook) = exit_hook {
                     exit_hook();
@@ -476,6 +494,7 @@ impl StateExecutor {
             })?;
         Ok(Self {
             execution_budget,
+            prepare_clock,
             requests: Some(requests),
             thread: Some(thread),
         })
@@ -535,6 +554,11 @@ impl StateExecutor {
 }
 
 impl StateExecutor {
+    /// The signer receives only the fixed clock observations of this exact worker.
+    pub(crate) fn prepare_clock(&self) -> super::crypto::prepare_clock::PrepareClock {
+        self.prepare_clock.clone()
+    }
+
     /// Attach the transaction queue: the builder reads it and applied blocks clean it.
     pub fn attach_queue(&self, queue: Arc<Queue>) {
         if let Some(requests) = &self.requests {
@@ -616,9 +640,10 @@ impl Executor for StateExecutor {
         &mut self,
         block: &AvailableBody,
         block_hash: &Hash32,
+        certified: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError> {
         require_body_admission(block, &self.execution_budget)?;
-        self.call(|reply| Request::Execute(block.clone(), *block_hash, reply))
+        self.call(|reply| Request::Execute(block.clone(), *block_hash, certified, reply))
             .unwrap_or_else(|| {
                 Err(PublicationError::RecoveryRequired(
                     "executor thread stopped".into(),
@@ -707,6 +732,16 @@ struct ScheduledAuthority {
     schedule: schedule::RetainedConsensusSchedule,
     height: u64,
 }
+impl ScheduledAuthority {
+    fn from_view(view: &(impl StateReadOnly + ?Sized), height: u64) -> Option<Self> {
+        let schedule = view.world().consensus_schedule();
+        schedule.ready(height).ok()?;
+        Some(Self {
+            schedule: schedule.clone(),
+            height,
+        })
+    }
+}
 impl std::ops::Deref for ScheduledAuthority {
     type Target = schedule::ScheduledConfig;
     fn deref(&self) -> &Self::Target {
@@ -738,6 +773,7 @@ impl FinishingPhase {
 /// One completed execution retained while its proof or result encoding awaits local resources.
 /// No retry of either phase re-executes transactions or creates another overlay.
 struct Finishing<'s> {
+    progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
     block_hash: Hash32,
     height: u64,
     header: iroha_sumeragi::message::BlockHeader,
@@ -758,6 +794,7 @@ struct Finishing<'s> {
 
 /// The executed overlay of one block.
 struct Live<'s> {
+    progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
     telemetry_origin: Option<CommitTelemetryOrigin>,
     native_contexts: Option<PreparedNativeContext>,
     block_hash: Hash32,
@@ -889,6 +926,7 @@ struct SignatureDecodeAttempt {
     returned_refusal: Option<ReturnedDecodedRefusal>,
     /// Completed leg graphs and decoder controls from this exact original proposal.
     amx_legs: Option<super::amx::NativeAmxLegPreparations>,
+    parent_service: super::certified_chain::ParentServicePreparation,
 }
 
 /// Original failure retained beside the same graph after the validator returned ownership.
@@ -1016,8 +1054,31 @@ impl SignatureDecodeAttempt {
     }
 }
 
+/// Re-sample the local clock at every handoff of an original completed execution.
+fn check_progress_clock(
+    clock: Option<&crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
+    wall: Duration,
+    certified: bool,
+) -> Result<(), PublicationError> {
+    let Some(clock) = clock else {
+        return Ok(());
+    };
+    let wall_ms = u64::try_from(wall.as_millis())
+        .map_err(|_| PublicationError::Retryable("local clock is unavailable".into()))?;
+    match clock.is_stale(wall_ms, certified) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(PublicationError::Retryable("StaleDueWork".into())),
+        Err(error) => Err(PublicationError::Retryable(error.to_string())),
+    }
+}
+
 struct Worker<'s> {
+    prepare_clock: super::crypto::prepare_clock::PrepareClock,
     payload_build: Option<GlobalPayloadBuild>,
+    assembly_parent_service: Option<(
+        OriginalPayloadScope,
+        super::certified_chain::ParentServicePreparation,
+    )>,
     signature_decode: Option<SignatureDecodeAttempt>,
     context: &'s ExecutorContext,
     state: &'s State,
@@ -1047,10 +1108,16 @@ struct Worker<'s> {
     completed_replay: Option<replay::CompletedReplay>,
 }
 
-fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
+fn run(
+    context: &ExecutorContext,
+    requests: &mpsc::Receiver<Request>,
+    prepare_clock: super::crypto::prepare_clock::PrepareClock,
+) {
     let state = Arc::clone(&context.state);
     let mut worker = Worker {
+        prepare_clock,
         payload_build: None,
+        assembly_parent_service: None,
         signature_decode: None,
         context,
         state: &state,
@@ -1185,8 +1252,8 @@ impl<'s> Worker<'s> {
                     });
                 inspect(original);
             }
-            Request::Execute(block, block_hash, reply) => {
-                let _ = reply.send(self.execute(&block, block_hash));
+            Request::Execute(block, block_hash, certified, reply) => {
+                let _ = reply.send(self.execute(&block, block_hash, certified));
             }
             Request::Discard(height, keep) => self.discard(height, &keep),
             Request::Prepare(block, qc, origin, reply) => {
@@ -1316,6 +1383,7 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
     ) -> Result<Option<ExecOutcome>, PublicationError> {
         if self.pending_commit.is_some() {
             return Ok(None);
@@ -1334,6 +1402,17 @@ impl<'s> Worker<'s> {
                         &"execution retry changes its original header",
                     )));
                 }
+                check_progress_clock(
+                    live.progress_clock.as_ref(),
+                    self.context.time_source.now(),
+                    certified,
+                )?;
+                self.prepare_clock.record(
+                    &live.header,
+                    live.block_hash,
+                    live.result,
+                    live.progress_clock,
+                );
                 return Ok(Some(ExecOutcome::Valid(live.result)));
             }
         }
@@ -1360,7 +1439,7 @@ impl<'s> Worker<'s> {
             );
             return Ok(None);
         }
-        let outcome = match self.run_execution(block, block_hash)? {
+        let outcome = match self.run_execution(block, block_hash, certified)? {
             Some(result) => ExecOutcome::Valid(result),
             None => ExecOutcome::Invalid,
         };
@@ -1401,8 +1480,10 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
     ) -> Result<Option<Hash32>, PublicationError> {
-        let outcome = self.run_execution_with_encoder(block, block_hash, encode_result_preimage);
+        let outcome =
+            self.run_execution_with_encoder(block, block_hash, certified, encode_result_preimage);
         match &outcome {
             Err(PublicationError::RecoveryRequired(reason)) => self.recovery = Some(reason.clone()),
             Err(PublicationError::RecoveryRefusal(original)) => {
@@ -1419,6 +1500,7 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
         encode: impl FnOnce(
             &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
@@ -1427,8 +1509,8 @@ impl<'s> Worker<'s> {
             super::commitment::ResultPreimageError,
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
-        let outcome = self.run_execution_with_finisher(block, block_hash, |worker| {
-            worker.finish_execution_with_encoder(encode)
+        let outcome = self.run_execution_with_finisher(block, block_hash, certified, |worker| {
+            worker.finish_execution_with_encoder(certified, encode)
         });
         if matches!(outcome, Ok(None)) {
             // Only a completed intrinsic rejection retires this original decode custody.
@@ -1442,6 +1524,7 @@ impl<'s> Worker<'s> {
         &mut self,
         block: &AvailableBody,
         block_hash: Hash32,
+        certified: bool,
         finish: impl FnOnce(&mut Self) -> Result<Option<Hash32>, PublicationError>,
     ) -> Result<Option<Hash32>, PublicationError> {
         self.retire_completed_payload(block.header().height);
@@ -1471,8 +1554,6 @@ impl<'s> Worker<'s> {
             // Its overlay is gone; a later `prepare` executes again.
             self.results.remove(&previous.block_hash);
         }
-        // A fresh attempt explicitly abandons the prior local refusal; completed verdicts own none.
-
         let height = block.header().height;
         let budget = self.state.ivm_execution_budget();
         if self
@@ -1515,6 +1596,7 @@ impl<'s> Worker<'s> {
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: super::certified_chain::ParentServicePreparation::default(),
             });
         }
         let attempt = self
@@ -1541,7 +1623,13 @@ impl<'s> Worker<'s> {
                 return invalid_attempt(height, &error);
             }
         }
-        match self.state.view().latest_block() {
+        // One original nonblocking cut supplies the parent, scheduled authority and
+        // retained parent-service preparation. Busy keeps the original decoded source.
+        let original_view = self.state.try_view_once().map_err(|error| {
+            preparation::validation_failure(BlockValidationError::StateView(error))
+                .expect("every State reader refusal has an explicit classification")
+        })?;
+        match original_view.latest_block() {
             Ok(Some(_)) => {}
             Ok(None) => {
                 return Err(PublicationError::Retryable(
@@ -1549,10 +1637,12 @@ impl<'s> Worker<'s> {
                 ));
             }
             Err(error) => {
-                return Err(error.map_rejection(|error| error.to_string()).into());
+                return Err(parent_history_error(error.map_rejection(
+                    iroha_data_model::query::error::QueryExecutionFail::CanonicalHistory,
+                )));
             }
         }
-        let Some(scheduled) = self.scheduled(height) else {
+        let Some(scheduled) = ScheduledAuthority::from_view(&original_view, height) else {
             return Err(PublicationError::Retryable(format!(
                 "no scheduled configuration for height {height}"
             )));
@@ -1580,12 +1670,77 @@ impl<'s> Worker<'s> {
             .as_ref()
             .and_then(|attempt| attempt.decoded.as_ref())
             .expect("original completed proposal remains before validation");
-        if !proposal_matches_header(iroha_block.header(), block) {
+        if !proposal_matches_header(&iroha_block.header(), block) {
             return invalid_attempt(
                 height,
                 &"the payload's height or view differs from the header",
             );
         }
+        // CT1 is a local refusal before effects, not deterministic invalidity. The original
+        // decoded source remains available for retry after the clock advances or a genuine
+        // PrepareQC authorizes certified execution. Read the committed parent allowance,
+        // never a parameter instruction from the candidate being guarded.
+        if height > 1
+            && !certified
+            && !cfg!(all(test, sumeragi_core_mutation = "HC257"))
+            && iroha_block
+                .header()
+                .creation_time()
+                .saturating_sub(self.context.time_source.now())
+                > original_view
+                    .world()
+                    .parameters()
+                    .sumeragi()
+                    .max_clock_drift()
+        {
+            return Err(PublicationError::Retryable("ClockAhead".into()));
+        }
+        let progress_clock = if height > 1
+            && self.context.root_scope
+                == iroha_data_model::block::consensus::SumeragiRootScope::Global
+        {
+            let time_ms =
+                u64::try_from(iroha_block.header().creation_time().as_millis()).map_err(|_| {
+                    PublicationError::Retryable("candidate clock is unavailable".into())
+                })?;
+            Some(
+                crate::smartcontracts::isi::sccp::keepalive::ProgressClock::capture(
+                    original_view.world(),
+                    height,
+                    time_ms,
+                )
+                .map_err(|error| PublicationError::Retryable(error.to_string()))?,
+            )
+        } else {
+            None
+        };
+        check_progress_clock(
+            progress_clock.as_ref(),
+            self.context.time_source.now(),
+            certified,
+        )?;
+        if height > 2 {
+            let prepared = self
+                .signature_decode
+                .as_mut()
+                .expect("original signed proposal")
+                .parent_service
+                .prepare(&original_view, height - 1);
+            #[cfg(all(test, sumeragi_core_mutation = "HC248"))]
+            if prepared.is_err() {
+                self.signature_decode
+                    .as_mut()
+                    .expect("original signed proposal")
+                    .parent_service = Default::default();
+            }
+            prepared.map_err(parent_service_preparation_error)?;
+        }
+        drop(original_view);
+        let iroha_block = self
+            .signature_decode
+            .as_ref()
+            .and_then(|attempt| attempt.decoded.as_ref())
+            .expect("the same original proposal after parent preparation");
         // Merged lane blocks execute after the block's own transactions (§4.3 of
         // `specs/sumeragi_lanes.md`); the node waits for its lane stores within `E_max`.
         let expansion = match lanes::merge::expand(
@@ -1671,7 +1826,7 @@ impl<'s> Worker<'s> {
             None
         };
         let validated = catch_unwind(AssertUnwindSafe(|| {
-            ValidBlock::validate_sumeragi_block_with_amx(
+            ValidBlock::validate_sumeragi_block(
                 iroha_block,
                 &topology,
                 genesis_account,
@@ -1683,6 +1838,7 @@ impl<'s> Worker<'s> {
                 block.payload().as_slice(),
                 state,
                 amx_legs,
+                (height > 2).then_some(&attempt.parent_service),
             )
         }));
         let validated = match validation_result(validated) {
@@ -1722,7 +1878,15 @@ impl<'s> Worker<'s> {
             }
         };
         if self
-            .retain_validated_execution(block, block_hash, valid, overlay, committee, events)?
+            .retain_validated_execution(
+                block,
+                block_hash,
+                valid,
+                overlay,
+                committee,
+                events,
+                progress_clock,
+            )?
             .is_none()
         {
             return Ok(None);
@@ -1741,6 +1905,7 @@ impl<'s> Worker<'s> {
         mut overlay: Box<StateBlock<'s>>,
         committee: Vec<PeerId>,
         events: Vec<EventBox>,
+        progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
     ) -> Result<Option<()>, PublicationError> {
         let height = block.header().height;
         if let Err(error) = overlay.take_sumeragi_lanes() {
@@ -1777,6 +1942,7 @@ impl<'s> Worker<'s> {
         // Retire only its preparation controls/source; later phases move this exact block.
         self.signature_decode = None;
         self.finishing = Some(Finishing {
+            progress_clock,
             block_hash,
             height,
             header: block.header().clone(),
@@ -1965,6 +2131,7 @@ impl<'s> Worker<'s> {
     /// Retry only proof or encoding of the original completed execution.
     fn finish_execution_with_encoder(
         &mut self,
+        certified: bool,
         encode: impl FnOnce(
             &iroha_allocation::RetainedPayload<CertifiedResultV1>,
             &iroha_allocation::AllocationBudget,
@@ -1973,6 +2140,15 @@ impl<'s> Worker<'s> {
             super::commitment::ResultPreimageError,
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
+        check_progress_clock(
+            self.finishing
+                .as_ref()
+                .expect("original completed execution")
+                .progress_clock
+                .as_ref(),
+            self.context.time_source.now(),
+            certified,
+        )?;
         self.prepare_original_result()?;
         self.prepare_original_context_archive()?;
         let original = self
@@ -2006,11 +2182,33 @@ impl<'s> Worker<'s> {
             self.recovery = Some(reason.clone());
             PublicationError::RecoveryRequired(reason)
         })?;
+        // SC1 faults ordinary voting after the original genesis has been installed.
+        #[cfg(all(test, sumeragi_core_mutation = "HC308"))]
+        let result = if original.height > 1 {
+            use iroha_data_model::sumeragi_finality::certified_result::{X_LEN, body_digest};
+            use sha2::{Digest as _, Sha256};
+            let mut omitted = Sha256::new();
+            omitted.update(super::commitment::RESULT_TAG);
+            omitted.update(body_digest(&preimage.as_slice()[X_LEN..]));
+            Hash32(omitted.finalize().into())
+        } else {
+            result
+        };
+        // Context proof and encoding can cross the lag boundary. Refuse locally before
+        // returning Valid, retaining the original overlay and result for a certified retry.
+        if !cfg!(all(test, sumeragi_core_mutation = "HC291")) {
+            check_progress_clock(
+                original.progress_clock.as_ref(),
+                self.context.time_source.now(),
+                certified,
+            )?;
+        }
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
             unreachable!("encoded original result")
         };
         self.live = Some(Live {
+            progress_clock: original.progress_clock,
             telemetry_origin: None,
             native_contexts: Some(
                 original
@@ -2034,6 +2232,13 @@ impl<'s> Worker<'s> {
             committee: original.committee,
             events: original.events,
         });
+        let live = self.live.as_ref().expect("original completed execution");
+        self.prepare_clock.record(
+            &live.header,
+            live.block_hash,
+            live.result,
+            live.progress_clock,
+        );
         Ok(Some(result))
     }
 
@@ -2121,13 +2326,7 @@ impl<'s> Worker<'s> {
     }
 
     fn scheduled(&self, height: u64) -> Option<ScheduledAuthority> {
-        let view = self.state.view();
-        let schedule = view.world().consensus_schedule();
-        schedule.ready(height).ok()?;
-        Some(ScheduledAuthority {
-            schedule: schedule.clone(),
-            height,
-        })
+        ScheduledAuthority::from_view(&self.state.view(), height)
     }
 
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
@@ -2203,7 +2402,7 @@ impl<'s> Worker<'s> {
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
         self.prepare_with_operations(block, qc, origin, encode, |worker, block, hash| {
-            worker.run_execution(block, hash)
+            worker.run_execution(block, hash, true)
         })
     }
 
@@ -2233,9 +2432,14 @@ impl<'s> Worker<'s> {
         match catch_unwind(AssertUnwindSafe(|| {
             self.prepare_inner(block, qc, origin, &mut encode, execute)
         })) {
-            Ok(result) => result.map_err(|error| match &self.recovery {
-                Some(reason) => PublicationError::RecoveryRequired(reason.clone()),
-                None => error,
+            Ok(result) => result.map_err(|error| match error {
+                // Cold execution already latched recovery for this owner. The latch is
+                // diagnostic state and must not replace the sole original refusal.
+                original @ PublicationError::RecoveryRefusal(_) => original,
+                other => match &self.recovery {
+                    Some(reason) => PublicationError::RecoveryRequired(reason.clone()),
+                    None => other,
+                },
             }),
             Err(_) => {
                 let reason = "publication preparation panicked; recovery required".to_owned();
@@ -2776,6 +2980,7 @@ impl<'s> Worker<'s> {
         let height = pending.header.height;
         self.completed_replay = None;
         self.applied = (height, pending.qc.block_hash);
+        self.assembly_parent_service = None;
         self.context
             .applied_watch
             .publish(height, pending.state_hash);
@@ -2817,6 +3022,7 @@ impl<'s> Worker<'s> {
         exec_budget_ms: u32,
     ) -> Result<Option<PayloadBytes>, PublicationError> {
         if let Some(reason) = &self.recovery {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             return Err(PublicationError::RecoveryRequired(reason.clone()));
         }
@@ -2824,6 +3030,7 @@ impl<'s> Worker<'s> {
             || self.publication_pending()
             || height != self.applied.0.saturating_add(1)
         {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             iroha_logger::debug!(
                 height,
@@ -2834,6 +3041,15 @@ impl<'s> Worker<'s> {
                 "sumeragi: payload selection awaits its original applied parent"
             );
             return Ok(None);
+        }
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| {
+                !scope.matches_request(height, view, max_bytes, exec_budget_ms)
+            })
+        {
+            self.assembly_parent_service = None;
         }
         if self.payload_build.as_ref().is_some_and(|build| {
             !build
@@ -2847,18 +3063,16 @@ impl<'s> Worker<'s> {
         self.partial_payload_expiry_wait();
 
         let original_generation = self.state.state_view_generation();
-        let current_view = match self.state.try_view_once() {
-            Ok(view) => view,
-            Err(crate::state::StateViewError::Busy(release)) => {
-                return Err(PublicationError::Deferred(
-                    PublicationDeferral::StateViewBusy(release),
-                ));
-            }
-            Err(error) => {
+        let current_view = self.state.try_view_once().map_err(|error| {
+            let classified =
+                preparation::validation_failure(BlockValidationError::StateView(error))
+                    .expect("every State reader refusal has an explicit classification");
+            if matches!(classified, PublicationError::RecoveryRequired(_)) {
                 self.completed_payload = None;
-                return Err(PublicationError::Retryable(error.to_string()));
+                self.assembly_parent_service = None;
             }
-        };
+            classified
+        })?;
         // Certified lane blocks come first: they reserve their share of the block's capacity
         // (`specs/sumeragi_lanes.md` §4.2).
         let merges = match lanes::merge::propose(&current_view, &*self.context.lane_blocks, height)
@@ -2882,9 +3096,33 @@ impl<'s> Worker<'s> {
                 return Err(PublicationError::RecoveryRequired(reason));
             }
         };
+        let parent_scope = OriginalPayloadScope::capture(
+            &current_view,
+            original_generation,
+            height,
+            view,
+            max_bytes,
+            exec_budget_ms,
+        );
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| *scope != parent_scope)
+        {
+            self.assembly_parent_service = None;
+        }
         // Original lane policy/refusal custody is resolved before the canonical read.
         // Every successful build and lend then authenticates the complete physical parent.
-        let parent = {
+        let retained_parent = self
+            .assembly_parent_service
+            .as_ref()
+            .map(|(_, preparation)| preparation.assembly_parent(&current_view))
+            .transpose()
+            .map_err(parent_service_preparation_error)?
+            .flatten();
+        let parent = if retained_parent.is_some() {
+            Ok(retained_parent)
+        } else {
             match std::num::NonZeroUsize::new(current_view.height()) {
                 Some(height) => current_view
                     .canonical_history()
@@ -2893,14 +3131,14 @@ impl<'s> Worker<'s> {
                 None => Ok(None),
             }
         }
-        .map_err(|error| match error {
-            crate::execution_attempt::ExecutionAttemptError::Deferred(original) => {
-                PublicationError::Deferred(original.into())
-            }
-            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+        .map_err(|error| {
+            if matches!(
+                &error,
+                crate::execution_attempt::ExecutionAttemptError::Rejected(_)
+            ) {
                 self.completed_payload = None;
-                PublicationError::Retryable(error.to_string())
             }
+            parent_history_error(error)
         })?;
         let Some(parent) = parent else {
             self.completed_payload = None;
@@ -2926,6 +3164,7 @@ impl<'s> Worker<'s> {
             height,
         };
         if self.queue.is_none() {
+            self.assembly_parent_service = None;
             self.completed_payload = None;
             return Ok(None);
         }
@@ -2944,7 +3183,7 @@ impl<'s> Worker<'s> {
             if let Some(original) =
                 self.reusable_completed_payload(scope, &parent, &current_view)?
             {
-                return Ok(original);
+                return Ok(Some(original));
             }
         } else {
             // Newly available mandatory lane work withdraws Queue-only reuse authority.
@@ -2955,14 +3194,20 @@ impl<'s> Worker<'s> {
         let selection: Option<crate::queue::PendingPayloadSelection> =
             queue.begin_pending_payload_selection(self.state, original_generation);
         let mut selected = match payload::select(
-            self.state,
+            &current_view,
             queue,
             max_bytes.saturating_sub(PAYLOAD_OVERHEAD),
-            merges.transactions,
+            &merges,
+            self.context.time_source.now(),
         ) {
             Ok(selected) => selected,
-            Err(reason) => {
+            Err(payload::PayloadError::RoutingDeferred(reason)) => {
                 return Err(preparation::producer_deferral(reason.into()));
+            }
+            Err(error) => {
+                let publication = preparation::payload_failure(error)
+                    .unwrap_or_else(|error| PublicationError::Retryable(error.to_string()));
+                return Err(publication);
             }
         };
         iroha_logger::debug!(
@@ -2974,9 +3219,27 @@ impl<'s> Worker<'s> {
         );
         // Only real work may activate the pulse signer. A pulse cannot create a block.
         if selected.is_empty() && merges.merges.is_empty() {
+            self.assembly_parent_service = None;
             #[cfg(test)]
             queue.record_empty_native_payload();
             return Ok(None);
+        }
+        if height > 2 {
+            let (_, preparation) = self.assembly_parent_service.get_or_insert_with(|| {
+                (
+                    parent_scope,
+                    super::certified_chain::ParentServicePreparation::default(),
+                )
+            });
+            preparation
+                .retain_assembly_parent(parent.clone())
+                .map_err(parent_service_preparation_error)?;
+            let prepared = preparation.prepare(&current_view, height - 1);
+            #[cfg(all(test, sumeragi_core_mutation = "HC248"))]
+            if prepared.is_err() {
+                self.assembly_parent_service = None;
+            }
+            prepared.map_err(parent_service_preparation_error)?;
         }
         let assembly = Assembly {
             parent: &parent,
@@ -2984,6 +3247,22 @@ impl<'s> Worker<'s> {
             cadence: Duration::from_millis(scheduled.params.block_time_ms),
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
+            if let Err(error) = payload::recheck_progress_for_proposal(
+                &current_view,
+                assembly,
+                &mut selected,
+                &merges,
+                self.context.time_source.now(),
+            ) {
+                let publication = preparation::payload_failure(error)
+                    .unwrap_or_else(|error| PublicationError::Retryable(error.to_string()));
+                return Err(publication);
+            }
+            if selected.is_empty() && merges.merges.is_empty() {
+                // A queued claim can become genuine or duplicate as the tip advances.
+                // Its removal never authorizes an empty proposal or a pulse signature.
+                return Ok(None);
+            }
             // Every selected Queue input retains its original admission receipt,
             // including mixed sources. Lane-bearing completion retains this same
             // source and rechecks its actual ranges and original lease on every lend.
@@ -2999,25 +3278,32 @@ impl<'s> Worker<'s> {
                     .map_err(payload_owner::lease_admission_error)?,
                 None => None,
             };
-            let block =
-                match payload::assemble_with_merges(self.state, assembly, &selected, &merges) {
-                    Ok(block) => block,
-                    Err(error) => {
-                        let error = match preparation::payload_failure(error) {
-                            Ok(original) => return Err(original),
-                            Err(error) => error,
-                        };
-                        iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
-                        return Err(PublicationError::Retryable(format!(
-                            "payload assembly: {error}"
-                        )));
-                    }
-                };
+            let block = match payload::assemble_with_parent_service(
+                self.state,
+                assembly,
+                &selected,
+                &merges,
+                self.assembly_parent_service
+                    .as_ref()
+                    .map(|(_, prepared)| prepared),
+            ) {
+                Ok(block) => block,
+                Err(error) => {
+                    let error = match preparation::payload_failure(error) {
+                        Ok(original) => return Err(original),
+                        Err(error) => error,
+                    };
+                    iroha_logger::warn!(height, %error, "sumeragi: payload assembly failed");
+                    return Err(PublicationError::Retryable(format!(
+                        "payload assembly: {error}"
+                    )));
+                }
+            };
             match block.resultless_proposal_wire_len() {
                 Ok(length) if length <= max_bytes => {
                     let source = GlobalPayloadSource {
-                        pending_inputs,
                         block,
+                        pending_inputs,
                     };
                     self.payload_build = Some(GlobalPayloadBuild {
                         scope,
@@ -3049,6 +3335,18 @@ impl<'s> Worker<'s> {
     }
 
     fn finish_payload_build(&mut self) -> Result<Option<PayloadBytes>, PublicationError> {
+        let creation_time = self
+            .payload_build
+            .as_ref()
+            .ok_or_else(|| PublicationError::RecoveryRequired("payload source disappeared".into()))?
+            .job
+            .source()
+            .block
+            .header()
+            .creation_time();
+        // This checks the original assembled header, including parent cadence and lane
+        // floors. Keep its source and Queue custody while the driver's timed retry waits.
+        payload_owner::check_proposer_clock(creation_time, self.context.time_source.now())?;
         let GlobalPayloadBuild {
             scope,
             mut job,
@@ -3125,6 +3423,10 @@ impl<'s> Worker<'s> {
             }
             return match result {
                 Ok(payload) => {
+                    payload_owner::check_proposer_clock(
+                        creation_time,
+                        self.context.time_source.now(),
+                    )?;
                     iroha_logger::debug!(
                         height = scope.height,
                         view = scope.view,
@@ -3154,7 +3456,13 @@ impl<'s> Worker<'s> {
                     bytes = payload.as_slice().len(),
                     "sumeragi: original funded payload build completed"
                 );
-                self.retain_completed_payload(scope, source.pending_inputs, &payload);
+                self.retain_completed_payload(
+                    scope,
+                    source.pending_inputs,
+                    &payload,
+                    creation_time,
+                );
+                payload_owner::check_proposer_clock(creation_time, self.context.time_source.now())?;
                 Ok(Some(payload))
             }
             Err((job, error)) => {
@@ -3177,6 +3485,13 @@ impl<'s> Worker<'s> {
     /// Retain queue ownership after a rejected proposal until the offending original
     /// transaction can be proved without forging a replacement native source header.
     fn reject(&mut self, height: u64, view: u64, block_hash: Hash32) {
+        if self
+            .assembly_parent_service
+            .as_ref()
+            .is_some_and(|(scope, _)| scope.height == height && scope.view == view)
+        {
+            self.assembly_parent_service = None;
+        }
         if self
             .completed_payload
             .as_ref()
@@ -3214,7 +3529,7 @@ impl<'s> Worker<'s> {
 }
 
 /// The iroha header of a decoded payload must match the certified core header.
-fn proposal_matches_header(header: IrohaHeader, block: &AvailableBody) -> bool {
+fn proposal_matches_header(header: &IrohaHeader, block: &AvailableBody) -> bool {
     header.height().get() == block.header().height
         && header.view_change_index() == block.header().origin_view
 }
@@ -3291,8 +3606,7 @@ mod tests {
             let budget = worker.state.ivm_execution_budget();
             let empty = iroha_allocation::ChargedBuffer::new(0, &budget).unwrap();
             let (empty_owner, error) = PayloadBytes::from_charged(empty, &budget)
-                .err()
-                .expect("empty payload never obtains available custody");
+                .expect_err("empty payload never obtains available custody");
             assert!(matches!(error, ByteAdmissionError::Length { length: 0 }));
             assert_eq!(worker.state.view().height(), state_height);
             assert!(worker.live.is_none());
@@ -3315,7 +3629,7 @@ mod tests {
             let block = chain.author_payload(header, zero_transaction_wire);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Ok(Some(ExecOutcome::Invalid))
             ));
             assert_eq!(
@@ -3458,6 +3772,9 @@ mod archive_tests;
 mod publication_tests;
 
 #[cfg(test)]
+pub(crate) mod clock_tests;
+
+#[cfg(test)]
 mod native_execution_authorization_tests {
     use super::*;
 
@@ -3512,3 +3829,68 @@ mod shutdown_tests;
 #[cfg(test)]
 #[path = "executor_amx_intent_tests.rs"]
 mod amx_intent_tests;
+
+/// Preserve the exact original allocation observation before any diagnostic formatting.
+fn parent_service_preparation_error(
+    error: super::certified_chain::ParentServiceError,
+) -> PublicationError {
+    match error {
+        super::certified_chain::ParentServiceError::Deferred(original) => {
+            preparation::producer_deferral(original.into())
+        }
+        super::certified_chain::ParentServiceError::NativeSource(original) => {
+            parent_native_source_error(original)
+        }
+        error => PublicationError::RecoveryRequired(error.to_string()),
+    }
+}
+
+/// Exercise the actual parent-service refusal boundary from sibling ownership tests.
+#[cfg(test)]
+pub(super) fn classify_parent_service_deferral_for_test(
+    original: crate::execution_attempt::ExecutionDeferred,
+) -> PublicationError {
+    parent_service_preparation_error(super::certified_chain::ParentServiceError::Deferred(
+        original,
+    ))
+}
+
+/// Preserve the native loader's exact unavailable/corrupt distinction.
+fn parent_native_source_error(
+    original: super::certified_chain::ChainReadError,
+) -> PublicationError {
+    use super::certified_chain::ChainReadError;
+    match original {
+        ChainReadError::NotCommitted { .. } | ChainReadError::NotInView { .. } => {
+            PublicationError::Retryable(original.to_string())
+        }
+        _ => PublicationError::RecoveryRequired(original.to_string()),
+    }
+}
+
+/// Parent bodies may arrive later; contradictory original history requires recovery.
+fn parent_history_error(
+    error: crate::execution_attempt::ExecutionAttemptError<
+        iroha_data_model::query::error::QueryExecutionFail,
+    >,
+) -> PublicationError {
+    use crate::execution_attempt::ExecutionAttemptError;
+    use iroha_data_model::query::error::QueryExecutionFail;
+    match error {
+        ExecutionAttemptError::Deferred(original) => {
+            preparation::producer_deferral(original.into())
+        }
+        ExecutionAttemptError::Rejected(error) => {
+            if matches!(&error, QueryExecutionFail::CanonicalHistory(original) if original.is_unavailable())
+            {
+                PublicationError::Retryable(error.to_string())
+            } else {
+                PublicationError::RecoveryRequired(error.to_string())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "executor_parent_service_custody_tests.rs"]
+mod parent_service_custody_tests;

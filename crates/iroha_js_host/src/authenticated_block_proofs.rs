@@ -732,6 +732,11 @@ mod tests {
         .unwrap();
         assert!(verified.valid);
         assert_eq!(
+            verified.checkpoint_norito.as_deref(),
+            Some(second.checkpoint.as_slice()),
+            "checkpoint promotion must retain the exact verified successor"
+        );
+        assert_eq!(
             SumeragiFinalityCheckpoint::decode_canonical(
                 verified.checkpoint_norito.as_ref().unwrap()
             )

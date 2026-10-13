@@ -308,7 +308,9 @@ impl PrivateDataspaceRegistry {
         let index = self
             .records
             .binary_search_by_key(&dataspace, PrivateDataspaceRecord::dataspace_id)
-            .map_err(|_| PrivateDataspaceAnchorError("private root is not registered".into()))?;
+            .map_err(|_| {
+                PrivateDataspaceAnchorError::Invalid("private root is not registered".into())
+            })?;
         let record = &mut self.records[index];
         require(
             &record.owner == current_owner

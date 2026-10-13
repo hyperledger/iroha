@@ -1312,7 +1312,7 @@ fn state_initialization_rejects_non_current_account_alias_policy_without_mutatio
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
         #[cfg(feature = "telemetry")]
-        Default::default(),
+        crate::telemetry::StateTelemetry::default(),
     )
     .err()
     .expect("non-current SNS policy must reject State initialization");
@@ -1687,10 +1687,13 @@ fn sns_state_block_uses_wall_clock_lifecycle_time() {
     );
     state.set_dataspace_catalog_for_testing(dataspace_catalog());
     let owner = owner();
-    let before_ms = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system clock after unix epoch")
-        .as_millis() as u64;
+    let before_ms = u64::try_from(
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system clock after unix epoch")
+            .as_millis(),
+    )
+    .expect("fixture value fits u64");
     let record = apply_with_state_block(&state, |tx| {
         register_name(
             tx,
@@ -2136,10 +2139,13 @@ fn set_name_lease_expiry_updates_lifecycle_windows() {
         )
     })
     .expect("register name");
-    let future_expiry_ms = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system clock after unix epoch")
-        .as_millis() as u64
+    let future_expiry_ms = u64::try_from(
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system clock after unix epoch")
+            .as_millis(),
+    )
+    .expect("fixture value fits u64")
         + 60_000;
     let record = apply_with_state_block(&state, |tx| {
         set_name_lease_expiry(

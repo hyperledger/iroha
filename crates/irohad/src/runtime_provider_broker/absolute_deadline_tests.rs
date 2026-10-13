@@ -143,7 +143,7 @@ fn blocked_write_and_later_drain_never_renew_expired_deadline() {
                     "fixture must reach backpressure"
                 );
             }
-            Err(rustix::io::Errno::INTR) => continue,
+            Err(rustix::io::Errno::INTR) => (),
             Err(rustix::io::Errno::AGAIN) => break,
             Err(error) => panic!("fill socket: {error}"),
         }

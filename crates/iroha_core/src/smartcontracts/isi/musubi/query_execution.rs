@@ -285,6 +285,12 @@ impl From<QueryExecutionFail> for MusubiQueryExecutionErrorV1 {
 /// observe the bounded reason before returning the same public [`QueryExecutionFail`] value.
 pub trait ValidMusubiSingularQuery: iroha_data_model::query::SingularQuery {
     /// Execute against one read-only state view with typed cursor diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid query inputs, unavailable snapshot authority,
+    /// an invalid or stale cursor, or failure to materialize the page within
+    /// its canonical output and resource bounds.
     fn execute_musubi(
         &self,
         state_ro: &impl StateReadOnly,

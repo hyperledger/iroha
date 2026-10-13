@@ -5,17 +5,17 @@ fn nested_state_reads_log_the_callee_scope_not_only_the_root_scope() {
     let caller_contract = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Caller {
   view fn main() authorize(anyone) -> int { return 0; }
 }
-"#,
+",
         0,
     );
-    let callee_contract = install_contract(
+    let nested_contract = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Callee {
   state StateMap<int, int> Values;
 
@@ -23,14 +23,14 @@ seiyaku Callee {
     return Values.get(1).unwrap_or(0);
   }
 }
-"#,
+",
         1,
     );
     let (result, log) = call_contract_syscall_access_log(
         &state,
         &authority,
         &caller_contract,
-        &callee_contract,
+        &nested_contract,
         "value",
         Json::new(()),
     );
@@ -44,11 +44,12 @@ seiyaku Callee {
         !log.durable_read_paths.contains(logical_path),
         "deployed contracts must not read the raw unscoped namespace"
     );
-    let callee_digest = hex::encode(Hash::new(callee_contract.to_string().as_bytes()).as_ref());
+    let nested_scope_digest =
+        hex::encode(Hash::new(nested_contract.to_string().as_bytes()).as_ref());
     let caller_digest = hex::encode(Hash::new(caller_contract.to_string().as_bytes()).as_ref());
     assert!(
         log.durable_read_paths
-            .contains(&format!("sc/{callee_digest}/{logical_path}")),
+            .contains(&format!("sc/{nested_scope_digest}/{logical_path}")),
         "selective retry must fingerprint the actual nested contract namespace"
     );
     assert!(
@@ -181,7 +182,7 @@ fn nested_result_error_returns_payload_and_rolls_back_successful_descendants() {
     let descendant = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Descendant { permission AssetOps;
   state StateMap<int, quantity> Values;
   kotoage fn quote(quantity amount_in, quantity min_out) authorize(AssetOps) -> quantity {
@@ -189,7 +190,7 @@ seiyaku Descendant { permission AssetOps;
     return amount_in;
   }
 }
-"#,
+",
         1,
     );
     let source = format!(
@@ -208,7 +209,7 @@ seiyaku Callee {{ permission AssetOps;
 "#
     );
     let code = compile_bound_contract_import(&state, &descendant, "descendant.to", &source);
-    let callee = install_contract_artifact_with_interface_and_lifecycle(
+    let target_contract = install_contract_artifact_with_interface_and_lifecycle(
         &state,
         &authority,
         code,
@@ -216,15 +217,21 @@ seiyaku Callee {{ permission AssetOps;
         false,
         |_| {},
     );
-    grant_contract_entrypoint_to_account(&state, &authority, root.subject_id(), &callee, "attempt");
     grant_contract_entrypoint_to_account(
         &state,
         &authority,
-        callee.subject_id(),
+        root.subject_id(),
+        &target_contract,
+        "attempt",
+    );
+    grant_contract_entrypoint_to_account(
+        &state,
+        &authority,
+        target_contract.subject_id(),
         &descendant,
         "quote",
     );
-    let code = installed_contract_artifact(&state, &callee);
+    let code = installed_contract_artifact(&state, &target_contract);
     let interface = ivm::ProgramMetadata::parse(&code)
         .unwrap()
         .contract_interface
@@ -242,7 +249,7 @@ seiyaku Callee {{ permission AssetOps;
             &state,
             &authority,
             &root,
-            &callee,
+            &target_contract,
             "attempt",
             Json::from(norito::json!({"succeed": succeed})),
         );
@@ -277,12 +284,12 @@ fn nested_calls_reject_direct_and_indirect_reentry_including_views() {
     let root = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku Root {
   kotoage fn main() authorize(anyone) {}
   view fn quote(quantity amount_in, quantity min_out) authorize(anyone) -> quantity { amount_in }
 }
-"#,
+",
         0,
     );
     let source = format!(
@@ -299,7 +306,7 @@ seiyaku Callback {{ permission AssetOps;
 "#
     );
     let code = compile_bound_contract_import(&state, &root, "root.to", &source);
-    let callee = install_contract_artifact_with_interface_and_lifecycle(
+    let target_contract = install_contract_artifact_with_interface_and_lifecycle(
         &state,
         &authority,
         code,
@@ -307,8 +314,14 @@ seiyaku Callback {{ permission AssetOps;
         false,
         |_| {},
     );
-    grant_contract_entrypoint_to_account(&state, &authority, root.subject_id(), &callee, "quote");
-    for target in [&root, &callee] {
+    grant_contract_entrypoint_to_account(
+        &state,
+        &authority,
+        root.subject_id(),
+        &target_contract,
+        "quote",
+    );
+    for target in [&root, &target_contract] {
         let (outcome, _, overlay) = call_contract_syscall(
             &state,
             &authority,
@@ -376,7 +389,7 @@ fn recoverable_nested_rollback_keeps_reads_and_parent_writes() {
 
 #[test]
 fn root_and_local_result_errors_discard_effects_but_preserve_values_and_reads() {
-    let source = r#"
+    let source = r"
 seiyaku RootResult { permission AssetOps;
   state StateMap<int, int> Values;
   kotoage fn fail() authorize(AssetOps) -> Result<int, int> {
@@ -389,7 +402,7 @@ seiyaku RootResult { permission AssetOps;
     return Result::ok(9);
   }
 }
-"#;
+";
     let code = kotodama_lang::compiler::Compiler::new()
         .compile_source(source)
         .unwrap();
@@ -471,7 +484,7 @@ fn nested_numeric_fault_keeps_callee_artifact_and_rolls_back_its_state() {
     let child = install_contract(
         &state,
         &authority,
-        r#"
+        r"
 seiyaku FaultChild {
   state StateMap<int, int> Values;
   kotoage fn divide(int divisor) authorize(anyone) -> int {
@@ -479,7 +492,7 @@ seiyaku FaultChild {
     return 8 / divisor;
   }
 }
-"#,
+",
         1,
     );
     let (hash, ordinal) = {
@@ -488,17 +501,19 @@ seiyaku FaultChild {
         let artifact =
             iroha_data_model::smart_contract::ContractArtifactId::for_address(&child, hash)
                 .unwrap();
-        let ordinal = view
-            .world()
-            .contract_manifests()
-            .get(&artifact)
-            .unwrap()
-            .entrypoints
-            .as_ref()
-            .unwrap()
-            .iter()
-            .position(|entry| entry.name == "divide")
-            .unwrap() as u32;
+        let ordinal = u32::try_from(
+            view.world()
+                .contract_manifests()
+                .get(&artifact)
+                .unwrap()
+                .entrypoints
+                .as_ref()
+                .unwrap()
+                .iter()
+                .position(|entry| entry.name == "divide")
+                .unwrap(),
+        )
+        .expect("fixture value fits u32");
         (hash, ordinal)
     };
     let (outcome, vm, overlay, _) = dispatch_call_contract_syscall(

@@ -17,10 +17,7 @@ fn records(seed: u8) -> [KagemushaWalletMarkerRecordV1; 3] {
     let f = wallet_fixture(seed);
     let enrollment = f.enrollment_record_with(BOOT_A, KagemushaWalletAnchorPolicyV1::Keychain);
     let selected = enrollment
-        .select(
-            bootstrap_capsule(&f).head_marker_state().expect("head"),
-            BOOT_A,
-        )
+        .select(bootstrap_capsule(&f).head_marker_state(), BOOT_A)
         .expect("select");
     let released = selected.release([0xc4; 32], BOOT_A).expect("release");
     [enrollment, selected, released]

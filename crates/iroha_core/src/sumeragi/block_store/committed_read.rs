@@ -100,9 +100,6 @@ impl CommittedRead {
                         self.phase = Phase::Projecting(job);
                         return Err(super::super::storage_attempt::byte(error));
                     }
-                    Ok(StoredBodyReadPoll::Absent) => {
-                        return Err(invalid("retained committed block cannot become absent").into());
-                    }
                     Err(error) => {
                         self.phase = Phase::Projecting(job);
                         // Keep the original operational category and typed cause so the

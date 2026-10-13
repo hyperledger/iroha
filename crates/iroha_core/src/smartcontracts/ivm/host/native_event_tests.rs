@@ -124,7 +124,7 @@ seiyaku NativeEventOrder {
 
 #[test]
 fn native_event_result_error_destroys_emission_graph_and_original_credit() {
-    let source = r#"
+    let source = r"
 seiyaku RejectedNativeEvent {
   error enum Reason { Refused = 1 }
   event Staged { bool active; }
@@ -133,7 +133,7 @@ seiyaku RejectedNativeEvent {
     return Result::err(Reason::Refused);
   }
 }
-"#;
+";
     let (state, _, mut host, mut vm) = native_event_runtime(source, "run");
     let budget = state.view().execution_budget();
     let before = budget.reserved_bytes();
@@ -151,12 +151,12 @@ seiyaku RejectedNativeEvent {
 
 #[test]
 fn native_event_rejects_invalid_ordinal_boolean_and_unauthenticated_context_before_capture() {
-    let source = r#"
+    let source = r"
 seiyaku GuardedNativeEvent {
   event Changed { bool flag; }
   kotoage fn run() authorize(anyone) {}
 }
-"#;
+";
     let (state, _, mut host, mut vm) = native_event_runtime(source, "run");
     let budget = state.view().execution_budget();
     let base = vm.alloc_heap(8).unwrap();
@@ -210,12 +210,12 @@ seiyaku GuardedNativeEvent {
 
 #[test]
 fn native_event_private_operands_and_foreign_program_cannot_capture() {
-    let source = r#"
+    let source = r"
 seiyaku PrivateEventOperands {
   event Changed { bool flag; }
   kotoage fn run() authorize(anyone) {}
 }
-"#;
+";
     let (state, _, mut host, mut vm) = native_event_runtime(source, "run");
     let table = vm.alloc_heap(8).unwrap();
     vm.store_u64(table, 1).unwrap();
@@ -259,12 +259,12 @@ seiyaku PrivateEventOperands {
 
 #[test]
 fn native_event_local_capacity_refusal_has_no_effect_and_retries_with_original_budget() {
-    let source = r#"
+    let source = r"
 seiyaku EventCapacity {
   event Changed { bool flag; }
   kotoage fn run() authorize(anyone) {}
 }
-"#;
+";
     let (state, _, mut host, mut vm) = native_event_runtime(source, "run");
     let table = vm.alloc_heap(8).unwrap();
     vm.store_u64(table, 1).unwrap();

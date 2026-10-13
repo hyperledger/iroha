@@ -26,6 +26,35 @@ use std::{
 
 // Publish an untouched replacement through each field's ordinary writer.
 macro_rules! commit_untouched_fixture_field {
+    ($world:ident, sccp_light_client_sets) => {
+        $world
+            .sccp_light_client_sets
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original validator fixture publication")
+    };
+    ($world:ident, sccp_reconciliations) => {
+        commit_untouched_fixture_field!(@admitted $world, sccp_reconciliations)
+    };
+    ($world:ident, sccp_reconciliation_proven) => {
+        commit_untouched_fixture_field!(@admitted $world, sccp_reconciliation_proven)
+    };
+    ($world:ident, sccp_pending_refund_amount) => {
+        commit_untouched_fixture_field!(@admitted $world, sccp_pending_refund_amount)
+    };
+    ($world:ident, sccp_reconciliation_due) => {
+        commit_untouched_fixture_field!(@admitted $world, sccp_reconciliation_due)
+    };
+    (@admitted $world:ident, $field:ident) => {
+        $world.$field
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original reconciliation fixture publication")
+    };
+    ($world:ident, sccp_forgery_offences) => {
+        $world
+            .sccp_forgery_offences
+            .try_with_admitted_block(|_| Ok::<_, std::convert::Infallible>(()))
+            .expect("original offence fixture publication")
+    };
     ($world:ident, sccp_anchor_chunks) => {
         $world
             .sccp_anchor_chunks

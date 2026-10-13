@@ -121,7 +121,7 @@ fn member_for_peer<'a>(
         .public_lane_validators()
         .iter()
         .filter(|(key, _)| {
-            cfg!(all(test, sumeragi_core_mutation = "HC248")) || key.0 == LaneId::SINGLE
+            cfg!(all(test, sumeragi_core_mutation = "HC250")) || key.0 == LaneId::SINGLE
         })
         .filter(|(key, record)| {
             &record.peer_id == peer
@@ -277,6 +277,11 @@ pub(super) fn prepare_genesis(
         },
         parameters,
     )?;
+    if !cfg!(all(test, sumeragi_core_mutation = "HC305"))
+        && draft.members[..draft.len].iter().any(Option::is_none)
+    {
+        return Err(GenerationError::Degraded(Degraded::InvalidGeneration));
+    }
     RetainedSccpGeneration::from_members(
         &draft.metadata,
         &draft.keys[..draft.len],
@@ -458,7 +463,9 @@ pub(super) fn draft<'a>(
         next_committee_root: [0; 32],
         validity_ms: 0,
     };
-    if original.committee_root != committee.root {
+    if original.committee_root != committee.root
+        && !cfg!(all(test, sumeragi_core_mutation = "HC324"))
+    {
         let parent = stx
             .native_execution_tip()
             .filter(|tip| tip.height().checked_add(1) == Some(height))
@@ -504,11 +511,14 @@ pub(super) fn draft<'a>(
         .resync
         .as_ref()
         .map_or(&**original, |record| &record.metadata);
-    let key = inputs.is_boundary() && next.root != current.committee_root;
-    let beat = time
-        >= current
-            .start_timestamp_ms
-            .saturating_add(parameters.committee_heartbeat_ms);
+    let key = !cfg!(all(test, sumeragi_core_mutation = "HC309"))
+        && inputs.is_boundary()
+        && next.root != current.committee_root;
+    let beat = !cfg!(all(test, sumeragi_core_mutation = "HC311"))
+        && time
+            >= current
+                .start_timestamp_ms
+                .saturating_add(parameters.committee_heartbeat_ms);
     if key || beat {
         let id = current
             .generation
@@ -544,6 +554,9 @@ pub(super) fn draft<'a>(
         )?;
         out.validity_ms = rotation.metadata.validity_ms;
         out.next_committee_root = next.root;
+        if cfg!(all(test, sumeragi_core_mutation = "HC325")) {
+            out.committee_root = next.root;
+        }
         if let Some(resync) = out.resync.as_mut() {
             resync.metadata.end = Some(end);
         } else {
@@ -609,19 +622,17 @@ pub(super) fn clear_destinations(
     let mut count = 0;
     let mut visited = 0;
     {
-        let mut pending = stx
+        // Release the original read iterator before publishing the selected generations.
+        // Full-history traversal exists only in the deterministic mutation control.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC251")))]
+        let candidates = stx
             .world
             .sccp_destination_pending_generations
             .iter()
             .map(|(id, ())| *id)
             .take(64);
-        let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
-        let candidates: &mut dyn Iterator<Item = u64> =
-            if cfg!(all(test, sumeragi_core_mutation = "HC249")) {
-                &mut history
-            } else {
-                &mut pending
-            };
+        #[cfg(all(test, sumeragi_core_mutation = "HC251"))]
+        let candidates = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
         for id in candidates {
             visited += 1;
             let generation = store::committee_generations::get(&*stx.world, &id)
@@ -664,31 +675,6 @@ pub(super) fn clear_destinations(
             )));
     }
     Ok(visited)
-}
-
-/// Pure bounded selection for §4.11; caller must supply the actual Pending-forgery owner.
-/// TODO: production deliberately does not call this until WP-S6 integrates that State/instruction
-/// owner. An absent pending owner must never be represented by an invented empty set.
-#[cfg(test)]
-fn prune_selection<'a>(
-    generations: impl IntoIterator<Item = (&'a u64, &'a RetainedSccpGeneration)>,
-    current: u64,
-    lc: u64,
-    pending_generations: &std::collections::BTreeSet<u64>,
-) -> ([u64; 8], usize) {
-    let mut selected = [0; 8];
-    let mut count = 0;
-    for (id, generation) in generations {
-        if *id < current && !generation.is_liable(current, lc) && !pending_generations.contains(id)
-        {
-            selected[count] = *id;
-            count += 1;
-            if count == selected.len() {
-                break;
-            }
-        }
-    }
-    (selected, count)
 }
 
 #[cfg(test)]

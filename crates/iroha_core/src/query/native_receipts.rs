@@ -7,11 +7,26 @@
 //! remaining native proof graph and
 //! receipt/tree scratch before allocation; this scoped write owner does not fund those graphs.
 
+mod amx_begins;
+pub use amx_begins::{
+    NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
+    begin_amx_relay,
+};
+mod amx_decisions;
+mod amx_discovery;
+pub use amx_discovery::{
+    NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1,
+    amx_relays,
+};
 mod amx_intents;
+pub use amx_decisions::{
+    NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,
+    decision_amx_relay,
+};
 mod amx_read;
 pub use amx_intents::{
     NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
-    prepared_amx_relays,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, prepared_amx_relays,
 };
 mod ordinary_writes;
 mod reward_history;
@@ -114,12 +129,12 @@ fn original_source(
 ///
 /// Acquisition is lazy. Call `poll` or `complete` on the returned job; either retains the
 /// original descriptor, partial prefix and completed fields when a typed refusal is returned.
-pub fn amx_record_proof<'v, V: StateReadOnly>(
-    view: &'v V,
+pub fn amx_record_proof<V: StateReadOnly>(
+    view: &V,
     height: u64,
     kind: AmxRecordKind,
     transaction: [u8; 32],
-) -> NativeAmxRecordProofReadV1<'v, V> {
+) -> NativeAmxRecordProofReadV1<'_, V> {
     NativeAmxRecordProofReadV1::new(view, height, kind, transaction)
 }
 
@@ -354,9 +369,12 @@ pub fn parliament_casting_proof(
     else {
         return Ok(None);
     };
-    let tree = MerkleTree::<CastingBinding>::from_iter(
-        source.casting_bindings.as_slice().iter().map(HashOf::new),
-    );
+    let tree = source
+        .casting_bindings
+        .as_slice()
+        .iter()
+        .map(HashOf::new)
+        .collect::<MerkleTree<CastingBinding>>();
     let leaf_index = u32::try_from(index).map_err(|_| "casting leaf index exceeds u32")?;
     let membership_proof = ParliamentTimedOvnCastingContextMembershipProofV1::new(
         tree.get_proof(leaf_index)

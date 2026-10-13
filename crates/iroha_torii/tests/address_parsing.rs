@@ -1382,7 +1382,6 @@ fn build_test_router() -> (fixtures::CommittedToriiRouterRuntime, Arc<Metrics>, 
 }
 #[tokio::test]
 async fn address_parsing_fixture_has_applied_global_root_authority() {
-    use iroha_core::state::StateReadOnly as _;
     let app = test_router();
     assert_eq!(app.state().view().height(), 1);
     assert_eq!(

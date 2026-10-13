@@ -831,8 +831,18 @@ fn pipeline_fastpq_recovery_builder_paginates_and_bounds_encoding() {
     assert!(serialized.len() <= PIPELINE_FASTPQ_RECOVERY_MAX_RESPONSE_BYTES);
     let value: norito::json::Value =
         norito::json::from_str(&serialized).expect("decode FASTPQ recovery page");
-    assert_eq!(value.get("total_proofs").and_then(|v| v.as_u64()), Some(2));
-    assert_eq!(value.get("next_offset").and_then(|v| v.as_u64()), Some(1));
+    assert_eq!(
+        value
+            .get("total_proofs")
+            .and_then(norito::json::native::Value::as_u64),
+        Some(2)
+    );
+    assert_eq!(
+        value
+            .get("next_offset")
+            .and_then(norito::json::native::Value::as_u64),
+        Some(1)
+    );
     assert_eq!(
         value.get("proofs").and_then(|v| v.as_array()).map(Vec::len),
         Some(1)
@@ -1899,12 +1909,12 @@ fn native_ingress_app_for_test(keys: &[&KeyPair]) -> SharedAppState {
 }
 
 /// Build a local authoritative reader from an executed four-validator genesis.
-pub(crate) fn native_ingress_app_with_world_for_test(world: World) -> SharedAppState {
+pub fn native_ingress_app_with_world_for_test(world: World) -> SharedAppState {
     native_ingress_app_with_world_at_time_for_test(world, 1_000)
 }
 
 /// Build the reader at an actual certified genesis timestamp for lease observations.
-pub(crate) fn native_ingress_app_with_world_at_time_for_test(
+pub fn native_ingress_app_with_world_at_time_for_test(
     world: World,
     genesis_time_ms: u64,
 ) -> SharedAppState {
@@ -1915,7 +1925,7 @@ pub(crate) fn native_ingress_app_with_world_at_time_for_test(
 }
 
 /// Bind physical routing labels to the same genuine signed global committee.
-pub(crate) fn native_ingress_app_with_world_and_nexus_for_test(
+pub fn native_ingress_app_with_world_and_nexus_for_test(
     world: World,
     nexus: iroha_config::parameters::actual::Nexus,
 ) -> SharedAppState {
@@ -2545,7 +2555,7 @@ async fn canonical_outcome_rejects_removed_membership_after_authentication() {
                 );
                 // Mutate the actual indexed store, not a detached State clone.
                 let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(HashSet::new(), anchor.height);
+                membership.insert_block(BTreeSet::new(), anchor.height);
                 membership
                     .commit()
                     .expect("remove latest fixture membership");
@@ -3236,7 +3246,10 @@ async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other
         amount: Quantity::from(7_u32),
         status: AssetBatchTransferLegStatus::Applied,
     };
-    assert_eq!(output.result.batch_transfer_outcomes(), &[outcome.clone()]);
+    assert_eq!(
+        output.result.batch_transfer_outcomes(),
+        std::slice::from_ref(&outcome)
+    );
     {
         let view = app.state.view();
         assert_eq!(
@@ -3320,7 +3333,7 @@ async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other
         assert!(details_json.get("trigger_completions").is_none());
         assert_eq!(
             details.transaction.result().batch_transfer_outcomes(),
-            &[outcome.clone()]
+            std::slice::from_ref(&outcome)
         );
     }
     let error = match super::handler_pipeline_transaction_details(
@@ -3860,7 +3873,7 @@ async fn pipeline_status_rejects_uncertified_sealed_reveal_carrier_and_signed_al
     let height_nz = NonZeroUsize::new(height_usize).expect("height");
     let mut state_block = app.state.block(header.clone());
     state_block.block_hashes.push_for_tests(block_hash);
-    let entrypoint_hashes: HashSet<_> = [reveal_entry_hash, signed_entrypoint_alias]
+    let entrypoint_hashes: BTreeSet<_> = [reveal_entry_hash, signed_entrypoint_alias]
         .into_iter()
         .collect();
     state_block
@@ -5117,7 +5130,7 @@ async fn pipeline_status_cached_applied_refuses_removed_original_membership() {
     let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
     assert_eq!(cached.block_height, Some(NonZeroU64::new(2).unwrap()));
     let mut membership = app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove only the actual latest membership generation");
@@ -5180,7 +5193,7 @@ async fn prepared_submit_outcome_cached_applied_refuses_removed_original_members
         .unwrap();
     let cached = app.pipeline_status_cache.lookup(&hash).unwrap();
     let mut membership = app.state.transactions.block_and_revert();
-    membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+    membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
     membership
         .commit()
         .expect("remove the original transaction membership without altering its carrier");
@@ -5331,7 +5344,7 @@ async fn prepared_submit_outcome_preserves_local_rejection_expiry_and_candidate_
         let transaction = original.block().external_transactions().next().unwrap();
         assert_eq!(transaction.hash(), hash);
         let mut membership = app.state.transactions.block_and_revert();
-        membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+        membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
         membership.commit().unwrap();
         assert!(
             canonical_transaction_anchor(&app.state, &hash)
@@ -5644,7 +5657,7 @@ async fn pipeline_status_pending_recheck_refuses_changed_membership_without_cach
                 reads += 1;
                 let retained = read_pipeline_transaction_carrier(&app, anchor)?;
                 let mut membership = app.state.transactions.block_and_revert();
-                membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap());
+                membership.insert_block(BTreeSet::new(), NonZeroUsize::new(2).unwrap());
                 membership.commit().unwrap();
                 Ok(retained)
             })

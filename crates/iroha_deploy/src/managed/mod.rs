@@ -136,7 +136,7 @@ pub enum Error {
     #[error("native operation I/O deadline elapsed; retain original journals")]
     NativeDeadline,
     /// A local worker failure occurred, and owned cleanup or status publication also failed.
-    #[error("{failure}{}", worker_failure_followup(cleanup, publication))]
+    #[error("{failure}{}", worker_failure_followup(cleanup.as_deref(), publication.as_deref()))]
     WorkerFailure {
         /// Original local startup or service cause, including native I/O diagnostics.
         /// Retained status uses a separate closed classification, never this cause's text.
@@ -163,18 +163,19 @@ pub enum Error {
     },
 }
 
-fn worker_failure_followup(
-    cleanup: &Option<Box<Error>>,
-    publication: &Option<Box<Error>>,
-) -> String {
+fn worker_failure_followup(cleanup: Option<&Error>, publication: Option<&Error>) -> String {
+    use std::fmt::Write as _;
     let mut details = String::new();
     if let Some(error) = cleanup {
-        details.push_str(&format!("\nOwned worker cleanup failed: {error}"));
+        write!(details, "\nOwned worker cleanup failed: {error}")
+            .expect("writing to a string cannot fail");
     }
     if let Some(error) = publication {
-        details.push_str(&format!(
+        write!(
+            details,
             "\nFailed to retain startup failure status: {error}"
-        ));
+        )
+        .expect("writing to a string cannot fail");
     }
     details
 }
@@ -300,7 +301,7 @@ pub enum ManagedPhase {
 impl ManagedPhase {
     /// Stable phase spelling used in CLI JSON and retained status metadata.
     #[must_use]
-    pub const fn as_str(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stopped => "stopped",
             Self::Starting => "starting",

@@ -75,7 +75,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
     let (_, manifest) = wallet.manifest().unwrap();
     let selected = wallet.indexed_step(&manifest, 0).unwrap();
     let source = wallet.source_custody(&manifest, &selected).unwrap();
-    let mut after = selected.frozen.capsule.successor_state;
+    let mut after = selected.frozen.capsule.body().successor_state;
     let mut wrong = source.clone();
     let mut tree = map_tree::PersistentMapV1::default();
     tree.insert(&mut wallet.archive, field(17), field(18))
@@ -114,7 +114,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
         Some(view(
             &mut wallet.archive,
             &source,
-            &selected.frozen.capsule.successor_state,
+            &selected.frozen.capsule.body().successor_state,
             &manifest,
         )),
     )
@@ -125,7 +125,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
         Some(view(
             &mut wallet.archive,
             &source,
-            &selected.frozen.capsule.successor_state,
+            &selected.frozen.capsule.body().successor_state,
             &manifest,
         )),
     )
@@ -137,7 +137,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
         Some(view(
             &mut wallet.archive,
             &source,
-            &selected.frozen.capsule.successor_state,
+            &selected.frozen.capsule.body().successor_state,
             &manifest,
         )),
     )
@@ -145,7 +145,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
     assert_eq!(
         archive::encode(
             &custody
-                .finish(&selected.frozen.capsule.successor_state)
+                .finish(&selected.frozen.capsule.body().successor_state)
                 .unwrap()
                 .unwrap()
         )
@@ -158,6 +158,7 @@ fn preparation_draft_must_equal_the_rederived_draft_and_actual_successor() {
 fn setup_quote(source: &FrozenTransition) -> (KagemushaWalletOfferV1, KagemushaWalletRequestV1) {
     let template: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
     let original = template
+        .body()
         .retained_inputs
         .iter()
         .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
@@ -200,7 +201,7 @@ fn setup_quote(source: &FrozenTransition) -> (KagemushaWalletOfferV1, KagemushaW
     let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
     offer.verify(&scheme).unwrap();
     let local = source.credential;
-    let state = &source.capsule.successor_state;
+    let state = &source.capsule.body().successor_state;
     let issuer = enrollment_issuer(&local);
     request.receiver_credential = local;
     request.certificates = KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap();
@@ -406,22 +407,25 @@ fn retiring_preserves_outgoing_offers_and_exact_requests_but_refuses_new_quotes(
     let source = wallet.source_custody(&manifest, &predecessor).unwrap();
     let fold = wallet.read_fold(&predecessor).unwrap().unwrap();
     let mut retiring = frozen(Some(&boot), KagemushaWalletEffectV1::Retiring);
-    let c = &mut retiring.capsule;
+    let mut c = retiring.capsule.body().clone();
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: fold.record.lineage.clone(),
     };
     c.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
     c.statement.lineage_pending_outgoing_root = fold.record.lineage.public.pending_outgoing_root;
     c.successor_state.core.burned_total = c.statement.lineage_burned_total;
-    rebind_frozen_successor(&mut retiring);
+    rebind_frozen_successor(&mut retiring, c);
     retiring.validate().unwrap();
     // The explicit mock relation preserves every map/original. Retain that exact snapshot
     // so this test exercises the production setup guard under a selected Retiring source.
     source
-        .require(&mut wallet.archive, &retiring.capsule.successor_state)
+        .require(
+            &mut wallet.archive,
+            &retiring.capsule.body().successor_state,
+        )
         .unwrap();
     wallet
-        .retain_source_custody(retiring.capsule.capsule_digest().unwrap(), &source)
+        .retain_source_custody(retiring.capsule.custody_digest(), &source)
         .unwrap();
     wallet.commit(retiring).unwrap();
     let (_, manifest) = wallet.manifest().unwrap();

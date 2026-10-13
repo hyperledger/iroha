@@ -1,4 +1,4 @@
-//! Durable multi-round workflows: bootstrap, key generation and threshold opening.
+//! Durable workflows: bootstrap, key generation, threshold opening and native payment.
 //!
 //! A workflow is an ordered sequence of ledger transactions and off-chain
 //! rounds. Each transaction is atomic by itself; **the sequence is not**. A
@@ -7,7 +7,7 @@
 //! confirmed, what may still take effect and what never started.
 //!
 //! The normative contract is `specs/zk_durable_workflow.md`. Its machine-readable
-//! form and the scenario fixtures every SDK family runs are under
+//! form and the shared scenario fixtures are under
 //! `fixtures/zk/workflow_v1/`; [`contract::state_machine_json`] is their source.
 //!
 //! The resume rule: a step found in `submitting`, `outcome_unknown` or `pending`
@@ -23,6 +23,8 @@
 //! account context and ledger through the existing signing, submission and
 //! global-status owners and exposes the separately named calls
 //! `bootstrap_workflow`, `dkg_workflow` and `threshold_opening_workflow`.
+//! The native payment adapter uses the same engine with independently authenticated
+//! input/output outcomes and separately reverified business completion.
 //! Capability logic comes from a [`WorkflowDriver`]; this module contains no
 //! key-generation or threshold cryptography.
 
@@ -31,6 +33,7 @@ mod engine;
 mod error;
 mod journal;
 mod storage;
+pub(crate) use journal::NativePaymentCompletionV1;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod testing;
 

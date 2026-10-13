@@ -28,8 +28,8 @@ pub(crate) fn binding() -> ContractSubjectBinding {
     ContractSubjectBinding::new_direct(&address(), ALICE_ID.clone())
 }
 /// Current and predecessor start from the same valid inactive binding.
-pub(crate) fn world() -> Box<World> {
-    let mut world = Box::new(World::default());
+pub(crate) fn world() -> World {
+    let mut world = World::default();
     let address = address();
     let binding = binding();
     for account in [ALICE_ID.clone(), BOB_ID.clone(), binding.subject.clone()] {
@@ -46,7 +46,7 @@ pub(crate) fn world() -> Box<World> {
 /// Use the production constructor before any test injects index corruption.
 pub(crate) fn state() -> State {
     State::new_for_testing(
-        *world(),
+        world(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     )

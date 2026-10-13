@@ -39,7 +39,7 @@ fn every_backing_and_control_refusal_retains_exact_source_and_destination_pointe
         (table_length + control + payload_length + control - 1, true),
     ] {
         budget.set_limit_bytes(raw_length + additional);
-        let (retained, error) = job.complete(&budget).err().expect("exact phase refusal");
+        let (retained, error) = job.complete(&budget).expect_err("exact phase refusal");
         assert!(matches!(&error, BodyDecodeError::Bytes(error) if error.is_local_refusal()));
         assert_eq!(
             matches!(
@@ -92,8 +92,7 @@ fn every_backing_and_control_refusal_retains_exact_source_and_destination_pointe
     let (restoration, error) = record
         .into_restoration(source.clone())
         .complete(&budget, &BlsCrypto::new())
-        .err()
-        .expect("RS16 scratch refusal must retain admitted owners");
+        .expect_err("RS16 scratch refusal must retain admitted owners");
     assert!(error.is_local_refusal());
     assert_eq!(restoration.source(), &source);
     assert_eq!(

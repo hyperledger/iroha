@@ -111,7 +111,7 @@ pub enum Error {
     /// The original canonical read stopped at an enclosing budget or allocator refusal.
     /// This is an unfinished local attempt, not invalid evidence or lost custody.
     #[error("wallet canonical read resource: {0}")]
-    DecodeResource(#[source] norito::core::DecodeAttemptError),
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// A typed trust-root read failure outside the compact binary reader's contract.
     /// Retain its original cause; callers must not infer invalidity from an unfinished read.
     #[error("wallet finality source read: {0}")]
@@ -163,12 +163,9 @@ pub(crate) fn decode_attempt_error(
     error: norito::core::DecodeAttemptError,
     invalid: Error,
 ) -> Error {
-    use norito::core::DecodeAttemptErrorKind;
-    match error.kind() {
-        DecodeAttemptErrorKind::Allocator | DecodeAttemptErrorKind::EnclosingLimit => {
-            Error::DecodeResource(error)
-        }
-        DecodeAttemptErrorKind::Invalid => invalid,
+    match error.into_local_refusal() {
+        Ok(original) => Error::DecodeResource(original),
+        Err(_) => invalid,
     }
 }
 
@@ -223,19 +220,24 @@ impl FrozenTransition {
     /// Rejects malformed objects, another wallet/credential, a mismatching statement, or
     /// successor regulatory policy/lease fields that differ from the credential.
     pub fn validate(&self) -> Result<(), Error> {
-        valid(self.capsule.to_canonical_bytes())?;
+        read_model_original(
+            || self.capsule.body().validate(),
+            Error::Invalid("G1 validation"),
+        )?;
         valid(self.credential.validate())?;
         valid(
             self.capsule
+                .body()
                 .successor_state
                 .validate_for_credential(&self.credential),
         )?;
         valid(
             self.capsule
+                .body()
                 .statement
                 .validate_for_credential(&self.credential),
         )?;
-        if self.credential.body.wallet_id != self.capsule.wallet_id {
+        if self.credential.body.wallet_id != self.capsule.body().wallet_id {
             return Err(Error::Invalid("frozen wallet"));
         }
         Ok(())
@@ -245,7 +247,7 @@ impl FrozenTransition {
         let c = &self.capsule;
         if let KagemushaWalletEffectV1::Bootstrap {
             enrollment_marker, ..
-        } = c.statement.effect
+        } = c.body().statement.effect
         {
             Ok(ExpectedHead::Enrollment {
                 marker_digest: enrollment_marker,
@@ -253,12 +255,13 @@ impl FrozenTransition {
         } else {
             Ok(ExpectedHead::Released {
                 sequence: c
+                    .body()
                     .statement
                     .sequence
                     .checked_sub(1)
                     .ok_or(Error::Invalid("sequence"))?,
-                head: c.statement.predecessor,
-                capsule_digest: c.predecessor_capsule_digest,
+                head: c.body().statement.predecessor,
+                capsule_digest: c.body().predecessor_capsule_digest,
             })
         }
     }
@@ -266,8 +269,8 @@ impl FrozenTransition {
     fn request(&self) -> Result<AdvanceRequest<KagemushaWalletRecoveryCapsuleV1>, Error> {
         Ok(AdvanceRequest {
             expected: self.expected()?,
-            operation_id: self.capsule.operation_id,
-            new_head: self.capsule.statement.successor,
+            operation_id: self.capsule.body().operation_id,
+            new_head: self.capsule.body().statement.successor,
             proof_digest: valid(self.capsule.proof_digest())?,
             capsule: self.capsule.clone(),
             // The archive has already made its growth durable. G2 reserves its own copies.
@@ -575,9 +578,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::WitnessLost("selected capsule"))?;
         let frozen: FrozenTransition = archive::decode(&bytes)?;
         frozen.validate()?;
-        if frozen.capsule.scheme_id != self.scheme_id
-            || frozen.capsule.wallet_id != self.wallet_id
-            || valid(frozen.capsule.capsule_digest())? != digest
+        if frozen.capsule.body().scheme_id != self.scheme_id
+            || frozen.capsule.body().wallet_id != self.wallet_id
+            || frozen.capsule.custody_digest() != digest
         {
             return Err(Error::WitnessLost("capsule binding"));
         }
@@ -602,13 +605,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             // Intentional collection has its own error; it must not be relabelled custody loss.
             let step = self.indexed_step(&manifest, sequence)?;
             let capsule = &step.frozen.capsule;
-            if capsule.statement.predecessor != predecessor
-                || capsule.predecessor_capsule_digest != previous_capsule
+            if capsule.body().statement.predecessor != predecessor
+                || capsule.body().predecessor_capsule_digest != previous_capsule
             {
                 return Err(Error::WitnessLost("capsule chain"));
             }
-            predecessor = capsule.statement.successor;
-            previous_capsule = valid(capsule.capsule_digest())?;
+            predecessor = capsule.body().statement.successor;
+            previous_capsule = capsule.custody_digest();
             steps.push(step);
         }
         self.status()?;
@@ -640,7 +643,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         // Lookup owns reconciliation and both storage probes, including delivery-loss
         // classification. A separate status call could hide that authoritative classification.
         Ok(match self.custody.lookup(operation_id)? {
-            Lookup::Retained(retained) => Some(Completion::Complete(retained.record.output)),
+            Lookup::Retained(retained) => {
+                self.require_retained_output(operation_id, &retained)?;
+                Some(Completion::Complete(retained.record.output))
+            }
             Lookup::SelectedUnsigned { .. } => Some(Completion::Pending),
             Lookup::Archived(_) => Some(Completion::Archived),
             Lookup::DeliveryDataLoss => Some(Completion::DeliveryDataLoss),
@@ -657,19 +663,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let _payment = self.scheduler.payment();
         frozen.validate()?;
         let c = &frozen.capsule;
-        if c.scheme_id != self.scheme_id || c.wallet_id != self.wallet_id {
+        if c.body().scheme_id != self.scheme_id || c.body().wallet_id != self.wallet_id {
             return Err(Error::Invalid("transition incarnation"));
         }
         let request = frozen.request()?;
         let owner = TransitionOwner::new(frozen.credential.clone());
-        let lookup = self.custody.lookup(&c.operation_id)?;
+        let lookup = self.custody.lookup(&c.body().operation_id)?;
         // A released Receive is recognized by its permanent credit identity even after its
         // completion was collected. Validate the original Payment below before returning its
         // first evidence or a fresh CreditStatus. Pending and delivery-loss answers retain
         // Advance's source authority and cannot be turned into a new Receive.
-        let released_receive =
-            matches!(c.statement.effect, KagemushaWalletEffectV1::Receive { .. })
-                && matches!(&lookup, Lookup::Retained(_) | Lookup::Archived(_));
+        let released_receive = matches!(
+            c.body().statement.effect,
+            KagemushaWalletEffectV1::Receive { .. }
+        ) && matches!(&lookup, Lookup::Retained(_) | Lookup::Archived(_));
         if lookup != Lookup::Unknown && !released_receive {
             return self
                 .custody
@@ -678,19 +685,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .map_err(Error::from);
         }
         let (_, manifest) = self.sync_manifest()?;
-        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.statement.effect {
+        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.body().statement.effect {
             if let Some(credit) = self.indexed_credit(&manifest, &credit_id)? {
                 let original = c
+                    .body()
                     .retained_inputs
                     .iter()
                     .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Payment)
                     .ok_or(Error::Invalid("duplicate Payment original"))?;
-                let payment = valid(KagemushaWalletPaymentV1::decode_canonical(
-                    &original.bytes,
-                    &self.scheme_id,
-                ))?;
+                let payment = read_model_original(
+                    || KagemushaWalletPaymentV1::decode_canonical(&original.bytes, &self.scheme_id),
+                    Error::Invalid("G1 validation"),
+                )?;
                 let identity = valid(payment.digests())?;
-                if credit.payment_digest != c.payment_digest
+                if credit.payment_digest != c.body().payment_digest
                     || identity.payment != credit.payment_digest
                     || identity.credit_id != credit_id
                     || payment.request.body.amount != credit.amount
@@ -724,9 +732,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             Some(step) => self.read_fold(step)?.map(|fold| fold.record),
             None => None,
         };
-        if send_class(c.kind) {
+        if send_class(c.body().kind) {
             let fold = folded.as_ref().ok_or(Error::FoldRequired)?;
-            if c.predecessor_lineage() != Some(&fold.lineage) {
+            if c.body().predecessor_lineage() != Some(&fold.lineage) {
                 return Err(Error::Invalid("recorded predecessor Ω"));
             }
         }
@@ -735,14 +743,19 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             let previous = predecessor
                 .as_ref()
                 .ok_or(Error::WitnessLost("prepared predecessor"))?;
-            if prepared.source != valid(previous.frozen.capsule.capsule_digest())? {
+            if prepared.source != previous.frozen.capsule.custody_digest() {
                 return Err(Error::WitnessLost("prepared transition source"));
             }
-            Some(self.preparation_source_custody(&manifest, previous, c.kind, folded.as_ref())?)
+            Some(self.preparation_source_custody(
+                &manifest,
+                previous,
+                c.body().kind,
+                folded.as_ref(),
+            )?)
         } else {
             None
         };
-        let refresh = match c.statement.effect {
+        let refresh = match c.body().statement.effect {
             KagemushaWalletEffectV1::RefreshPolicy { update_kind, .. } => Some(update_kind),
             _ => None,
         };
@@ -753,7 +766,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     &mut self.archive,
                     source,
                     state,
-                    c.kind,
+                    c.body().kind,
                     refresh,
                     manifest.issued_requests,
                     manifest.direct_anchors,
@@ -768,20 +781,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             folded.as_ref(),
             &mut context,
         )?;
-        let mut next_custody = context.finish(&c.successor_state)?;
-        if c.kind == KagemushaWalletOperationKindV1::Bootstrap {
+        let mut next_custody = context.finish(&c.body().successor_state)?;
+        if c.body().kind == KagemushaWalletOperationKindV1::Bootstrap {
             if predecessor.is_some() {
                 return Err(Error::Invalid("bootstrap predecessor"));
             }
             let certificates = self.proofs.enrollment_certificates(&frozen.credential)?;
             next_custody = Some(preparation_custody::SourceCustodyV1::bootstrap(
                 &mut self.archive,
-                &c.successor_state,
+                &c.body().successor_state,
                 &valid(frozen.credential.to_canonical_bytes())?,
                 &certificates,
             )?);
         }
-        let digest = valid(c.capsule_digest())?;
+        let digest = c.custody_digest();
         if let Some(source) = next_custody {
             self.retain_source_custody(digest, &source)?;
         }

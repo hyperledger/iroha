@@ -221,7 +221,7 @@ async fn queue_throttling() {
     let transaction_hashes = transactions
         .iter()
         .map(AcceptedTransaction::hash_as_entrypoint)
-        .collect::<HashSet<_>>();
+        .collect::<BTreeSet<_>>();
     state_block
         .transactions
         .insert_block(transaction_hashes.clone(), nonzero!(1_usize));

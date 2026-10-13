@@ -21,11 +21,11 @@ use iroha_data_model::soranet::privacy_metrics::{
 use iroha_torii_shared::ErrorEnvelope;
 use std::net::IpAddr;
 /// Maximum encoded body accepted by either SoraNet privacy ingest route.
-pub(crate) const SORANET_PRIVACY_INGEST_MAX_BODY_BYTES: usize = 128 * 1024;
+pub const SORANET_PRIVACY_INGEST_MAX_BODY_BYTES: usize = 128 * 1024;
 const RETIRED_SORANET_PRIVACY_TOKEN_HEADERS: [&str; 2] = ["x-soranet-privacy-token", "x-api-token"];
 #[derive(Clone)]
 /// Route-local state for the signed collector's secondary admission guard.
-pub(crate) struct SoranetPrivacyCollectorAuthState {
+pub struct SoranetPrivacyCollectorAuthState {
     /// Shared Torii configuration, limiter, and telemetry handles.
     pub(crate) app: SharedAppState,
     /// Stable endpoint label used by rejection telemetry.
@@ -33,7 +33,7 @@ pub(crate) struct SoranetPrivacyCollectorAuthState {
 }
 #[derive(Clone, Copy, Debug)]
 /// Marker inserted only after a collector passes secondary privacy admission.
-pub(crate) struct VerifiedSoranetPrivacyCollector(SoranetPrivacyCollectorIdV1);
+pub struct VerifiedSoranetPrivacyCollector(SoranetPrivacyCollectorIdV1);
 fn collector_id_for_operator(
     operator: &AuthenticatedOperatorPublicKey,
 ) -> SoranetPrivacyCollectorIdV1 {
@@ -56,8 +56,7 @@ async fn enforce_soranet_privacy_ingest(
     if !ingest_cfg.enabled {
         #[cfg(feature = "telemetry")]
         app.telemetry
-            .record_soranet_privacy_ingest_reject(endpoint, "disabled")
-            .await;
+            .record_soranet_privacy_ingest_reject(endpoint, "disabled");
         return Err(privacy_reject(
             StatusCode::SERVICE_UNAVAILABLE,
             "soranet_privacy_disabled",
@@ -69,8 +68,7 @@ async fn enforce_soranet_privacy_ingest(
     {
         #[cfg(feature = "telemetry")]
         app.telemetry
-            .record_soranet_privacy_ingest_reject(endpoint, "namespace_blocked")
-            .await;
+            .record_soranet_privacy_ingest_reject(endpoint, "namespace_blocked");
         return Err(privacy_reject(
             StatusCode::FORBIDDEN,
             "soranet_privacy_namespace_blocked",
@@ -83,8 +81,7 @@ async fn enforce_soranet_privacy_ingest(
     {
         #[cfg(feature = "telemetry")]
         app.telemetry
-            .record_soranet_privacy_ingest_reject(endpoint, "retired_token")
-            .await;
+            .record_soranet_privacy_ingest_reject(endpoint, "retired_token");
         return Err(privacy_reject(
             StatusCode::BAD_REQUEST,
             "soranet_privacy_token_retired",
@@ -98,8 +95,7 @@ async fn enforce_soranet_privacy_ingest(
     {
         #[cfg(feature = "telemetry")]
         app.telemetry
-            .record_soranet_privacy_ingest_reject(endpoint, "rate_limited")
-            .await;
+            .record_soranet_privacy_ingest_reject(endpoint, "rate_limited");
         return Err(privacy_reject(
             StatusCode::TOO_MANY_REQUESTS,
             "soranet_privacy_rate_limited",
@@ -109,7 +105,7 @@ async fn enforce_soranet_privacy_ingest(
     Ok(())
 }
 /// Authenticate one collector request before any request-body extractor runs.
-pub(crate) async fn enforce_soranet_privacy_collector_authentication(
+pub async fn enforce_soranet_privacy_collector_authentication(
     State(state): State<SoranetPrivacyCollectorAuthState>,
     mut request: axum::http::Request<Body>,
     next: Next,
@@ -149,7 +145,7 @@ pub(crate) async fn enforce_soranet_privacy_collector_authentication(
 }
 #[cfg(feature = "telemetry")]
 /// Record one authenticated SoraNet privacy event.
-pub(super) async fn handler_post_soranet_privacy_event(
+pub async fn handler_post_soranet_privacy_event(
     State(app): State<SharedAppState>,
     Extension(_collector): Extension<VerifiedSoranetPrivacyCollector>,
     request: NoritoJson<RecordSoranetPrivacyEventDto>,
@@ -160,15 +156,14 @@ pub(super) async fn handler_post_soranet_privacy_event(
 }
 #[cfg(feature = "telemetry")]
 /// Record one authenticated SoraNet privacy collector share.
-pub(super) async fn handler_post_soranet_privacy_share(
+pub async fn handler_post_soranet_privacy_share(
     State(app): State<SharedAppState>,
     Extension(collector): Extension<VerifiedSoranetPrivacyCollector>,
     request: NoritoJson<RecordSoranetPrivacyShareDto>,
 ) -> Result<Response, Error> {
     if request.0.share.collector_id != collector.0 {
         app.telemetry
-            .record_soranet_privacy_ingest_reject("share", "collector_identity_mismatch")
-            .await;
+            .record_soranet_privacy_ingest_reject("share", "collector_identity_mismatch");
         return Ok(privacy_reject(
             StatusCode::FORBIDDEN,
             "soranet_privacy_collector_identity_mismatch",
@@ -181,7 +176,7 @@ pub(super) async fn handler_post_soranet_privacy_share(
 }
 #[cfg(all(test, feature = "telemetry"))]
 /// Exercise event admission and the authenticated handler in direct unit tests.
-pub(crate) async fn test_handler_post_soranet_privacy_event_with_ingress(
+pub async fn test_handler_post_soranet_privacy_event_with_ingress(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,
@@ -204,7 +199,7 @@ pub(crate) async fn test_handler_post_soranet_privacy_event_with_ingress(
 }
 #[cfg(all(test, feature = "telemetry"))]
 /// Exercise share admission and the authenticated handler in direct unit tests.
-pub(crate) async fn test_handler_post_soranet_privacy_share_with_ingress(
+pub async fn test_handler_post_soranet_privacy_share_with_ingress(
     State(app): State<SharedAppState>,
     headers: HeaderMap,
     ConnectInfo(remote): ConnectInfo<std::net::SocketAddr>,

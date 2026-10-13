@@ -115,7 +115,7 @@ static VALIDATED_RESOURCE_REGISTRY: LazyLock<Result<(), ResourceRegistryError>> 
 /// A fail-closed mismatch between the curated resource registry and Torii's
 /// authoritative route catalog.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ResourceRegistryError {
+pub enum ResourceRegistryError {
     /// The route catalog itself is invalid.
     InvalidCatalog(Vec<CatalogValidationError>),
     /// Two resource entries use the same exact URI.
@@ -166,7 +166,7 @@ impl std::error::Error for ResourceRegistryError {}
 
 /// Typed failures from one resource read.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ResourceReadError {
+pub enum ResourceReadError {
     /// The URI does not exactly match a curated resource.
     UnknownUri(String),
     /// The curated registry no longer matches the mounted Torii route catalog.
@@ -222,18 +222,18 @@ impl From<ResourceRegistryError> for ResourceReadError {
 ///
 /// The exact registry changes only with the Torii binary, so subscriptions and
 /// list-changed notifications are intentionally not advertised.
-pub(crate) fn resources_capability() -> Value {
+pub fn resources_capability() -> Value {
     norito::json!({ "listChanged": false })
 }
 
 /// Return the complete, privately cacheable `resources/list` result.
-pub(crate) fn resources_list_result() -> Result<Value, ResourceRegistryError> {
+pub fn resources_list_result() -> Result<Value, ResourceRegistryError> {
     validate_resource_registry()?;
     Ok(resources_list_result_from_specs(RESOURCE_SPECS))
 }
 
 /// Read one exact resource through Torii's existing in-process router.
-pub(crate) async fn read_resource(
+pub async fn read_resource(
     app: &SharedAppState,
     inbound_headers: &HeaderMap,
     uri: &str,

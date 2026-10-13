@@ -26,7 +26,28 @@ fn fixture_with_fee_asset(
     callback_bytes: Option<usize>,
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
 ) -> State {
+    fixture_with_policy(row_bytes, callback_bytes, fee_asset, |_| {})
+}
+
+/// Sign the tested execution limits into genesis before acquiring any successor.
+fn fixture_with_policy(
+    row_bytes: u64,
+    callback_bytes: Option<usize>,
+    fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
+    configure: impl FnOnce(&mut crate::pipeline_validity_policy::PipelineValidityPolicyV1),
+) -> State {
     let mut state = state(row_bytes);
+    let mut expected_policy = state
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    configure(&mut expected_policy);
+    expected_policy
+        .validate()
+        .expect("valid fixture execution limits");
     if let Some(asset) = &fee_asset {
         use iroha_primitives::numeric::Quantity;
         let fees = &mut state.nexus.get_mut().fees;
@@ -37,7 +58,19 @@ fn fixture_with_fee_asset(
         fees.fee_asset_id = asset.to_string();
         fees.fee_sink_account_id = iroha_test_samples::BOB_ID.to_string();
     }
-    let state = authenticate_output_state(state);
+    // Genesis executes under its original predecessor's policy. Its signed
+    // parameter writes install these limits for the successor being tested.
+    let state = authenticate_output_state_with_policy(state, expected_policy.clone());
+    assert_eq!(
+        state.world.parameters.view().get().pipeline_policy(),
+        &expected_policy,
+        "the signed genesis must commit the exact tested execution limits"
+    );
+    assert_eq!(
+        crate::pipeline_validity_policy::committed(state.view().world.parameters.get()).unwrap(),
+        Some(expected_policy),
+        "the exact policy must be present in signed State, including protocol-default values"
+    );
     {
         let (mut setup, _setup_recording) = output_fixture_setup(&state);
         let mut transaction = setup.transaction_for_callback_testing();
@@ -284,7 +317,9 @@ fn actual_signed_sources_apply_once_in_original_output_positions() {
         let key: Name = format!("network_{index}").parse().unwrap();
         assert_eq!(
             block.world.account(&ALICE_ID).unwrap().metadata().get(&key),
-            Some(&Json::new(index as i32))
+            Some(&Json::new(
+                i32::try_from(index).expect("fixture value fits i32")
+            ))
         );
     }
     let (ordinary, mandatory) = block.fastpq_source_usage_for_testing();

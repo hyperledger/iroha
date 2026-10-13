@@ -65,7 +65,7 @@ impl LaneTransactions for NoTransactions {
         _height: u64,
         _max_bytes: usize,
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::execution_attempt::ExecutionDeferred> {
+    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
         Ok(Vec::new())
     }
 }
@@ -126,7 +126,7 @@ impl Fixture {
             lane: LaneId::new(2),
             dataspace: DataSpaceId::new(0),
             incarnation: [0x73; 32],
-            params: Default::default(),
+            params: iroha_data_model::parameter::system::SumeragiParameters::default(),
             committee: keys
                 .iter()
                 .map(|key| SumeragiLaneMember {
@@ -217,10 +217,12 @@ impl Fixture {
             Arc::new(EmptyStore),
             shared,
             budget.clone(),
+            iroha_primitives::time::TimeSource::new_system(),
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Ok(Some(ExecOutcome::Valid(result))) = executor.execute(&block, &block.hash(&*crypto))
+        let Ok(Some(ExecOutcome::Valid(result))) =
+            executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");
         };
@@ -249,7 +251,11 @@ impl Fixture {
         fixture
     }
     fn resign(&mut self, count: usize) {
-        self.qc.signers = Bitmap::from_indices(4, (0..count).map(|index| index as u32)).unwrap();
+        self.qc.signers = Bitmap::from_indices(
+            4,
+            (0..count).map(|index| u32::try_from(index).expect("fixture value fits u32")),
+        )
+        .unwrap();
         let preimage = self.qc.preimage();
         let signatures = self.keys[..count]
             .iter()

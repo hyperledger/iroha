@@ -47,9 +47,7 @@ fn world_transaction_apply_discard_and_unwind_on_bounded_stack() {
                     *transaction.soradns_last_publish_ms.get_mut() = Some(12);
                     transaction.dataspace_catalog = changed_catalog.clone();
                     transaction.external_event_buf.push(event.clone());
-                    if unwind {
-                        panic!("discard the original journal during unwinding");
-                    }
+                    assert!(!unwind, "discard the original journal during unwinding")
                 }));
                 assert_eq!(result.is_err(), unwind);
                 assert_eq!(block.tx_sequences.get(&ALICE_ID), Some(&7));

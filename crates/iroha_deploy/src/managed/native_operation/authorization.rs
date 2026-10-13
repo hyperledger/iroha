@@ -98,7 +98,6 @@ impl Scope {
                     sequence: next,
                 },
             ) => provider == selected && sequence == next && (2..=64).contains(&sequence),
-            (Self::Bootstrap(_), Purpose::CustodyRenewal { .. }) => false,
             (Self::Bootstrap(_), Purpose::ReservePolicy | Purpose::Reputation) => true,
             (
                 Self::Bootstrap(providers),
@@ -484,14 +483,17 @@ impl EpochReader {
         directory.revalidate()?;
         Ok(())
     }
-    pub(in crate::managed) fn validate_references<'a>(
+    pub(in crate::managed) fn validate_references<'a, Origins>(
         &mut self,
         directory: &PrivateDirectory,
         original_digest: [u8; 32],
         fees: &Fees,
         scope: Scope,
-        origins: impl Iterator<Item = &'a Origin>,
-    ) -> Result<()> {
+        origins: Origins,
+    ) -> Result<()>
+    where
+        Origins: Iterator<Item = &'a Origin>,
+    {
         if self.parser_source.is_some() {
             return self.validate_parser_references(
                 directory,
@@ -568,7 +570,13 @@ fn read_image<T: norito::NoritoSerialize + for<'a> norito::NoritoDeserialize<'a>
     {
         return Ok(Some(retained));
     }
-    let value = attempts::decode_record(&bytes)?;
+    let value = {
+        #[cfg(test)]
+        let _timing = crate::managed::stream_token_custody::body_history::finish_timing::phase(
+            crate::managed::stream_token_custody::body_history::finish_timing::Phase::EpochRecordDecode,
+        );
+        attempts::decode_record(&bytes)?
+    };
     #[cfg(test)]
     reader_tests::record_decoded();
     Ok(Some(RecordImage {

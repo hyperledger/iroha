@@ -1,0 +1,19 @@
+{
+  "time_utc": "2026-10-13T05:38:11.764907+00:00",
+  "campaign_source_entries": 260,
+  "campaign_source_changes_after_documentation": {},
+  "build_source_entries": 231,
+  "build_provenance_matches": true,
+  "observations": 120,
+  "feature_mode_pairs": 60,
+  "python_tests": 33,
+  "rust_tests_per_mode": 10,
+  "strict_clippy_both_modes": true,
+  "codec_guard_passed": true,
+  "local_link_count": 12,
+  "source_contract_exit": 1,
+  "complete_workspace_certificate": false,
+  "physical_cost_calibrated": false,
+  "profile_qualified": false,
+  "scope": "Final local artifact/source coherence check; tests and campaign are linked records, not re-executed by this receipt."
+}

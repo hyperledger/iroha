@@ -1,7 +1,7 @@
 //! Cross-runtime local SoraFS parity against the actual Node module and C ABI.
 #[cfg(feature = "js_host_parity")]
 mod js_host_parity {
-    use norito::json::{Value, json};
+    use norito::{json, json::Value};
     use sorafs_car::{
         fetch_plan::{chunk_fetch_plan_to_string, try_chunk_fetch_plan_to_json},
         fixtures::MultiPeerFixture,
@@ -323,10 +323,10 @@ mod js_host_parity {
         let rust_duration = rust_start.elapsed();
         let request = json!({
             "plan": plan_json_string,
-            "providers": Value::Array(providers),
+            "providers": (Value::Array(providers)),
             "options": {
                 "verify_digests": true, "verify_lengths": true, "use_scoreboard": true,
-                "return_scoreboard": true, "scoreboard_now_unix_secs": fixture.now_unix_secs(),
+                "return_scoreboard": true, "scoreboard_now_unix_secs": (fixture.now_unix_secs()),
             },
         });
         let request_path = directory.join("runtime-request.json");

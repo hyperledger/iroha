@@ -154,17 +154,17 @@ fn verified_tip(chain: &CertifiedTestChain) -> VerifiedSumeragiBlock {
     let genesis = build_proof(&view, 1).unwrap();
     let mut verifier = SumeragiFinalityVerifier::new(
         chain.genesis(),
-        &view.chain_id().to_string(),
+        view.chain_id().as_ref(),
         genesis.committee.clone(),
     )
     .unwrap();
-    let mut verified = verifier.verify(&genesis).unwrap();
+    let mut authenticated = verifier.verify(&genesis).unwrap();
     for height in 2..=chain.height() {
-        verified = verifier
+        authenticated = verifier
             .verify(&build_proof(&view, height).unwrap())
             .unwrap();
     }
-    verified
+    authenticated
 }
 
 #[test]
@@ -183,13 +183,13 @@ fn native_multisig_records_are_authenticated_by_real_certified_execution() {
             &fixture.keys,
             &budget,
             |snapshot, first, second| {
-                let verified = snapshot
+                let authenticated = snapshot
                     .authenticate(&verified_tip(&fixture.chain))
                     .unwrap();
-                verified
+                authenticated
                     .verify_table_value("world.smart_contract_state", &fixture.keys[0], first)
                     .unwrap();
-                verified
+                authenticated
                     .verify_table_value("world.smart_contract_state", &fixture.keys[1], second)
                     .unwrap();
                 Ok(())
@@ -211,15 +211,15 @@ fn native_multisig_records_are_authenticated_by_real_certified_execution() {
             &fixture.keys,
             &budget,
             |snapshot, first, second| {
-                let verified = snapshot.authenticate(&verified_block).unwrap();
+                let authenticated = snapshot.authenticate(&verified_block).unwrap();
                 for (key, raw) in [(&fixture.keys[0], first), (&fixture.keys[1], second)] {
-                    verified
+                    authenticated
                         .verify_table_value("world.smart_contract_state", key, raw)
                         .unwrap();
                     let mut mutated = raw.clone();
                     mutated[0] ^= 1;
                     assert!(
-                        verified
+                        authenticated
                             .verify_table_value("world.smart_contract_state", key, &mutated)
                             .is_err()
                     );
@@ -252,12 +252,12 @@ fn native_multisig_records_are_authenticated_by_real_certified_execution() {
                 );
                 assert_eq!(terminal.terminal.multisig_account_id, fixture.account);
                 assert!(
-                    verified
+                    authenticated
                         .verify_table_value("world.smart_contract_state", &fixture.keys[1], first)
                         .is_err()
                 );
                 assert!(
-                    verified
+                    authenticated
                         .verify_table_value(
                             "world.smart_contract_state",
                             &fixture.keys[0],

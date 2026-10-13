@@ -211,7 +211,7 @@ impl ExecutionFeeSettlement {
             .map(|limit| limit.asset_definition_id.canonical_address())
             .filter(|_| !on_success_only);
         let pipeline_charge =
-            should_charge_pipeline_gas_asset(false, &state.nexus.fees, &gas_asset)
+            should_charge_pipeline_gas_asset(false, &state.nexus.fees, gas_asset.as_deref())
                 && gas_asset.is_some()
                 && work.gas != 0;
         let nexus_charge = compute_nexus_fee_amount(
@@ -228,7 +228,7 @@ impl ExecutionFeeSettlement {
             .fee_payment_intent()
             .sponsor_program()
             .map(|(id, _)| id.clone());
-        if should_charge_pipeline_gas_asset(false, &state.nexus.fees, &gas_asset)
+        if should_charge_pipeline_gas_asset(false, &state.nexus.fees, gas_asset.as_deref())
             && let Some(asset) = gas_asset
         {
             Executor::charge_pipeline_gas_asset_fee(

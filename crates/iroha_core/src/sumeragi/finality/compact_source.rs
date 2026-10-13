@@ -48,6 +48,8 @@ type Result<T> = std::result::Result<T, Error>;
 pub struct NativeCommitCertificateDataV1 {
     // Reclaim the copied vectors before refunding their original reservation.
     certificate: SumeragiCommitCertificateV1,
+    original_header: iroha_data_model::block::BlockHeader,
+    executed_wire_identity: (u64, iroha_crypto::Hash),
     charge: AllocationReservation,
 }
 
@@ -58,11 +60,21 @@ impl NativeCommitCertificateDataV1 {
         &self.certificate
     }
 
+    /// Header selected from the exact original frame whose proposal-input header hash matched State.
+    pub(crate) fn original_header(&self) -> &iroha_data_model::block::BlockHeader {
+        &self.original_header
+    }
+
+    /// Exact original certificate-free executed wire, streamed without decoding its body.
+    /// It becomes authenticated only when joined to the verified result commitment.
+    pub(crate) fn executed_wire_identity(&self) -> (u64, iroha_crypto::Hash) {
+        self.executed_wire_identity
+    }
+
     /// Move the same certificate and charge into a response assembly owner.
     ///
     /// Retain the reservation until both the certificate and its encoded response
     /// have been released. Moving these values does not confer finality authority.
-    #[must_use]
     pub fn into_parts(self) -> (SumeragiCommitCertificateV1, AllocationReservation) {
         (self.certificate, self.charge)
     }
@@ -168,6 +180,8 @@ pub fn read_commit_certificate(
     check_deadline(deadline)?;
     Ok(NativeCommitCertificateDataV1 {
         certificate,
+        original_header: selected.header,
+        executed_wire_identity: selected.executed_wire_identity,
         charge,
     })
 }
@@ -339,6 +353,11 @@ mod tests {
         let selected = fields::select(&wire).unwrap();
         assert_eq!(selected.header.hash(), block.block().hash());
         assert_eq!(
+            selected.executed_wire_identity,
+            block.block().executed_block_wire_identity().unwrap(),
+            "borrowed original fields retain the exact canonical execution identity"
+        );
+        assert_eq!(
             selected.components[0],
             block
                 .block()
@@ -505,6 +524,11 @@ mod tests {
         let original = chain.committed(2);
         let wire = original.block().encode_wire().unwrap();
         assert!(wire.len() > 1 << 20);
+        assert_eq!(
+            fields::select(&wire).unwrap().executed_wire_identity,
+            original.block().executed_block_wire_identity().unwrap(),
+            "large original body is hashed without a decoded body graph"
+        );
         let budget = AllocationBudget::new(48_000_000);
         let receipt_source_charge = budget.try_reserve_bytes(12_000_000).unwrap();
         assert!(

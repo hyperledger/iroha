@@ -58,7 +58,9 @@ fn sample_replay(
                 };
                 1 | 16
                     | steer
-                    | if (tick + slot as u32 * 11) % 90 < 25 {
+                    | if (tick + u32::try_from(slot).expect("fixture value fits u32") * 11) % 90
+                        < 25
+                    {
                         32
                     } else {
                         0
