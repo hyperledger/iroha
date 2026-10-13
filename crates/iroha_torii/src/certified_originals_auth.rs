@@ -33,9 +33,7 @@ pub(super) fn authenticate(
         &app.state,
         app.state.network_id_ref(),
         headers,
-        method,
-        uri,
-        body,
+        crate::app_auth::CanonicalRequestParts { method, uri, body },
         None,
         authentication_owner.allocation_context(),
     )?

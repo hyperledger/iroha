@@ -24189,11 +24189,9 @@ pub async fn handle_post_contract_call_multisig_propose(
     );
     let (proposal_instructions, proposal_hash) = build_multisig_contract_call_instructions(
         &multisig_account_id,
-        &contract_address,
-        contract_alias.as_ref(),
+        (&contract_address, contract_alias.as_ref()),
         &entrypoint,
-        normalized_payload.as_ref(),
-        arguments.as_deref(),
+        (normalized_payload.as_ref(), arguments.as_deref()),
         &manifest,
         &code_hash,
         attempt_created_at_ms,

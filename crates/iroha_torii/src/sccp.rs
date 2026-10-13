@@ -486,7 +486,7 @@ where
     use crate::utils::ResponseFormat;
     let selected = match format(accept) {
         Ok(value) => value,
-        Err(response) => return owner.response(response),
+        Err(response) => return response,
     };
     let (content_type, bytes) = match selected {
         ResponseFormat::Norito => {
@@ -524,7 +524,8 @@ where
         .is_some_and(|etag| crate::utils::if_none_match_matches(headers, etag))
     {
         drop(bytes);
-        owner.response(StatusCode::NOT_MODIFIED.into_response())
+        // The encoded history has retired; this bodyless response owns no query data.
+        StatusCode::NOT_MODIFIED.into_response()
     } else {
         let mut response = match crate::response_memory_custody::json(bytes, owner) {
             Ok(response) => response,
@@ -561,7 +562,7 @@ pub fn history_response(
         .transpose()
     {
         Ok(size) => size,
-        Err(response) => return owner.response(response),
+        Err(response) => return response,
     };
     let result = owner.scope(|| {
         read::history_path_view(
@@ -575,7 +576,7 @@ pub fn history_response(
     });
     match result {
         Ok(path) => respond_funded(owner, accept, headers, path.view(), size.is_some()),
-        Err(failure) => owner.response(history_read_error(failure)),
+        Err(failure) => history_read_error(failure),
     }
 }
 
@@ -683,3 +684,69 @@ pub async fn handler_history(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod response_custody_tests {
+    use super::*;
+
+    const WORKING: usize = 48_000_000;
+
+    fn owner(
+        pool: &crate::ByteWeightedMemoryPool,
+    ) -> crate::history_producer::HistoryProducerOwner {
+        let reservation = crate::QueryFanoutMemoryReservation::from_admitted_fanout(
+            pool.try_acquire_parts([WORKING as u64]).unwrap(),
+            crate::QueryFanoutMemoryEnvelope::for_body_admission(WORKING).unwrap(),
+            pool.generation(),
+        )
+        .unwrap();
+        crate::history_producer::HistoryProducerOwner::from_reservation(&reservation).unwrap()
+    }
+
+    #[tokio::test]
+    async fn conditional_history_response_releases_retired_query_data() {
+        let pool = crate::ByteWeightedMemoryPool::new(WORKING).unwrap();
+        let owner = owner(&pool);
+        let response = respond_funded(&owner, None, &HeaderMap::new(), &17_u64, true);
+        let etag = response.headers().get(header::ETAG).unwrap().clone();
+        drop(response);
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let response = respond_funded(&owner, None, &headers, &17_u64, true);
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers().get(header::ETAG), Some(&etag));
+        drop(owner);
+        assert!(
+            pool.try_acquire_parts([WORKING as u64]).is_some(),
+            "a bodyless validator response must not retain the retired query"
+        );
+        assert!(
+            axum::body::to_bytes(response.into_body(), 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn unsupported_history_representation_releases_query_but_preserves_typed_error() {
+        let pool = crate::ByteWeightedMemoryPool::new(WORKING).unwrap();
+        let owner = owner(&pool);
+        let accept = ExtractAccept(HeaderValue::from_static("text/plain"));
+        let response = respond_funded(&owner, Some(&accept), &HeaderMap::new(), &17_u64, false);
+        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+        drop(owner);
+        assert!(
+            pool.try_acquire_parts([WORKING as u64]).is_some(),
+            "negotiation errors have no retained history backing"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let error: Value = norito::json::from_slice(&body).unwrap();
+        assert_eq!(
+            error.get("code").and_then(Value::as_str),
+            Some("response_not_acceptable")
+        );
+    }
+}
