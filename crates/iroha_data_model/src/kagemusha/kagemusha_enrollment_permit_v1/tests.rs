@@ -253,6 +253,34 @@ fn rooted_wrong_role_and_wrong_message_do_not_authorize_pre_key() {
         .is_err()
     );
 }
+
+#[test]
+fn expiry_proof_roundtrips_and_binds_deadline_and_original_hashes() {
+    let (scheme, certificate, signer, _) = fixture(KagemushaWalletSignerRoleV1::Enrollment);
+    let body = KagemushaEnrollmentExpiryProofBodyV1::new(
+        [21; 32], [22; 32], [23; 32], [24; 32], [25; 32], 121_000, 121_001,
+    );
+    let signature: Signature = signer.sign(&body.signing_message().unwrap());
+    let proof = KagemushaEnrollmentExpiryProofV1::from_issuer_der(
+        body,
+        &certificate,
+        signature.to_der().as_bytes(),
+    )
+    .unwrap();
+    let bytes = proof.encode_canonical().unwrap();
+    assert_eq!(
+        KagemushaEnrollmentExpiryProofV1::decode_canonical(&bytes).unwrap(),
+        proof
+    );
+    proof.verify(&scheme, &certificate).unwrap();
+    let mut changed = proof;
+    changed.body.dispatch_sha256[0] ^= 1;
+    assert!(changed.verify(&scheme, &certificate).is_err());
+    let mut before_deadline = proof.body;
+    before_deadline.observed_at_ms = before_deadline.expires_at_ms - 1;
+    assert!(before_deadline.validate().is_err());
+}
+
 #[test]
 fn truncated_oversized_and_trailing_canonical_originals_refuse() {
     let (scheme, certificate, signer, body) = fixture(KagemushaWalletSignerRoleV1::Enrollment);

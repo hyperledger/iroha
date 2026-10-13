@@ -2926,6 +2926,58 @@ fn accepted_permit_before_slot_can_report_request_absence_without_a_generation_g
 }
 
 #[test]
+fn expired_accepted_prekey_requires_issuer_proof_and_retains_terminal_marker() {
+    use p256::ecdsa::{Signature as P256Signature, signature::Signer as _};
+
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 190);
+    let mut current = owner(&f, &d);
+    let fresh = dispatch(&f, &mut current);
+    current
+        .accept_permit(&permit(&f, &fresh).encode_canonical().unwrap())
+        .unwrap();
+    drop(current.into_provider());
+    d.fs.restart();
+    let mut resumed_owner = owner(&f, &d);
+    let resumed = dispatch(&f, &mut resumed_owner);
+    let accepted = resumed.previous_permit.clone().unwrap();
+    let dispatch_sha256: [u8; 32] = Sha256::digest(resumed.encode().unwrap()).into();
+    let permit_sha256: [u8; 32] = Sha256::digest(&accepted).into();
+    let accepted_permit = KagemushaEnrollmentPermitV1::decode_canonical(
+        &accepted,
+        &f.config.scheme,
+        &f.config.enrollment_certificate,
+    )
+    .unwrap();
+    let body = KagemushaEnrollmentExpiryProofBodyV1::new(
+        resumed.request_id,
+        dispatch_sha256,
+        permit_sha256,
+        accepted_permit.body.attempt_id,
+        accepted_permit.body.challenge.challenge_digest(),
+        accepted_permit.body.expires_at_ms,
+        accepted_permit.body.expires_at_ms + 1,
+    );
+    let signature: P256Signature = signing_key(79).sign(&body.signing_message().unwrap());
+    let proof = KagemushaEnrollmentExpiryProofV1::from_issuer_der(
+        body,
+        &f.config.enrollment_certificate,
+        signature.to_der().as_bytes(),
+    )
+    .unwrap()
+    .encode_canonical()
+    .unwrap();
+    assert_eq!(
+        resumed_owner.abandon_expired(&proof).unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    let names = d.fs.visible_names(&KagemushaWalletCustodyDirV1::root());
+    assert!(names.iter().any(|name| name.ends_with("-expired.norito")));
+    assert!(!names.iter().any(|name| name.ends_with("-slot.norito")));
+    d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+}
+
+#[test]
 fn lost_prekey_slot_with_actual_intent_never_becomes_optional_request_absence() {
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 191);
