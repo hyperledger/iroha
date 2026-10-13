@@ -32,11 +32,11 @@ RED_ZONE_BYTES = 128
 STRAIGHT = set("""
 add addp adds addv adr adrp aese aesimc aesmc and ands asr bfi bfxil bic bics bif
 bsl cas casa casab casal casalb casb casl ccmn ccmp cinc clz cmeq cmgt cmhi cmn
-cmp cneg cnt csel cset csetm csinc csinv dmb dup eor eor3 ext extr fmov isb ld1
+cmp cneg cnt csel cset csetm csinc csinv dmb dup eon eor eor3 ext extr fmov isb ld1
 ld1r ld2 ld4 ldadd ldaddab ldaddal ldaddl ldapr ldaprb ldapur ldapurb ldp ldr
 ldrb ldrh ldrsb ldrsh ldrsw ldur ldurb ldurh lsl lsr madd mov movi movk msub
 mul mvn neg nop orr rbit rev ror sbc sbcs sbfx shl shrn smaddl st1 stlr stlrb
-stlurb stp str strb strh stur sturb sturh sub subs swpab swpal swpb swplb sxtb
+stlur stlurb stp str strb strh stur sturb sturh sub subs swpab swpal swpb swplb sxtb
 sxtw tst ubfiz ubfx udiv umaddl umaxp uminv umulh umull uqsub ushl ushll ushll2
 ushr uzp1 xar xtn zip1
 """.split())
@@ -118,6 +118,22 @@ def stack_effect(op, operands, sp, fp):
     An arbitrary restored FP is unknown; it matters only if later assigned to SP.
     """
     old_sp, old_fp = sp, fp
+    if op.split(".", 1)[0] in {"stlur", "eon"} and "." in op:
+        raise ValueError("unsupported scalar instruction suffix")
+    # STLUR (FEAT_LRCPC2) stores a W/X register at base + signed imm9;
+    # unlike indexed STR, it has no base writeback or register destination.
+    # Arm DDI 0602, STLUR (unscaled): accept only its ordinary LLVM spelling.
+    if op == "stlur":
+        match = re.fullmatch(r"(?:[wx](?:[12]?\d|30)|[wx]zr), \[(?:x(?:[12]?\d|30)|sp)(?:, (#-?(?:0x[0-9a-f]+|\d+)))?\]", operands)
+        if match is None or not -256 <= immediate(match[1] or "#0") <= 255:
+            raise ValueError("unsupported STLUR operands")
+    # EON (shifted register) writes only its W/X destination, never SP.
+    # All three registers have the same width; optional shifts are width-bounded.
+    # The ordinary first-destination logic below invalidates an overwritten FP.
+    if op == "eon":
+        match = re.fullmatch(r"([wx])(?:[12]?\d|30|zr), \1(?:[12]?\d|30|zr), \1(?:[12]?\d|30|zr)(?:, (lsl|lsr|asr|ror) (#(?:0x[0-9a-f]+|\d+)))?", operands)
+        if match is None or not 0 <= immediate(match[3] or "#0") < (64 if match[1] == "x" else 32):
+            raise ValueError("unsupported EON operands")
     fields = operands.split(", ")
     first = fields[0] if fields else ""
     # AArch64 post/pre-indexed base writes happen independently of destination.

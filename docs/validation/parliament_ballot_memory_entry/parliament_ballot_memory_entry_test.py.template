@@ -1,0 +1,290 @@
+"""In-memory supervisor evidence checks with synthetic children, never proof execution."""
+
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+from unittest.mock import patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import check_parliament_ballot_memory_entry as runner
+
+
+def simple_case(label="valid", charge=1, code=0, outcome="accepted"):
+    return {"fixture": "fixture", "row": "candidate", "role": "registration", "seats": 0,
+            "case": label, "input": b"bytes", "flags": [], "expected_charge": charge,
+            "expected_exit": code, "expected_outcome": outcome}
+
+
+def worker(case, mode="portable"):
+    result = {"outcome": case["expected_outcome"], "charged_units": case["expected_charge"],
+              "charged_bytes": len(case["input"]) if case["expected_charge"] else 0,
+              "arena_enforced": True, "complete_workspace_certificate": False, "profile_qualified": False}
+    if case["expected_exit"] == 73:
+        return result
+    if case["case"] in {"fifo_input", "oversized_input"}:
+        return {**result, "arena_enforced": False, "arena_allocations": 0,
+                "verifier_stage": "staging_size" if case["case"] == "oversized_input" else "staging_not_regular"}
+    fixed = {"heap_reserved_bytes": 32 * 1024 * 1024, "metadata_reserved_bytes": 1024 * 1024,
+             "stack_usable_bytes": 8 * 1024 * 1024, "control_reserved_bytes": 64 * 1024,
+             "guard_bytes": 2 * runner.os.sysconf("SC_PAGESIZE")}
+    stage = ("reserve" if case["expected_exit"] == 2 else "complete" if case["expected_exit"] == 0
+             else "proof" if case["case"] == "late_invalid_coefficient" else "codec")
+    return {**result, **fixed, "workspace_reserved_bytes": sum(fixed.values()), "heap_limit_bytes": 32 * 1024 * 1024,
+            "accelerated": mode == "accel", "verifier_stage": stage,
+            "arena_allocations": int(bool(case["expected_charge"])),
+            "arena_peak_requested_bytes": len(case["input"]) if case["expected_charge"] else 0,
+            "arena_peak_block_bytes": 64 if case["expected_charge"] else 0,
+            "arena_live_exit_requested_bytes": 0, "arena_live_exit_block_bytes": 0}
+
+
+def child(case, value=None, mode="portable"):
+    return subprocess.CompletedProcess([], case["expected_exit"], json.dumps(worker(case, mode) if value is None else value), "")
+
+
+def build_fixture(root):
+    generated, registry = root / "generated", root / "registry/package"
+    required = [root / name for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml")]
+    required += [root / runner.RESOURCE / f"{name}.rs" for name in ("arena", "budget", "native", "workspace")]
+    required += [root / runner.PROBE / name for name in ("driver.rs", "staging.rs")]
+    required += [root / "scripts/prepare_parliament_ballot_memory_entry.py"]
+    required += [generated / name for name in ("Cargo.toml", "Cargo.lock", "preparation.json", "driver.rs", "staging.rs", "generated_workspace.rs")]
+    required += [registry / name for name in ("Cargo.toml", "src/lib.rs", "build.rs", ".cargo-checksum.json")]
+    required += [root / runner.resource.FIXTURES / name for name in ("example.proof", "example.txt")]
+    for path in required:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("reviewed source")
+    binaries = {mode: root / mode for mode in ("portable", "accel")}
+    for mode, path in binaries.items():
+        path.write_text(mode)
+    metadata = root / "metadata.json"
+    metadata.write_text(json.dumps({"packages": [{"source": "registry+test", "manifest_path": str(registry / "Cargo.toml")}]}))
+    commands = []
+    for accelerated in (False, True):
+        for action in ("test", "clippy", "build"):
+            command = ["cargo", action, "--release", "--locked", "--manifest-path", str(generated / "Cargo.toml"), "--target-dir", str(root / "target")]
+            if accelerated:
+                command += ["--features", "accel"]
+            if action == "test":
+                command += ["--", "--nocapture"]
+            if action == "clippy":
+                command += ["--all-targets", "--", "-D", "warnings"]
+            log = root / f"{accelerated}-{action}.txt"
+            log.write_text("passed")
+            commands.append({"command": command, "exit": 0, "source_changes": {}, "log": str(log), "log_sha256": runner.digest(log)})
+    receipt = {"schema": "parliament-memory-entry-build-v1", "source_stable": True, "failure": None,
+               "profile_qualified": False, "complete_workspace_certificate": False,
+               "source_files": {str(path): runner.digest(path) for path in required},
+               "generated_dir": str(generated), "dependency_metadata_path": str(metadata), "dependency_metadata_sha256": runner.digest(metadata),
+               "commands": commands, "binaries": {mode: {"path": str(path), "sha256": runner.digest(path)} for mode, path in binaries.items()}}
+    receipt_path = root / "build.json"
+    receipt_path.write_text(json.dumps(receipt))
+    return receipt, binaries, receipt_path
+
+
+def test_digest_and_strict_single_json_object(tmp_path):
+    path = tmp_path / "bytes"
+    path.write_bytes(b"abc")
+    assert runner.digest(path) == hashlib.sha256(b"abc").hexdigest()
+    assert runner.object_json('{"x":1}') == {"x": 1}
+    for text in ('{"x":1,"x":2}', '{"x":NaN}', '{"x":Infinity}', '{"x":1e309}', "[]", "null", "{} {}", ""):
+        with pytest.raises(ValueError):
+            runner.object_json(text)
+
+
+def test_real_corpus_keeps_fixture_checks_and_independent_borrowed_cap(tmp_path):
+    cases = list(runner.cases(runner.ROOT))
+    assert len(cases) == runner.EXPECTED_CASES == 61
+    assert len({(case["fixture"], case["case"]) for case in cases}) == 61
+    borrowed = cases[-1]
+    assert borrowed["borrowed_oversize"] and len(borrowed["input"]) == 425985
+    assert borrowed["flags"] == ["--input-bytes", "425985"]
+    assert (borrowed["expected_exit"], borrowed["expected_charge"]) == (2, 0)
+    fixture = tmp_path / runner.resource.FIXTURES
+    fixture.mkdir(parents=True)
+    for suffix in ("proof", "txt"):
+        (fixture / f"reg_fast.{suffix}").write_bytes((runner.ROOT / runner.resource.FIXTURES / f"reg_fast.{suffix}").read_bytes())
+    runner.resource.fixture_record(tmp_path, "candidate", 0)
+    (fixture / "reg_fast.proof").write_bytes(b"drifted proof")
+    with pytest.raises(ValueError, match="proof fixture digest mismatch"):
+        runner.resource.fixture_record(tmp_path, "candidate", 0)
+
+
+@pytest.mark.parametrize("label,code,outcome", [("fifo_input", 3, "input_error"), ("oversized_input", 2, "admission_rejected")])
+def test_staging_is_zero_charge_zero_allocation_and_no_arena(label, code, outcome):
+    case = simple_case(label, 0, code, outcome)
+    value = worker(case)
+    assert runner.validate_case(case, child(case), "portable") == value
+    for key, wrong in (("charged_units", 1), ("charged_bytes", 1), ("arena_allocations", True),
+                       ("arena_allocations", 1), ("arena_enforced", True), ("verifier_stage", "reserve"),
+                       ("profile_qualified", True), ("unexpected", 0)):
+        with pytest.raises(ValueError):
+            runner.validate_case(case, child(case, {**value, key: wrong}), "portable")
+
+
+@pytest.mark.parametrize("label,charge,code,outcome", [
+    ("valid", 1, 0, "accepted"), ("late_invalid_coefficient", 1, 1, "rejected"),
+    ("empty_input", 1, 1, "rejected"), ("byte_short", 0, 2, "admission_rejected"),
+    ("borrowed_oversized_input", 0, 2, "admission_rejected"),
+    ("arena_exhaustion", 1, 73, "resource_exhausted")])
+def test_worker_modes_debits_stages_and_exhaustion(label, charge, code, outcome):
+    case = simple_case(label, charge, code, outcome)
+    if label == "empty_input":
+        case["input"] = b""
+    for mode in ("portable", "accel"):
+        value = worker(case, mode)
+        assert runner.validate_case(case, child(case, mode=mode), mode) == value
+        for key, wrong in (("charged_units", True), ("charged_units", 1 - charge),
+                           ("charged_bytes", value["charged_bytes"] + 1), ("arena_enforced", False),
+                           ("complete_workspace_certificate", True), ("unexpected", 0)):
+            with pytest.raises(ValueError):
+                runner.validate_case(case, child(case, {**value, key: wrong}), mode)
+
+
+def test_worker_counters_types_modes_and_peak_cleanup_are_strict():
+    case = simple_case()
+    value = worker(case)
+    for key, wrong in (("accelerated", True), ("verifier_stage", "codec"), ("arena_allocations", True),
+                       ("workspace_reserved_bytes", float(value["workspace_reserved_bytes"])),
+                       ("heap_limit_bytes", value["heap_limit_bytes"] - 1), ("arena_live_exit_block_bytes", 64),
+                       ("arena_live_exit_requested_bytes", False), ("arena_peak_block_bytes", 1),
+                       ("guard_bytes", 0)):
+        with pytest.raises(ValueError):
+            runner.validate_case(case, child(case, {**value, key: wrong}), "portable")
+    for bad in (subprocess.CompletedProcess([], -6, json.dumps(value), ""),
+                subprocess.CompletedProcess([], False, json.dumps(value), ""),
+                subprocess.CompletedProcess([], 0, json.dumps(value), "unexpected")):
+        with pytest.raises(ValueError):
+            runner.validate_case(case, bad, "portable")
+    with pytest.raises(ValueError):
+        runner.validate_case(case, child(case), "unknown")
+    refused = simple_case("work_short", 0, 2, "admission_rejected")
+    for key in ("arena_allocations", "arena_peak_requested_bytes", "arena_peak_block_bytes"):
+        with pytest.raises(ValueError):
+            runner.validate_case(refused, child(refused, {**worker(refused), key: 1}), "portable")
+
+
+def test_build_binds_sources_fixtures_binary_metadata_and_logs(tmp_path):
+    receipt, binaries, _ = build_fixture(tmp_path)
+    checked = runner.validate_build(receipt, binaries, tmp_path)
+    assert receipt["dependency_metadata_path"] in checked
+    mutations = []
+    for key, wrong in (("source_stable", False), ("failure", "failed"), ("profile_qualified", True), ("source_files", {})):
+        mutations.append({**receipt, key: wrong})
+    for path in (tmp_path / "registry/package/src/lib.rs", tmp_path / runner.resource.FIXTURES / "example.proof", tmp_path / "generated/generated_workspace.rs"):
+        bad = deepcopy(receipt)
+        del bad["source_files"][str(path)]
+        mutations.append(bad)
+    for path in (("binaries", "portable", "sha256"), ("commands", 0, "log_sha256")):
+        bad = deepcopy(receipt)
+        bad[path[0]][path[1]][path[2]] = "0" * 64
+        mutations.append(bad)
+    mutations.append({**receipt, "dependency_metadata_sha256": "0" * 64})
+    bad = deepcopy(receipt); bad["commands"][0]["exit"] = False; mutations.append(bad)
+    bad = deepcopy(receipt); bad["commands"][0]["source_changes"] = {"changed": True}; mutations.append(bad)
+    for bad in mutations:
+        with pytest.raises(ValueError):
+            runner.validate_build(bad, binaries, tmp_path)
+    (tmp_path / "registry/package/src/lib.rs").write_text("drift")
+    with pytest.raises(ValueError, match="source changed"):
+        runner.validate_build(receipt, binaries, tmp_path)
+
+
+def test_build_requires_six_real_cargo_modes_not_test_arguments(tmp_path):
+    receipt, binaries, _ = build_fixture(tmp_path)
+    for index in range(6):
+        mutations = []
+        bad = deepcopy(receipt); del bad["commands"][index]; mutations.append(bad)
+        for token in ("--release", "--locked"):
+            bad = deepcopy(receipt); bad["commands"][index]["command"].remove(token); mutations.append(bad)
+        for token in ("--all-features", "--features=accel", "-Faccel", "--no-default-features", "--stable-local-metadata"):
+            bad = deepcopy(receipt); bad["commands"][index]["command"].insert(2, token); mutations.append(bad)
+        bad = deepcopy(receipt); bad["commands"][index]["command"].insert(2, "--"); mutations.append(bad)
+        bad = deepcopy(receipt); bad["commands"][index]["command"][0] = "echo"; mutations.append(bad)
+        for bad in mutations:
+            with pytest.raises(ValueError):
+                runner.validate_build(bad, binaries, tmp_path)
+
+
+def test_campaign_complete_pairs_and_borrowed_control(tmp_path):
+    _, binaries, receipt = build_fixture(tmp_path)
+    cases = [simple_case(), {**simple_case("borrowed_oversized_input", 0, 2, "admission_rejected"),
+                            "borrowed_oversize": True, "input": bytes(425985), "flags": ["--input-bytes", "425985"]}]
+    seen = []
+    def execute(command, **kwargs):
+        case = cases[len(seen) // 2]
+        seen.append(command)
+        if case.get("borrowed_oversize"):
+            assert command[3:] == ["--borrowed-oversize", "--input-bytes", "425985"]
+        else:
+            assert Path(command[3]).read_bytes() == case["input"]
+        return child(case, mode=Path(command[0]).name)
+    with patch.object(runner, "cases", return_value=iter(cases)), patch.object(runner, "EXPECTED_CASES", 2), patch.dict(runner.os.environ, {}, clear=True):
+        report = runner.campaign(tmp_path, binaries, tmp_path / "out", receipt, execute)
+    assert report["diagnostic_passed"] and report["observations"] == 4 and report["mode_pairs"] == 2
+    rows = [json.loads(line) for line in (tmp_path / "out/cases.jsonl").read_text().splitlines()]
+    assert rows[-1]["input_bytes"] == 425985 and rows[-1]["worker"]["arena_allocations"] == 0
+    assert all(row["check_passed"] for row in rows)
+    assert not report["profile_qualified"] and not report["complete_workspace_certificate"]
+    assert report["records_sha256"] == runner.digest(tmp_path / "out/cases.jsonl")
+
+
+@pytest.mark.parametrize("fault", ["timeout", "wrong_mode", "source_drift", "binary_deleted"])
+def test_campaign_preserves_partial_observations_and_drift(tmp_path, fault):
+    _, binaries, receipt = build_fixture(tmp_path)
+    case = simple_case()
+    calls = []
+    def execute(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 2:
+            if fault == "timeout":
+                raise subprocess.TimeoutExpired(command, 120, output=b"partial", stderr=b"diagnostic")
+            if fault == "wrong_mode":
+                return child(case, mode="portable")
+            if fault == "source_drift":
+                (tmp_path / "generated/staging.rs").write_text("changed")
+            if fault == "binary_deleted":
+                binaries["portable"].unlink()
+        return child(case, mode=Path(command[0]).name)
+    with patch.object(runner, "cases", return_value=iter([case])), patch.object(runner, "EXPECTED_CASES", 1), patch.dict(runner.os.environ, {}, clear=True):
+        report = runner.campaign(tmp_path, binaries, tmp_path / "out", receipt, execute)
+    assert not report["diagnostic_passed"] and report["observations"] == 2
+    assert json.loads((tmp_path / "out/report.json").read_text()) == report
+    rows = [json.loads(line) for line in (tmp_path / "out/cases.jsonl").read_text().splitlines()]
+    assert rows[0]["check_passed"]
+    if fault in {"source_drift", "binary_deleted"}:
+        assert report["input_changes"] and rows[1]["check_passed"]
+    else:
+        assert not rows[1]["check_passed"] and report["failure"]
+    if fault == "timeout":
+        assert (rows[1]["stdout"], rows[1]["stderr"]) == ("partial", "diagnostic")
+
+
+def test_setup_and_incomplete_corpus_failures_are_durable(tmp_path):
+    _, binaries, receipt = build_fixture(tmp_path)
+    for index, (modes, environment, corpus) in enumerate([
+        ({}, {}, []), (binaries, {"LD_PRELOAD": "unexpected"}, []),
+        (binaries, {}, []), (binaries, {}, [simple_case(), simple_case()])]):
+        output = tmp_path / f"out-{index}"
+        with patch.object(runner, "cases", return_value=iter(corpus)), patch.object(runner, "EXPECTED_CASES", 2), patch.dict(runner.os.environ, environment, clear=True):
+            report = runner.campaign(tmp_path, modes, output, receipt, lambda *args, **kwargs: pytest.fail("must not start worker"))
+        assert not report["diagnostic_passed"] and report["failure"] and not report["observations"]
+        assert (output / "cases.jsonl").read_text() == ""
+        with pytest.raises(FileExistsError):
+            runner.campaign(tmp_path, modes, output, receipt)
+
+
+def test_cli_help_and_failure_status(tmp_path, capsys):
+    with patch.object(sys, "argv", ["check", "--help"]):
+        with pytest.raises(SystemExit) as result:
+            runner.main()
+        assert result.value.code == 0 and "--build-receipt" in capsys.readouterr().out
+    args = ["check", "--portable", str(tmp_path / "p"), "--accel", str(tmp_path / "a"),
+            "--output", str(tmp_path / "out"), "--build-receipt", str(tmp_path / "build")]
+    with patch.object(sys, "argv", args), patch.object(runner, "campaign", return_value={"diagnostic_passed": False, "input_sha256": {}}):
+        assert runner.main() == 1
+        assert json.loads(capsys.readouterr().out) == {"diagnostic_passed": False}

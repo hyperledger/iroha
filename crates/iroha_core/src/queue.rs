@@ -5996,7 +5996,7 @@ pub mod tests {
             Metadata::default(),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(queue.router.read().try_route(&tx))
+            (queue.router.read().try_route(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::UnknownDataspace {

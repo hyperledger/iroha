@@ -41,17 +41,7 @@ static ALLOCATOR: TrackingAllocator = TrackingAllocator;
 ///
 /// The operation must use fallible allocation. Other layouts and threads are unaffected.
 /// The Boolean proves the allocator received the selected request; no error is fabricated.
-pub(crate) fn with_exact_allocation_denial<T>(
-    layout: Layout,
-    operation: impl FnOnce() -> T,
-) -> (T, bool) {
-    assert!(
-        !DENIAL_ACTIVE.with(Cell::get),
-        "nested exact allocation denial"
-    );
-    DENIAL_ACTIVE.with(|active| active.set(true));
-    DENIAL_OCCURRED.with(|occurred| occurred.set(false));
-    DENIAL_LAYOUT.with(|selected| selected.set(Some(layout)));
+pub fn with_exact_allocation_denial<T>(layout: Layout, operation: impl FnOnce() -> T) -> (T, bool) {
     struct Restore;
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -59,6 +49,13 @@ pub(crate) fn with_exact_allocation_denial<T>(
             let _ = DENIAL_ACTIVE.try_with(|active| active.set(false));
         }
     }
+    assert!(
+        !DENIAL_ACTIVE.with(Cell::get),
+        "nested exact allocation denial"
+    );
+    DENIAL_ACTIVE.with(|active| active.set(true));
+    DENIAL_OCCURRED.with(|occurred| occurred.set(false));
+    DENIAL_LAYOUT.with(|selected| selected.set(Some(layout)));
     let restore = Restore;
     let result = operation();
     let occurred = DENIAL_OCCURRED.with(Cell::get);

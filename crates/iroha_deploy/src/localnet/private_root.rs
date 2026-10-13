@@ -1061,7 +1061,9 @@ mod tests {
                     "{}\n[zk.pipa_r]\nenabled = {enabled}\n",
                     std::str::from_utf8(&bytes).unwrap(),
                 ));
-                assert!(parse_private_peer_config(&node_validity, Some(&peer.config_path)).is_err());
+                assert!(
+                    parse_private_peer_config(&node_validity, Some(&peer.config_path)).is_err()
+                );
             }
             let retired = Zeroizing::new(format!(
                 "{}\n[zk.halo2]\nenabled = true\n",

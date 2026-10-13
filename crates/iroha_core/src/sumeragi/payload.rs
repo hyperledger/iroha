@@ -162,6 +162,8 @@ pub enum PayloadError {
 }
 
 fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
+    use crate::execution_attempt::ExecutionAttemptError;
+
     if !cfg!(all(test, sumeragi_core_mutation = "HC49")) {
         error = match error.downcast::<crate::state::EvidencePreparationError>() {
             Ok(original) => return PayloadError::StakingPreparation(original),
@@ -193,7 +195,6 @@ fn staking_preparation_error(mut error: eyre::Report) -> PayloadError {
             Err(error) => error,
         };
     }
-    use crate::execution_attempt::ExecutionAttemptError;
     error = match error.downcast::<ExecutionAttemptError<String>>() {
         Ok(ExecutionAttemptError::Deferred(original)) => {
             return PayloadError::RoutingDeferred(original);

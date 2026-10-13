@@ -184,10 +184,7 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
     };
     let minimum_prefix = |include_root| {
         let (mut lower, mut upper) = (0, 65_536);
-        assert_eq!(
-            (prefix_fits(upper, include_root)).expect("completed fixture operation"),
-            true
-        );
+        assert!(prefix_fits(upper, include_root).expect("completed fixture operation"));
         while lower < upper {
             let middle = lower + (upper - lower) / 2;
             if matches!(prefix_fits(middle, include_root), Ok(true)) {
@@ -196,10 +193,7 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
                 lower = middle + 1;
             }
         }
-        assert_eq!(
-            (prefix_fits(lower, include_root)).expect("completed fixture operation"),
-            true
-        );
+        assert!(prefix_fits(lower, include_root).expect("completed fixture operation"));
         lower
     };
     let metadata_prefix = minimum_prefix(false);

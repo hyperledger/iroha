@@ -149,7 +149,6 @@ fn every_execution_producer_retains_original_source_until_actual_release() {
         }
         drop(retry);
         drop(expected);
-        drop(message);
         drop(sched);
         assert_eq!(budget.reserved_bytes(), 0);
     }

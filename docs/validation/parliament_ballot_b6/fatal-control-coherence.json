@@ -1,0 +1,79 @@
+{
+  "broken_links": [],
+  "complete_workspace_certificate": false,
+  "current_status_roadmap_sha256": {
+    "roadmap.md": "a28e0c79a588d571a7d75d45a10f79ceb5a27097612328e034b02bb7f2caebbf",
+    "status.md": "54609cf4e5506bb7fde2b65f8d4c9f20f9d8e17ac48d9ae04640794e60a7d165"
+  },
+  "frozen_new_manifests": [
+    {
+      "entries": 68,
+      "path": "docs/validation/parliament_ballot_fatal_control/SHA256SUMS",
+      "sha256": "32f706e005ef6a6a69b5fda832a3992ae44e2c31143fce3121bb192d597bd187"
+    },
+    {
+      "entries": 6,
+      "path": "docs/validation/parliament_ballot_zero_challenge/SHA256SUMS",
+      "sha256": "5bea4bf8e016cebf453a422bba1be31120400431caef5d6dcc09d5f2855b1755"
+    },
+    {
+      "entries": 3,
+      "path": "docs/validation/parliament_ballot_h5_fixed_opening/SHA256SUMS",
+      "sha256": "f9ba85b8e2a30c5868bab43594ffa6f085fdb86bb2bcc02f87261ded5c936437"
+    }
+  ],
+  "local_links_checked": 209,
+  "observed_at_utc": "2026-10-13T10:40:08.044559+00:00",
+  "post_campaign_input_changes": {},
+  "prior_entries": 847,
+  "prior_manifest_sha256": "cb4db3ce4aeaf0fae1021f441d34c60f885818e4daf1cbdec274602c05342073",
+  "profile_qualified": false,
+  "schema": "parliament-fatal-control-coherence-v1",
+  "scope_note": "Prior847entries unchanged except listed current sources/docs. Old frozen binaries/artifacts remain unchanged; their live-source bindings are historical. Fresh fatal-control binaries have separate build/campaign and stronger parent-channel validation. Local math review closes only the conditional initial H5 transition and fixed-fallback membership.",
+  "updated_live_entries": {
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md": {
+      "after": "e29704a2316efe85f79e556c6855f78fa4f82c2faacc518b60a5ffa24899b13b",
+      "before": "2ccfe6237ad247d35a1d1531f98e31268b4e4de141bcae9c16ad56629b667c3e"
+    },
+    "crates/iroha_parliament_ballot_proof/examples/memory_entry/driver.rs": {
+      "after": "b3d770a4d44c15069e8cf80bd4685c5a71d565c369e42ce40daaf4b5efda953a",
+      "before": "8fe13091714b9150e84a67edb3a217bcbc20a9619b27bbe9566cefae4bfb1591"
+    },
+    "docs/validation/parliament_ballot_b6.md": {
+      "after": "448cd0905374e9a771e1d7f417ef3d636248c1ad6a8f53e7638511424b8fc93f",
+      "before": "97f6930267b7fb3133e591457264114d6654e51f548712b225fdc396a0e21547"
+    },
+    "scripts/check_parliament_ballot_memory_entry.py": {
+      "after": "fca0dade57bc12c218b49fd2117da10d8a2c0fd21c3011bba094d43e54780bca",
+      "before": "b6cdd41bfe3f15db450ad2f6329d5ad2ec442c75850e2263311b460cf678d331"
+    },
+    "scripts/prepare_parliament_ballot_memory_entry.py": {
+      "after": "23e10da0074b04d9b650e9c4195f037dc7f45cd7607b6a8ed2b7e527d99be222",
+      "before": "209726d5e21f86002c60c118b3ba8e819bc9782b9d8192c077a5f182fdddded0"
+    },
+    "scripts/tests/parliament_ballot_memory_entry_test.py": {
+      "after": "92085b766987605de1f982609c1a8bcf5eaf2fd4dc7b95f7adc04d88f082f410",
+      "before": "53bec4b8acaaab60e45a9cc9eae108f1c31ff55b09c547096779f223b2c930b0"
+    },
+    "scripts/tests/parliament_ballot_memory_prepare_test.py": {
+      "after": "4a487ca400851cf44b72d82562a0c5745efa5348ced60fdc5e445185b71f7aed",
+      "before": "0b670f9cbefda3f0a004338dc131474fff083339beb2d89578888651dc491ac1"
+    },
+    "specs/parliament_ballot_arena_sufficiency.md": {
+      "after": "514b54866832423f670027dcb908013863e0ec9cd7100a9a2eff5c36055b207b",
+      "before": "4a830d49b8135c2f31cef84e1f9e5dc08f95d60c56d03e485cd43992cace27f5"
+    },
+    "specs/parliament_ballot_b6_requirement_audit.md": {
+      "after": "0bdf6081056ed67ed5e97699277d18f8be43d5571c19abfa8addb98a21fe0957",
+      "before": "6ee21c11868ae608e6c648e462c3986b4367c99916558fcbb66b59351bba2f8f"
+    },
+    "specs/parliament_ballot_implementation_goals.md": {
+      "after": "69c3a881e390331d62a74aadb558218060f89bcddf7bb96ffa54ad99c2729c3e",
+      "before": "e9ed1d89a46a17d613e4648b5fa1e7805e0b31527908084859d982d9a034b28c"
+    },
+    "specs/parliament_ballot_resource_contract.md": {
+      "after": "0627276cad2d9add2c8f215cf2b4f81f04af3cf416afadbb5df51c3ab6e9215e",
+      "before": "f484aab360c0af3806b0eb6c11ef323cb656b89b32a4c968ed844b8351408727"
+    }
+  }
+}

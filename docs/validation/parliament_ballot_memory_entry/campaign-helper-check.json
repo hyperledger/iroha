@@ -1,0 +1,24 @@
+{
+  "schema": "parliament-memory-entry-helper-check-v1",
+  "command": [
+    "python3.11",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_memory_entry_test.py"
+  ],
+  "exit": 0,
+  "elapsed_seconds": 0.8337842081673443,
+  "log": "docs/validation/parliament_ballot_memory_entry/campaign-helper-tests.txt",
+  "log_sha256": "f20636969ef10455860ff2785dce3e88f401eeb18e7c092318a060a19cdb535a",
+  "source_before": {
+    "scripts/check_parliament_ballot_memory_entry.py": "b6cdd41bfe3f15db450ad2f6329d5ad2ec442c75850e2263311b460cf678d331",
+    "scripts/tests/parliament_ballot_memory_entry_test.py": "53bec4b8acaaab60e45a9cc9eae108f1c31ff55b09c547096779f223b2c930b0"
+  },
+  "source_after": {
+    "scripts/check_parliament_ballot_memory_entry.py": "b6cdd41bfe3f15db450ad2f6329d5ad2ec442c75850e2263311b460cf678d331",
+    "scripts/tests/parliament_ballot_memory_entry_test.py": "53bec4b8acaaab60e45a9cc9eae108f1c31ff55b09c547096779f223b2c930b0"
+  },
+  "source_changes": {},
+  "profile_qualified": false
+}

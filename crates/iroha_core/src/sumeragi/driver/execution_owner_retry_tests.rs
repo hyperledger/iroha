@@ -206,7 +206,7 @@ fn native_budget_and_cancelled_execution_keep_original_cause_without_a_pool_wait
         let pool = AllocationBudget::new(ExecutionRegistrations::admission_bytes());
         let mut scheduler = scheduler(&pool);
         let native = Box::new(original);
-        let address: *const VerifyError = &*native;
+        let address = std::ptr::from_ref(native.as_ref());
         let attempt = native_verification_error(
             VerifyError::BatchItem {
                 index: 1,
@@ -250,7 +250,7 @@ fn native_budget_and_cancelled_execution_keep_original_cause_without_a_pool_wait
         let Some(VerifyError::BatchItem { error, .. }) = native.native_verification_error() else {
             panic!("original nested owner")
         };
-        let retained_address: *const VerifyError = &**error;
+        let retained_address = std::ptr::from_ref(error.as_ref());
         assert_eq!(retained_address, address);
         let wakeup = scheduler.wakeup();
         assert_ne!(wakeup, Millis::MAX);

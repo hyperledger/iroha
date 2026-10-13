@@ -16,6 +16,9 @@ use iroha_sccp_wallet::{
 /// Retry one admitted inbound settlement using its durable original transaction.
 #[derive(Debug, clap::Args)]
 pub struct SettleArgs {
+    /// Original authority and route snapshot for native execution and release proofs.
+    #[command(flatten)]
+    origin: origin::OriginArgs,
     /// Inbound message identity.
     #[arg(long)]
     message_id: String,
@@ -84,48 +87,53 @@ pub struct BurnArgs {
 
 pub(super) fn settle(context: &mut impl RunContext, args: SettleArgs) -> Result<()> {
     let id = parse_word(&args.message_id)?;
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let flow = flows::open(context, Kind::Inbound, &args.flow, id)?;
-    if flows::recover_taira(context, &flow, Action::SettleInbound)? {
-        flows::finish_message(context, &flow, &id)?;
+    if flows::recover_taira(context, &original, &flow, Action::SettleInbound)? {
+        flows::finish_message(context, &original, &flow, &id)?;
         return Ok(());
     }
-    if flows::finish_message(context, &flow, &id)? {
+    if flows::finish_message(context, &original, &flow, &id)? {
         return Ok(());
     }
-    let status = blocking(context)?.sccp().message(&id)?;
+    let status = client.sccp().message(&id)?;
+    original.verify_message(&id, &status)?;
     ensure!(status.inbound().is_some(), "the message is not inbound");
     flows::taira(
         context,
+        &original,
         &flow,
         Action::SettleInbound,
         vec![SettleSccpV1::inbound(id).into()],
         vec![flows::evidence("taira.inbound_before_settle", &status)?],
     )?;
-    flows::finish_message(context, &flow, &id)?;
+    flows::finish_message(context, &original, &flow, &id)?;
     Ok(())
 }
 
 pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<()> {
     let id = parse_word(&args.message_id)?;
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let flow = flows::open(context, Kind::Refund, &args.flow, id)?;
     let action = if args.tx_hash.is_some() {
         Action::ProveVoid
     } else {
         Action::SettleRefund
     };
-    if flows::recover_taira(context, &flow, action)? {
-        flows::finish_message(context, &flow, &id)?;
+    if flows::recover_taira(context, &original, &flow, action)? {
+        flows::finish_message(context, &original, &flow, &id)?;
         return Ok(());
     }
-    if flows::recover_advance(context, &flow)? {
+    if flows::recover_advance(context, &original, &flow)? {
         return Ok(());
     }
-    if flows::finish_message(context, &flow, &id)? {
+    if flows::finish_message(context, &original, &flow, &id)? {
         return Ok(());
     }
-    let client = blocking(context)?;
-    let original = origin::authenticate_origin(context, &client, &args.origin)?;
     let status = client.sccp().message(&id)?;
+    original.verify_message(&id, &status)?;
     let record = &status
         .outbound()
         .ok_or_else(|| eyre!("the message is not outbound"))?
@@ -135,12 +143,13 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
     let Some(tx_hash) = args.tx_hash else {
         flows::taira(
             context,
+            &original,
             &flow,
             action,
             vec![SettleSccpV1::refund(record.network, record.revision, record.nonce).into()],
             vec![flows::evidence("taira.outbound_before_refund", &status)?],
         )?;
-        flows::finish_message(context, &flow, &id)?;
+        flows::finish_message(context, &original, &flow, &id)?;
         return Ok(());
     };
     let event = match deployment {
@@ -171,18 +180,26 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
         &args.rpc_url,
         args.beacon_url.as_deref(),
     )?;
-    let evidence = prove(profiles, &client, record.network, builder.as_ref(), &event)?;
-    let verified = ToriiLightClient::read(&client, record.network, profiles)?
-        .replay()
-        .verify_evidence(&evidence, wall_clock_ms())?;
+    let (evidence, verified, trust) = prove(
+        profiles,
+        &client,
+        &original,
+        record.network,
+        builder.as_ref(),
+        &event,
+    )?;
     require_void_binding(&verified.event, &deployment, &id, record.nonce)?;
-    let retained = SccpEvidenceItemV1 {
-        label: "source.verified_void".to_owned(),
-        bytes: evidence.proof.as_bytes().to_vec(),
-    };
+    let retained = vec![
+        trust,
+        SccpEvidenceItemV1 {
+            label: "source.verified_void".to_owned(),
+            bytes: evidence.proof.as_bytes().to_vec(),
+        },
+    ];
     for advance in evidence.backfills {
         let outcome = flows::taira(
             context,
+            &original,
             &flow,
             Action::Advance,
             vec![
@@ -193,7 +210,7 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
                 }
                 .into(),
             ],
-            vec![retained.clone()],
+            retained.clone(),
         )?;
         if !flows::confirmed(&outcome) {
             return Ok(());
@@ -201,6 +218,7 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
     }
     flows::taira(
         context,
+        &original,
         &flow,
         action,
         vec![
@@ -211,9 +229,9 @@ pub(super) fn refund(context: &mut impl RunContext, args: RefundArgs) -> Result<
             }
             .into(),
         ],
-        vec![retained],
+        retained,
     )?;
-    flows::finish_message(context, &flow, &id)?;
+    flows::finish_message(context, &original, &flow, &id)?;
     Ok(())
 }
 
@@ -280,7 +298,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
         let query_id = u64::from_be_bytes(flow.id().id[..8].try_into()?);
         flows::ton(
             context,
-            &original, 
+            &original,
             &flow,
             Action::Burn,
             destination.lite(),
@@ -306,6 +324,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
             |step| {
                 destination.burn_evidence(
                     &client,
+                    &original,
                     profiles,
                     step,
                     deployment.wallet_code,
@@ -342,7 +361,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
     )?;
     flows::evm(
         context,
-        &original, 
+        &original,
         &flow,
         Action::Burn,
         network,
@@ -380,6 +399,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
     let client = blocking(context)?;
     let original = origin::authenticate_origin(context, &client, &args_transfer.origin)?;
     let status = client.sccp().message(&id)?;
+    original.verify_message(&id, &status)?;
     let record = &status
         .outbound()
         .ok_or_else(|| eyre!("the message is not outbound"))?
@@ -411,7 +431,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::ton(
             context,
-            &original, 
+            &original,
             &flow,
             Action::Void,
             destination.lite(),
@@ -429,6 +449,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
             |step| {
                 destination.terminal_evidence(
                     &client,
+                    &original,
                     profiles,
                     step,
                     iroha_sccp::ton_watch::TerminalEvent::Voided {
@@ -473,7 +494,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::evm(
             context,
-            &original, 
+            &original,
             &flow,
             Action::Void,
             record.network,

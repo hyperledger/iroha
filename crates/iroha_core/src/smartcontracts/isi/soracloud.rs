@@ -2198,37 +2198,41 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
     outer_proof_bytes_len: usize,
 ) -> Result<bool, crate::zk::VerificationAttemptError<InstructionExecutionError>> {
     if envelope.backend != BackendTag::Stark {
-        return Err(invalid_parameter(format!(
-            "{label} proof envelope must declare STARK backend"
-        )))
-        .map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!("{label} proof envelope must declare STARK backend")),
+        ));
     }
     if !guardrails.stark_enabled {
-        return Err(invalid_parameter(format!(
-            "{label} native BFV AIR STARK verification is disabled by the committed ZK validity policy"
-        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!(
+                "{label} native BFV AIR STARK verification is disabled by the committed ZK validity policy"
+            )),
+        ));
     }
     if outer_proof_bytes_len > guardrails.stark_max_envelope_bytes {
-        return Err(invalid_parameter(format!(
-            "{label} proof exceeds the committed STARK envelope byte cap"
-        )))
-        .map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!(
+                "{label} proof exceeds the committed STARK envelope byte cap"
+            )),
+        ));
     }
     if envelope.proof_bytes.len() > guardrails.stark_max_envelope_bytes {
-        return Err(invalid_parameter(format!(
-            "{label} STARK public-input wrapper exceeds the committed STARK envelope byte cap"
-        )))
-        .map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!(
+                "{label} STARK public-input wrapper exceeds the committed STARK envelope byte cap"
+            )),
+        ));
     }
     let open = crate::zk::verification_attempt::codec_attempt(
         || norito::decode_canonical::<StarkFriOpenProofV1>(&envelope.proof_bytes),
         |err| invalid_parameter(format!("invalid {label} STARK public-input wrapper: {err}")),
     )?;
     if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
-        return Err(invalid_parameter(format!(
-            "{label} native BFV AIR envelope exceeds the committed STARK proof byte cap"
-        )))
-        .map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!(
+                "{label} native BFV AIR envelope exceeds the committed STARK proof byte cap"
+            )),
+        ));
     }
     let native: crate::zk_stark::StarkVerifyEnvelopeV1 =
         crate::zk::verification_attempt::codec_attempt(
@@ -2241,9 +2245,11 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         )?;
     if native.transcript_label == crate::zk::STARK_OPEN_VERIFY_AIR_TRANSCRIPT_LABEL_V1 {
         validate_soracloud_fhe_stark_native_air_binding(label, backend, envelope, statement_hash)?;
-        return Err(invalid_parameter(format!(
-            "{label} proof requires a dedicated BFV full-bootstrap arithmetic STARK/AIR proof; {FHE_FULL_BOOTSTRAP_GENERIC_BINDING_AIR_REJECTED}"
-        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
+        return Err(crate::zk::VerificationAttemptError::Rejected(
+            invalid_parameter(format!(
+                "{label} proof requires a dedicated BFV full-bootstrap arithmetic STARK/AIR proof; {FHE_FULL_BOOTSTRAP_GENERIC_BINDING_AIR_REJECTED}"
+            )),
+        ));
     }
     let limits = crate::zk_stark::StarkVerifierLimits {
         max_envelope_bytes: guardrails.stark_max_proof_bytes,
@@ -2269,9 +2275,9 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         public_padding_context.slot_index,
         public_padding_context.bound_mode,
     ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
-        return Err(invalid_parameter(format!(
+        return Err(crate::zk::VerificationAttemptError::Rejected(invalid_parameter(format!(
             "{label} native BFV AIR shared public-padding verifier rejected public openings"
-        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
+        ))));
     }
     let expected_trace_rows = public_padding_context
         .expected_trace_rows
@@ -2324,9 +2330,9 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         expected_composition_values,
         &expected_base_indices,
     ).map_err(crate::zk::VerificationAttemptError::Deferred)? {
-        return Err(invalid_parameter(format!(
+        return Err(crate::zk::VerificationAttemptError::Rejected(invalid_parameter(format!(
             "{label} native BFV AIR explicit STARK verifier rejected governed trace material"
-        ))).map_err(crate::zk::VerificationAttemptError::Rejected);
+        ))));
     }
     Ok(true)
 }

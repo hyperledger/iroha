@@ -67,6 +67,9 @@ impl AllocatorRefusal {
     }
 
     /// Move out the unchanged vector cause, returning the complete owner on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original failure is not a vector reservation error.
     pub fn into_vec_reserve_error(
         self,
     ) -> Result<(std::collections::TryReserveError, std::alloc::Layout), Self> {
@@ -84,6 +87,9 @@ impl AllocatorRefusal {
         }
     }
     /// Return the original [`ChargedBufferError`], retaining this entire owner on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original failure is not a [`ChargedBufferError`].
     pub fn into_buffer_error(self) -> Result<ChargedBufferError, Self> {
         match self.original {
             Original::Buffer(error) => Ok(error),
@@ -98,6 +104,9 @@ impl AllocatorRefusal {
         }
     }
     /// Return the original [`PrepaidSharedError`], retaining this entire owner on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original failure is not a [`PrepaidSharedError`].
     pub fn into_shared_error(self) -> Result<PrepaidSharedError, Self> {
         match self.original {
             Original::Shared(error) => Ok(error),
@@ -112,6 +121,9 @@ impl AllocatorRefusal {
         }
     }
     /// Return the original [`ChargedBufferFromChargeError`], retaining this entire owner on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original failure is not a [`ChargedBufferFromChargeError`].
     pub fn into_buffer_from_charge_error(self) -> Result<ChargedBufferFromChargeError, Self> {
         match self.original {
             Original::BufferFromCharge(error) => Ok(error),
@@ -126,6 +138,9 @@ impl AllocatorRefusal {
         }
     }
     /// Return the original [`SharedFromChargeError`], retaining this entire owner on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original failure is not a [`SharedFromChargeError`].
     pub fn into_shared_from_charge_error(self) -> Result<SharedFromChargeError, Self> {
         match self.original {
             Original::SharedFromCharge(error) => Ok(error),

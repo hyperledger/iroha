@@ -548,7 +548,7 @@ fn evaluate_policy_with_catalog_and_world_at_rejects_dynamic_sns_outside_catalog
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     // An active SNS alias resolves identity without admitting physical dataspace authority.
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_with_catalog_and_world_at(
+        (evaluate_policy_with_catalog_and_world_at(
             &policy,
             &lane_catalog,
             &catalog,
@@ -599,7 +599,7 @@ fn evaluate_policy_plan_with_catalog_and_world_at_rejects_dynamic_sns_outside_ca
     let expected = crate::sns::dataspace_id_for_sns_alias("alpha").expect("dynamic id");
     // An active SNS alias resolves identity without admitting physical dataspace authority.
     crate::queue::router::assert_completed_routing_error_eq(
-        &(evaluate_policy_plan_with_catalog_and_world_at(
+        (evaluate_policy_plan_with_catalog_and_world_at(
             &policy,
             &lane_catalog,
             &catalog,

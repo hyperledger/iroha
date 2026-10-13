@@ -1,0 +1,431 @@
+{
+  "additional_source_observed_at_utc": {
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "2026-10-13T10:33:34.211825+00:00"
+  },
+  "bound": {
+    "F": "sqrt(q*p)+(q*p)/2",
+    "Q_scope": "all external backend-oracle queries requiring the fixed-gate dispatcher",
+    "T_scope": "all valid invocations, success or exhaustion, across roles/rows",
+    "expression": "g_max*T*F(2*Q+2*T,2^-512)+T*2^-256",
+    "g_max": 704,
+    "numerical_ledger_value_adopted": false
+  },
+  "complete_quantum_resource_vector": false,
+  "conditional_derivation_present": true,
+  "derivation": {
+    "path": "specs/parliament_ballot_b6_h5_fixed_opening.md",
+    "sha256": "5476eedeb50e1efaa11e5d6e892174fabed16a02e2b31ab906a375aa5ed6f15e"
+  },
+  "frozen_arguments_and_ledger_modified": false,
+  "frozen_at_utc": "2026-10-13T10:34:35.046769+00:00",
+  "ideal_row_entry_proved_here": false,
+  "independent_cryptographic_review": false,
+  "joint_mask_and_deletion_composition_proved_here": false,
+  "local_links": [
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "reference": "parliament_ballot_b6_hybrid_driver.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "reference": "parliament_ballot_proof_arguments.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/validation/parliament_ballot_h5_fixed_opening/receipt.json",
+      "reference": "../docs/validation/parliament_ballot_h5_fixed_opening/receipt.json"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+      "reference": "../crates/iroha_parliament_ballot_proof/src/proving.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole/convert.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/hash.rs",
+      "reference": "../crates/iroha_zkp_vole/src/hash.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "reference": "../crates/iroha_zkp_vole/src/proof.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "reference": "../crates/iroha_parliament_ballot_proof/src/profile.rs"
+    }
+  ],
+  "observed_at_utc": "2026-10-13T10:22:37.361676+00:00",
+  "owner_acceptance": false,
+  "premises": [
+    "existing independent backend-domain QROM, ten-bit H5",
+    "classical atomic requests with undisclosed fresh proving coins",
+    "already-ideal fresh independent selected expanded rows",
+    "opening and bounded schedule independent of current material and salt",
+    "fresh uniform 256-bit salt per invocation",
+    "deferred current-request U_P and salt before target H5 gate refresh"
+  ],
+  "primary_source": {
+    "accessed_utc": "2026-10-13T10:22:37.440635+00:00",
+    "arxiv_version": "2010.15103v2",
+    "authors": [
+      "Alex B. Grilo",
+      "Kathrin H\u00f6velmanns",
+      "Andreas H\u00fclsing",
+      "Christian Majenz"
+    ],
+    "bytes": 754536,
+    "sha256": "9a5ea6adeba5dcdf6c80035057aaccdc704aa6ea2940af0320bcfd7eca0abc8d",
+    "title": "Tight adaptive reprogramming in the QROM",
+    "url": "https://arxiv.org/pdf/2010.15103v2",
+    "uses": [
+      "Figure 2, PDF page 6 (printed page 6): fresh-value overwrite and returned (x,x-prime)",
+      "Theorem 1, PDF page 7 (printed page 7): marginal maximum location mass and prior-query bound",
+      "Theorem 1 following paragraph: information-theoretic query-bounded distinguishers"
+    ]
+  },
+  "primitive_interface_embedding_proved": false,
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "schema": "parliament-b6-fixed-opening-h5-derivation-v1",
+  "scope": "Initial salted H5 gate-correction transition from the explicit ideal-row entry; no complete G5-G6 or production qualification claim.",
+  "source_changes": {},
+  "source_changes_at_freeze": {},
+  "source_count": 14,
+  "source_references": [
+    {
+      "end_line": 15,
+      "excerpt_sha256": "a01859d45abd46c801aca31717af33c5140c70f30d71683f673e905e7c597147",
+      "meaning": "fresh tape contract and disjoint coin offsets",
+      "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 184,
+      "excerpt_sha256": "c713c2f486a3fb2a0f47df2280591d88ac129cabfc1510cbeb32562fcf419181",
+      "meaning": "row VOLE constants",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 173
+    },
+    {
+      "end_line": 402,
+      "excerpt_sha256": "57ff3be270b5b100873a5bc3460f933db75142ca620eecb79645fb85fc5a4ed1",
+      "meaning": "role namespace and shared row context",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 385
+    },
+    {
+      "end_line": 19,
+      "excerpt_sha256": "cacb61093dc2220ceb0c250a5d4889cf5136e0e03eedfae3654bf9124d7a9ca3",
+      "meaning": "small-VOLE fold identities",
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "start_line": 1
+    },
+    {
+      "end_line": 117,
+      "excerpt_sha256": "254547119fff2f22f56f71f2b54aeddb5d581fcae93e9803475801036889bfba",
+      "meaning": "actual fold and omitted seed slot",
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "start_line": 73
+    },
+    {
+      "end_line": 541,
+      "excerpt_sha256": "c61d34018e96def0da8edcdd359eb6578474da84080a9e00a743c92c05f2fd81",
+      "meaning": "gate labels depend only on first lambda row coordinates",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 520
+    },
+    {
+      "end_line": 827,
+      "excerpt_sha256": "0d430545c9168a6bd9ae803199508c0aa66ea7659d7d9dd7a726af8716b01f98",
+      "meaning": "salt-only H5 binding, pre-H5 values, two hashes per gate, correction formula",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 724
+    },
+    {
+      "end_line": 1096,
+      "excerpt_sha256": "41382efce32c569d6ca6785c1480eb6cfe6eacf132ca1498d63bd8487bb27213",
+      "meaning": "reconstructed columns, correction alignment, observable labels",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 1012
+    },
+    {
+      "end_line": 690,
+      "excerpt_sha256": "a743f349ef59f9a128fdb07de488441162115b162f14b2007ad51355a6a5d1d1",
+      "meaning": "salted input frame and low-bit output",
+      "path": "crates/iroha_zkp_vole/src/hash.rs",
+      "start_line": 650
+    },
+    {
+      "end_line": 563,
+      "excerpt_sha256": "f861d810c833f4418e98cd04d058f2820fbdd5f504cc3739bd46c7840256e7c7",
+      "meaning": "IV, commitment, then challenge1 ordering",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 512
+    },
+    {
+      "end_line": 654,
+      "excerpt_sha256": "7a37c03dd20196be143b0ea76eefbb9109730302263a9ca21e3744646a4722b6",
+      "meaning": "remaining challenge/counter work and no prover reconstruction",
+      "path": "crates/iroha_zkp_vole/src/proof.rs",
+      "start_line": 590
+    },
+    {
+      "end_line": 1666,
+      "excerpt_sha256": "26ea8570ac2a9959766531d2fce577f83720890d40d9ad0fd0e51923c7c543a9",
+      "meaning": "existing independent backend-domain QROM premise",
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "start_line": 1661
+    },
+    {
+      "end_line": 2371,
+      "excerpt_sha256": "b68e2c34ab7536bd82544584e0e6af6de873c6abb0f6bfa859adadc9365be650",
+      "meaning": "gate labels and correction equation49",
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "start_line": 2346
+    },
+    {
+      "end_line": 2407,
+      "excerpt_sha256": "ee3650f5f77bfa02680497cad0179be8dcad6698dd4be53029aea4c6a415d459",
+      "meaning": "private consistent assignment equation51",
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "start_line": 2387
+    },
+    {
+      "end_line": 124,
+      "excerpt_sha256": "fb4882410b6903aba67f82fbc67e38e688c0fc4aec8cc35edd27dec64610158a",
+      "meaning": "bounded independent schedule and fixed-opening obligation",
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "start_line": 62
+    },
+    {
+      "end_line": 355,
+      "excerpt_sha256": "ee445eb119ad1e44cfc93339a66dac287e5827f0adf1f2e919f37ac2a85209ae",
+      "meaning": "ideal algebra and H5 review obligation",
+      "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+      "start_line": 301
+    },
+    {
+      "end_line": 516,
+      "excerpt_sha256": "7355d318f326d910848777cff8298251805ea2ca06665fcd55364db485797cc9",
+      "meaning": "mask tails start at ell and high mask expansion does not depend on salt or ideal prefix",
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "start_line": 451
+    },
+    {
+      "end_line": 91,
+      "excerpt_sha256": "dc4ca0aff5cab3b89adb1fe3a6b5095f2542bdb676f2187a6428fd1aaf14237a",
+      "meaning": "caller-supplied entropy and reproducible from_bytes do not enforce uniform coins",
+      "path": "crates/iroha_parliament_ballot_proof/src/proving.rs",
+      "start_line": 69
+    },
+    {
+      "end_line": 590,
+      "excerpt_sha256": "69a57387e8516c6ee03710c8a166930f61b3837673abe303ca55692040431538",
+      "meaning": "deterministic namespace distinctness and pinned namespace prefixes",
+      "path": "crates/iroha_parliament_ballot_proof/src/profile.rs",
+      "start_line": 532
+    },
+    {
+      "end_line": 685,
+      "excerpt_sha256": "fbd9f62ed07f6830a2a0f562c9a0bf590336a28e74ccfca921eebdaa760117b2",
+      "meaning": "actual row gate counts 696 and 704",
+      "path": "crates/iroha_zkp_vole/src/params.rs",
+      "start_line": 682
+    },
+    {
+      "end_line": 211,
+      "excerpt_sha256": "c330479e5ad5a2910c7abda0a69fa94e4905d3072bb26d18aa19aa292477a547",
+      "meaning": "Frame tag/count/field little-endian length and byte encoding",
+      "path": "crates/iroha_parliament_ballot_proof/src/framing.rs",
+      "start_line": 129
+    },
+    {
+      "end_line": 265,
+      "excerpt_sha256": "9b0726eb1d277b7d98c8884d264cac9439f6f2a33252d56e40047a45943e53c4",
+      "meaning": "namespace frame digest writer",
+      "path": "crates/iroha_parliament_ballot_proof/src/framing.rs",
+      "start_line": 224
+    }
+  ],
+  "source_sha256_after": {
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/variant.rs": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_at_freeze": {
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/variant.rs": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "source_sha256_before": {
+    "crates/iroha_parliament_ballot_proof/src/framing.rs": "784c28ba9a115cb2775d78f7147fdcbd1fac5835affd1ef9938a7f1a2c2fc0a0",
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/hash.rs": "c5a06a24722c686f0f96f875c2a0bbfc9a8021a3fedd03da4b4222ca9fd3df70",
+    "crates/iroha_zkp_vole/src/params.rs": "41d18d1bf137496db8bd858bc291e48684c11122c03834828d54d3b6ae8cabba",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/variant.rs": "50d8c414309f5ccc315181abefbdabe79ed092f0644dc72e04596c93c58059b9",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_hybrid_driver.md": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c"
+  },
+  "status": "CONDITIONAL_DERIVATION_LOCALLY_REVIEWED",
+  "validation": {
+    "code_or_runtime_tests_run": false,
+    "finite_address_domain": {
+      "H5_input_bytes": 162,
+      "address_offsets_half_open": {
+        "gate_le32": [
+          125,
+          129
+        ],
+        "iv": [
+          77,
+          93
+        ],
+        "label": [
+          129,
+          161
+        ],
+        "prefix": [
+          0,
+          77
+        ],
+        "salt": [
+          93,
+          125
+        ],
+        "suffix": [
+          161,
+          162
+        ]
+      },
+      "distinct_prefixes": 4,
+      "fixed_gate_address_domain_cardinality_upper_bound": "4*2^(128+256+256)",
+      "gate_counts": {
+        "candidate": 704,
+        "comparator": 696
+      },
+      "maximum_n_mult": 704,
+      "namespaces": [
+        {
+          "descriptor_sha3_512": "01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28",
+          "namespace_hex": "fee2262f962d05a6795159d84989830f9bbb2149855f7ac8d4a9dbbbeabb87c9a82ad5750d9322207851ff36cdcc02c260a7f372e309fdb7658108ed0188b6b6",
+          "prefix_bytes": 77,
+          "prefix_hex": "5041524c2f46414553542f7631fee2262f962d05a6795159d84989830f9bbb2149855f7ac8d4a9dbbbeabb87c9a82ad5750d9322207851ff36cdcc02c260a7f372e309fdb7658108ed0188b6b6",
+          "role": "REG",
+          "row": "candidate",
+          "source_test_first_eight_bytes_match": true
+        },
+        {
+          "descriptor_sha3_512": "01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28",
+          "namespace_hex": "c35e0a664654be33e1a86aa304b02fd39ab25d8bec8a0a222b43ed87af0bdb9dea73f1309f96e8b4d08f0a19d75288f2dd5f53a030d7184f01250a213e3598f8",
+          "prefix_bytes": 77,
+          "prefix_hex": "5041524c2f46414553542f7631c35e0a664654be33e1a86aa304b02fd39ab25d8bec8a0a222b43ed87af0bdb9dea73f1309f96e8b4d08f0a19d75288f2dd5f53a030d7184f01250a213e3598f8",
+          "role": "VOTE",
+          "row": "candidate",
+          "source_test_first_eight_bytes_match": true
+        },
+        {
+          "descriptor_sha3_512": "4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412",
+          "namespace_hex": "119502053f76d04013b0d812c23eea36f9f12fd42831966a6d34968b9dad2ab38be9487bf837e2fd285eacc1bf9360d3254fc90a10f3f4e4dda43b090751c115",
+          "prefix_bytes": 77,
+          "prefix_hex": "5041524c2f46414553542f7631119502053f76d04013b0d812c23eea36f9f12fd42831966a6d34968b9dad2ab38be9487bf837e2fd285eacc1bf9360d3254fc90a10f3f4e4dda43b090751c115",
+          "role": "REG",
+          "row": "comparator",
+          "source_test_first_eight_bytes_match": true
+        },
+        {
+          "descriptor_sha3_512": "4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412",
+          "namespace_hex": "d142d6ecdf7a62223a25423b9f1d21f216e5d94e08dcd9a99bfaa2303068e9e786353a28706dd99a0cdcf3dea4c7bdac19d744d4c11cb4ad602fc902a47802e8",
+          "prefix_bytes": 77,
+          "prefix_hex": "5041524c2f46414553542f7631d142d6ecdf7a62223a25423b9f1d21f216e5d94e08dcd9a99bfaa2303068e9e786353a28706dd99a0cdcf3dea4c7bdac19d744d4c11cb4ad602fc902a47802e8",
+          "role": "VOTE",
+          "row": "comparator",
+          "source_test_first_eight_bytes_match": true
+        }
+      ],
+      "scope": "Independent namespace computation from frozen printed descriptor digests using the source frame; checks first-eight-byte source test pins and pairwise distinct full prefixes. Does not rebuild CRT table digests or descriptor bytes."
+    },
+    "local_links_exist": true,
+    "new_executable_code_added": false,
+    "peer_review": {
+      "independent_cryptographic_review": false,
+      "reviews": [
+        {
+          "limitations": "Automated local consistency review only; not proof of entry, complete G5-G6 composition, primitive embedding/resources, owner acceptance or independent cryptographic review.",
+          "result": "No blocking issue under explicit ideal-entry and atomic-request premises.",
+          "reviewer": "root agent",
+          "scope": [
+            "read full conditional derivation and relevant source fold/commit/reconstruct",
+            "read primary GHHM Figure2 and Theorem1",
+            "late sampler marginal bound with auxiliary output",
+            "per-gate scheduling and dispatcher/internal query costs",
+            "own-label endpoint coupling and qualification scope"
+          ]
+        },
+        {
+          "limitations": "Automated local mathematical/source consistency review only; not independent cryptographic review or production qualification.",
+          "result": "No mathematical change requested; requested framing.rs provenance pin added before freeze.",
+          "reviewer": "ownership agent",
+          "scope": [
+            "read fixed-opening coordinate bijection and source prefix/mask separation",
+            "read primary GHHM Figure2 and Theorem1",
+            "gate-domain commutation and 2Q+2T accounting",
+            "endpoint joint-distribution identity and own-label exception",
+            "namespace framing provenance"
+          ]
+        }
+      ],
+      "status": "completed_local_consistency_reviews"
+    },
+    "source_bytes_unchanged": true
+  },
+  "whole_driver_proved": false,
+  "written_at_utc": "2026-10-13T10:27:08.988928+00:00"
+}

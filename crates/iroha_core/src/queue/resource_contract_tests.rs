@@ -476,12 +476,7 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     // A transaction within the global budget needs no policy read, so nothing defers it.
     let roomy = resource_contract_state(global + 1);
     let within = norito::with_decode_limits_scope(starved_limits(), || check(&roomy));
-    assert_eq!(
-        (within)
-            .as_ref()
-            .expect("the operation must complete successfully"),
-        &(())
-    );
+    within.expect("the operation must complete successfully");
 }
 
 /// The default 16 MiB block policy admits and selects the full 10 MiB transaction cap.

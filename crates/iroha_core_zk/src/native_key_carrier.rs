@@ -45,7 +45,7 @@ impl NoritoSchema for BorrowedKeyCarrier<'_> {
 /// Both passes borrow the original components. The bounded writer reserves its exact output
 /// once and retains either the actual null-allocation error or its original scoped refusal.
 /// This does not qualify earlier descriptor/key construction or later caller-owned copies.
-pub(crate) fn encode(descriptor: &[u8], key: &[u8]) -> Result<Vec<u8>, NativeVerifierInitError> {
+pub fn encode(descriptor: &[u8], key: &[u8]) -> Result<Vec<u8>, NativeVerifierInitError> {
     let _canonical = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     // The existing observer also supports checked writers. Its callback cannot fail:
     // keep the bounded result nested so even a scoped serialization failure remains
@@ -64,7 +64,7 @@ pub(crate) fn encode(descriptor: &[u8], key: &[u8]) -> Result<Vec<u8>, NativeVer
 ///
 /// A failed attempt returns its original error and leaves the cache empty for a later retry.
 /// The second cache lookup prevents concurrent callers from constructing duplicate key graphs.
-pub(crate) fn cached_success<'a, T, E>(
+pub fn cached_success<'a, T, E>(
     cache: &'a OnceLock<T>,
     gate: &Mutex<()>,
     initialize: impl FnOnce() -> Result<T, E>,

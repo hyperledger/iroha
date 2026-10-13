@@ -643,10 +643,10 @@ fn native_partial_private_overwrite_keeps_failed_load_read_log_without_architect
         assert!(f.accepts());
         assert_eq!(f.control[PRIVACY_TRAP], F::ONE);
         vm.memory.clear_tracking();
-        assert!(match (&(vm.run()), &(VMError::PrivacyViolation)) {
-            (Err(VMError::PrivacyViolation), VMError::PrivacyViolation) => true,
-            _ => false,
-        });
+        assert!(matches!(
+            (&(vm.run()), &(VMError::PrivacyViolation)),
+            (Err(VMError::PrivacyViolation), VMError::PrivacyViolation)
+        ));
         assert_native_writes(&vm, &f);
         let log = vm.memory.try_read_log_snapshot().unwrap();
         assert!(

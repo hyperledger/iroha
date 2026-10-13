@@ -760,18 +760,19 @@ impl HttpTransport {
         )
     }
 
-    /// Decode one receipt response incrementally under the caller's whole-response ceiling.
-    /// The receipt-specific decoder owns its finite scratch/output bounds. Route-wide Value
+    /// Decode an EVM receipt or raw transaction under the whole-response ceiling.
+    /// The streaming decoder owns its finite scratch/output bounds. Route-wide Value
     /// limits do not apply because no JSON tree is materialized.
-    pub(crate) fn receipt_stream<T>(
+    pub(crate) fn evm_stream<T>(
         &self,
+        method: &str,
         hash: &[u8; 32],
         decode: impl Fn(&mut dyn io::Read, u64, &str, usize) -> Result<T, RpcError>,
     ) -> Result<T, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let body = encode_json(&json_rpc_request(
             id,
-            "eth_getTransactionReceipt",
+            method,
             vec![Value::from(crate::evm::format_data(hash))],
         ))?;
         let spec = json_rpc_spec(&body, None);

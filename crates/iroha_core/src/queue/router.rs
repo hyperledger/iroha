@@ -11113,7 +11113,7 @@ mod tests {
             }]),
         ] {
             crate::queue::router::assert_completed_routing_error_eq(
-                &(canonical_dataspace_route(unknown, &lanes, &DataSpaceCatalog::default()))
+                (canonical_dataspace_route(unknown, &lanes, &DataSpaceCatalog::default()))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::UnknownDataspace {
@@ -11188,7 +11188,7 @@ mod tests {
             malformed_autoscale_claim,
         ]);
         crate::queue::router::assert_completed_routing_error_eq(
-            &(canonical_dataspace_route(
+            (canonical_dataspace_route(
                 DataSpaceId::UNIVERSAL,
                 &lane_catalog,
                 &DataSpaceCatalog::default(),
@@ -11214,7 +11214,7 @@ mod tests {
             .insert(AUTOSCALE_META_CREATED_HEIGHT.to_string(), "42".to_string());
         let lane_catalog = lane_catalog_from_configs(vec![marker_only]);
         crate::queue::router::assert_completed_routing_error_eq(
-            &(canonical_dataspace_route(
+            (canonical_dataspace_route(
                 DataSpaceId::UNIVERSAL,
                 &lane_catalog,
                 &DataSpaceCatalog::default(),
@@ -11241,7 +11241,7 @@ mod tests {
                 .insert(marker.to_owned(), "malformed-but-reserved".to_owned());
             let lane_catalog = lane_catalog_from_configs(vec![marker_only]);
             crate::queue::router::assert_completed_routing_error_eq(
-                &(canonical_dataspace_route(
+                (canonical_dataspace_route(
                     DataSpaceId::UNIVERSAL,
                     &lane_catalog,
                     &DataSpaceCatalog::default(),
@@ -12023,7 +12023,7 @@ mod tests {
             vec![role_registration_instruction(&alice_id, "autoscaledefault")],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route(&tx))
+            (router.try_route(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12032,7 +12032,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_with_view(&tx, &state.view()))
+            (router.try_route_with_view(&tx, &state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12041,7 +12041,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan(&tx))
+            (router.try_route_plan(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12050,7 +12050,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_with_state(&tx, &state))
+            (router.try_route_with_state(&tx, &state))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12093,7 +12093,7 @@ mod tests {
             )],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route(&tx))
+            (router.try_route(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12102,7 +12102,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan(&tx))
+            (router.try_route_plan(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedDefaultLane {
@@ -12194,7 +12194,7 @@ mod tests {
             vec![role_registration_instruction(&alice_id, "autoscalerule")],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route(&tx))
+            (router.try_route(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12203,7 +12203,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_with_view(&tx, &state.view()))
+            (router.try_route_with_view(&tx, &state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12212,7 +12212,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan(&tx))
+            (router.try_route_plan(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12221,7 +12221,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_with_state(&tx, &state))
+            (router.try_route_with_state(&tx, &state))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12230,7 +12230,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_without_state(&tx))
+            (router.try_route_without_state(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12275,7 +12275,7 @@ mod tests {
             )],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route(&tx))
+            (router.try_route(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12284,7 +12284,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_without_state(&tx))
+            (router.try_route_without_state(&tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::AutoscaleOwnedRuleLane {
@@ -12324,7 +12324,7 @@ mod tests {
             (LaneId::new(5), DataSpaceId::new(7)),
         ]);
         crate::queue::router::assert_completed_routing_error_eq(
-            &(resolve_policy_routing_decision(
+            (resolve_policy_routing_decision(
                 &policy,
                 Some(&policy.rules[0]),
                 Some(DataSpaceId::UNIVERSAL),
@@ -12857,7 +12857,7 @@ mod tests {
                 strict_metadata,
             );
             crate::queue::router::assert_completed_routing_error_eq(
-                &(router.try_route_plan_with_state(&strict_tx, &state))
+                (router.try_route_plan_with_state(&strict_tx, &state))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -12911,7 +12911,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_state(&strict_global_private_tx, &state))
+            (router.try_route_plan_with_state(&strict_global_private_tx, &state))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -13869,7 +13869,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan(&strict_tx))
+            (router.try_route_plan(&strict_tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -13957,7 +13957,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan(&strict_tx))
+            (router.try_route_plan(&strict_tx))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -16091,7 +16091,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_view(&strict_tx, &state.view()))
+            (router.try_route_plan_with_view(&strict_tx, &state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -16328,7 +16328,7 @@ mod tests {
                 &(None)
             );
             crate::queue::router::assert_completed_routing_error_eq(
-                &(router.try_route_plan_with_state(&strict_tx, &state))
+                (router.try_route_plan_with_state(&strict_tx, &state))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -16483,7 +16483,7 @@ mod tests {
                         executable,
                     );
                     crate::queue::router::assert_completed_routing_error_eq(
-                        &(router.try_route_plan_with_view(&tx, &state.view()))
+                        (router.try_route_plan_with_view(&tx, &state.view()))
                             .as_ref()
                             .expect_err("expected completed routing rejection"),
                         &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16492,7 +16492,7 @@ mod tests {
                         ),
                     );
                     crate::queue::router::assert_completed_routing_error_eq(
-                        &(router.try_route_plan_with_state(&tx, &state))
+                        (router.try_route_plan_with_state(&tx, &state))
                             .as_ref()
                             .expect_err("expected completed routing rejection"),
                         &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16602,7 +16602,7 @@ mod tests {
             let reversed_tx =
                 sample_transaction(&authority, authority_keypair.private_key(), vec![reversed]);
             crate::queue::router::assert_completed_routing_error_eq(
-                &(router.try_route_plan_with_state(&reversed_tx, &state))
+                (router.try_route_plan_with_state(&reversed_tx, &state))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16614,7 +16614,7 @@ mod tests {
                 vec![isolated_update, fund.clone()],
             );
             crate::queue::router::assert_completed_routing_error_eq(
-                &(router.try_route_plan_with_state(&leak_tx, &state))
+                (router.try_route_plan_with_state(&leak_tx, &state))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16717,7 +16717,7 @@ mod tests {
             vec![approval.clone(), proposal.clone(), fund.clone()],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_view(&reversed_tx, &state.view()))
+            (router.try_route_plan_with_view(&reversed_tx, &state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16743,7 +16743,7 @@ mod tests {
                 vec![proposal.clone(), nested_approval, fund.clone()],
             );
             crate::queue::router::assert_completed_routing_error_eq(
-                &(router.try_route_plan_with_view(&leak_tx, &state.view()))
+                (router.try_route_plan_with_view(&leak_tx, &state.view()))
                     .as_ref()
                     .expect_err("expected completed routing rejection"),
                 &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16951,7 +16951,7 @@ mod tests {
             ))],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_view(&reversed_local_tx, &persisted_state.view()))
+            (router.try_route_plan_with_view(&reversed_local_tx, &persisted_state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
@@ -16960,7 +16960,7 @@ mod tests {
             ),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(evaluate_policy_plan_with_catalog_and_world(
+            (evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
@@ -16985,14 +16985,14 @@ mod tests {
             vec![inert_proposal, fund],
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_view(&inert_leak_tx, &persisted_state.view()))
+            (router.try_route_plan_with_view(&inert_leak_tx, &persisted_state.view()))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::FxCorridorPolicyRegistryMissing),
             format_args!("an unapproved proposal payload must not leak its local approval effects"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(evaluate_policy_plan_with_catalog_and_world(
+            (evaluate_policy_plan_with_catalog_and_world(
                 &policy,
                 &lane_catalog,
                 &dataspace_catalog,
@@ -17576,7 +17576,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_state(&strict_tx, &state))
+            (router.try_route_plan_with_state(&strict_tx, &state))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {
@@ -18033,7 +18033,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(block_plan)
+            (block_plan)
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(expected_error),
@@ -18224,7 +18224,7 @@ mod tests {
             format_args!("completed routing rejection"),
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(block_plan)
+            (block_plan)
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(expected),
@@ -18475,7 +18475,7 @@ mod tests {
             strict_metadata,
         );
         crate::queue::router::assert_completed_routing_error_eq(
-            &(router.try_route_plan_with_state(&strict_tx, &state))
+            (router.try_route_plan_with_state(&strict_tx, &state))
                 .as_ref()
                 .expect_err("expected completed routing rejection"),
             &(RoutingResolveError::ConflictingTransactionDataspaceTargets {

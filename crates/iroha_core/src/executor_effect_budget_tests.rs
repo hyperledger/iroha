@@ -473,13 +473,16 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
                 let (cycles, gas, trace): (u64, u64, Vec<u64>) = completed.take().unwrap();
                 let budget =
                     ivm::VmCycleBudget::new(core::num::NonZeroU64::new(cycles - 1).unwrap());
-                assert!(match (
-                    &(vm.run_with_host_and_cycle_budget(&mut host, &budget)),
-                    &(ivm::VMError::ExceededMaxCycles)
-                ) {
-                    (Err(ivm::VMError::ExceededMaxCycles), ivm::VMError::ExceededMaxCycles) => true,
-                    _ => false,
-                });
+                assert!(matches!(
+                    (
+                        &(vm.run_with_host_and_cycle_budget(&mut host, &budget)),
+                        &(ivm::VMError::ExceededMaxCycles)
+                    ),
+                    (
+                        Err(ivm::VMError::ExceededMaxCycles),
+                        ivm::VMError::ExceededMaxCycles
+                    )
+                ));
                 assert_eq!(vm.get_cycle_count(), cycles - 1);
                 assert_eq!(budget.consumed(), cycles - 1);
                 assert!(budget.exhausted());

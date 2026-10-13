@@ -84,6 +84,8 @@ use crate::{
 #[cfg(test)]
 use crate::v1::constants::CODEC_TON_ACCOUNT36;
 
+pub mod wallet_state;
+
 const NETWORK: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 
 // ---------------------------------------------------------------------------------------------

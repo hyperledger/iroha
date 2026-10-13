@@ -53,6 +53,7 @@ impl ExecutionAttemptState {
     }
 
     /// Borrow the original owner without granting a second owning carrier.
+    #[cfg(test)]
     fn owner(&self) -> Option<&ExecutionDeferred> {
         match self {
             Self::Refused(owner) => Some(owner),
@@ -145,6 +146,9 @@ impl ExecutionDeferred {
 
     /// Preserve the original refusal across a VM/host error boundary.
     /// Native finalizer provenance is Core context, not a VM error category.
+    ///
+    /// # Errors
+    /// Returns the complete original error unchanged when it is not an execution deferral.
     pub fn try_from_vm_error(error: VMError) -> Result<Self, VMError> {
         let Some(reason) = error.execution_deferral() else {
             return Err(error);
@@ -679,6 +683,7 @@ impl crate::state::StateTransaction<'_, '_> {
     }
 
     /// Borrow the retained owner without copying it or clearing its publication guard.
+    #[cfg(test)]
     pub(crate) fn borrow_execution_deferral(
         &self,
     ) -> Option<std::cell::Ref<'_, ExecutionDeferred>> {
@@ -689,6 +694,7 @@ impl crate::state::StateTransaction<'_, '_> {
     }
 
     /// Move the original refusal once; this transaction remains forbidden to publish.
+    #[cfg(test)]
     pub(crate) fn take_execution_deferral(&mut self) -> Option<ExecutionDeferred> {
         self.world.execution_deferral.borrow_mut().take_owner()
     }

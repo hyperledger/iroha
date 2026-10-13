@@ -6,6 +6,9 @@
 
 use std::{collections::BTreeMap, path::Path};
 
+#[path = "evm_receipt.rs"]
+mod authenticated_receipt;
+
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{
@@ -187,16 +190,6 @@ impl EvmDestination {
         ))
     }
 
-    /// Read all current identity fields after the registered runtime hash matches.
-    pub(super) fn verify_identity(&self, network: [u8; 32], instance: [u8; 32]) -> Result<()> {
-        let observed = self.observe([])?;
-        ensure!(
-            observed.network == network && observed.instance == instance,
-            "Taira and destination identities differ"
-        );
-        Ok(())
-    }
-
     /// Read complete applied control fields at one code-bound destination block.
     pub(super) fn control_observation(
         &self,
@@ -242,6 +235,7 @@ impl EvmDestination {
             client: &self.client,
             network: self.network,
             contract: self.contract,
+            code_hash: self.code_hash,
         }
     }
 }
@@ -251,15 +245,24 @@ pub(super) struct EvmTransport<'a> {
     client: &'a EvmClient,
     network: SccpNetworkV1,
     contract: [u8; 20],
+    code_hash: [u8; 32],
 }
 
 impl EvmTransport<'_> {
+    /// One deadline covers every RPC request and poll for this retained attempt.
+    pub(super) fn confirmation_budget(
+        &self,
+        duration: std::time::Duration,
+    ) -> iroha_sccp_rpc::endpoints::PollBudgetGuard {
+        self.client.transport().budget().start(duration)
+    }
+
     /// A successful transaction alone is not a terminal mint observation.
     pub(super) fn confirm_finalized(
         &self,
         receipt: &iroha_sccp_rpc::evm::EvmReceipt,
         bundle: &SccpMessageProofBundleV1,
-    ) -> Result<()> {
+    ) -> Result<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>> {
         let payload = iroha_sccp::v1::payload::SccpTransferPayloadRefV1::decode(&bundle.payload)?;
         let expected = iroha_sccp::v1::evm_abi::FinalizedLogV1 {
             message_id: bundle.message_id,
@@ -272,16 +275,7 @@ impl EvmTransport<'_> {
                 .map_err(|_| eyre!("original recipient is not EVM"))?,
         };
         require_finalized_log(&receipt.logs, self.contract, expected)?;
-        let call = ViewCallV1::IsConsumed(expected.nonce);
-        let bytes = self.client.call(
-            &EvmCallRequest::new(self.contract, call.calldata()),
-            BlockId::Hash(receipt.block_hash),
-        )?;
-        ensure!(
-            call.decode_return(&bytes)? == ViewReturnV1::Bool(true),
-            "finalized event lacks its consumed nonce at the original block"
-        );
-        Ok(())
+        authenticated_receipt::consumed(self, receipt, expected.nonce)
     }
     /// Quote an exact unsigned transaction for an external payer, without loading a key.
     pub(super) fn unsigned(&self, payer: [u8; 20], data: Vec<u8>) -> Result<Eip1559TransactionV1> {
@@ -319,32 +313,11 @@ impl EvmTransport<'_> {
     /// Observe the exact transaction without signing or sending.
     pub(super) fn receipt(
         &self,
-        hash: &[u8; 32],
-    ) -> Result<Option<iroha_sccp_rpc::evm::EvmReceipt>> {
-        let Some(receipt) = self
-            .client
-            .transaction_receipt(hash)
-            .map_err(|error| eyre!("eth_getTransactionReceipt: {error}"))?
-        else {
-            return Ok(None);
-        };
-        let finalized = self
-            .client
-            .block_by_number(BlockTag::Finalized)
-            .map_err(|error| eyre!("finalized block: {error}"))?
-            .ok_or_else(|| eyre!("the destination has no finalized block"))?;
-        if receipt.block_number > finalized.header.number {
-            return Ok(None);
-        }
-        let canonical = self
-            .client
-            .block_by_number(BlockTag::Number(receipt.block_number))
-            .map_err(|error| eyre!("receipt canonical block: {error}"))?
-            .ok_or_else(|| eyre!("receipt block is absent"))?;
-        if canonical.header.hash != receipt.block_hash {
-            return Ok(None);
-        }
-        Ok(Some(receipt))
+        taira: &super::BlockingClient,
+        original: &super::origin::AuthenticatedOrigin,
+        raw: &[u8],
+    ) -> Result<Option<authenticated_receipt::Observation>> {
+        authenticated_receipt::observe(self, taira, original, raw)
     }
 }
 
@@ -531,6 +504,7 @@ impl Deployment {
             client: &self.client,
             network: self.network,
             contract: DEPLOYER,
+            code_hash: iroha_sccp::v1::constants::SCCP_EVM_DEPLOYER_RUNTIME_HASH,
         }
     }
     pub(super) fn runtime_code_hash(&self) -> Result<[u8; 32]> {
@@ -606,6 +580,37 @@ pub(super) fn load_key(path: &Path) -> Result<EvmSigningKey> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confirmation_budget_owns_one_deadline_until_attempt_observation_ends() {
+        let client = EvmClient::new(
+            HttpTransport::new(
+                EndpointSet::parse(&["http://127.0.0.1:1"], &[]).unwrap(),
+                iroha_sccp_rpc::http::HttpConfig::default(),
+                FailoverPolicy::default(),
+            )
+            .unwrap(),
+        );
+        let destination = EvmTransport {
+            client: &client,
+            network: SccpNetworkV1::EthereumMainnet,
+            contract: [1; 20],
+            code_hash: [2; 32],
+        };
+        assert_eq!(client.transport().budget().deadline(), None);
+        let before = std::time::Instant::now();
+        let guard = destination.confirmation_budget(std::time::Duration::from_secs(3));
+        let deadline = client.transport().budget().deadline().unwrap();
+        assert!(deadline >= before + std::time::Duration::from_secs(3));
+        assert!(deadline <= std::time::Instant::now() + std::time::Duration::from_secs(3));
+        // The same transport is borrowed by every receipt, trie and storage acquisition.
+        assert_eq!(
+            destination.client.transport().budget().deadline(),
+            Some(deadline)
+        );
+        drop(guard);
+        assert_eq!(client.transport().budget().deadline(), None);
+    }
 
     #[test]
     fn finalized_receipt_requires_exact_original_effect_once() {

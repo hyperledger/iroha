@@ -185,7 +185,7 @@ fn invalid_read_error(error: impl Into<FinalityReadError>) -> FinalityError {
 
 // Independent test recipes own different decoder scopes; observe the classified cause and
 // exact fields, never equate their opaque original identities or synthesize a resource error.
-#[cfg(test)]
+#[cfg(all(test, feature = "transparent_api"))]
 #[derive(Debug, PartialEq, Eq)]
 enum ReadErrorObservation {
     Invalid(FinalityError),
@@ -194,7 +194,7 @@ enum ReadErrorObservation {
         norito::core::DecodeResourceError,
     ),
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "transparent_api"))]
 fn observe_read_error(error: impl Into<FinalityReadError>) -> ReadErrorObservation {
     match error.into() {
         FinalityReadError::Invalid(error) => ReadErrorObservation::Invalid(error),

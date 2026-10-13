@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Exercise full/broken stdout against both source-bound fatal-control binaries.
+
+Requires Python 3.11+, a POSIX 64-bit host, the current memory supervisor and an
+explicit successful build receipt. Writes only a NEW evidence directory and
+temporary one-byte input. Four selected regressions establish output independence
+for those executions, never a universal timing or workspace certificate.
+"""
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+
+
+def digest(path):
+    """Hash the exact declared evidence bytes."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def guarded_build(receipt_path):
+    """Bind declared build sources, metadata, six successful logs and binaries."""
+    receipt = json.loads(receipt_path.read_text())
+    if (receipt.get('schema') != 'parliament-memory-entry-build-v1'
+            or receipt.get('source_stable') is not True
+            or receipt.get('profile_qualified') is not False
+            or receipt.get('complete_workspace_certificate') is not False
+            or receipt.get('failure') is not None):
+        raise ValueError('not a stable unqualified memory-entry build')
+    inputs = receipt.get('source_files')
+    if not isinstance(inputs, dict) or not inputs:
+        raise ValueError('missing build source guards')
+    inputs = dict(inputs)
+    for path, expected in inputs.items():
+        if not Path(path).is_absolute() or digest(path) != expected:
+            raise ValueError('build source changed: ' + path)
+    commands = receipt.get('commands')
+    if not isinstance(commands, list) or len(commands) != 6:
+        raise ValueError('six build command records required')
+    for command in commands:
+        if type(command.get('exit')) is not int or command['exit'] != 0 or command.get('source_changes') != {}:
+            raise ValueError('failed or drifted build command')
+        inputs[command['log']] = command['log_sha256']
+    inputs[receipt['dependency_metadata_path']] = receipt['dependency_metadata_sha256']
+    binaries = receipt.get('binaries', {})
+    if set(binaries) != {'portable', 'accel'}:
+        raise ValueError('both built binary modes required')
+    for binary in binaries.values():
+        inputs[binary['path']] = binary['sha256']
+    for path, expected in inputs.items():
+        if not Path(path).is_absolute() or digest(path) != expected:
+            raise ValueError('build evidence changed: ' + path)
+    inputs[str(receipt_path.resolve())] = digest(receipt_path)
+    return inputs, {mode: Path(value['path']) for mode, value in binaries.items()}
+
+
+def validate(result, page):
+    """Require parent-only publication with exact quiescent exhausted debit."""
+    evidence = result.supervisor_evidence
+    if (result.returncode != 73 or result.stderr != ''
+            or evidence.get('raw_exit') != 73
+            or evidence.get('raw_stdout') != '' or evidence.get('raw_stderr') != ''
+            or evidence.get('stdout_captured') is not False
+            or evidence.get('fatal_report_synthesized') is not True
+            or evidence.get('read_after_child_exit') is not True
+            or evidence.get('refund_permitted') is not False
+            or evidence.get('timeout', False) is not False or 'failure' in evidence):
+        raise ValueError('fatal exit depends on output or lacks parent-only evidence')
+    expected_slot = {'state': 3, 'charged_units': 1, 'charged_bytes': 1, 'reserved_bytes': page}
+    if evidence.get('fatal_control') != expected_slot:
+        raise ValueError('fatal shared debit differs')
+    raw = bytes.fromhex(evidence['fatal_control_hex'])
+    if (len(raw) != page or any(raw[32:])
+            or [int.from_bytes(raw[i:i + 8], sys.byteorder) for i in range(0, 32, 8)]
+            != [0x5041524C46415431, 3, 1, 1]):
+        raise ValueError('raw fatal page differs')
+    expected = {'outcome': 'resource_exhausted', 'charged_units': 1, 'charged_bytes': 1,
+                'fatal_control_reserved_bytes': page, 'arena_enforced': True,
+                'complete_workspace_certificate': False, 'profile_qualified': False}
+    value = json.loads(result.stdout)
+    if value != expected or any(type(value[key]) is not int for key in (
+            'charged_units', 'charged_bytes', 'fatal_control_reserved_bytes')):
+        raise ValueError('parent fatal report differs')
+    return value
+
+
+def campaign(root, receipt_path, output):
+    """Run four real child observations, retain failures and refuse source drift."""
+    output.mkdir(parents=True, exist_ok=False)
+    (output / 'check_parliament_ballot_fatal_output.py.template').write_bytes(Path(__file__).read_bytes())
+    journal_path = output / 'cases.jsonl'
+    journal_path.touch()
+    guards, rows, failure = {}, [], None
+    try:
+        if any(os.environ.get(key) for key in ('DYLD_INSERT_LIBRARIES', 'LD_PRELOAD', 'LD_AUDIT')):
+            raise ValueError('inherited loader injection is outside this regression')
+        guards, binaries = guarded_build(receipt_path)
+        supervisor_path = root / 'scripts/parliament_ballot_memory_supervisor.py'
+        for path in (supervisor_path, Path(__file__).resolve()):
+            guards[str(path)] = digest(path)
+        spec = importlib.util.spec_from_file_location('fatal_output_supervisor', supervisor_path)
+        supervisor = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(supervisor)
+        page = os.sysconf('SC_PAGESIZE')
+        with tempfile.TemporaryDirectory(prefix='parliament-fixed-fatal-output-') as temporary, journal_path.open('a') as journal:
+            record = Path(temporary) / 'one-byte.bin'
+            record.write_bytes(b'x')
+            for mode in ('portable', 'accel'):
+                for sink in ('full_pipe', 'broken_pipe'):
+                    row = {'mode': mode, 'sink': sink, 'input_hex': '78',
+                           'input_sha256': digest(record), 'input_bytes': 1, 'heap_limit_bytes': 1,
+                           'check_passed': False}
+                    readfd, writefd = os.pipe()
+                    filled = 0
+                    try:
+                        if sink == 'broken_pipe':
+                            os.close(readfd)
+                            readfd = None
+                        else:
+                            os.set_blocking(writefd, False)
+                            while True:
+                                try:
+                                    filled += os.write(writefd, b'x' * 4096)
+                                except BlockingIOError:
+                                    break
+                            os.set_blocking(writefd, True)
+                        command = [str(binaries[mode]), 'candidate', 'registration', str(record), '--heap-limit', '1']
+                        row['command'] = command
+                        row['prefilled_stdout_bytes'] = filled
+                        start = time.monotonic()
+                        result = supervisor.run(command, input_bytes=1, stdout_fd=writefd, timeout=5)
+                        row.update(elapsed_seconds=time.monotonic() - start, exit=result.returncode,
+                                   stdout=result.stdout, stderr=result.stderr,
+                                   supervisor=result.supervisor_evidence)
+                        row['parent_report'] = validate(result, page)
+                        os.close(writefd)
+                        writefd = None
+                        if readfd is not None:
+                            drained = bytearray()
+                            while chunk := os.read(readfd, 65536):
+                                drained.extend(chunk)
+                            row['drained_stdout_bytes'] = len(drained)
+                            row['child_stdout_bytes_added'] = len(drained) - filled
+                            if drained != b'x' * filled:
+                                raise ValueError('child altered or added bytes to full stdout pipe')
+                        else:
+                            row['stdout_receiver_closed_before_start'] = True
+                        row['check_passed'] = True
+                    except (Exception, KeyboardInterrupt) as error:
+                        row['failure'] = f'{type(error).__name__}: {error}'
+                    finally:
+                        if writefd is not None:
+                            os.close(writefd)
+                        if readfd is not None:
+                            os.close(readfd)
+                    rows.append(row)
+                    journal.write(json.dumps(row, sort_keys=True) + '\n')
+                    journal.flush()
+                    os.fsync(journal.fileno())
+                    if not row['check_passed']:
+                        raise ValueError(row['failure'])
+    except (Exception, KeyboardInterrupt) as error:
+        failure = f'{type(error).__name__}: {error}'
+    changes = {}
+    for path, before in guards.items():
+        try:
+            after = digest(path) if Path(path).is_file() else None
+        except OSError:
+            after = None
+        if after != before:
+            changes[path] = {'before': before, 'after': after}
+    expected = {(mode, sink) for mode in ('portable', 'accel') for sink in ('full_pipe', 'broken_pipe')}
+    passed = (failure is None and not changes and len(rows) == 4
+              and {(row['mode'], row['sink']) for row in rows} == expected
+              and all(row['check_passed'] for row in rows))
+    report = {'schema': 'parliament-fixed-fatal-backpressure-v1', 'diagnostic_passed': passed,
+              'failure': failure, 'observations': len(rows), 'input_sha256': guards, 'input_changes': changes,
+              'records_sha256': digest(journal_path), 'complete_workspace_certificate': False,
+              'physical_cost_calibrated': False, 'profile_qualified': False}
+    (output / 'report.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+    return report
+
+
+def main():
+    """Require explicit repository, successful build receipt and new output."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('root', 'build-receipt', 'output'):
+        parser.add_argument('--' + name, required=True, type=Path)
+    args = parser.parse_args()
+    result = campaign(args.root.resolve(), args.build_receipt.resolve(), args.output.resolve())
+    print(json.dumps({key: value for key, value in result.items() if key != 'input_sha256'}))
+    return 0 if result['diagnostic_passed'] else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,6 +1,7 @@
 //! Deterministic destination deployment under original signed journal custody.
 
 use super::*;
+use eyre::ensure;
 use iroha_sccp_wallet::{flow::SccpFlowActionV1 as Action, journal::SccpFlowKindV1 as Kind};
 
 mod verification;
@@ -66,13 +67,49 @@ fn retained_pin(
         return Ok(None);
     };
     flows::check_flow(flow, &step)?;
-    let value = step
+    Ok(Some(step_pin(&step)?))
+}
+
+/// Read the immutable pin from the actual locked deployment, without refreshing authority.
+fn step_pin(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+) -> Result<iroha::data_model::sccp::deployment::SccpCommitteePinV1> {
+    let mut values = step
         .record()
         .evidence
         .iter()
-        .find(|item| item.label == "deployment.committee_pin")
+        .filter(|item| item.label == "deployment.committee_pin");
+    let value = values
+        .next()
         .ok_or_else(|| eyre!("original deployment lacks its immutable committee pin"))?;
-    Ok(Some(norito::json::from_slice(&value.bytes)?))
+    ensure!(
+        values.next().is_none(),
+        "original deployment has duplicate committee pins"
+    );
+    Ok(norito::json::from_slice(&value.bytes)?)
+}
+
+fn require_step_pin(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+    expected: &iroha::data_model::sccp::deployment::SccpCommitteePinV1,
+) -> Result<()> {
+    ensure!(
+        step_pin(step)? == *expected,
+        "selected deployment has a different original committee pin; resume the retained deployment"
+    );
+    Ok(())
+}
+
+/// Cached outcomes skip observation, so bind printed deployment details independently too.
+fn require_retained_pin(
+    flow: &flows::Flow,
+    expected: &iroha::data_model::sccp::deployment::SccpCommitteePinV1,
+) -> Result<()> {
+    let step = flow
+        .latest(Action::Deploy)?
+        .ok_or_else(|| eyre!("missing retained deployment"))?;
+    flows::check_flow(flow, &step)?;
+    require_step_pin(&step, expected)
 }
 
 /// Poll deployed code under the configured confirmation deadline.
@@ -221,16 +258,6 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
         Some(state),
     )
     .map_err(|error| eyre!("deployment message: {error}"))?;
-    let destination = ton::TonDestination::connect(
-        &context.sccp_config()?,
-        &args.rpc_url,
-        minter,
-        iroha_sccp::v1::proof::DestinationV1 {
-            network: SccpNetworkV1::TonMainnet,
-            route_revision: args.revision,
-            destination_word: minter,
-        },
-    )?;
     let outcome = flows::ton(
         context,
         &authenticated_origin,
@@ -249,17 +276,20 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
                 &[(message, SEND_MODE_PAY_FEES_SEPARATELY_IGNORE_ERRORS)],
             )
         },
-        |_| match destination.progress_evidence(
-            original.network,
-            original.instance,
-            None,
-            Some(original.pin.generation),
-        ) {
-            Ok(evidence) => Ok(evidence),
-            // A not-yet-active account has no getters. Absence never becomes a failed operation.
-            Err(_) => Ok(None),
+        |step| {
+            require_step_pin(step, &original.pin)?;
+            super::ton_state::deployment(
+                &client,
+                &authenticated_origin,
+                &lite,
+                minter,
+                args.revision,
+                &original.pin,
+                max_wrapped_supply,
+            )
         },
     )?;
+    require_retained_pin(&flow, &original.pin)?;
     context.println(format!("minter 0:{}", hex::encode(minter)))?;
     if !flows::confirmed(&outcome) {
         return Ok(());
@@ -373,6 +403,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
             return Ok(());
         }
     }
+    require_retained_pin(&flow, &original.pin)?;
     context.println(format!("contract 0x{}", hex::encode(address)))?;
     let runtime_code_hash = wait_for_code(context, || deployment.runtime_code_hash())?;
     let action = SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
@@ -387,3 +418,6 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
     });
     context.print_data(&vec![action])
 }
+
+#[cfg(test)]
+mod tests;

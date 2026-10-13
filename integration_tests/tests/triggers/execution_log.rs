@@ -1,10 +1,11 @@
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 //! Trigger execution log coverage.
 #![cfg(feature = "fault_injection")]
-use eyre::{Ok, Result, eyre};
+use eyre::{Ok, Result, ensure, eyre};
 use futures_util::StreamExt;
 use integration_tests::sandbox;
 use iroha::{
+    client::{AccountTransactionDraft, FeeQuoteRequest},
     crypto::{MerkleProof, MerkleTreeCommitment},
     data_model::{
         block::execution_output::ExecutionOutputV1,
@@ -13,13 +14,15 @@ use iroha::{
         sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier},
     },
 };
-use iroha_executor_data_model::permission::trigger::CanRegisterGlobalDataTrigger;
-use iroha_model_base::domain::DomainId;
+use iroha_executor_data_model::permission::{
+    asset::CanTransferAsset, trigger::CanRegisterGlobalDataTrigger,
+};
+use iroha_model_base::{domain::DomainId, metadata::Metadata};
 use iroha_test_network::*;
 use iroha_test_samples::{ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use nonzero_ext::nonzero;
 use std::{num::NonZeroU64, time::Instant};
-use tokio::{task::spawn_blocking, time::timeout};
+use tokio::time::timeout;
 /// # Scenario
 ///
 /// 1. Client fetches the exact transaction carrier and authenticates its contiguous finality
@@ -49,6 +52,13 @@ async fn client_verifies_transaction_entrypoint_and_output_proofs() -> Result<()
                 authority: ALICE_ID.clone(),
             },
             genesis_authority,
+        ))
+        // Alice's callback may transfer only the exact Bob asset observed by the filter.
+        .with_genesis_instruction(Grant::account_permission(
+            CanTransferAsset {
+                asset: bob_rose.clone(),
+            },
+            ALICE_ID.clone(),
         ))
         .with_genesis_instruction(SetParameter::new(Parameter::SmartContract(
             iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(1),
@@ -90,14 +100,24 @@ async fn client_verifies_transaction_entrypoint_and_output_proofs() -> Result<()
         )
     })??;
     // Submit the user transaction and derive its entrypoint hash.
-    let tx_hash: HashOf<SignedTransaction> = spawn_blocking(move || {
-        test_client.submit(
-            user_instruction,
-            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
-        )
-    })
-    .await
-    .unwrap()?;
+    let account = test_client.account_client();
+    let mut payload = account.prepare_transaction(AccountTransactionDraft::new(
+        [user_instruction],
+        iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        Metadata::default(),
+    ))?;
+    let quote = account
+        .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload })
+        .await?;
+    ensure!(
+        payload
+            .fee_payment
+            .has_same_payer_and_gas_bound(&quote.intent),
+        "trigger proof fee quote changed the selected payer, sponsor revision, or gas bound"
+    );
+    payload.fee_payment = quote.intent;
+    let transaction = account.sign_transaction(payload)?;
+    let tx_hash = account.submit_transaction_and_wait(&transaction).await?;
     let entrypoint_hash: HashOf<TransactionEntrypoint> =
         HashOf::from_untyped_unchecked(tx_hash.into());
     // Wait for the observed carrier header, then independently authenticate its execution below.
@@ -142,7 +162,7 @@ async fn client_verifies_transaction_entrypoint_and_output_proofs() -> Result<()
         .client()
         .clone()
         .with_request_deadline(Instant::now() + network.sync_timeout());
-    let authenticated = spawn_blocking(move || -> Result<_> {
+    let authenticated = read_on_dedicated_thread(move || -> Result<_> {
         let mut tip = None;
         for height in 1..=header.height().get() {
             let proof = client.get_sumeragi_finality_proof(
@@ -153,7 +173,7 @@ async fn client_verifies_transaction_entrypoint_and_output_proofs() -> Result<()
         }
         tip.ok_or_else(|| eyre!("observed carrier must have a nonempty finality prefix"))
     })
-    .await??;
+    .await?;
     let carrier_block = authenticated.block();
     assert_eq!(carrier_block.hash(), block_hash);
     let (input_index, entrypoint) = carrier_block

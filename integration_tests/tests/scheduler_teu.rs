@@ -174,7 +174,8 @@ fn queue_teu_backlog_matches_metering() -> Result<()> {
         ),
     ]
     .into_iter()
-    .sum();
+    .sum::<Result<_, _>>()
+    .expect("scheduler fixture instructions must admit gas metering");
     for tx in txs.clone() {
         if let Err(failure) = queue.push(tx, state.view()) {
             return Err(eyre::eyre!(failure.err.to_string()));

@@ -1,0 +1,138 @@
+{
+  "complete_quantum_resource_vector": false,
+  "frozen_arguments_and_ledger_modified": false,
+  "frozen_at_utc": "2026-10-13T09:52:12.768529+00:00",
+  "independent_cryptographic_review": false,
+  "local_links": [
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_generator_interface.md",
+      "reference": "parliament_ballot_b6_generator_interface.md"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_proof_arguments.md",
+      "reference": "parliament_ballot_proof_arguments.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/validation/parliament_ballot_hybrid_driver/receipt.json",
+      "reference": "../docs/validation/parliament_ballot_hybrid_driver/receipt.json"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/bavc.rs",
+      "reference": "../crates/iroha_zkp_vole/src/bavc.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole.rs"
+    },
+    {
+      "exists": true,
+      "path": "crates/iroha_zkp_vole/src/vole/convert.rs",
+      "reference": "../crates/iroha_zkp_vole/src/vole/convert.rs"
+    },
+    {
+      "exists": true,
+      "path": "specs/parliament_ballot_b6_generator_interface.md",
+      "reference": "parliament_ballot_b6_generator_interface.md"
+    }
+  ],
+  "observed_at_utc": "2026-10-13T09:46:04.536228+00:00",
+  "owner_acceptance": false,
+  "primitive_interface_embedding_proved": false,
+  "profile_qualified": false,
+  "proposal": {
+    "path": "specs/parliament_ballot_b6_hybrid_driver.md",
+    "sha256": "a95739b192f2a431cbf2a95c6964817137a6c5e0856121b20d4465a036f5835a"
+  },
+  "schema": "parliament-b6-hybrid-driver-proposal-v1",
+  "scope": "Bounded mathematical driver proposal; not executable simulator or completed reduction.",
+  "source_changes": {},
+  "source_changes_at_freeze": {},
+  "source_count": 18,
+  "source_sha256_after": {
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_prover_accounting.md": "1c669675f88faffab91d42c826d37d75c0edb7a76a1deccf3ab4e13a9c6ede2b",
+    "specs/parliament_ballot_b6_request_accounting.md": "88e00f7207e1f8172474591658432b40a12e19ae143444c2982dc69b9922f5cf",
+    "specs/parliament_ballot_b6_security_review.md": "44edacc2cead84532d17efcf3bd5d421cc10f20f1d5c592fadf0c7a392b2cdeb",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c",
+    "specs/parliament_private_ballot_design.md": "1a15fa8d48f4a48e0530f1859e095438c952794c7403c4a7dbd8a5f66b0eeec1"
+  },
+  "source_sha256_at_freeze": {
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_prover_accounting.md": "1c669675f88faffab91d42c826d37d75c0edb7a76a1deccf3ab4e13a9c6ede2b",
+    "specs/parliament_ballot_b6_request_accounting.md": "88e00f7207e1f8172474591658432b40a12e19ae143444c2982dc69b9922f5cf",
+    "specs/parliament_ballot_b6_security_review.md": "44edacc2cead84532d17efcf3bd5d421cc10f20f1d5c592fadf0c7a392b2cdeb",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c",
+    "specs/parliament_private_ballot_design.md": "1a15fa8d48f4a48e0530f1859e095438c952794c7403c4a7dbd8a5f66b0eeec1"
+  },
+  "source_sha256_before": {
+    "crates/iroha_parliament_ballot_proof/src/profile.rs": "9cc79a448f4199b748923b8b3e6a552fb9f0aa7980a1cb6d1d89746e8b79323d",
+    "crates/iroha_parliament_ballot_proof/src/proving.rs": "717c538c088101b1759e4eb947101172c9fe71f530e10d3428aa58195c997051",
+    "crates/iroha_parliament_ballot_proof/src/registration.rs": "0a7e86e0fedc14298391425b12065256aefa9428f42967d3b9db9eef00e4890e",
+    "crates/iroha_parliament_ballot_proof/src/vote.rs": "0ae72cf87a536ae73ecf9ab897e5fef3d66064323e04f11eedf43010cd6127e3",
+    "crates/iroha_zkp_vole/src/bavc.rs": "481b4c7027b46520e848a67d94a6dc7cdda312838e1769a93b9079260b8d4269",
+    "crates/iroha_zkp_vole/src/prg.rs": "58449cb9390e4ce66e71f5ea6fd3245eb69f05ee68c28c7e73a04514df13db81",
+    "crates/iroha_zkp_vole/src/proof.rs": "f87a7282a56dd75e774edd7082aad132b7267ca075132003c597123d310cf1cc",
+    "crates/iroha_zkp_vole/src/quicksilver.rs": "99260f5f4f0cb1b8e8e6356ce14b0deb20099d25549b852441bc541588c6f3ad",
+    "crates/iroha_zkp_vole/src/transcript.rs": "ea6b44d9a5c11fc80e3afdff7eaf262dd024b446001098c2f85ccdf9759bb1a2",
+    "crates/iroha_zkp_vole/src/universal_hash.rs": "63bc93f5329442901488272e8e5dd03b803dbb659fae80d7b64197c367f6368f",
+    "crates/iroha_zkp_vole/src/vole.rs": "5fcfe9c24e0e4a7319a0e4ed8ab99e7fbc83cd07c89f997864e393fbc9d09f31",
+    "crates/iroha_zkp_vole/src/vole/convert.rs": "a4bf90265a0bd38d77dd7cf8448a4b8e915cc5cae8d83484aeb3235b0a53a65b",
+    "specs/parliament_ballot_b6_generator_interface.md": "8aac83a0460548efe78555c978ce044978c4025d798e7d2f364ed76a67aa3226",
+    "specs/parliament_ballot_b6_prover_accounting.md": "1c669675f88faffab91d42c826d37d75c0edb7a76a1deccf3ab4e13a9c6ede2b",
+    "specs/parliament_ballot_b6_request_accounting.md": "88e00f7207e1f8172474591658432b40a12e19ae143444c2982dc69b9922f5cf",
+    "specs/parliament_ballot_b6_security_review.md": "44edacc2cead84532d17efcf3bd5d421cc10f20f1d5c592fadf0c7a392b2cdeb",
+    "specs/parliament_ballot_proof_arguments.md": "c2aca2dd5b936004edaaa3ff99b823de8d92d9fa6f9b1003056135d983fb776c",
+    "specs/parliament_private_ballot_design.md": "1a15fa8d48f4a48e0530f1859e095438c952794c7403c4a7dbd8a5f66b0eeec1"
+  },
+  "status": "PROPOSAL_ONLY",
+  "uniform_over_opening_h5_lemma_proved": false,
+  "validation": {
+    "code_or_runtime_tests_run": false,
+    "local_links_exist": true,
+    "new_code_added": false,
+    "peer_review": {
+      "limitations": "Automated local consistency review only; not independent cryptographic review, proof of the uniform-over-opening H5 lemma, primitive-interface embedding, or complete computational/quantum resources.",
+      "requested_corrections": [],
+      "reviewer": "root agent",
+      "scope": [
+        "Bounded auxiliary schedule and fixed-opening distribution/algebra identities",
+        "Root/path/leaf/row hidden-key placement and cached opening consistency",
+        "Actual-IV primitive interface and full-resource obligations",
+        "Proposal and qualification scope"
+      ],
+      "status": "completed_local_consistency_review"
+    },
+    "production_changes": false,
+    "source_bytes_unchanged": true
+  },
+  "whole_driver_proved": false
+}

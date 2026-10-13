@@ -1,0 +1,16 @@
+{
+  "command": [
+    "python3.11",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_fatal_output_test.py"
+  ],
+  "exit": 0,
+  "passed": 4,
+  "reported_elapsed_seconds": 7.15,
+  "test_sha256": "39cd077270f5a814e097060eba5b20c27c412f38749524ed4af38780006d9519",
+  "scope": "Focused test result observed through exec_command; tests use receipt/observation mutation and durable-failure controls. Four separate real-binary observations are in cases.jsonl.",
+  "complete_workspace_certificate": false,
+  "profile_qualified": false
+}

@@ -105,7 +105,7 @@ fn nested_original_native_cause_moves_without_cloning_its_batch_owner() {
     use iroha_pasta::msm::{MemoryBudget, MsmError};
     let budget = MemoryBudget::new(0).check(37).unwrap_err();
     let nested = Box::new(VerifyError::Ipa(IpaError::Msm(MsmError::Budget(budget))));
-    let original_address: *const VerifyError = &*nested;
+    let original_address = std::ptr::from_ref(nested.as_ref());
     let original = VerifyError::BatchItem {
         index: 3,
         error: nested,
@@ -122,7 +122,7 @@ fn nested_original_native_cause_moves_without_cloning_its_batch_owner() {
         panic!("lost original outer native failure");
     };
     assert_eq!(*index, 3);
-    let retained_address: *const VerifyError = &**error;
+    let retained_address = std::ptr::from_ref(error.as_ref());
     assert_eq!(retained_address, original_address);
     assert!(
         matches!(&**error, VerifyError::Ipa(IpaError::Msm(MsmError::Budget(original)))

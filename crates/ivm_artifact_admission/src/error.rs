@@ -110,6 +110,10 @@ impl ContractArtifactError {
     }
 
     /// Export a local cause exactly once, leaving an ordinary diagnostic intact on mismatch.
+    ///
+    /// # Errors
+    /// Returns this error unchanged when it describes an invalid artifact or an ABI hash mismatch,
+    /// rather than a local preparation deferral.
     pub fn try_into_local_vm_error(self) -> Result<VMError, Self> {
         match self.kind {
             ArtifactFailure::ExecutionDeferred { reason, .. } => {

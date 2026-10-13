@@ -1,0 +1,14 @@
+warning: patch `axum-core v0.5.6 (/Users/mtakemiya/dev/iroha/vendor/axum-core)` was not used in the crate graph
+warning: patch `bytes v1.11.1 (/Users/mtakemiya/dev/iroha/vendor/bytes)` was not used in the crate graph
+warning: patch `concread v0.5.10 (/Users/mtakemiya/dev/iroha/vendor/concread)` was not used in the crate graph
+warning: patch `cust_raw v0.11.3 (/Users/mtakemiya/dev/iroha/vendor/cust_raw)` was not used in the crate graph
+warning: patch `find_cuda_helper v0.2.0 (/Users/mtakemiya/dev/iroha/vendor/find_cuda_helper)` was not used in the crate graph
+warning: patch `http-body-util v0.1.3 (/Users/mtakemiya/dev/iroha/vendor/http-body-util)` was not used in the crate graph
+warning: patch `num-bigint v0.4.6 (/Users/mtakemiya/dev/iroha/vendor/num-bigint-0.4.6)` was not used in the crate graph
+warning: patch `wayland-scanner v0.31.10 (/Users/mtakemiya/dev/iroha/vendor/wayland-scanner-0.31.10)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+      with the dependency requirements. If the patch has a different version from
+      what is locked in the Cargo.lock file, run `cargo update` to use the new
+      version. This may also occur with an optional dependency that is not enabled.
+   Compiling parliament-memory-entry v0.0.0 (/private/tmp/parliament-memory-entry/worker-src-1)
+    Finished `release` profile [optimized] target(s) in 0.93s

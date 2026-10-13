@@ -1,10 +1,14 @@
 //! TON destination actions of `iroha sccp` (`specs/sccp.md` §5.3, §7.1, §7.4).
 //!
-//! The minter's state is read with get methods over ADNL liteservers, every bundle and rotation
-//! chain is verified locally against it, and the resulting minter messages are sent as
-//! internal messages from the user's deployed `v5r1` wallet, signed with an owner-only Ed25519
-//! key file.
+//! ADNL get methods guide preparation, while native masterchain, shard and account proofs
+//! authenticate journal completion and retirement of the original wallet sequence. Verified
+//! bundles become internal messages from the user's deployed `v5r1` wallet, signed with an
+//! owner-only Ed25519 key file.
 
+use super::{
+    BlockingClient, BuildError, LightClientReplayV1, SccpLcConsensusSetV1, SccpLightClientV1,
+    SccpNetworkV1, origin,
+};
 use eyre::{Result, ensure, eyre};
 use iroha_sccp::{
     api::{SccpControlProofBundleV1, SccpMessageProofBundleV1, SccpRotationV1},
@@ -230,33 +234,115 @@ fn wallet_seqno_at(lite: &LiteClient, block: BlockIdExt, address: &TonAccountV1)
         .ok_or_else(|| eyre!("the wallet seqno is not a u32"))
 }
 
-/// Destination observation of retirement, separate from the proof of the intended effect.
-/// A higher sequence makes the original signed envelope ineligible for later execution.
+/// Authenticated retirement and the complete evidence needed to independently replay it.
 #[derive(norito::derive::JsonSerialize)]
 pub(super) struct WalletRetirement {
     wallet: String,
     original_seqno: u32,
-    observed_seqno: u32,
-    masterchain_root: String,
-    masterchain_seqno: u32,
+    verified: iroha_sccp::light_client::ton::wallet_state::VerifiedTonWalletStateV1,
+    proof: iroha_sccp::light_client::ton::wallet_state::TonAccountStateProofV1,
+    light_client: SccpLightClientV1,
+    signing_set: SccpLcConsensusSetV1,
+    verification_time_ms: u64,
 }
 
 impl WalletRetirement {
     pub(super) fn retired(&self) -> bool {
-        self.observed_seqno > self.original_seqno
+        self.verified.seqno() > self.original_seqno
     }
 }
 
-pub(super) fn wallet_retirement(lite: &LiteClient, original: &[u8]) -> Result<WalletRetirement> {
-    let original = iroha_sccp_wallet::pure::ton::wallet_v5_envelope(original)?;
-    let block = last_block(lite)?;
-    Ok(WalletRetirement {
-        wallet: hex::encode(original.wallet),
-        original_seqno: original.seqno,
-        observed_seqno: wallet_seqno_at(lite, block, &original.wallet)?,
-        masterchain_root: hex::encode(block.root_hash),
-        masterchain_seqno: block.seqno,
-    })
+pub(super) struct AuthenticatedAccountEvidence {
+    pub(super) profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
+    pub(super) replay: LightClientReplayV1,
+    pub(super) proof: iroha_sccp::light_client::ton::wallet_state::TonAccountStateProofV1,
+    pub(super) now: u64,
+    pub(super) light_client: SccpLightClientV1,
+    pub(super) signing_set: SccpLcConsensusSetV1,
+}
+
+pub(super) fn account_state_evidence(
+    client: &BlockingClient,
+    origin: &origin::AuthenticatedOrigin,
+    lite: &LiteClient,
+    account: [u8; 32],
+) -> Result<Option<AuthenticatedAccountEvidence>> {
+    let bounded_client = lite
+        .budget()
+        .deadline()
+        .map(|deadline| client.with_request_deadline(deadline))
+        .transpose()?;
+    let client = bounded_client.as_ref().unwrap_or(client);
+    let profiles = origin.light_client_profiles(client)?;
+    let network = SccpNetworkV1::TonMainnet;
+    let light_client = client.sccp().light_client(network)?.light_client;
+    let newest = client
+        .sccp()
+        .light_client_sets(network)?
+        .into_iter()
+        .find(|set| set.set_id == light_client.head.latest_set_id)
+        .ok_or_else(|| eyre!("the original TON signing set is unavailable"))?;
+    origin.verify_burn_light_client(network, &light_client, &newest)?;
+    let now = origin.source_verification_time_ms(super::wall_clock_ms());
+    let replay = LightClientReplayV1::new(
+        &profiles,
+        network,
+        light_client,
+        vec![newest.clone()],
+        vec![],
+    );
+    let proof_lite = LiteClient::new(
+        lite.servers().clone(),
+        *lite.config(),
+        FailoverPolicy::default(),
+    )
+    .with_budget(lite.budget().clone());
+    let builder = iroha_sccp_rpc::builders::ton::TonBuilder::new(profiles.ton, proof_lite);
+    let proof = match builder.account_state_proof(account, &replay, now) {
+        Ok(proof) => proof,
+        Err(BuildError::Unavailable(_)) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(Some(AuthenticatedAccountEvidence {
+        profiles,
+        replay,
+        proof,
+        now,
+        light_client,
+        signing_set: newest,
+    }))
+}
+
+pub(super) fn wallet_retirement(
+    client: &BlockingClient,
+    origin: &origin::AuthenticatedOrigin,
+    lite: &LiteClient,
+    original: &[u8],
+) -> Result<Option<WalletRetirement>> {
+    use iroha_sccp::light_client::ton::wallet_state::verify_wallet_state;
+    let envelope = iroha_sccp_wallet::pure::ton::wallet_v5_envelope(original)?;
+    // The canonical envelope parser admits only addr_std workchain zero.
+    let account = envelope.wallet;
+    let Some(evidence) = account_state_evidence(client, origin, lite, account)? else {
+        return Ok(None);
+    };
+    let verified = verify_wallet_state(
+        &evidence.profiles.ton,
+        evidence.replay.state(),
+        &evidence.proof,
+        account,
+        envelope.wallet_id,
+        evidence.now,
+    )?;
+    Ok(Some(WalletRetirement {
+        wallet: hex::encode(envelope.wallet),
+        original_seqno: envelope.seqno,
+        verified,
+        proof: evidence.proof,
+        light_client: evidence.light_client,
+        signing_set: evidence.signing_set,
+        verification_time_ms: evidence.now,
+    }))
 }
 
 /// Build the exact unsigned v5r1 request without loading or invoking a private key.
@@ -333,26 +419,6 @@ fn history_next(
 }
 
 impl TonDestination {
-    /// Read the exact currently retained row; operation ids are never reused by the minter.
-    pub(super) fn recovery_row(&self, operation_id: u64) -> Result<Option<Cell>> {
-        let mut values = run_stack_at(
-            &self.lite,
-            last_block(&self.lite)?,
-            &self.minter,
-            "get_sccp_recovery",
-            &[operation_id],
-        )?;
-        ensure!(values.len() == 1, "recovery getter has another shape");
-        match values.pop().expect("checked length") {
-            TvmStackValueV1::Null => Ok(None),
-            TvmStackValueV1::Cell(cell) => {
-                iroha_sccp_wallet::pure::ton::recovery_row(&cell)?;
-                Ok(Some(cell))
-            }
-            _ => Err(eyre!("recovery getter did not return a cell")),
-        }
-    }
-
     /// Fund only the original retained operation id, never a new finalize or burn.
     pub(super) fn prepare_retry(&self, wallet: &TonWallet, operation_id: u64) -> Result<Vec<u8>> {
         let body =
@@ -792,9 +858,74 @@ fn parse_observation(
 }
 
 #[cfg(test)]
+pub(super) fn test_wallet_retirement(observed_seqno: u32) -> WalletRetirement {
+    tests::retirement(observed_seqno)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::sccp::flows;
+
+    pub(super) fn retirement(observed_seqno: u32) -> WalletRetirement {
+        use iroha_data_model::sccp::light_client::{
+            SccpLcInitExpectationV1, SccpLightClientParamsV1,
+        };
+        use iroha_sccp::{
+            light_client::{
+                initialize_light_client_with_profiles, profile::SccpChainProfilesV1,
+                state::SccpLcMemoryStateV1, ton::wallet_state::verify_wallet_state,
+            },
+            test_support::ton::SyntheticTonChainV1,
+        };
+        let chain = SyntheticTonChainV1::new([71; 32]);
+        let profiles = SccpChainProfilesV1::genesis();
+        let time = 1_790_000_000;
+        let now = u64::from(time) * 1000 + 60_000;
+        let network = SccpNetworkV1::TonMainnet;
+        let mut state = SccpLcMemoryStateV1::new();
+        let initial = initialize_light_client_with_profiles(
+            profiles,
+            &state,
+            network,
+            SccpLcInitExpectationV1::Absent,
+            &SccpLightClientParamsV1::defaults_for(network).unwrap(),
+            &chain.bootstrap(100, 0, time, time + 65536),
+            now,
+        )
+        .unwrap();
+        state.install(network, &initial);
+        let code_hash =
+            hex::decode("20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let proof = chain.wallet_state_proof(
+            [9; 32],
+            WALLET_V5R1_MAINNET_ID,
+            observed_seqno,
+            code_hash,
+            time,
+        );
+        let verified = verify_wallet_state(
+            &profiles.ton,
+            &state,
+            &proof,
+            [9; 32],
+            WALLET_V5R1_MAINNET_ID,
+            now,
+        )
+        .unwrap();
+        WalletRetirement {
+            wallet: hex::encode([9; 32]),
+            original_seqno: 7,
+            verified,
+            proof,
+            light_client: initial.light_client,
+            signing_set: initial.sets[0].clone(),
+            verification_time_ms: now,
+        }
+    }
 
     #[test]
     fn terminal_and_maintenance_evidence_both_require_original_wallet_retirement() {
@@ -805,13 +936,6 @@ mod tests {
                 bytes: vec![1, 2, 3],
             }]
         };
-        let retirement = |observed_seqno| WalletRetirement {
-            wallet: hex::encode([9; 32]),
-            original_seqno: 7,
-            observed_seqno,
-            masterchain_root: hex::encode([8; 32]),
-            masterchain_seqno: 100,
-        };
         for kind in [
             SccpStepOutcomeKindV1::Confirmed,
             SccpStepOutcomeKindV1::Superseded,
@@ -819,7 +943,7 @@ mod tests {
             for seqno in [6, 7] {
                 assert!(
                     flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || {
-                        Ok(retirement(seqno))
+                        Ok(Some(retirement(seqno)))
                     })
                     .unwrap()
                     .is_none(),
@@ -839,10 +963,11 @@ mod tests {
                 })
                 .is_err()
             );
-            let outcome =
-                flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || Ok(retirement(8)))
-                    .unwrap()
-                    .unwrap();
+            let outcome = flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || {
+                Ok(Some(retirement(8)))
+            })
+            .unwrap()
+            .unwrap();
             assert_eq!(outcome.outcome, kind);
             assert_eq!(outcome.transaction, vec![3; 32]);
             assert_eq!(outcome.evidence[0], effect()[0]);
@@ -850,7 +975,7 @@ mod tests {
             let retained: norito::json::Value =
                 norito::json::from_slice(&outcome.evidence[1].bytes).unwrap();
             assert_eq!(retained["original_seqno"].as_u64(), Some(7));
-            assert_eq!(retained["observed_seqno"].as_u64(), Some(8));
+            assert_eq!(retained["verified"]["seqno"].as_u64(), Some(8));
         }
     }
 
@@ -899,13 +1024,6 @@ mod tests {
             )
             .unwrap();
         step.begin_submission().unwrap();
-        let retirement = |observed_seqno| WalletRetirement {
-            wallet: hex::encode([9; 32]),
-            original_seqno: 7,
-            observed_seqno,
-            masterchain_root: hex::encode([8; 32]),
-            masterchain_seqno: 100,
-        };
         for observed in [6, 7] {
             let outcome = drive_step::<eyre::Report>(
                 &step,
@@ -1140,6 +1258,7 @@ impl TonDestination {
     pub(super) fn terminal_evidence(
         &self,
         client: &iroha::blocking::Client,
+        original: &origin::AuthenticatedOrigin,
         profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
         step: &iroha_sccp_wallet::journal::SccpJournalStep,
         expected: iroha_sccp::ton_watch::TerminalEvent,
@@ -1188,19 +1307,32 @@ impl TonDestination {
         };
         let builder = iroha_sccp_rpc::builders::ton::TonBuilder::new(
             profiles.ton,
-            connect_config(&self.config, &self.liteservers)?,
+            connect_config(&self.config, &self.liteservers)?
+                .with_budget(self.lite.budget().clone()),
         );
-        let evidence = super::prove(
+        let bounded_client = self
+            .lite
+            .budget()
+            .deadline()
+            .map(|deadline| client.with_request_deadline(deadline))
+            .transpose()?;
+        let client = bounded_client.as_ref().unwrap_or(client);
+        let (evidence, verified, trust) = super::prove(
             profiles,
             client,
+            original,
             iroha::data_model::bridge::SccpNetworkV1::TonMainnet,
             &builder,
             &reference,
         )?;
-        let mut retained = vec![iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
-            label: "ton.finalized_effect.proof".to_owned(),
-            bytes: evidence.proof.as_bytes().to_vec(),
-        }];
+        require_ton_terminal(&verified.event, self.minter, expected)?;
+        let mut retained = vec![
+            trust,
+            iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
+                label: "ton.finalized_effect.proof".to_owned(),
+                bytes: evidence.proof.as_bytes().to_vec(),
+            },
+        ];
         for advance in evidence.backfills {
             retained.push(iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
                 label: "ton.finalized_effect.backfill".to_owned(),
@@ -1334,6 +1466,7 @@ impl TonDestination {
     pub(super) fn burn_evidence(
         &self,
         client: &iroha::blocking::Client,
+        original: &origin::AuthenticatedOrigin,
         profiles: iroha_sccp::light_client::profile::SccpChainProfilesV1,
         step: &iroha_sccp_wallet::journal::SccpJournalStep,
         wallet_code: iroha::data_model::sccp::deployment::SccpTonCodeRefV1,
@@ -1405,15 +1538,25 @@ impl TonDestination {
         };
         let builder = iroha_sccp_rpc::builders::ton::TonBuilder::new(
             profiles.ton,
-            connect_config(&self.config, &self.liteservers)?,
+            connect_config(&self.config, &self.liteservers)?
+                .with_budget(self.lite.budget().clone()),
         );
-        let evidence = super::prove(
+        let bounded_client = self
+            .lite
+            .budget()
+            .deadline()
+            .map(|deadline| client.with_request_deadline(deadline))
+            .transpose()?;
+        let client = bounded_client.as_ref().unwrap_or(client);
+        let (evidence, verified, trust) = super::prove(
             profiles,
             client,
+            original,
             iroha::data_model::bridge::SccpNetworkV1::TonMainnet,
             &builder,
             &reference,
         )?;
+        require_ton_burn(&verified.event, self.minter, &burn)?;
         #[derive(norito::derive::JsonSerialize)]
         struct BurnLocator {
             message_id: String,
@@ -1430,6 +1573,7 @@ impl TonDestination {
             message_index: burn.message_index,
         };
         let mut items = vec![
+            trust,
             super::flows::evidence("ton.original_burn.locator", &locator)?,
             iroha_sccp_wallet::journal::SccpEvidenceItemV1 {
                 label: "ton.original_burn.proof".to_owned(),
@@ -1447,48 +1591,114 @@ impl TonDestination {
 }
 
 impl TonDestination {
-    /// Observe monotonic destination control/checkpoint progress after an original dispatch.
+    /// Authenticate destination progress from the exact registered minter's native account.
     pub(super) fn progress_evidence(
         &self,
-        network: [u8; 32],
-        instance: [u8; 32],
+        client: &BlockingClient,
+        original: &origin::AuthenticatedOrigin,
         control: Option<u64>,
         generation: Option<u64>,
     ) -> Result<Option<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>>> {
-        let observed = self.observe()?;
-        ensure!(
-            observed.network == network && observed.instance == instance,
-            "observed minter identity differs"
-        );
-        if control.is_some_and(|nonce| observed.control.control_nonce < nonce)
-            || generation.is_some_and(|generation| observed.committee.generation < generation)
-        {
-            return Ok(None);
-        }
-        #[derive(norito::derive::JsonSerialize)]
-        struct Progress {
-            network: [u8; 32],
-            instance: [u8; 32],
-            control_nonce: u64,
-            generation: u64,
-            root: [u8; 32],
-            until_ms: u64,
-            observed_at_ms: u64,
-        }
-        Ok(Some(vec![super::flows::evidence(
-            "ton.monotonic_destination_progress",
-            &Progress {
-                network,
-                instance,
-                control_nonce: observed.control.control_nonce,
-                generation: observed.committee.generation,
-                root: observed.committee.root,
-                until_ms: observed.committee.until_ms,
-                observed_at_ms: observed.now_ms,
-            },
-        )?]))
+        super::ton_state::progress(
+            client,
+            original,
+            &self.lite,
+            self.minter,
+            self.destination.route_revision,
+            control,
+            generation,
+        )
+    }
+
+    /// Exact registered basechain minter account selected for this destination.
+    pub(super) const fn minter(&self) -> [u8; 32] {
+        self.minter
     }
 }
 
 #[path = "ton_monitor.rs"]
 mod monitor;
+
+fn require_ton_terminal(
+    verified: &iroha_sccp::light_client::proof::SccpNormalizedEventV1,
+    minter: [u8; 32],
+    expected: iroha_sccp::ton_watch::TerminalEvent,
+) -> Result<()> {
+    use iroha_sccp::{
+        light_client::proof::{SccpNormalizedEventV1 as Event, SccpSourceEmitterV1},
+        ton_watch::TerminalEvent,
+    };
+    ensure!(
+        *verified.emitter() == SccpSourceEmitterV1::Ton(minter),
+        "authenticated TON event names another minter"
+    );
+    let matches = match (verified, expected) {
+        (
+            Event::Finalized {
+                message_id, nonce, ..
+            },
+            TerminalEvent::Finalized {
+                message_id: expected_id,
+                nonce: expected_nonce,
+            },
+        ) => *message_id == expected_id && *nonce == expected_nonce,
+        (
+            Event::Void {
+                first_nonce,
+                count,
+                message_id_or_zero,
+                ..
+            },
+            TerminalEvent::Voided {
+                message_id,
+                first_nonce: expected_nonce,
+                count: expected_count,
+            },
+        ) => {
+            *first_nonce == expected_nonce
+                && *count == u64::from(expected_count)
+                && *message_id_or_zero == message_id
+        }
+        _ => false,
+    };
+    ensure!(
+        matches,
+        "authenticated TON effect differs from original terminal intent"
+    );
+    Ok(())
+}
+
+fn require_ton_burn(
+    verified: &iroha_sccp::light_client::proof::SccpNormalizedEventV1,
+    minter: [u8; 32],
+    expected: &iroha_sccp::ton_watch::BurnObservation,
+) -> Result<()> {
+    use iroha_sccp::light_client::proof::{SccpNormalizedEventV1 as Event, SccpSourceEmitterV1};
+    let Event::TransferToTaira {
+        emitter,
+        message_id,
+        sender,
+        nonce,
+        payload_hash,
+        ..
+    } = verified
+    else {
+        return Err(eyre!("authenticated TON event is not the original burn"));
+    };
+    let mut owner = vec![0; 4];
+    owner.extend_from_slice(&expected.owner);
+    ensure!(
+        *emitter == SccpSourceEmitterV1::Ton(minter)
+            && *message_id == expected.message_id
+            && *nonce == expected.nonce
+            && sender.codec == iroha_sccp::v1::constants::CODEC_TON_ACCOUNT36
+            && sender.bytes == owner
+            && *payload_hash == expected.payload_hash,
+        "authenticated TON burn differs from the original query-bound discovery"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "ton_binding_tests.rs"]
+mod binding_tests;

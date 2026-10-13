@@ -48,6 +48,8 @@ use crate::ton::{
     schema::{BlockLink, ShardBlockProof, SignatureSet},
 };
 
+mod wallet_state;
+
 /// `getBlockHeader` mode: state update, extra and shard hashes.
 pub const HEADER_MODE: u32 = 1 | 16 | 32;
 /// Config parameters every epoch needs: election timings, catchain and current validators.
@@ -60,6 +62,16 @@ fn lite(error: &LiteClientError) -> BuildError {
 fn canonical(bytes: &[u8], what: &str) -> Result<Vec<u8>, BuildError> {
     ton_canonical_boc_v1(bytes)
         .ok_or_else(|| BuildError::Inconsistent(format!("the {what} BoC is malformed")))
+}
+
+fn canonical_transaction(bytes: &[u8], expected_hash: [u8; 32]) -> Result<Vec<u8>, BuildError> {
+    let bytes = canonical(bytes, "transaction")?;
+    if iroha_sccp::ton_canonical_boc_single_root_hash_v1(&bytes) != Some(expected_hash) {
+        return Err(BuildError::Inconsistent(
+            "the returned transaction differs from the requested hash".into(),
+        ));
+    }
+    Ok(bytes)
 }
 
 /// The light client's block id of a liteserver block id.
@@ -556,6 +568,7 @@ impl TonSource for TonBuilder {
             .lite
             .get_one_transaction(event_block, account, lt)
             .map_err(|error| lite(&error))?;
+        let transaction_bytes = canonical_transaction(&transaction.transaction, hash)?;
         let walk = self
             .lite
             .get_shard_block_proof(event_block)
@@ -565,7 +578,7 @@ impl TonSource for TonBuilder {
             masterchain: block_id(&walk.masterchain_id),
             shard_blocks,
             event_block_proof: canonical(&transaction.proof, "transaction proof")?,
-            transaction: canonical(&transaction.transaction, "transaction")?,
+            transaction: transaction_bytes,
         })
     }
 }
@@ -760,6 +773,25 @@ mod tests {
         vec![
             0xb5, 0xee, 0x9c, 0x72, 0x01, 0x01, 0x01, 0x01, 0x00, 0x03, 0x00, 0x00, 0x02, byte,
         ]
+    }
+
+    #[test]
+    fn transaction_custody_rejects_a_different_well_formed_root() {
+        let root = iroha_sccp::v1::ton_cell::CellBuilder::new()
+            .store_uint(7, 8)
+            .unwrap()
+            .build();
+        assert_eq!(
+            canonical_transaction(&boc(7), *root.hash()).unwrap(),
+            boc(7)
+        );
+        assert!(matches!(
+            canonical_transaction(&boc(8), *root.hash()),
+            Err(BuildError::Inconsistent(message))
+                if message == "the returned transaction differs from the requested hash"
+        ));
+        assert!(canonical_transaction(&boc(7), [0; 32]).is_err());
+        assert!(canonical_transaction(&[1, 2, 3], *root.hash()).is_err());
     }
 
     #[test]

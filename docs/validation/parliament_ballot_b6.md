@@ -57,7 +57,51 @@ exceed the allowance; a complete honest-game/simulator driver and its resource
 bound are still missing. These source counts are neither an attack-cost
 assessment nor independent cryptographic review.
 
+The [bounded hybrid-driver proposal](../../specs/parliament_ballot_b6_hybrid_driver.md)
+repairs a missing worst-case sampler boundary in the proposed experiments:
+use bounded auxiliary sampling already before material replacement, when its
+exhaustion value is private unused bookkeeping. It specifies opening caches,
+whole-lifetime oracle state and actual-IV component interfaces. Local algebra
+supports every fixed opening. A separate [conditional fixed-opening H5 derivation](../../specs/parliament_ballot_b6_h5_fixed_opening.md)
+now supplies a gate-domain adaptive-reprogramming bound at the explicit ideal-row
+entry, including one own-label-equality charge. The
+[zero-challenge certificate](parliament_ballot_zero_challenge/README.md) verifies
+the fallback for both actual rows and roles. The separate
+[joint mask-coordinate derivation](../../specs/parliament_ballot_b6_mask_coordinate.md)
+preserves the full oracle/transcript state through the ten-mask change of
+variables, under explicit ideal-row, independent high-mask and prescribed-challenge
+premises. Actual table checks cover both rank-256 maps and all 127,488 bilinear
+basis pairs. Its endpoint retains ideal commitment material; a finite support
+argument rules out identifying that distribution exactly with real-root `Sim+`.
+A separate [hidden-assignment deletion derivation](../../specs/parliament_ballot_b6_hidden_assignment_deletion.md)
+now removes the patches at that same ideal-material boundary. It proves joint
+pad/query independence in the unpatched baseline and applies a full-state
+lookup comparison across adaptive requests and exhaustion. This conditional
+result does not supply the ideal-entry or reverse material bridges, complete
+reduction resources or the complete simulator proof.
+The existing arguments and ledger are unchanged; local consistency review does
+not supply independent cryptographic review or qualification.
+
 ## Standalone adversarial and conformance evidence
+
+The [fatal-control revision](parliament_ballot_fatal_control/README.md) fixes a
+resource-failure write that blocked charged verification on full stdout pipes.
+Both frozen binaries reproduce the defect. Fresh binaries publish exact debit
+through a counted shared page before exiting, and the external supervisor
+formats the failure afterward. All 122 new observations and full/broken-output
+controls pass; 17 Rust tests per mode, strict Clippy and 61 focused Python tests
+pass. The reserved mapping is now 41.109375 MiB on this Mac. Earlier images and
+their compiled analyses remain historical; this is not a complete stack/work,
+native-memory or physical-cost certificate.
+
+The [fresh stack captures](parliament_ballot_fatal_stack_eon/README.md) bind the
+same shared-control binaries. The analyzer now handles their scalar `STLUR` and
+`EON` instructions, with 62 passing regressions and no frame-decoding errors in
+either image. It exposes two additional portable AES native-copy calls rather
+than treating them as zero cost. Local worker/fatal frames are 176/16 bytes;
+the finite resolved regions are 15,984/13,440 bytes by mode, excluding opaque
+costs. Native calls, indirect targets, exceptional edges and the 63-function
+recursive component still prevent a complete stack bound.
 
 The [campaign inventory](../../crates/iroha_zkp_vole/tests/fixtures/standalone_adversarial.md)
 records deterministic malformed-input campaigns in portable and accelerated
@@ -418,6 +462,25 @@ The complete workspace suite was not run for this standalone work; unrelated
 concurrent changes and repository signing/staging state were preserved.
 
 ## Current-tree checks and concurrent failure
+
+The [in-memory worker](parliament_ballot_memory_entry/README.md) moves retrieval
+outside the charged interval and checks the actual borrowed length before its
+arena copy. Its separate binaries pass 16 release Rust tests, strict Clippy and
+builds per mode; all 122 observations pass with matching outcomes/stages/debits.
+The final campaign checker passes 20 tests after its JSON-overflow correction.
+The original resource worker and its disassembly remain frozen under their
+original scope. The separate [normal-return analysis](parliament_ballot_noreturn_frontiers/README.md)
+explains 50/52 ordinary continuations and 23/26 traps under explicit premises;
+native unwind, unconditional frontiers and complete resource costs remain open.
+
+The [memory-entry/frontier checks](parliament_ballot_b6/memory-driver-checks.json)
+pass 51 focused Python tests, diagnostic Rust formatting and the codec guard
+for their retained source interval. The [fresh Core source-contract check](parliament_ballot_b6/fatal-stack-source-check.json)
+after a concurrent queue edit still first fails on `queue.rs` missing the modeled `Executable::IvmProved(proved)`
+binding. That is a later source identity than the historical start-order
+failures below; it does not establish that subsequent guard sections pass.
+Availability remains false, qualified latency remains `None`, and neither Core
+nor Torii depends on the experimental ballot/backend crates.
 
 The [ownership/guard checks](parliament_ballot_b6/ownership-guards-checks.json)
 pass 60 focused Python tests. Separate peer reviews found and repaired

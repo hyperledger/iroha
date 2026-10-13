@@ -71,13 +71,17 @@ fn draft() -> AccountTransactionDraft {
 }
 
 fn harness() -> (RunContext, Option<PathBuf>) {
-    match std::env::var_os(HARNESS_OUTPUT_DIR_ENV).map(PathBuf::from) {
-        Some(directory) => (
-            read_harness_context(&directory).expect("original harness context"),
-            Some(directory),
-        ),
-        None => (RunContext::unbound(), None),
-    }
+    std::env::var_os(HARNESS_OUTPUT_DIR_ENV)
+        .map(PathBuf::from)
+        .map_or_else(
+            || (RunContext::unbound(), None),
+            |directory| {
+                (
+                    read_harness_context(&directory).expect("original harness context"),
+                    Some(directory),
+                )
+            },
+        )
 }
 
 struct Delivery {

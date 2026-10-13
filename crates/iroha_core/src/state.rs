@@ -2186,21 +2186,7 @@ impl BlockHashesBlock<'_> {
 /// Move-only original successor, including its real tree family and predecessor.
 pub(crate) struct DetachedBlockHashes {
     work: BlockHashWork,
-    #[cfg_attr(
-        not(any(test, feature = "iroha-core-tests", feature = "bench")),
-        expect(
-            dead_code,
-            reason = "TODO: connect retained aggregate hash preparation; preserve the original block mode until its exact successor is published"
-        )
-    )]
     mode: mv::BlockMode,
-    #[cfg_attr(
-        not(any(test, feature = "iroha-core-tests", feature = "bench")),
-        expect(
-            dead_code,
-            reason = "TODO: connect retained aggregate hash preparation; preserve the original visible prefix through refusal and retry"
-        )
-    )]
     visible_len: usize,
     reserved_tip: Option<usize>,
 }

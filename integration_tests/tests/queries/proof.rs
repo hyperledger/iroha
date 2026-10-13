@@ -96,11 +96,10 @@ fn rejected_stark_attachment_and_registration(
         vec![vec![[0x11; 32]], vec![[0x22; 32]]],
     )
     .expect("genuine Binding AIR proof at current consensus floors");
-    assert!(iroha_core_zk::verify_backend(
-        backend,
-        &proof_box,
-        Some(&vk_box)
-    ));
+    assert!(
+        iroha_core_zk::verify_backend(backend, &proof_box, Some(&vk_box))
+            .expect("valid proof verification must be admitted")
+    );
     let mut outer: OpenVerifyEnvelope = norito::decode_canonical(&proof_box.bytes).unwrap();
     let mut open: StarkFriOpenProofV1 = norito::decode_canonical(&outer.proof_bytes).unwrap();
     let mut inner: StarkVerifyEnvelopeV1 = norito::decode_canonical(&open.envelope_bytes).unwrap();
@@ -110,11 +109,10 @@ fn rejected_stark_attachment_and_registration(
     open.envelope_bytes = norito::encode_canonical(&inner).unwrap();
     outer.proof_bytes = norito::encode_canonical(&open).unwrap();
     proof_box.bytes = norito::encode_canonical(&outer).unwrap();
-    assert!(!iroha_core_zk::verify_backend(
-        backend,
-        &proof_box,
-        Some(&vk_box)
-    ));
+    assert!(
+        !iroha_core_zk::verify_backend(backend, &proof_box, Some(&vk_box))
+            .expect("corrupted proof verification must be admitted")
+    );
     let vk_id = VerifyingKeyId::new(backend, label);
     let record = active_vk_record(
         &circuit_id,
@@ -406,7 +404,8 @@ fn native_attachment_circuit_changes_proof_hash() {
             &relabelled.backend,
             &relabelled,
             registration.record.key.as_ref(),
-        ),
+        )
+        .expect("relabelled proof verification must be admitted"),
         "changing the circuit identity must not make the confidential proof valid for another relation"
     );
 }

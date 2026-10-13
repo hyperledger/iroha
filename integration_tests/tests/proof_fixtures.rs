@@ -94,11 +94,10 @@ pub(super) fn confidential_attachment(
             assert_eq!(schema_hash, record.public_inputs_schema_hash);
             assert_eq!(envelope.vk_hash, record.commitment);
             assert_eq!(envelope.circuit_id, record.circuit_id);
-            assert!(zk::verify_backend(
-                &result.proof.backend,
-                &result.proof,
-                record.key.as_ref()
-            ));
+            assert!(
+                zk::verify_backend(&result.proof.backend, &result.proof, record.key.as_ref())
+                    .expect("fixture verification is admitted")
+            );
             (result.proof, record)
         })
         .clone();
@@ -141,16 +140,14 @@ fn confidential_fixtures_verify_and_reject_only_native_proof_corruption() {
         .key
         .as_ref()
         .expect("inline canonical key");
-    assert!(zk::verify_backend(
-        &valid.proof.backend,
-        &valid.proof,
-        Some(key)
-    ));
-    assert!(!zk::verify_backend(
-        &invalid.proof.backend,
-        &invalid.proof,
-        Some(key)
-    ));
+    assert!(
+        zk::verify_backend(&valid.proof.backend, &valid.proof, Some(key))
+            .expect("valid fixture verification is admitted")
+    );
+    assert!(
+        !zk::verify_backend(&invalid.proof.backend, &invalid.proof, Some(key))
+            .expect("corrupted fixture verification is admitted")
+    );
     let valid_env: OpenVerifyEnvelope = norito::decode_canonical(&valid.proof.bytes).unwrap();
     let invalid_env: OpenVerifyEnvelope = norito::decode_canonical(&invalid.proof.bytes).unwrap();
     assert_eq!(

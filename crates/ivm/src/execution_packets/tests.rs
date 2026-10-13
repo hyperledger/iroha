@@ -415,17 +415,19 @@ fn short_credit_wrong_pool_and_native_faults_never_publish_partial_owners() {
         ),
     ] {
         let mut parent = super::tests::parent(&budget);
-        assert!(match (
-            NativeInvocation::run_public_leaf_root(contract, "main", gas, &mut parent, &budget),
-            expected
-        ) {
-            (Err(CaptureError::Execution(VMError::OutOfGas)), VMError::OutOfGas)
-            | (
+        assert!(matches!(
+            (
+                NativeInvocation::run_public_leaf_root(contract, "main", gas, &mut parent, &budget),
+                expected
+            ),
+            (
+                Err(CaptureError::Execution(VMError::OutOfGas)),
+                VMError::OutOfGas
+            ) | (
                 Err(CaptureError::Execution(VMError::ExceededMaxCycles)),
                 VMError::ExceededMaxCycles,
-            ) => true,
-            _ => false,
-        });
+            )
+        ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 }

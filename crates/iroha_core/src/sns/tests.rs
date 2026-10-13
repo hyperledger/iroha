@@ -638,7 +638,7 @@ fn active_dataspace_id_rejects_conflicting_static_and_dynamic_mappings() {
     match (actual, error) {
         (SnsError::Conflict(actual), SnsError::Conflict(expected)) => assert_eq!(actual, expected),
         (actual, expected) => panic!("catalog conflict differs: {actual:?} != {expected:?}"),
-    };
+    }
 }
 #[test]
 fn active_dataspace_id_accepts_matching_static_and_dynamic_mappings() {

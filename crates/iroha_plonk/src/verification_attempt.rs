@@ -43,8 +43,7 @@ impl std::error::Error for NativeVerifierInitError {
             Self::Protocol(original) => Some(original),
             Self::Codec(original) => Some(original),
             Self::Encoding(original) => Some(original),
-            Self::Invariant(_) => None,
-            Self::CachePoisoned => None,
+            Self::Invariant(_) | Self::CachePoisoned => None,
         }
     }
 }
@@ -150,6 +149,9 @@ impl VerificationRefusal {
     }
 
     /// Move out the exact decoder owner, leaving other native causes intact on mismatch.
+    ///
+    /// # Errors
+    /// Returns this owner unchanged when the original cause is a native math or initialization failure.
     pub fn into_decode_refusal(self) -> Result<DecodeLocalRefusal, Self> {
         match self.original {
             OriginalRefusal::Decode(original) => Ok(original),
@@ -236,8 +238,9 @@ fn native_refusal_kind(error: &crate::verifier::VerifyError) -> Option<Verificat
             Some(VerificationRefusalKind::NativeCancelled)
         }
         VerifyError::Ipa(original) => ipa_refusal_kind(original),
-        VerifyError::Multiopen(original) => multiopen_refusal_kind(original),
-        VerifyError::Protocol(ProtocolError::Plan(original)) => multiopen_refusal_kind(original),
+        VerifyError::Multiopen(original) | VerifyError::Protocol(ProtocolError::Plan(original)) => {
+            multiopen_refusal_kind(original)
+        }
         VerifyError::BatchItem { error, .. } => native_refusal_kind(error),
         _ => None,
     }
@@ -331,6 +334,10 @@ pub fn captured_codec_error<E>(
 
 /// Complete an actual codec operation inside its original ambient scope.
 /// Any protocol-specific nested limits must be entered by `operation`, after capture begins.
+///
+/// # Errors
+/// Returns a deferred attempt retaining the original captured local refusal when decoding cannot
+/// complete. Other codec errors become completed rejections through `rejected`.
 pub fn codec_attempt<T, E>(
     operation: impl FnOnce() -> Result<T, norito::Error>,
     rejected: impl FnOnce(norito::Error) -> E,
@@ -354,6 +361,10 @@ pub(crate) fn expect_rejected<E>(error: VerificationAttemptError<E>) -> E {
 mod tests;
 
 /// Project a completed success/rejection without ever turning an unfinished operation into a verdict.
+///
+/// # Errors
+/// Returns the original refusal unchanged when `attempt` is deferred. A completed rejection
+/// returns `Ok(None)`.
 pub fn completed_result<T, E>(
     attempt: Result<T, VerificationAttemptError<E>>,
 ) -> Result<Option<T>, VerificationRefusal> {
