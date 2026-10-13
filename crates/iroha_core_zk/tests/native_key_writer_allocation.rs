@@ -170,7 +170,7 @@ fn complete_public_cap_is_checked_before_output_allocation() {
     let mut low = 0;
     let mut high = key.len();
     while low < high {
-        let middle = (low + high).div_ceil(2);
+        let middle = low + (high - low).div_ceil(2);
         if norito::encode_canonical(&owned(&[], &key[..middle]))
             .unwrap()
             .len()

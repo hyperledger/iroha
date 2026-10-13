@@ -18,7 +18,7 @@ use std::num::NonZeroU64;
 fn projection_fixture(pipeline_gas: bool) -> (SettleAtomic, BlockHeader, TransactionEntrypoint) {
     let signer = KeyPair::from_seed(vec![71; 32], Algorithm::Ed25519);
     let payer = AccountId::new(signer.public_key().clone());
-    let payee = AccountId::new(
+    let recipient = AccountId::new(
         KeyPair::from_seed(vec![72; 32], Algorithm::Ed25519)
             .public_key()
             .clone(),
@@ -32,7 +32,7 @@ fn projection_fixture(pipeline_gas: bool) -> (SettleAtomic, BlockHeader, Transac
         SettlementId::new(payer.clone(), "projection_reference".parse().unwrap()),
         AtomicSettlementMovements::try_from(vec![AtomicSettlementMovement {
             source: AssetId::with_scope(asset.clone(), payer.clone(), AssetBalanceScope::Global),
-            recipient: payee,
+            recipient,
             quantity: Quantity::from(42_u32),
         }])
         .unwrap(),

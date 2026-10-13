@@ -26,7 +26,7 @@ use super::{
 };
 use crate::{
     query::native_receipts::lane_payload::{LaneAuthority, LanePayloadError},
-    state::{State, StateReadOnly, WorldReadOnly},
+    state::{State, StateReadOnly, StateViewReleases, WorldReadOnly},
 };
 
 pub(crate) mod history;
@@ -192,17 +192,21 @@ impl NativeLaneStoreAuthorities {
         incarnation: [u8; 32],
     ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
         let budget = self.state.ivm_execution_budget();
+        let read = || {
+            // Physical reader notifications are independent of allocation refunds. Keep
+            // their exact State sources outside the scan frame and inside its original pool.
+            let mut releases = StateViewReleases::new(&self.state);
+            self.historical_record_with_scan(lane, incarnation, &mut releases)
+        };
         if cfg!(all(test, sumeragi_core_mutation = "HC351")) {
-            self.historical_record_with_scan(lane, incarnation)
+            read()
         } else {
-            budget.with_deferred_refund_notifications(|_| {
-                self.historical_record_with_scan(lane, incarnation)
-            })
+            budget.with_deferred_refund_notifications(|_| read())
         }
     }
 
-    // The original pool scope encloses every scan guard, including progress/refusal,
-    // cancellation, terminal rejection, stale-cut cleanup and successful transfer.
+    // The original pool and physical reader scopes enclose every scan guard, including
+    // progress/refusal, cancellation, terminal rejection, stale-cut cleanup and transfer.
     // Retire this frame before waking a caller that can reenter the full history reader;
     // its large original scan temporaries must not remain on the callback's stack.
     #[inline(never)]
@@ -210,6 +214,7 @@ impl NativeLaneStoreAuthorities {
         &self,
         lane: LaneId,
         incarnation: [u8; 32],
+        releases: &mut StateViewReleases<'_>,
     ) -> Result<Option<LaneAuthority>, Attempt<io::Error>> {
         let mut pending_scan = self
             .scan
@@ -236,7 +241,7 @@ impl NativeLaneStoreAuthorities {
             *pending_scan = None;
         }
         if pending_scan.is_none() {
-            *pending_scan = HistoryScan::open(&self.state, lane, incarnation)?;
+            *pending_scan = HistoryScan::open_retaining(releases, lane, incarnation)?;
         }
         let Some(scan) = pending_scan.as_mut() else {
             return Ok(None);
@@ -357,3 +362,16 @@ pub(in crate::sumeragi) mod tests;
 
 #[cfg(test)]
 mod refund_tests;
+
+#[cfg(test)]
+impl NativeLaneStoreAuthorities {
+    /// Probe the actual scan mutex without waiting in a synchronous reader callback.
+    pub(in crate::sumeragi) fn scan_unlocked_for_reader_test(&self) -> bool {
+        self.scan.try_lock().is_some()
+    }
+    /// Probe original State physical owners after the history reader retires.
+    pub(in crate::sumeragi) fn assert_original_state_readers_available_for_test(&self) {
+        self.state
+            .assert_view_physical_fences_released_for_reader_test();
+    }
+}

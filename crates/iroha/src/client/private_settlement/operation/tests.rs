@@ -24,6 +24,7 @@ use iroha_data_model::{
     },
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -41,7 +42,10 @@ fn prepared(
         .map(|index| {
             let mut material = template.clone();
             let route = manifest.legs[index].route;
-            let (authority, _) = existing::finalization_authority_v1(route, index as u8);
+            let (authority, _) = existing::finalization_authority_v1(
+                route,
+                u8::try_from(index).expect("fixture leg ordinal fits u8"),
+            );
             let mut policy = template.audit_policy.body.clone();
             policy.dataspace_id = route.dataspace_id;
             policy.activation_height = 1;
@@ -57,14 +61,14 @@ fn prepared(
         let mut delta = existing::finalization_delta_v1(&manifest, index);
         let aad = &mut material.audit_capsule.aad;
         aad.bundle_id = manifest.bundle_id;
-        aad.leg_ordinal = index as u8;
+        aad.leg_ordinal = u8::try_from(index).expect("fixture leg ordinal fits u8");
         aad.route = leg.route;
         aad.authority_context_height = manifest.authority_context_height;
         aad.authority_digest = material.committee_authority.digest().unwrap();
         aad.audit_policy_digest = material.audit_policy.policy_digest;
         let statement = &mut material.statement;
         statement.bundle_id = manifest.bundle_id;
-        statement.leg_ordinal = index as u8;
+        statement.leg_ordinal = u8::try_from(index).expect("fixture leg ordinal fits u8");
         statement.route = leg.route;
         statement.authority_context_height = manifest.authority_context_height;
         statement.pool_id = leg.pool_id;
@@ -82,7 +86,8 @@ fn prepared(
         delta.capsule_digest = statement.audit_capsule_digest;
         material.delta = delta;
         material.availability_body.bundle_id = manifest.bundle_id;
-        material.availability_body.leg_ordinal = index as u8;
+        material.availability_body.leg_ordinal =
+            u8::try_from(index).expect("fixture leg ordinal fits u8");
         material.availability_body.route = leg.route;
         material.availability_body.authority_context_height = manifest.authority_context_height;
         material.availability_body.authority_digest =
@@ -156,13 +161,21 @@ fn phase_certificates(
         .iter()
         .enumerate()
         .map(|(index, material)| {
-            let (authority, keys) =
-                existing::finalization_authority_v1(material.statement.route, index as u8);
-            let body =
-                expected_phase_body_v1(manifest, index as u8, &authority, phase, digest).unwrap();
+            let (authority, keys) = existing::finalization_authority_v1(
+                material.statement.route,
+                u8::try_from(index).expect("fixture leg ordinal fits u8"),
+            );
+            let body = expected_phase_body_v1(
+                manifest,
+                u8::try_from(index).expect("fixture leg ordinal fits u8"),
+                &authority,
+                phase,
+                digest,
+            )
+            .unwrap();
             aggregate_phase_votes_v1(
                 &body,
-                index as u8,
+                u8::try_from(index).expect("fixture leg ordinal fits u8"),
                 &authority,
                 &existing::phase_votes_v1(&authority, &keys, &body, &[0, 1, 2]),
             )
@@ -171,7 +184,10 @@ fn phase_certificates(
         .collect()
 }
 fn complete_round(journal: &mut WorkflowJournalV1, index: usize, bytes: Vec<u8>) {
-    let round_id = crate::workflow::round_identity(&journal.id(), index as u32);
+    let round_id = crate::workflow::round_identity(
+        &journal.id(),
+        u32::try_from(index).expect("fixture round index fits u32"),
+    );
     journal
         .apply_round(index, RoundInputV1::Intent { round_id })
         .unwrap();
@@ -270,10 +286,10 @@ fn certified(
                 completions: Vec::new(),
             })],
             0,
-            Default::default(),
+            BTreeMap::default(),
             Vec::new(),
             AxtPolicySnapshot::default(),
-            Default::default(),
+            BTreeSet::default(),
             &ExecutionOutputLimits {
                 max_outputs: 16,
                 max_output_bytes: 16 * 1024 * 1024,
@@ -284,9 +300,9 @@ fn certified(
         .unwrap();
     let mut verifier = native.verifier();
     let proof = native.certify(block);
-    let verified = verifier.verify(&proof).unwrap();
-    let evidence = observation::evidence(verified.block(), 0).unwrap();
-    (verified, evidence)
+    let authenticated = verifier.verify(&proof).unwrap();
+    let evidence = observation::evidence(authenticated.block(), 0).unwrap();
+    (authenticated, evidence)
 }
 
 #[test]
@@ -872,4 +888,43 @@ fn private_settlement_promotion_counts_only_three_exact_acknowledgements_after_o
         snapshots.lock().unwrap().len(),
         n * request.0.materials.len()
     );
+}
+
+#[test]
+fn private_settlement_network_indices_preserve_binding_error_classification() {
+    assert_eq!(observation::network_index(0).unwrap(), 0);
+    let maximum = usize::try_from(u32::MAX).expect("supported pointer width represents u32");
+    assert_eq!(observation::network_index(maximum).unwrap(), u32::MAX);
+    if let Some(overflow) = maximum.checked_add(1) {
+        assert!(matches!(
+            observation::network_index(overflow),
+            Err(PrivateSettlementError::Binding)
+        ));
+        assert!(matches!(
+            observation::network_index(usize::MAX),
+            Err(PrivateSettlementError::Binding)
+        ));
+    }
+}
+
+#[test]
+fn private_settlement_step_failure_keeps_binding_and_local_resource_codes() {
+    for (error, code) in [
+        (
+            PrivateSettlementError::Binding,
+            WorkflowErrorCode::BindingMismatch,
+        ),
+        (
+            PrivateSettlementError::Worker,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+        (
+            PrivateSettlementError::ReadBudget,
+            WorkflowErrorCode::LocalResourceUnavailable,
+        ),
+    ] {
+        let converted = failure(&error);
+        assert_eq!(converted.code, code);
+        assert_eq!(converted.detail, error.to_string());
+    }
 }

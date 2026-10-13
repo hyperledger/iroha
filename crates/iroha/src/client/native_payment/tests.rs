@@ -950,7 +950,7 @@ async fn native_payment_unsigned_resume_preserves_journal_without_signing_or_bui
     assert_eq!(account.signs.load(Ordering::Relaxed), 0);
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
     // Both resume capabilities refuse construction, even if a future engine path asks.
-    assert!(matches!(payment.resume_handle.progress().unwrap(), Some(_)));
+    assert!(payment.resume_handle.progress().unwrap().is_some());
     let journal = payment.handle.journal_snapshot().unwrap().unwrap();
     let plan = request.plan().unwrap();
     let context = StepContext {

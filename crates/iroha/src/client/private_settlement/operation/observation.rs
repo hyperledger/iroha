@@ -131,10 +131,10 @@ impl SettlementLedger {
                 let TransactionEntrypoint::External(transaction) = entry else {
                     return None;
                 };
-                (super::identity(transaction) == *identity).then_some(index as u32)
+                (super::identity(transaction) == *identity).then_some(index)
             })
             .ok_or(PrivateSettlementError::Binding)?;
-        let evidence = evidence(block.block(), index)?;
+        let evidence = evidence(block.block(), network_index(index)?)?;
         block.verify_transaction_execution(&self.request.manifest().network_id, &evidence)?;
         Ok(Some((block, evidence)))
     }
@@ -160,7 +160,7 @@ impl SettlementLedger {
         };
         if check_payload(
             &self.request,
-            &*lock(&self.state)?,
+            lock(&self.state)?.as_ref(),
             transaction.payload(),
             false,
         )? != REGISTER
@@ -208,22 +208,18 @@ impl SettlementLedger {
             .transaction
             .as_ref()
             .and_then(|t| t.attempts.last())
+            && let Some(identity) = &attempt.identity
+            && let Some((block, evidence)) = self
+                .located(
+                    identity,
+                    attempt.evidence.as_ref().and_then(|e| e.block_height),
+                )
+                .await?
+            && evidence.result().is_ok()
         {
-            if let Some(identity) = &attempt.identity {
-                if let Some((block, evidence)) = self
-                    .located(
-                        identity,
-                        attempt.evidence.as_ref().and_then(|e| e.block_height),
-                    )
-                    .await?
-                {
-                    if evidence.result().is_ok() {
-                        return Ok(Some(VerifiedPrivateSettlementReceipt::verify_recovered(
-                            &block, &barrier, evidence,
-                        )?));
-                    }
-                }
-            }
+            return Ok(Some(VerifiedPrivateSettlementReceipt::verify_recovered(
+                &block, &barrier, evidence,
+            )?));
         }
         // A public DTO supplies a height only. The independently retained barrier and
         // genesis-rooted successful original input/output authenticate the business result.
@@ -253,19 +249,23 @@ impl SettlementLedger {
             let [instruction] = instructions.as_ref() else {
                 continue;
             };
-            if instruction
+            if !instruction
                 .as_any()
                 .downcast_ref::<FinalizeAtomicPrivateSettlementV1>()
                 .is_some_and(|i| i.commit_bundle.manifest.bundle_id == bundle_id)
-                && block
-                    .block()
-                    .network_output_at(index as u32)
-                    .is_some_and(|(_, output)| output.result.is_ok())
+            {
+                continue;
+            }
+            let index = network_index(index)?;
+            if block
+                .block()
+                .network_output_at(index)
+                .is_some_and(|(_, output)| output.result.is_ok())
             {
                 return Ok(Some(VerifiedPrivateSettlementReceipt::verify_recovered(
                     &block,
                     &barrier,
-                    evidence(block.block(), index as u32)?,
+                    evidence(block.block(), index)?,
                 )?));
             }
         }
@@ -308,7 +308,7 @@ impl SettlementLedger {
         };
         let phase = check_payload(
             &self.request,
-            &*lock(&self.state)?,
+            lock(&self.state)?.as_ref(),
             transaction.payload(),
             false,
         )?;
@@ -341,7 +341,7 @@ impl WorkflowLedger for SettlementLedger {
             let checked = (|| {
                 check_payload(
                     &self.request,
-                    &*lock(&self.state)?,
+                    lock(&self.state)?.as_ref(),
                     transaction.payload(),
                     true,
                 )?;
@@ -390,10 +390,10 @@ impl WorkflowLedger for SettlementLedger {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     let detail = error.to_string();
-                    if let Ok(mut slot) = lock(&self.error) {
-                        if slot.is_none() {
-                            *slot = Some(error);
-                        }
+                    if let Ok(mut slot) = lock(&self.error)
+                        && slot.is_none()
+                    {
+                        *slot = Some(error);
                     }
                     CommittedOutcome::ReadFailed { detail }
                 }
@@ -401,6 +401,11 @@ impl WorkflowLedger for SettlementLedger {
         })
     }
 }
+// Out-of-range authenticated locators are binding failures, never truncated indices.
+pub(super) fn network_index(index: usize) -> std::result::Result<u32, PrivateSettlementError> {
+    u32::try_from(index).map_err(|_| PrivateSettlementError::Binding)
+}
+
 pub(super) fn evidence(
     block: &SignedBlock,
     index: u32,

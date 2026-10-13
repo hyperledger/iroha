@@ -186,8 +186,8 @@ LANES_MAX_BYTES = 16 * 1024 * 1024
 _LANE_STATUS = frozenset(("record", "instance"))
 _LANE_RECORD = frozenset("lane dataspace incarnation params da_layout committee created_at active_from closing anchor_freshness merged merged_at rescued".split())
 _LANE_DA_LAYOUT = frozenset("encoding chunk_size_bytes data_shards parity_shards max_payload_size_bytes max_chunk_count".split())
-_LANE_PARAMS = tuple("block_cadence_ms max_clock_drift_ms key_activation_lead_blocks key_overlap_grace_blocks key_expiry_grace_blocks key_allowed_algorithms payload_retry_interval_ms exec_budget_ms apply_budget_ms max_block_bytes epoch_length_blocks demotion_window".split())
-_LANE_NONZERO_PARAMS = frozenset(("block_cadence_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"))
+_LANE_PARAMS = tuple("block_cadence_ms max_clock_drift_ms due_work_max_lag_ms key_activation_lead_blocks key_overlap_grace_blocks key_expiry_grace_blocks key_allowed_algorithms payload_retry_interval_ms exec_budget_ms apply_budget_ms max_block_bytes epoch_length_blocks demotion_window".split())
+_LANE_NONZERO_PARAMS = frozenset(("block_cadence_ms", "due_work_max_lag_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms", "max_block_bytes", "epoch_length_blocks", "demotion_window"))
 _LANE_FRONTIER = frozenset(("height", "block_hash", "result"))
 _LANE_MEMBER = frozenset(("peer", "pop"))
 _KEY_ALGORITHMS = frozenset(("ed25519", "secp256k1", "ml-dsa", "bls_normal", "bls_small", "gost3410-2012-256-paramset-a", "gost3410-2012-256-paramset-b", "gost3410-2012-256-paramset-c", "gost3410-2012-512-paramset-a", "gost3410-2012-512-paramset-b", "sm2"))
@@ -203,6 +203,7 @@ class SumeragiParameters:
     """Chain parameters pinned into one lane incarnation (Rust `SumeragiParameters`)."""
     block_cadence_ms: int
     max_clock_drift_ms: int
+    due_work_max_lag_ms: int
     key_activation_lead_blocks: int
     key_overlap_grace_blocks: int
     key_expiry_grace_blocks: int
