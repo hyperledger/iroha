@@ -116,6 +116,11 @@ asset definitions: `Unregister<AssetDefinition>` and domain unregistration are
 rejected while an agreement references them, so an issuer cannot destroy
 pledged collateral or repayment balances by retiring the definition.
 
+A repo whose cash or collateral leg is a registered bond blocks recording of
+that bond's cash flows while it is active, and a bond whose redemption is
+recorded can no longer be pledged or returned through a repo (see
+`specs/finance/bond_ops.md`).
+
 Revoking a proposal permission after a successful open does not strand the
 agreement: consent has already been materialized as immutable agreement state.
 Maturity settlement still respects current asset transfer controls.
