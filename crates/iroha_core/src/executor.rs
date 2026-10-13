@@ -4616,10 +4616,10 @@ fn evaluate_nexus_fee_admission_payload(
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 ///
 /// # Errors
-///
-/// Returns a rejection for invalid fee configuration, charge limits, or an
-/// ineligible or insufficiently funded payer. Returns a deferral when the
-/// original SCCP source cannot complete the fee-exemption check.
+/// Returns a rejection for unsupported settlement configuration, invalid gas
+/// or signed charge limits, unresolved fee policy or assets, insufficient
+/// funding, or invalid sponsor authorization/capacity. Original local policy
+/// and exemption-read refusals remain `Deferred`.
 pub fn quote_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4715,10 +4715,9 @@ fn fee_exempt_admission_quote(payload: &TransactionPayload) -> FeeAdmissionQuote
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 ///
 /// # Errors
-///
-/// Returns the fee-policy, payer, or resource-deferral errors from admission
-/// evaluation. Also rejects a schedule that does not converge to canonical
-/// charge limits within the deterministic iteration bound.
+/// Returns the same policy, gas, asset and funding errors as strict fee quoting,
+/// or a configuration error if canonical charge limits do not converge within
+/// 32 iterations. Original local read refusals remain `Deferred`.
 pub fn quote_nexus_fee_admission_draft(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4800,9 +4799,8 @@ pub fn quote_nexus_fee_admission_draft(
 #[allow(clippy::too_many_arguments)] // Separate fee horizon and original SCCP ledger time.
 ///
 /// # Errors
-///
-/// Propagates the fee-policy, funding, charge-limit, and resource-deferral
-/// errors from [`quote_nexus_fee_admission_payload`].
+/// Propagates the signed-limit, policy, funding and local-read errors from
+/// [`quote_nexus_fee_admission_payload`] for the transaction payload.
 pub fn quote_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,

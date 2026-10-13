@@ -208,8 +208,11 @@ settlement uniqueness prevents a second full return through this operation.
 The return signs typed metadata binding the original network, ID, successful hash
 and complete intent hash. Its own expiry and exact fee authorization remain
 independently supplied. `NativePaymentReturnOperation` reuses `NativePaymentOperation`
-and its durable journal; `VerifiedPaymentReturn` retains both independently verified
-successful receipts. The original settlement is never reversed or marked rejected.
+and its durable journal. Its `submit` explicitly authorizes the return attempt and
+fees; `resume` can only continue an original signed carrier or independently
+recover successful return settlement. It cannot sign a replacement rejected
+carrier; fresh or unsigned journals without success require explicit submission.
+`VerifiedPaymentReturn` retains both independently verified successful receipts. The original settlement is never reversed or marked rejected.
 An ISO lifecycle report alone cannot construct the linked verified return.
 
 This API is full-return only. Ordinary reverse payments with other IDs are not

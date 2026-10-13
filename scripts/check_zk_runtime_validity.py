@@ -276,7 +276,7 @@ class Detector:
 # resource contract before a scan: dotted read path -> catalog field name.
 CATALOG_FIELD_PATHS: dict[str, str] = {}
 # Section names as State and services spell them -> the catalog's spelling.
-_SECTION_ALIASES = {"gov": "governance"}
+_SECTION_ALIASES = {"gov": "governance", "fraud_monitoring": "fraud"}
 
 
 def set_catalog_field_paths(contract: Any) -> None:

@@ -90,6 +90,10 @@ impl NetworkAcquisition {
 
     /// Accept one actual row. If the retained retry slot is occupied, return the incoming
     /// original owner to the bounded caller; never replace the refused owner.
+    ///
+    /// # Errors
+    /// Returns the incoming chunk unchanged while a previous chunk is pending or the
+    /// acquisition has already completed.
     #[allow(
         clippy::result_large_err,
         reason = "return exact incoming relay owner under backpressure"

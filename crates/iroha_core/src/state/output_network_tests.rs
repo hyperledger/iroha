@@ -676,13 +676,22 @@ mod effects;
 mod quarantine;
 
 #[test]
-fn frozen_fraud_admission_refuses_before_business_work_and_grace_preserves_execution() {
-    for grace in [Duration::ZERO, Duration::from_secs(1)] {
-        let mut state = fixture(65_536, None);
-        state.fraud_monitoring.enabled = true;
-        state.fraud_monitoring.required_minimum_band =
-            Some(iroha_config::parameters::actual::FraudRiskBand::Low);
-        state.fraud_monitoring.missing_assessment_grace = grace;
+fn frozen_fraud_admission_refuses_before_business_work_and_permission_preserves_execution() {
+    for missing_assessment_permitted in [false, true] {
+        let state = fixture(65_536, None);
+        let policy = iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: true,
+            required_minimum_band: Some(iroha_data_model::fraud::FraudRiskBandV1::Low),
+            missing_assessment_permitted,
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        };
+        let mut parameters = state.world.block();
+        parameters
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .unwrap();
+        parameters.commit();
         let source = carrier(
             &state,
             vec![input(
@@ -703,7 +712,7 @@ fn frozen_fraud_admission_refuses_before_business_work_and_grace_preserves_execu
         let before = block.committed_fragment_count();
         execute(&mut block, &source).unwrap();
         let result = network_row(&block, 0);
-        if grace.is_zero() {
+        if !missing_assessment_permitted {
             assert!(
                 matches!(result.result.as_ref(), Err(iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
                 iroha_data_model::ValidationFail::NotPermitted(reason))) if reason == "fraud monitoring requires an attached assessment")

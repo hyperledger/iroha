@@ -667,15 +667,6 @@ fn signing_refusal_retains_author_and_reports_local_fault_before_retry() {
         fn public_key(&self) -> &PublicKey {
             self.inner.public_key()
         }
-        fn sign_prepare(
-            &self,
-            context: &iroha_sumeragi::crypto::PrepareSigningContext<'_>,
-        ) -> Result<Signature, SigningError> {
-            if self.refused.load(Ordering::SeqCst) {
-                return Err(SigningError::Refused);
-            }
-            self.inner.sign_prepare(context)
-        }
         fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {
             if self.refused.load(Ordering::SeqCst) {
                 return Err(SigningError::Refused);

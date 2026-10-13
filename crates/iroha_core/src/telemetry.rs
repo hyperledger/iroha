@@ -5286,9 +5286,9 @@ impl Telemetry {
     #[cfg(feature = "telemetry")]
     ///
     /// # Errors
-    ///
-    /// Returns an error if the telemetry actor cannot accept or complete the
-    /// synchronization request before the deadline.
+    /// Returns an error if the bounded actor mailbox rejects synchronization, the
+    /// actor closes, the synchronization deadline expires, or the actor reports
+    /// a failure while refreshing metrics.
     pub async fn metrics_fresh_checked(&self) -> Result<&Metrics, String> {
         if let Err(err) = self.synchronize_metrics().await {
             self.sync_requested.store(false, Ordering::Release);
@@ -5304,10 +5304,9 @@ impl Telemetry {
     #[cfg(feature = "telemetry")]
     ///
     /// # Errors
-    ///
-    /// Returns an error if telemetry is disabled, the actor mailbox is
-    /// unavailable or closes, the deadline expires, or the actor cannot capture
-    /// a current classified status.
+    /// Returns a status error for disabled telemetry, mailbox/actor/deadline failure,
+    /// busy or changed State custody, unavailable or inconsistent history, original
+    /// resource refusal, or invalid classified counters.
     pub async fn status_snapshot(
         &self,
         build: &iroha_torii_shared::status::BuildStatus,
@@ -9192,11 +9191,11 @@ mod tests {
                     None,
                     transactions
                         .into_iter()
-                        .map(|transaction| {
-                            transaction
-                                .external()
-                                .expect("ordinary telemetry fixture transaction")
-                                .clone()
+                        .map(|transaction| match transaction.into_entrypoint() {
+                            iroha_data_model::transaction::TransactionEntrypoint::External(
+                                signed,
+                            ) => signed,
+                            _ => panic!("telemetry fixture authors an external transaction"),
                         })
                         .collect(),
                 )
@@ -9599,10 +9598,13 @@ mod tests {
                         );
                     }
                 }
-                let mut chain = sut.native_chain.lock().expect("native chain mutex");
+                // Keep the genuine chain owner across the async observations without
+                // carrying its fixture-slot mutex into the runtime.
+                let mut chain = {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    original.take().expect("native fixture")
+                };
                 let mut pending = chain
-                    .as_mut()
-                    .unwrap()
                     .begin_proposal(candidate, iroha_sumeragi::types::ControlWitness::default())
                     .expect("original unpublished execution");
                 assert!(pending.inspect_prepared(|_| ()).is_err());
@@ -9659,7 +9661,14 @@ mod tests {
                     .publish(crate::sumeragi::test_chain::Signers::Quorum)
                     .expect("publish original execution with its native certificate");
                 drop(pending);
-                drop(chain);
+                {
+                    let mut original = sut.native_chain.lock().expect("native chain mutex");
+                    assert!(
+                        original.is_none(),
+                        "the original fixture chain has one owner"
+                    );
+                    *original = Some(chain);
+                }
                 sut.force_sync().await;
                 assert_eq!(metrics.block_height.get(), old_height + 1);
                 assert_eq!(metrics.block_height_non_empty.get(), old_non_empty + 1);

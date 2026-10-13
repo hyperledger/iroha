@@ -8,7 +8,7 @@ No live deployment or release readiness is established by this record.
 
 The complete first-release implementation and qualification goal is active.
 Implementation and validation use only the `optimizations` branch in
-`/Users/takemiyamakoto/dev/iroha`. Results from another checkout do not
+`/Users/takemiyamakoto/soramitsudev/iroha`. Results from another checkout do not
 qualify this candidate; all outstanding gates must run against this source.
 The selected design replaces retired layouts and paths; backward-compatible
 decoders, aliases, shims and parallel implementations are prohibited.

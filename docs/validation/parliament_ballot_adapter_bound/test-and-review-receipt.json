@@ -1,0 +1,34 @@
+{
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "scripts/tests/parliament_ballot_adapter_bound_test.py"
+  ],
+  "current_source_identity_matches": false,
+  "exit": 0,
+  "helper_sha256": "b63967416926cbd4f52bed855c7e749cf11d572416006d7b8bd9a899eb5ca138",
+  "independent_ownership_review": {
+    "checked": [
+      "actual conditional predicates",
+      "three tree-loop bounds",
+      "same pointer/N/alignment forwarding",
+      "call depths",
+      "terminal composition",
+      "5298 instruction and336 stack bounds",
+      "post-analysis source drift"
+    ],
+    "source_compiled_argument_review": "clear under stated premises",
+    "tests_passed": 20
+  },
+  "independent_root_review": {
+    "source_and_checker_review": "clear under stated premises",
+    "tests_passed": 20
+  },
+  "log": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_bound/tests-tool-transcript.txt",
+  "log_sha256": "03b9e67787c2f09b7c86d013c62570c8ce3d77de18f557f13f1e764fbdd4ce64",
+  "profile_qualified": false,
+  "record_source": "Exact focused pytest stdout retained from the successful tool execution before the later source drift; not a new test run.",
+  "tests_sha256": "fd50dc20a211e17bc1cc3361a3129b1e11b36e354e17b088a6af128c18047cdd"
+}

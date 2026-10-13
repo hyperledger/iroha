@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::native_operation::attempts::UnsignedClosureVerification;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_wallet::operations::{NativePreparationPhase, VerifiedNativePreparation};
 use std::{cell::RefCell, rc::Rc};
 
@@ -157,13 +158,7 @@ impl Evidence {
         for body in &history.bodies {
             value.add(
                 &body.directory,
-                &[
-                    "reserved.nrt",
-                    "original.nrt",
-                    "dispatch.nrt",
-                    "closing.nrt",
-                    "closed.nrt",
-                ],
+                &["reserved.nrt", "original.nrt", metadata::FILE],
             );
         }
         let old = history
@@ -173,17 +168,7 @@ impl Evidence {
             .unwrap();
         let attempt = old.last().unwrap();
         let directory = Arc::new(PrivateDirectory::open(attempt.directory().path()).unwrap());
-        value.add(
-            &directory,
-            &[
-                "authorization.nrt",
-                "observation.nrt",
-                "committed.nrt",
-                "retired.nrt",
-                "carrier.nrt",
-                "replay.nrt",
-            ],
-        );
+        value.add(&directory, &["carrier.nrt", "replay.nrt"]);
         let wallet = Arc::new(
             directory
                 .open_child_optional("transaction")
@@ -210,9 +195,13 @@ impl Evidence {
             self.records.push((
                 Arc::clone(directory),
                 (*name).to_owned(),
-                read_optional(directory, name, journal::MAX_ORIGINAL_BYTES)
-                    .unwrap()
-                    .map(zeroize::Zeroizing::new),
+                read_optional(
+                    directory,
+                    name,
+                    journal::MAX_ORIGINAL_BYTES.max(metadata::MAX_IMAGE_BYTES),
+                )
+                .unwrap()
+                .map(zeroize::Zeroizing::new),
             ));
         }
     }
@@ -221,7 +210,12 @@ impl Evidence {
             assert_eq!(directory.entries(32).unwrap(), *names);
         }
         for (directory, name, original) in &self.records {
-            let actual = read_optional(directory, name, journal::MAX_ORIGINAL_BYTES).unwrap();
+            let actual = read_optional(
+                directory,
+                name,
+                journal::MAX_ORIGINAL_BYTES.max(metadata::MAX_IMAGE_BYTES),
+            )
+            .unwrap();
             assert_eq!(
                 actual.as_deref(),
                 original.as_ref().map(|bytes| bytes.as_slice()),
@@ -238,15 +232,31 @@ struct ChangedRecord {
 }
 impl ChangedRecord {
     fn replace(directory: &Arc<PrivateDirectory>, name: &'static str) -> Self {
+        let logical = matches!(name, "dispatch.nrt" | "closing.nrt" | "closed.nrt");
+        let physical = if logical { metadata::FILE } else { name };
+        let maximum = if logical {
+            metadata::MAX_IMAGE_BYTES
+        } else {
+            journal::MAX_ORIGINAL_BYTES
+        };
         let value = Self {
             directory: Arc::clone(directory),
-            name,
-            original: directory.read(name, journal::MAX_ORIGINAL_BYTES).unwrap(),
+            name: physical,
+            original: directory.read(physical, maximum).unwrap(),
         };
-        let mut changed = value.original.to_vec();
-        changed[0] ^= 1;
+        let changed = if logical {
+            let mut component = metadata::test_read_component(directory, None, name)
+                .unwrap()
+                .expect("genuine retained metadata component");
+            component[0] ^= 1;
+            metadata::test_changed_image(&value.original, None, name, Some(&component)).unwrap()
+        } else {
+            let mut changed = value.original.to_vec();
+            changed[0] ^= 1;
+            changed
+        };
         directory
-            .write_atomic(name, &changed, PublishMode::Replace)
+            .write_atomic(physical, &changed, PublishMode::Replace)
             .unwrap();
         value
     }

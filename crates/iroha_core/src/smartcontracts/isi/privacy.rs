@@ -977,6 +977,7 @@ impl Execute for BootstrapPrivacyProofManagedPoolV1 {
         state_transaction: &mut StateTransaction<'_, '_>,
     ) -> Result<(), Error> {
         const INITIAL_EPOCH: u64 = 1;
+
         ensure_privacy_governance(authority, state_transaction)?;
         let encoded_action_bytes = norito::canonical_frame_len(&self)
             .ok()

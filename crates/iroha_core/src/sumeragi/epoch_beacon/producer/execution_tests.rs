@@ -422,7 +422,7 @@ fn native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work(
     assert!(
         matches!(
             executor(&unrequested).execute(&requested_nothing, &hash, false),
-            Ok(Some(ExecOutcome::Valid(_)))
+            Ok(Some(ExecOutcome::Valid { .. }))
         ),
         "without the unrequested witness the same ordinary body is valid"
     );
@@ -710,7 +710,7 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
                 &hash,
                 false
             ),
-            Ok(Some(ExecOutcome::Valid(_)))
+            Ok(Some(ExecOutcome::Valid { .. }))
         ),
         "without the unrequested witness the same body is valid at the governance slot"
     );
@@ -815,6 +815,8 @@ fn pending_parliament_slots_create_no_native_control_demand_and_never_block_unre
 /// election can consume; storing it does not move the election.
 #[test]
 fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots() {
+    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
+
     fn mandatory_at_nine(fixture: Fixture) -> (Fixture, Pulse) {
         let (mut fixture, witness) = complete(fixture);
         let pulse = control::decode(&witness).unwrap().unwrap();
@@ -847,7 +849,6 @@ fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots(
     }
 
     // Parliament state absent.
-    use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     let (plain, _) = mandatory_at_nine(fixture());
     assert!(slot_index(&plain.chain).is_empty());
 

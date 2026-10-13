@@ -1,13 +1,13 @@
 // Actual retained geometry operation ownership, including real journal I/O failures.
 
-fn with_raw_geometry_fixture(test: impl FnOnce(&Kura, &GeometryBindingRequest<'_>)) {
+fn with_raw_geometry_fixture(test: impl FnOnce(&Arc<Kura>, &GeometryBindingRequest<'_>)) {
     with_raw_geometry_fixture_mode(false, MAX_DISK_USAGE_BYTES, test);
 }
 
 fn with_raw_geometry_fixture_mode(
     in_memory: bool,
     max_disk_usage_bytes: iroha_config_base::util::Bytes,
-    test: impl FnOnce(&Kura, &GeometryBindingRequest<'_>),
+    test: impl FnOnce(&Arc<Kura>, &GeometryBindingRequest<'_>),
 ) {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("kura");
@@ -461,4 +461,302 @@ fn raw_geometry_retains_current_markers_without_retired_lane_artifact_namespace(
             assert!(!path.join("lane_artifacts").exists());
         }
     });
+}
+
+mod original_watch_release_tests {
+    use super::*;
+    use std::{
+        future::Future,
+        sync::atomic::AtomicUsize,
+        task::{Context, Wake, Waker},
+    };
+
+    struct Probe {
+        kura: Arc<Kura>,
+        calls: AtomicUsize,
+        blocked: AtomicUsize,
+        reentered: AtomicUsize,
+    }
+    impl Wake for Probe {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            let free = self
+                .kura
+                .publication_fences_for_test()
+                .iter()
+                .all(|(_, lock)| lock.try_lock().is_some());
+            self.blocked.fetch_add(usize::from(!free), Ordering::SeqCst);
+            if free {
+                // Reenter the real physical acquisition, on this default test stack.
+                let lease = self
+                    .kura
+                    .try_publication_lease()
+                    .expect("callback original Kura");
+                self.reentered.fetch_add(1, Ordering::SeqCst);
+                drop(lease);
+            }
+            self.calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum Completion {
+        CapturedRollback,
+        AppliedRollback,
+        Catalog,
+        PureDrop,
+        PartialError,
+        Unwind,
+    }
+
+    fn check_original_watch(completion: Completion) {
+        with_raw_geometry_fixture(|kura, request| {
+            let probe = Arc::new(Probe {
+                kura: Arc::clone(kura),
+                calls: AtomicUsize::new(0),
+                blocked: AtomicUsize::new(0),
+                reentered: AtomicUsize::new(0),
+            });
+            let waker = Waker::from(Arc::clone(&probe));
+            let lease = kura.try_publication_lease().unwrap();
+            let original = lease
+                .begin_raw_geometry_attempt(request, &BTreeSet::new())
+                .unwrap();
+            let mut wait = match lease.begin_raw_geometry_attempt(request, &BTreeSet::new()) {
+                Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+                other => panic!("original claim must exclude a competitor: {other:?}"),
+            };
+            let mut future = Box::pin(wait.wait_for_release());
+            assert!(
+                future
+                    .as_mut()
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_pending()
+            );
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut original = original;
+                match completion {
+                    Completion::CapturedRollback => original.rollback_under(&lease).unwrap(),
+                    Completion::AppliedRollback => {
+                        original.resume_under(&lease).unwrap();
+                        original.rollback_under(&lease).unwrap();
+                    }
+                    Completion::Catalog => {
+                        original.resume_under(&lease).unwrap();
+                        original.publish_catalog_under(&lease, None).unwrap();
+                    }
+                    Completion::PureDrop => (),
+                    Completion::PartialError => {
+                        crate::kura::fail_next_bound_progress_intent_file_sync_for_tests();
+                        assert!(original.resume_under(&lease).is_err());
+                        assert!(original.has_pending_journal_write());
+                    }
+                    Completion::Unwind => {
+                        std::panic::resume_unwind(Box::new("original geometry unwind"))
+                    }
+                }
+            }));
+            assert_eq!(outcome.is_err(), matches!(completion, Completion::Unwind));
+            if let Err(payload) = outcome {
+                assert_eq!(
+                    payload.downcast_ref::<&'static str>(),
+                    Some(&"original geometry unwind")
+                );
+            }
+            if matches!(completion, Completion::PartialError) {
+                assert!(matches!(
+                    lease.begin_raw_geometry_attempt(request, &BTreeSet::new()),
+                    Err(Error::LaneGeometryAttemptAbandoned)
+                ));
+            } else {
+                let mut replacement = lease
+                    .begin_raw_geometry_attempt(request, &BTreeSet::new())
+                    .unwrap();
+                replacement.rollback_under(&lease).unwrap();
+            }
+            drop(lease);
+            assert_eq!(
+                probe.blocked.load(Ordering::SeqCst),
+                0,
+                "original geometry watch must wait for all physical owners"
+            );
+            assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(probe.reentered.load(Ordering::SeqCst), 1);
+            assert!(
+                future
+                    .as_mut()
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_ready()
+            );
+        });
+    }
+
+    #[test]
+    fn original_geometry_captured_rollback_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::CapturedRollback);
+    }
+    #[test]
+    fn original_geometry_applied_rollback_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::AppliedRollback);
+    }
+    #[test]
+    fn original_geometry_catalog_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::Catalog);
+    }
+    #[test]
+    fn original_geometry_pure_drop_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::PureDrop);
+    }
+    #[test]
+    fn original_geometry_partial_error_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::PartialError);
+    }
+    #[test]
+    fn original_geometry_unwind_watch_follows_physical_cleanup() {
+        check_original_watch(Completion::Unwind);
+    }
+
+    fn check_capture_exit_watch(unwind: bool) {
+        with_raw_geometry_fixture(|kura, request| {
+            let probe = Arc::new(Probe {
+                kura: Arc::clone(kura),
+                calls: AtomicUsize::new(0),
+                blocked: AtomicUsize::new(0),
+                reentered: AtomicUsize::new(0),
+            });
+            let waker = Waker::from(Arc::clone(&probe));
+            let parked = std::rc::Rc::new(std::cell::RefCell::new(
+                None::<std::pin::Pin<Box<dyn Future<Output = ()>>>>,
+            ));
+            let parked_hook = std::rc::Rc::clone(&parked);
+            let hook_waker = waker.clone();
+            let journal = kura.lane_geometry_journal_path();
+            let original_bytes = fs::read(&journal).unwrap();
+            let hook_journal = journal.clone();
+            super::super::raw_attempt::observe_original_capture_for_test(move |gate| {
+                let mut wait = match gate.ensure_unclaimed() {
+                    Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+                    other => panic!("capture owns its exact original claim: {other:?}"),
+                };
+                let mut future = Box::pin(async move { wait.wait_for_release().await });
+                assert!(
+                    future
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&hook_waker))
+                        .is_pending()
+                );
+                *parked_hook.borrow_mut() = Some(future);
+                if unwind {
+                    std::panic::resume_unwind(Box::new("original capture unwind"));
+                }
+                // The real capture reader rejects this exact malformed source.
+                fs::write(&hook_journal, [0]).unwrap();
+            });
+            let lease = kura.try_publication_lease().unwrap();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                lease.begin_raw_geometry_attempt(request, &BTreeSet::new())
+            }));
+            assert_eq!(result.is_err(), unwind);
+            match result {
+                Ok(result) => assert!(result.is_err()),
+                Err(payload) => assert_eq!(
+                    payload.downcast_ref::<&'static str>(),
+                    Some(&"original capture unwind")
+                ),
+            }
+            fs::write(&journal, original_bytes).unwrap();
+            let mut replacement = lease
+                .begin_raw_geometry_attempt(request, &BTreeSet::new())
+                .unwrap();
+            replacement.rollback_under(&lease).unwrap();
+            drop(lease);
+            assert_eq!(
+                probe.blocked.load(Ordering::SeqCst),
+                0,
+                "original geometry watch must wait for all physical owners"
+            );
+            assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+            assert!(
+                parked
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_ready()
+            );
+        });
+    }
+
+    #[test]
+    fn original_geometry_capture_error_watch_follows_physical_cleanup() {
+        check_capture_exit_watch(false);
+    }
+    #[test]
+    fn original_geometry_capture_unwind_watch_follows_physical_cleanup() {
+        check_capture_exit_watch(true);
+    }
+
+    #[test]
+    fn original_geometry_detached_notices_do_not_wait_for_another_cleanup_owner() {
+        with_raw_geometry_fixture(|kura, request| {
+            let mut futures = Vec::new();
+            let mut probes = Vec::new();
+            let mut cleanups = Vec::new();
+            for _ in 0..2 {
+                let probe = Arc::new(Probe {
+                    kura: Arc::clone(kura),
+                    calls: AtomicUsize::new(0),
+                    blocked: AtomicUsize::new(0),
+                    reentered: AtomicUsize::new(0),
+                });
+                let waker = Waker::from(Arc::clone(&probe));
+                let lease = kura.try_publication_lease().unwrap();
+                let mut original = lease
+                    .begin_raw_geometry_attempt(request, &BTreeSet::new())
+                    .unwrap();
+                let mut wait = match lease.begin_raw_geometry_attempt(request, &BTreeSet::new()) {
+                    Err(Error::LaneGeometryAttemptBusy { wait }) => wait,
+                    other => panic!("original capture owns its claim: {other:?}"),
+                };
+                let mut future = Box::pin(async move { wait.wait_for_release().await });
+                assert!(
+                    future
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&waker))
+                        .is_pending()
+                );
+                original.rollback_under(&lease).unwrap();
+                drop(original);
+                cleanups.push(lease.release_deferred());
+                futures.push(future);
+                probes.push(probe);
+            }
+            assert!(
+                probes
+                    .iter()
+                    .all(|probe| probe.calls.load(Ordering::SeqCst) == 0)
+            );
+            drop(cleanups.remove(0));
+            assert_eq!(probes[0].calls.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                probes[1].calls.load(Ordering::SeqCst),
+                0,
+                "a later original notice stays with its own cleanup"
+            );
+            drop(cleanups.pop());
+            for (probe, mut future) in probes.into_iter().zip(futures) {
+                assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+                assert_eq!(probe.blocked.load(Ordering::SeqCst), 0);
+                assert!(
+                    future
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&Waker::from(probe)))
+                        .is_ready()
+                );
+            }
+        });
+    }
 }

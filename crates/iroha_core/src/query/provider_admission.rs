@@ -217,10 +217,9 @@ fn active_record(
 /// Local time must satisfy issuance; expiry uses the later of local and finalized block time.
 ///
 /// # Errors
-///
-/// Returns an error if the finalized source cannot be authenticated,
-/// authoritative admission state is malformed or stale, or the active
-/// policy or provider evidence fails network, time, or signature checks.
+/// Returns a provider-admission error if current State/Kura finality cannot be
+/// authenticated, retained policy/history is malformed or stale, network or
+/// policy bindings differ, or issuance/expiry/signature checks fail.
 pub fn read_finalized_provider_admission_v1(
     view: &impl StateReadOnly,
     provider: ProviderId,
@@ -305,9 +304,9 @@ fn authenticate_current_head(view: &impl StateReadOnly) -> Result<(), Error> {
 /// Count permanent provider identities, including revocation tombstones, at a finalized cut.
 ///
 /// # Errors
-///
-/// Returns an error if the finalized source cannot be authenticated, the
-/// count cannot be decoded, or it exceeds the protocol provider bound.
+/// Returns a provider-admission error if current finality or its retained head
+/// cannot be authenticated, the count cannot be decoded, or it exceeds the
+/// protocol provider bound.
 pub fn retained_provider_count_v1(view: &impl StateReadOnly) -> Result<u64, Error> {
     authenticate_current(view)?;
     let count: u64 = view
@@ -326,9 +325,8 @@ pub fn retained_provider_count_v1(view: &impl StateReadOnly) -> Result<u64, Erro
 /// Preserve advert replay floors for admitted and permanently revoked native identities.
 ///
 /// # Errors
-///
-/// Returns an error if the finalized source cannot be authenticated or the
-/// provider history head is malformed.
+/// Returns a provider-admission error if current finality cannot be authenticated
+/// or the retained provider history head cannot be decoded and validated.
 pub fn retains_provider_identity_v1(
     view: &impl StateReadOnly,
     provider: ProviderId,
@@ -339,9 +337,9 @@ pub fn retains_provider_identity_v1(
 /// Read the current finalized council for dependent governance-signature validation.
 ///
 /// # Errors
-///
-/// Returns an error if finalized authority or policy decoding fails, the
-/// policy is paused or belongs to another network, or its council is invalid.
+/// Returns a provider-admission error if current finality or policy cannot be
+/// authenticated, the policy belongs to another network or is paused, or its
+/// council cannot be constructed.
 pub fn read_finalized_admission_council_v1(
     view: &impl StateReadOnly,
 ) -> Result<Option<ProviderAdmissionCouncilPolicy>, Error> {

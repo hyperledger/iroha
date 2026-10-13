@@ -56,7 +56,7 @@ impl From<AdmissionAttemptError> for LaneEntryError {
         match error {
             AdmissionAttemptError::Rejected(error) => Self::Admission(error),
             AdmissionAttemptError::Deferred(refusal) => Self::Deferred(refusal),
-            AdmissionAttemptError::AnchorDeferred(refusal) => Self::AnchorDeferred(refusal),
+            AdmissionAttemptError::ResourceDeferred(refusal) => Self::AnchorDeferred(refusal),
         }
     }
 }

@@ -205,7 +205,7 @@ fn source_with_fee(
         quantity_successor_header(state)
             .creation_time()
             .checked_sub(Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let transaction = transaction
         .with_instructions(body)
@@ -666,7 +666,7 @@ fn distinct_signed_entries_retain_exact_independent_counters() {
             quantity_successor_header(&state)
                 .creation_time()
                 .checked_sub(Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let transaction = transaction
             .with_instructions(body)
@@ -2417,7 +2417,7 @@ fn with_sealed_quantity_source_census(
             header
                 .creation_time()
                 .checked_sub(Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let signed = transaction
             .with_instructions(body)
@@ -2778,7 +2778,7 @@ fn bob_account_removal_source(state: &State, repeat: bool) -> (SignedBlock, Hash
         quantity_successor_header(state)
             .creation_time()
             .checked_sub(Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let mut body = vec![InstructionBox::from(Unregister::account(BOB_ID.clone()))];
     if repeat {

@@ -115,18 +115,34 @@ impl Drop for QueueResidentCharge {
     }
 }
 
+/// One exact original admission, physically funded inside its shared input shell.
+pub(super) struct QueueAdmission {
+    checked: CheckedTransaction<'static>,
+    incarnation: u64,
+}
+
 /// The production Queue's sole shared accepted owner; cloning retains the original graph.
 pub(super) struct QueuedTransaction {
-    original: Shared<CheckedTransaction<'static>, QueueResidentCharge>,
+    original: Shared<QueueAdmission, QueueResidentCharge>,
 }
 
 impl QueuedTransaction {
+    /// Exact funded shell, including the immutable admission identity.
+    pub(super) fn allocation_layout() -> std::alloc::Layout {
+        Shared::<QueueAdmission, QueueResidentCharge>::layout()
+    }
+
+    /// The non-reusable identity assigned by the original Queue under its mutation fence.
+    pub(super) fn incarnation(&self) -> u64 {
+        self.original.incarnation
+    }
+
     /// Reserve the concrete shell before moving or publishing the checked transaction.
     pub(super) fn reserve(
         ledger: &ChargedShared<QueueResidentLedger>,
         encoded_len: usize,
-    ) -> Result<Reserved<CheckedTransaction<'static>, QueueResidentCharge>, Error> {
-        let layout = Shared::<CheckedTransaction<'static>, QueueResidentCharge>::layout();
+    ) -> Result<Reserved<QueueAdmission, QueueResidentCharge>, Error> {
+        let layout = Self::allocation_layout();
         let mut reservation = ledger
             .budget
             .try_reserve(layout)
@@ -148,11 +164,15 @@ impl QueuedTransaction {
     }
 
     pub(super) fn initialize(
-        shell: Reserved<CheckedTransaction<'static>, QueueResidentCharge>,
+        shell: Reserved<QueueAdmission, QueueResidentCharge>,
         checked: CheckedTransaction<'static>,
+        incarnation: u64,
     ) -> Self {
         Self {
-            original: shell.initialize(checked),
+            original: shell.initialize(QueueAdmission {
+                checked,
+                incarnation,
+            }),
         }
     }
 
@@ -173,7 +193,7 @@ impl Clone for QueuedTransaction {
 impl std::ops::Deref for QueuedTransaction {
     type Target = CheckedTransaction<'static>;
     fn deref(&self) -> &Self::Target {
-        &self.original
+        &self.original.checked
     }
 }
 

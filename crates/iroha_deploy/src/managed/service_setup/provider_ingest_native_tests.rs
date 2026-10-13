@@ -2,6 +2,7 @@
 use super::tests::{fixture, ingest, options};
 use super::*;
 use crate::managed::native_operation::Fees;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::{
     test_support::{
         UnavailablePeers,
@@ -229,12 +230,7 @@ fn genuine_ingest_original_expiry_never_creates_wallet_or_requests_http() {
         checkpoint: checkpoint_bytes(&checkpoint).unwrap(),
     };
     owner.inner.validate_original(&original).unwrap();
-    let directory = owner
-        .inner
-        .authority
-        .directory
-        .ensure_child("setup")
-        .unwrap();
+    let directory = metadata::ensure_operation(&owner.inner.authority.directory, "setup").unwrap();
     let original = super::tests::retain_explicit_request(
         &owner.inner,
         &directory,
@@ -249,8 +245,16 @@ fn genuine_ingest_original_expiry_never_creates_wallet_or_requests_http() {
         "committed.nrt",
         "transaction/preparation.json",
     ];
-    let prefix =
-        prefix_names.map(|name| std::fs::read(original.directory().path().join(name)).unwrap());
+    let retained_bytes = |name: &str| {
+        if name == "transaction/preparation.json" {
+            std::fs::read(original.directory().path().join(name)).unwrap()
+        } else {
+            metadata::test_read_attempt_component(original.attempt(), name)
+                .unwrap()
+                .expect("retained request-only metadata frame")
+        }
+    };
+    let prefix = prefix_names.map(&retained_bytes);
     let end = Instant::now() + Duration::from_secs(2);
     while now_ms().unwrap() < original.terms.signing_deadline_unix_ms {
         assert!(Instant::now() < end);
@@ -280,10 +284,7 @@ fn genuine_ingest_original_expiry_never_creates_wallet_or_requests_http() {
         );
     }
     for (name, bytes) in prefix_names.into_iter().zip(prefix) {
-        assert_eq!(
-            std::fs::read(original.directory().path().join(name)).unwrap(),
-            bytes
-        );
+        assert_eq!(retained_bytes(name), bytes);
     }
     assert!(
         !original

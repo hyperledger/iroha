@@ -826,10 +826,12 @@ impl ProviderFundingBootstrap {
                 "later funding purpose contains unknown retained material",
             ));
         }
-        owner
-            .directory
-            .open_child_optional(child)?
-            .map_or_else(|| Ok(()), |directory| require_empty(&directory))
+        owner.directory.open_child_optional(child)?.map_or_else(
+            || Ok(()),
+            |directory| {
+                crate::managed::native_operation::attempts::metadata::require_unselected(&directory)
+            },
+        )
     }
     fn plan(&self) -> Result<RetainedProviderServicePlan> {
         self.authority.provider_plan()

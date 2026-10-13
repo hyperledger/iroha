@@ -140,10 +140,32 @@ obligations that the Norito ↔ ISO 20022 bridge must enforce before emitting m
   the settlement currency is missing from `currency_assets`, preventing malformed bridge
   instructions from reaching the ledger. Every currency binding also requires a positive
   `max_amount`; values above that per-message ceiling are rejected before signing.
-  `SplmtryData/SourceAccountId`, `TargetAccountId`, and `AssetDefinitionId` may repeat the
-  resolved binding for audit interoperability, but cannot replace it. IBAN validation also
+  Signed canonical `NexusSettlement/SourceAccountId`, `TargetAccountId`, and
+  `AssetDefinitionId` are mandatory. Gateway mappings must match these exact identities;
+  changing a local IBAN or currency binding cannot select different payment terms. IBAN validation also
   applies country-specific lengths and numeric check digits before the ISO 7064 mod‑97 pass
   so structurally invalid values are rejected early.【crates/iroha_torii/src/iso20022_bridge.rs#L775】【crates/iroha_torii/src/iso20022_bridge.rs#L827】【crates/ivm/src/iso20022.rs#L1255】
+- Native pacs.008/pacs.009 payments carry one `SettleAtomic` instruction. `SettlementId`
+  binds the signed canonical payer to the existing lower-case canonical UETR. The signed XML's
+  `SplmtryData/Envlp` contains one `NexusSettlement` in
+  `urn:iroha:iso20022:nexus:v1`, with `NetworkId`, canonical positive `ExpiresAtHeight`,
+  and canonical `SourceAccountId`, `TargetAccountId`, and `AssetDefinitionId`. All five
+  leaves are required, unique, and in that namespace; account and asset aliases are not
+  native identities. Expiry is absolute committed height, never a gateway-local duration.
+  The native intent contains one explicit Global movement and empty metadata.
+  Gateway message IDs and descriptive envelope metadata do not alter its identity or terms.
+- The same lifecycle journal retains the complete canonical Norito intent, immutable attempted
+  transaction hash, canonical carrier outcome, and separate successful business carrier/receipt
+  and actual Nexus fee outcome. A rejected retry remains rejected at the carrier level; exact
+  original business success may settle the intent only after the original signed successful
+  input/output and the complete terms are authenticated. World receipts only locate that source.
+  The reader requires the committed Global root before and after original-source authentication;
+  matching a network identifier alone cannot grant private or absent roots Global authority.
+  Restored journal evidence reports `verified=false` and does not emit ACSC until reauthenticated.
+  Clients still require independent finality/receipt verification before customer credit.
+- The configured gateway signer may delegate the payer only under Core's exact committed
+  settlement permission. Direct payer-authorized singleton retries have the Core pre-fee
+  idempotency treatment; delegated duplicate carriers retain ordinary rejection fee policy.
 - The CLI settlement helpers inherit the same guard rails: pass
   `--iso-reference-crosswalk <path>` alongside `--delivery-instrument-id` to have the DvP
   preview validate instrument IDs before emitting the `sese.023` XML snapshot.【crates/iroha_cli/src/main.rs#L3752】
@@ -524,6 +546,9 @@ iroha app settlement dvp \
 - Clearstream DCP manuals, ECMS documentation for maintenance messages.
 
 ### pacs.004 return mapping notes
+
+- An authenticated inbound return creates a separately journaled `reported_return` linked to the original message and immutable payload/carrier identity. It preserves the original successful settlement and never asserts a native reverse transfer. The report binds the original parties and profile, currency, and positive returned amount no greater than the original amount.
+- When the original exists but its canonical execution is unresolved, the report remains `pending_original` and pins its original through retention and restart. The canonical reader resolves successful native business effects to `external_report` and conflicting terms to `invalid_terms`. For native intent payments, rejection of one attempted carrier leaves the report pending because a different exact carrier may settle that intent; it is not business non-execution evidence. For non-native original instructions the exact canonical rejection maps to `original_rejected`; publication wakes local reconciliation even after the final block. A locally rejected original without an assigned or queued carrier resolves to `original_not_submitted`, a gateway observation without a native execution or non-execution claim. Missing originals are rejected because no authenticated binding is available. An actual refund requires a separate authorized reverse payment and its independently verified receipt.
 
 - return fixtures now normalise `ChrgBr` (`DEBT`/`CRED`/`SHAR`/`SLEV`) and proprietary return reasons exposed as `TxInf[*]/RtrdRsn/Prtry`, so bridge consumers can replay fee attribution and operator codes without re-parsing the XML envelope.
 - Torii can emit return/cancellation/status XML from durable bridge records via `/v1/iso20022/messages/{msg_id}/pacs004`, `/camt029`, `/sese024`, and `/sese025`. The `pacs.004` and `sese.025` helpers fail when the original record lacks required amount/currency or securities-leg context, so evidence remains tied to submitted ISO messages instead of placeholders.

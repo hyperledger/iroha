@@ -103,6 +103,19 @@ the finite resolved regions are 15,984/13,440 bytes by mode, excluding opaque
 costs. Native calls, indirect targets, exceptional edges and the 63-function
 recursive component still prevent a complete stack bound.
 
+The separate [adapter bound](parliament_ballot_adapter_bound/README.md) isolates
+the code around `Reservation::verify` in these two images. Under its explicit
+ownership, ordinary-flow and native premises, that region uses at most 336
+stack bytes including the red zone, 5,298 issued instructions outside opaque
+callees, and one 524,288-byte input block inside the existing arena. All 20
+checker tests pass. The verifier and native routine costs remain unknown;
+this does not supply a whole-call work or workspace certificate.
+After capture and passing tests, concurrent edits changed `Cargo.lock` and four
+allocator files. The [post-analysis check](parliament_ballot_adapter_bound/post-analysis-source-check.json)
+retains their exact hashes, and the [current-source refusal](parliament_ballot_adapter_bound/current-source-refusal/report.json)
+correctly reports UNKNOWN. The recorded binaries, reports and source interval
+remain unchanged; no result is transferred to those later source revisions.
+
 The [campaign inventory](../../crates/iroha_zkp_vole/tests/fixtures/standalone_adversarial.md)
 records deterministic malformed-input campaigns in portable and accelerated
 release modes: 3,100 backend cases and 5,656 ballot cases, with identical
@@ -475,7 +488,7 @@ native unwind, unconditional frontiers and complete resource costs remain open.
 
 The [memory-entry/frontier checks](parliament_ballot_b6/memory-driver-checks.json)
 pass 51 focused Python tests, diagnostic Rust formatting and the codec guard
-for their retained source interval. The [fresh Core source-contract check](parliament_ballot_b6/fatal-stack-source-check.json)
+for their retained source interval. The [fresh Core source-contract check](parliament_ballot_b6/adapter-deletion-source-check.json)
 after a concurrent queue edit still first fails on `queue.rs` missing the modeled `Executable::IvmProved(proved)`
 binding. That is a later source identity than the historical start-order
 failures below; it does not establish that subsequent guard sections pass.

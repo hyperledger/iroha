@@ -307,6 +307,10 @@ impl ExplicitParameters {
                 self.value.demotion_window = value;
                 64
             }
+            SumeragiParameter::DueWorkMaxLagMs(value) => {
+                self.value.due_work_max_lag_ms = value;
+                128
+            }
         };
         if self.seen & bit != 0 {
             return Err("signed genesis repeats a native Sumeragi parameter".into());
@@ -315,9 +319,14 @@ impl ExplicitParameters {
         Ok(())
     }
     fn finish(self) -> Result<ChainParamsRecord, String> {
-        if self.seen != 0x7f {
+        if self.seen != 0xff {
             return Err("signed genesis omits an explicit native Sumeragi parameter".into());
         }
+        self.value
+            .validate_clock_policy()
+            .map_err(|error| error.to_string())?;
+        crate::sumeragi_amx::amx_max_time_window_ms(self.value.block_cadence_ms().get())
+            .map_err(|error| error.to_string())?;
         let parameters = ChainParamsRecord::from_parameters(&self.value);
         parameters.validate().map_err(|error| error.to_string())?;
         Ok(parameters)
@@ -808,6 +817,12 @@ impl VerifiedSumeragiBlock {
     #[must_use]
     pub const fn root_scope(&self) -> crate::block::consensus::SumeragiRootScope {
         self.1
+    }
+
+    /// Native instance already authenticated by the original genesis-selected verifier.
+    /// Genesis has no native successor header; reading this scalar grants no new authority.
+    pub(crate) fn native_instance_id(&self) -> Option<[u8; 32]> {
+        self.0.header.as_ref().map(|header| header.instance.0)
     }
 
     /// The authenticated Iroha header.

@@ -31,7 +31,8 @@ fn published_execution_result_binds_the_original_header_and_body_digest() {
         use sha2::{Digest as _, Sha256};
         let block = proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, hash, false)
+        else {
             panic!("the original ordinary proposal must execute before the result comparison")
         };
         let original = worker.live.as_ref().unwrap();
@@ -80,10 +81,11 @@ pub(super) fn with_worker_from(
     crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-publication-test")
         .spawn(move || {
             let chain = make_chain();
-            with_worker_chain(
+            with_worker_chain_and_clock(
                 &chain,
                 consensus_mode,
                 Arc::new(crate::sumeragi::lanes::merge::NoLanes),
+                chain.execution_time_source(),
                 test,
             );
         })
@@ -262,11 +264,6 @@ fn with_worker_chain_erased(
         schedule,
     );
     let mut worker = Worker {
-        prepare_clock: crate::sumeragi::crypto::prepare_clock::PrepareClock::new(
-            &context.state.ivm_execution_budget(),
-            context.time_source.clone(),
-        )
-        .expect("original worker clock admission"),
         payload_build: None,
         signature_decode: None,
         context: &context,
@@ -426,7 +423,7 @@ fn payload_decode_refusal_retains_available_owner_without_negative_cache() {
         drop(epoch);
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Ok(Some(ExecOutcome::Valid(_)))
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
         assert!(!worker.results.contains_key(&hash));
         assert!(worker.signature_decode.is_none());
@@ -670,6 +667,7 @@ pub(super) fn proposal_with_transactions(
             parent: &parent,
             view: 0,
             cadence,
+            proposed_time: block_time,
         },
         &accepted,
     )
@@ -707,7 +705,8 @@ fn execute_proposal(
 ) -> (AvailableBody, Qc) {
     let crypto = worker.context.crypto.as_ref().unwrap();
     let block_hash = block.hash(&**crypto);
-    let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
+    let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+    else {
         panic!("original native validation must succeed")
     };
     let height = block.header().height;
@@ -1759,7 +1758,8 @@ fn context_proof_capacity_retry_retains_original_witness_inputs_and_execution() 
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original execution completes after real pool release")
         };
         assert!(worker.finishing.is_none());
@@ -1868,7 +1868,8 @@ fn result_encoding_capacity_retry_keeps_original_execution_and_allocation_custod
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("release permits encoding of the same original execution");
         };
         assert!(worker.finishing.is_none());
@@ -2922,7 +2923,8 @@ fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
         assert_eq!(budget.reserved_bytes(), held.unwrap());
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!("same original result proof must complete after the caller scope retires")
         };
         let live = worker.live.as_ref().unwrap();
@@ -3132,7 +3134,8 @@ fn native_context_archive_decoder_refusal_retains_original_execution_and_retries
         assert_eq!(worker.state.committed_height(), 1);
         assert!(events.try_recv().is_err());
 
-        let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = worker.execute(&block, block_hash, false)
+        else {
             panic!(
                 "the unchanged original execution must finish after the caller decoder scope retires"
             )
@@ -3372,7 +3375,9 @@ fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
         }
         assert!(events.try_recv().is_err());
         drop(occupied);
-        let Ok(Some(ExecOutcome::Valid(digest))) = worker.execute(&block, block_hash, false) else {
+        let Ok(Some(ExecOutcome::Valid { result: digest, .. })) =
+            worker.execute(&block, block_hash, false)
+        else {
             panic!("original execution finishes after actual pool capacity returns")
         };
         let live = worker.live.as_ref().unwrap();

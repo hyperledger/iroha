@@ -20,6 +20,15 @@ pub enum SigningError {
     Refused,
     /// The signing backend rejected its local input.
     InvalidInput,
+    /// The original time-sensitive execution is too old for a first Prepare.
+    StaleExecution {
+        /// Original authenticated block timestamp.
+        block_time_ms: u64,
+        /// Fresh injected wall-clock observation.
+        observed_ms: u64,
+        /// Committed allowance captured from the original parent.
+        max_lag_ms: u64,
+    },
 }
 
 impl core::fmt::Display for SigningError {
@@ -27,6 +36,7 @@ impl core::fmt::Display for SigningError {
         f.write_str(match self {
             Self::Refused => "local signing refused",
             Self::InvalidInput => "local signing input rejected",
+            Self::StaleExecution { .. } => "original execution is stale for first Prepare",
         })
     }
 }
@@ -51,73 +61,10 @@ impl core::fmt::Display for AggregationError {
 }
 impl std::error::Error for AggregationError {}
 
-/// Core-owned context for signing one canonical Prepare value.
-/// Local backends may recheck execution-clock observations immediately before signing.
-/// Only the machine constructs this context; a durable reservation alone is uncertified.
-pub struct PrepareSigningContext<'a> {
-    preimage: &'a [u8],
-    instance: Hash32,
-    epoch: crate::types::EpochId,
-    height: u64,
-    block_hash: Hash32,
-    result: Hash32,
-    certified: bool,
-}
-
-impl<'a> PrepareSigningContext<'a> {
-    pub(crate) fn new(
-        preimage: &'a [u8],
-        instance: Hash32,
-        epoch: crate::types::EpochId,
-        height: u64,
-        block_hash: Hash32,
-        result: Hash32,
-        certified: bool,
-    ) -> Self {
-        Self {
-            preimage,
-            instance,
-            epoch,
-            height,
-            block_hash,
-            result,
-            certified,
-        }
-    }
-    /// Exact canonical Prepare bytes to sign.
-    pub fn preimage(&self) -> &'a [u8] {
-        self.preimage
-    }
-    /// Authenticated consensus instance of the vote.
-    pub fn instance(&self) -> &Hash32 {
-        &self.instance
-    }
-    /// Authenticated epoch of the vote.
-    pub fn epoch(&self) -> &crate::types::EpochId {
-        &self.epoch
-    }
-    /// Height of the vote.
-    pub fn height(&self) -> u64 {
-        self.height
-    }
-    /// Exact available block being prepared.
-    pub fn block_hash(&self) -> &Hash32 {
-        &self.block_hash
-    }
-    /// Exact successful execution result being prepared.
-    pub fn result(&self) -> &Hash32 {
-        &self.result
-    }
-    /// Whether an authenticated held `PrepareQC` certifies this exact block and result.
-    pub fn certified(&self) -> bool {
-        self.certified
-    }
-}
-
 /// A local, non-blocking signing key (§12.1). `sign` runs inside `handle`. It MUST be
 /// deterministic (the same key and preimage always give the same bytes, as BLS does): after a
-/// restart the core re-creates recorded messages by signing their recorded preimages again
-/// (§6.10 rule 0, §7.4).
+/// restart the core re-creates proposals, Commits and timeouts from their recorded preimages.
+/// Prepare instead reuses its authenticated persisted signature (§6.10 rule 0, §7.4).
 pub trait Signer: Send + Sync {
     /// The consensus public key.
     fn public_key(&self) -> &PublicKey;
@@ -126,11 +73,30 @@ pub trait Signer: Send + Sync {
     /// # Errors
     /// A local backend refusal; callers retain durable reservations and publish no message.
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError>;
-    /// Sign one Core-owned Prepare context after applying local execution-clock guards.
+    /// Sign a first Prepare only after the original application owner admits this source.
+    /// The preimage is derived from the core-owned request, never supplied independently.
     ///
     /// # Errors
-    /// Local refusal retains the original durable reservation and publishes no vote.
-    fn sign_prepare(&self, context: &PrepareSigningContext<'_>) -> Result<Signature, SigningError>;
+    /// A local application-admission or signing refusal, preserving the reservation.
+    fn sign_prepare(
+        &self,
+        request: &crate::prepare_admission::PrepareSigningRequest,
+        admission: &crate::prepare_admission::ExecutionAdmission,
+    ) -> Result<Signature, SigningError> {
+        #[cfg(sumeragi_mutation = "MS71")]
+        let _ = admission;
+        #[cfg(not(sumeragi_mutation = "MS71"))]
+        admission.check(request)?;
+        self.sign(&crate::preimage::vote_preimage(
+            VoteKind::Prepare,
+            &request.instance(),
+            &request.epoch(),
+            request.height(),
+            request.view(),
+            &request.block_hash(),
+            &request.result(),
+        ))
+    }
 }
 
 /// Pure cryptographic primitives (§12.1): BLS in production, a fake scheme in the simulator.

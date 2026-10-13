@@ -528,7 +528,8 @@
     "dkg",
     "threshold_opening",
     "native_payment",
-    "amx_relay"
+    "amx_relay",
+    "private_settlement"
   ],
   "workflow_statuses": [
     {

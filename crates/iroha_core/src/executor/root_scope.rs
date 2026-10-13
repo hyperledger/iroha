@@ -3,12 +3,12 @@
 use iroha_data_model::{
     ValidationFail,
     block::consensus::SumeragiRootScope,
-    isi::{InstructionBox, Log, SetParameter},
+    isi::{GrantBox, InstructionBox, Log, RevokeBox, SetParameter},
 };
 use iroha_executor_data_model::isi::multisig::MultisigInstructionBox;
 
 use crate::{
-    state::{RootScopeDecodeRefusal, StateStorageAdmissionError, StateTransaction},
+    state::{RootScopeDecodeRefusal, StateReadOnly, StateStorageAdmissionError, StateTransaction},
     sumeragi::lanes::routing::read_committed_root_scope,
 };
 
@@ -251,12 +251,13 @@ pub(crate) fn ensure_instruction_scope(
             "private instruction execution differs from its signed root dataspace",
         ));
     }
-    ensure_private_instruction(instruction, state, dataspace_id, 0)
+    ensure_private_instruction(instruction, state, scope, dataspace_id, 0)
 }
 
 fn ensure_private_instruction(
     instruction: &InstructionBox,
     state: &mut StateTransaction<'_, '_>,
+    scope: SumeragiRootScope,
     dataspace: iroha_model_base::topology::DataSpaceId,
     depth: usize,
 ) -> Result<(), ValidationFail> {
@@ -275,6 +276,15 @@ fn ensure_private_instruction(
         ));
     }
     let bootstrap = state.genesis_execution_scope.is_some();
+    if !bootstrap
+        && !cfg!(all(test, sumeragi_core_mutation = "HC341"))
+        && is_exact_local_amx_approval(instruction, state, scope)?
+    {
+        // Scope ownership only: normal Grant/Revoke execution still requires the
+        // debit owner's authorization and forbids holder redelegation. The relay's
+        // universal account or aliases do not determine the consent's root.
+        return Ok(());
+    }
     let resolve = if bootstrap {
         crate::queue::private_genesis_instruction_target
     } else {
@@ -322,7 +332,7 @@ fn ensure_private_instruction(
         match multisig {
             MultisigInstructionBox::Propose(propose) => {
                 for nested in &propose.instructions {
-                    ensure_private_instruction(nested, state, dataspace, depth + 1)?;
+                    ensure_private_instruction(nested, state, scope, dataspace, depth + 1)?;
                 }
             }
             MultisigInstructionBox::Approve(approve) => {
@@ -333,7 +343,7 @@ fn ensure_private_instruction(
                     .map_err(|error| state.attempt_error_to_validation_fail(error))?
                 {
                     for nested in &instructions {
-                        ensure_private_instruction(nested, state, dataspace, depth + 1)?;
+                        ensure_private_instruction(nested, state, scope, dataspace, depth + 1)?;
                     }
                 }
             }
@@ -354,19 +364,69 @@ fn ensure_private_instruction(
     ))
 }
 
+// Only the direct account wrappers have this reviewed scope owner. Role grants
+// and every other permission continue through the existing private-root profile.
+fn is_exact_local_amx_approval(
+    instruction: &InstructionBox,
+    state: &mut StateTransaction<'_, '_>,
+    scope: SumeragiRootScope,
+) -> Result<bool, ValidationFail> {
+    let any = instruction.as_any();
+    let permission = match (
+        any.downcast_ref::<GrantBox>(),
+        any.downcast_ref::<RevokeBox>(),
+    ) {
+        (Some(GrantBox::Permission(grant)), _) => &grant.object,
+        (_, Some(RevokeBox::Permission(revoke))) => &revoke.object,
+        _ => return Ok(false),
+    };
+    if permission.name() != "CanPrepareAmx" {
+        return Ok(false);
+    }
+    let token = super::decode_exact_amx_approval_permission(permission)
+        .map_err(|error| state.attempt_error_to_validation_fail(error))?;
+    let instance = scope
+        .instance_id(
+            &crate::sumeragi::crypto::BlsCrypto::new(),
+            *state.network_id(),
+            state.chain_id().as_str(),
+        )
+        .map_err(|_| denied("AMX approval requires the authenticated participant instance"))?;
+    token
+        .approval
+        .validate_root(*state.network_id(), scope, instance.0)
+        .map_err(|_| denied("AMX approval belongs to another private root"))?;
+    Ok(true)
+}
+
 fn is_global_amx_coordinator_instruction(instruction: &InstructionBox) -> bool {
     use iroha_data_model::isi::sumeragi_amx::{
-        BeginAmxV1, RegisterAmxDataspaceV1, RelayAmxHandoffV1, RelayAmxPreparedV1,
+        BeginAmxV1, ExpireAmxV1, RegisterAmxDataspaceV1, RelayAmxHandoffV1, RelayAmxPreparedV1,
     };
     let instruction = instruction.as_any();
     instruction.is::<RegisterAmxDataspaceV1>()
         || instruction.is::<BeginAmxV1>()
+        || instruction.is::<ExpireAmxV1>()
         || instruction.is::<RelayAmxPreparedV1>()
         || instruction.is::<RelayAmxHandoffV1>()
 }
 
 fn is_reviewed_root_local_instruction(instruction: &InstructionBox) -> bool {
-    instruction.as_any().is::<Log>()
+    let any = instruction.as_any();
+    any.is::<Log>()
+        // Roles and their assignments belong to this immutable root's own World.
+        // Removal cannot issue or delegate a capability. This classifies scope only:
+        // ordinary executor authorization and contract-runtime gates still apply.
+        // Initial requires current CanManageRoles; a committed UserProvided executor
+        // retains its own authorization policy.
+        || (!cfg!(all(
+            test,
+            feature = "mutation-testing",
+            sumeragi_core_mutation = "HC343"
+        )) && matches!(
+            any.downcast_ref::<iroha_data_model::isi::UnregisterBox>(),
+            Some(iroha_data_model::isi::UnregisterBox::Role(_))
+        ))
 }
 
 fn denied(message: &'static str) -> ValidationFail {

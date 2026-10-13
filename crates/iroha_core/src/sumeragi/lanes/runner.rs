@@ -382,13 +382,22 @@ impl Inner {
                 view.world().sumeragi_lanes().clone(),
             )
         };
-        self.recovering.lock().retain(|(lane, incarnation), _| {
-            lanes
-                .lane(*lane)
-                .is_some_and(|record| record.incarnation == *incarnation)
-        });
-        let mut running = self.running.lock();
-        let retired = running
+        self.inputs
+            .state
+            .ivm_execution_budget()
+            .with_deferred_refund_notifications(|_| {
+                self.recovering.lock().retain(|(lane, incarnation), _| {
+                    lanes
+                        .lane(*lane)
+                        .is_some_and(|record| record.incarnation == *incarnation)
+                });
+            });
+        // Reconcile has one owner: startup completes before the runner launches, and
+        // shutdown joins that runner before draining this map. Keep the topology cut
+        // and stop-before-start order, but never join a worker under its observation lock.
+        let retired = self
+            .running
+            .lock()
             .keys()
             .filter(|(lane, incarnation)| {
                 lanes
@@ -398,7 +407,8 @@ impl Inner {
             .copied()
             .collect::<Vec<_>>();
         for key in retired {
-            if let Some(lane) = running.remove(&key) {
+            let retired = { self.running.lock().remove(&key) };
+            if let Some(lane) = retired {
                 self.stop_lane(lane);
                 #[cfg(feature = "telemetry")]
                 InstanceMetrics::retire(&self.inputs.state.telemetry, MetricsInstance::Lane(key.0));
@@ -407,10 +417,17 @@ impl Inner {
         }
         // Failed store openings never enter `running` or executor recovery. Reconcile the
         // registry itself so their original funded buffers and disk locks retire as well.
-        self.inputs.stores.release_retired(&lanes);
+        if cfg!(all(test, sumeragi_core_mutation = "HC349")) {
+            let running = self.running.lock();
+            self.inputs.stores.release_retired(&lanes);
+            drop(running);
+        } else {
+            self.inputs.stores.release_retired(&lanes);
+        }
         for record in &lanes.lanes {
             let key = (record.lane, record.incarnation);
-            if record.active_from > applied || running.contains_key(&key) {
+            let already_running = self.running.lock().contains_key(&key);
+            if record.active_from > applied || already_running {
                 continue;
             }
             match self.start_lane(record) {
@@ -420,7 +437,12 @@ impl Inner {
                         instance = %hex::encode(lane.instance.0),
                         "sumeragi: lane instance started"
                     );
-                    running.insert(key, lane);
+                    let replaced = { self.running.lock().insert(key, lane) };
+                    debug_assert!(
+                        replaced.is_none(),
+                        "the sole reconciler starts each incarnation once"
+                    );
+                    drop(replaced);
                 }
                 Err(error) => {
                     iroha_logger::warn!(lane = %record.lane, %error, "sumeragi: lane instance did not start");
@@ -542,7 +564,8 @@ impl Inner {
             Ok(executor) => executor,
             Err((recovery, error)) => {
                 if error.kind() == std::io::ErrorKind::WouldBlock {
-                    self.recovering.lock().insert(recovery_key, recovery);
+                    let replaced = { self.recovering.lock().insert(recovery_key, recovery) };
+                    drop(replaced);
                 }
                 return Err(error.to_string().into());
             }
@@ -642,5 +665,43 @@ impl Observer for LaneEvidenceObserver {
     }
     fn frame_limit(&self, exceeded: &crate::sumeragi::driver::FrameLimitExceeded) {
         LogObserver.frame_limit(exceeded);
+    }
+}
+
+/// Test observation of the actual reconciler's maps without a background polling thread.
+#[cfg(test)]
+pub(super) struct RetirementControl {
+    inner: Inner,
+}
+
+#[cfg(test)]
+impl RetirementControl {
+    /// Bind the real reconciler to its original test inputs without starting a thread.
+    pub(super) fn new(inputs: LaneRunnerInputs) -> Self {
+        Self {
+            inner: Inner {
+                net: Arc::new(SharedNet(inputs.net.clone())),
+                inputs,
+                running: Mutex::new(BTreeMap::new()),
+                recovering: Mutex::new(BTreeMap::new()),
+                stop: AtomicBool::new(false),
+                transactions_pending: AtomicBool::new(false),
+            },
+        }
+    }
+
+    /// Probe the actual running-map mutex without waiting on an incorrect lifetime.
+    pub(super) fn running_lock_available(&self) -> bool {
+        self.inner.running.try_lock().is_some()
+    }
+
+    /// Read the actual map after a successful nonblocking lock observation.
+    pub(super) fn running_count(&self) -> usize {
+        self.inner.running.lock().len()
+    }
+
+    /// Execute the unchanged production reconcile entry point on these inputs.
+    pub(super) fn reconcile(&self) {
+        self.inner.reconcile();
     }
 }

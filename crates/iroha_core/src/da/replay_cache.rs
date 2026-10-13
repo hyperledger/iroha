@@ -414,9 +414,9 @@ impl ReplayCache {
     /// invalidates any in-memory entries and reservations already present for that window.
     ///
     /// # Errors
-    ///
-    /// Returns [`ReplayPrimeError::LaneEpochCapacityExceeded`] when adding a new
-    /// lane/epoch would exceed the configured window capacity.
+    /// Returns `LaneEpochCapacityExceeded` if this is a new lane/epoch window and
+    /// the configured window capacity is already occupied. Existing windows can
+    /// always be primed without lowering their committed sequence.
     pub fn prime_lane_epoch(
         &self,
         lane_epoch: LaneEpoch,

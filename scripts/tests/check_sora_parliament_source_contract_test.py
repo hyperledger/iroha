@@ -2585,7 +2585,7 @@ def test_native_fee_boundary_finalizes_once_after_runtime_and_triggers_before_se
     elif mutation == "duplicate":
         changed = body.replace(call, call + call, 1)
     elif mutation == "before_runtime":
-        runtime = "Self::validate_transaction_with_runtime_executor(tx.clone(), state_transaction, ivm_cache)?;"
+        runtime = "Self::validate_transaction_with_runtime_executor(\n            signed.clone(),\n            state_transaction,\n            ivm_cache,\n        )?;"
         assert body.count(runtime) == 1
         changed = body.replace(call, "", 1).replace(runtime, call + runtime, 1)
     else:
@@ -2697,7 +2697,7 @@ def test_signed_staking_authority_precedes_optional_fee_policy_resolution() -> N
     ("let session = &record.session;", "let session = &foreign.session;"),
     ("session\n        .check_binding(&binding)\n        .map_err(|error| error.to_string())?;", ""),
     (".check_binding(&binding)", ".check_binding(&foreign_binding)"),
-    ("        &session,\n        &pulse,", "        &foreign_session,\n        &pulse,"),
+    ("        session,\n        &pulse,", "        foreign_session,\n        &pulse,"),
 ))
 def test_beacon_capture_requires_original_borrowed_roster_and_current_seal(old: str, new: str) -> None:
     """A sealed graph still needs every current external identity before proof verification."""

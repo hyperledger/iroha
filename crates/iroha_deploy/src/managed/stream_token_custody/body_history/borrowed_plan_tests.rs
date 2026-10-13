@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::managed::{
-    native_operation::test_support::{UnavailablePeers, provider_id},
+    native_operation::test_support::provider_id,
     service_authority::{CheckpointImports, profile_validation_test_support::count},
 };
 use std::{
@@ -132,7 +132,7 @@ fn profile_refusal(result: Result<BodyHistory>) {
 fn genuine_signed_originals_share_only_the_exact_parser_plan_and_preserve_active_recipe() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     assert_eq!(history.bodies.len(), 3);
     assert!(history.bodies.iter().all(|body| body.original.is_some()));
     let callbacks = Rc::new(Cell::new(0));
@@ -295,7 +295,7 @@ fn genuine_signed_originals_share_only_the_exact_parser_plan_and_preserve_active
 fn profile_exit_closes_ordinary_errors_and_retains_independent_native_graph_exits() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let generation = Arc::new(
         PrivateDirectory::open_exact(fixture.prepared.context.client_config.parent().unwrap())
             .unwrap(),

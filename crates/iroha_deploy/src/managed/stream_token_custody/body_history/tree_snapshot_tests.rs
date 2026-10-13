@@ -1,7 +1,7 @@
 //! Fresh ordered snapshot reads share only borrowed ancestry, never source or codec verdicts.
 
 use super::*;
-use crate::managed::Error;
+use crate::managed::{Error, native_operation::attempts::metadata};
 use std::io;
 
 fn observed(directory: &Arc<PrivateDirectory>, name: &str, maximum: usize) -> RecordSnapshot {
@@ -50,6 +50,12 @@ impl Store {
             let row = Arc::new(container.create_child(body_name(ordinal).unwrap()).unwrap());
             row.write_atomic("reserved.nrt", b"reserved", PublishMode::CreateNew)
                 .unwrap();
+            row.write_atomic(
+                metadata::FILE,
+                &metadata::reserved_body(b"reserved").unwrap(),
+                PublishMode::CreateNew,
+            )
+            .unwrap();
             rows.push(row);
         }
         let mut snapshot = Arc::new(Snapshot {
@@ -80,10 +86,9 @@ impl Store {
                         MAX_SELECTION_BYTES,
                     ),
                 ],
-                names: vec![NamesSnapshot::from_read(
+                names: vec![NamesSnapshot::from_reserved_read(
                     Arc::clone(row),
-                    1,
-                    row.entries(1).unwrap(),
+                    row.entries(2).unwrap(),
                 )],
                 root: None,
             });
@@ -426,7 +431,7 @@ fn snapshot_closed_reader_keeps_native_count_bound_equal_count_census_and_origin
         .first
         .write_atomic("extra.nrt", b"extra", PublishMode::CreateNew)
         .unwrap();
-    let native = store.first.entries(1).unwrap_err();
+    let native = store.first.entries(2).unwrap_err();
     assert_eq!(native.kind(), io::ErrorKind::InvalidInput);
     for result in [
         store.snapshot.revalidate(),

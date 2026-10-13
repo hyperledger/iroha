@@ -470,3 +470,92 @@ until it finds an unoccupied prefix. Simulated stops at native-permitted xi=0,
 x1=0 or other proof-analysis degeneracies are distinguishable failure outcomes,
 charged in the stated real/simulated first-bad bounds, never claimed native rules.
 The result compares total outputs including failure, not successful proofs only.
+
+## Appendix B: equal-opening translation under a fixed transcript function
+
+A narrower algebraic fact holds even when the IPA transcript uses fixed RP57.
+Fix the complete reached IPA-entry prefix, its commitment C, evaluation point x
+and **actual** evaluation v. Let two openings satisfy
+
+    Commit(p0,r0) = Commit(p1,r1) = C,
+    p0(x) = p1(x) = v.
+
+Use independent ideal uniform scalar masks. The opening prover samples s
+uniformly from `ker(ev_x)` and a blind sigma, writes `S = Commit(s,sigma)`,
+and derives xi from that prefix and S. On the path where xi is nonzero, translate
+the first opening's masks by
+
+    s1     = s0     + (p0-p1)/xi,
+    sigma1 = sigma0 + (r0-r1)/xi.
+
+The polynomial difference belongs to the same evaluation kernel. Its commitment
+with the blind difference is zero, so S, the transcript prefix and deterministic
+xi are unchanged. This translation is an invertible, measure-preserving map on
+each fixed-S fiber. Both executions then have exactly the same masked polynomial
+`p + xi*s - v*e0` and initial synthetic blind `r + xi*sigma`. Coupling their
+subsequent L/R masks identically makes all later points, challenges, final c/f
+responses and returned generator equal. Rank collapse needs no additional
+exclusion; zero round challenges and identity-point refusals occur together.
+
+This establishes stopped algebraic opening indistinguishability for equal
+C, v and complete entry prefix. The prover does not stop at xi=0: that continuing
+branch is excluded from this result, and its probability under fixed RP57 is
+not bounded here. Identity-S refusal occurs before xi and has the same law for
+both openings. Concrete randomness, allocation, cancellation and entropy
+outcomes require their separate arguments.
+
+The translation uses the openings; it is not a public-input sampling algorithm.
+Nor does it compare different private Direct-frame prefixes, unequal actual
+evaluations, or an F-generated proof with an H-programmed one. Thus it sharpens
+the local IPA statement, including the complete c/f response, without supplying
+the joint public sigma/P/V simulator or closing C12.
+
+### Same Direct frame and the actual opening value
+
+The equal-v premise can be derived for two valid usable witnesses sharing the
+same admitted K and Direct frame i. It must not be inferred for different i.
+The IPA prover does not serialize v separately: it computes the actual polynomial
+evaluation. The multiopen verifier reconstructs its claimed value from i and
+the reached message prefix pi. Write a=x1, b=x2, c=x4, z=x3, and let S be the
+number of point-set groups in source order. For group t, Q_t is its transmitted
+evaluation at z, r_t interpolates its earlier claimed evaluations, and
+d_t(z) is the product of z minus its opening points. The two source Horner folds give
+
+    Phi(K,i,pi) = c^S sum_t b^(S-1-t) (Q_t-r_t(z))/d_t(z)
+                  + sum_t c^(S-1-t) Q_t.
+
+For a valid usable assignment with nonzero usable copy/lookup denominator
+factors, the domain quotient is exact, so v_actual=Phi. These factors are
+`v_j(omega^r)+beta*sigma_j(omega^r)+gamma`, `A'_ell(omega^r)+beta`, and
+`S'_ell(omega^r)+gamma` at usable rows r, with the source's sorted,
+theta-compressed lookup columns. Call their joint nonzero condition GoodDen.
+It is sufficient for the algebraic identity; it is not a native abort rule.
+
+For fixed i, the masked prefix itself can be coupled under fixed F. Each fresh
+commitment blind makes its point uniform without consuming a polynomial-mask
+coordinate. After equal points determine the adaptive evaluation challenges,
+the Cauchy-rank argument translates fresh tails to preserve disclosed values;
+the corresponding blinds translate to preserve their already exposed points.
+At regular x3, the remaining group coordinates preserve each Q_t. Adjust R last
+to compensate changes in the dependent h group, keeping R(x) and its commitment
+fixed; its coefficient is one. The separately blinded q-prime point likewise
+stays fixed. This is a triangular affine-fiber coupling. At x1=0 each group
+selects its last slot: that slot is either still privately padded or public and
+identical; the h group still ends in R.
+
+Thus, on the common branch where both witnesses satisfy GoodDen, x3 is outside
+the FFT domain and earlier rotated opening points, and reached xi is nonzero,
+the prefix, C, z and actual v agree. Appendix B then couples the full c/f
+response. Construct the prefix coupling before imposing GoodDen: the total
+coupling loss is bounded by the union of exceptional x3, either witness's
+GoodDen failure, and reached xi=0. No small bound for that union under fixed
+RP57 is supplied here, and neither world's law is conditioned on successful
+publication. Native identity and zero-round stops already coupled stay coupled.
+
+Different private Direct frames change Phi through their instance evaluations
+and their absorbed prelude. Residual masks alone do not remove that dependence.
+This result eliminates an additional opening-polynomial argument within a
+same-frame fiber; it supplies neither an efficient public sampler nor the
+across-frame joint law needed by C12. Independent source/algebra review and
+108 finite polynomial checks support this bounded derivation; they do not
+qualify native proofs, current keys or the concrete randomness conversion.

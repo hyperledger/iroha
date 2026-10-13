@@ -234,6 +234,16 @@ disposable TLS controller. Python 3.10+ with SSL and OpenSSL are test prerequisi
 the controller supplies a private temporary CA only to its own child processes.
 Installed Kagami and Mochi flows continue to use the native bundle alone.
 
+The separate manual `.github/workflows/devex_renewal.yml` runs
+`managed::tests::installed_renewal::installed_default_custody_renews_three_providers_and_preserves_paid_restart_evidence`
+on an explicitly selected existing self-hosted native runner. It builds and extracts a matching
+standalone Kagami bundle, then waits for the unchanged twelve-hour renewal midpoint and checks
+all three authenticated successor enrollments, retained paid evidence and an owned restart.
+The test keeps its thirteen-hour bound and ordinary startup/restart limits; the six-hour native
+matrix is unchanged. A completed pass covers that source and host only, not forced expiry/refusal,
+remote Taira attachment or all supported platforms. This long acceptance has not yet passed for
+the current candidate. Private runtime diagnostics remain on the runner and are never uploaded.
+
 ### Workspace selection
 
 The packaged desktop selects the same workspace context as Kagami:

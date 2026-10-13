@@ -643,6 +643,21 @@ capture_world_table_once!(
     "world.sccp_fast_pause_rounds"
 );
 capture_world_table_once!(
+    capture_sccp_reconciliations_once,
+    sccp_reconciliations,
+    "world.sccp_reconciliations"
+);
+capture_world_table_once!(
+    capture_sccp_reconciliation_proven_once,
+    sccp_reconciliation_proven,
+    "world.sccp_reconciliation_proven"
+);
+capture_world_table_once!(
+    capture_sccp_pending_refund_amount_once,
+    sccp_pending_refund_amount,
+    "world.sccp_pending_refund_amount"
+);
+capture_world_table_once!(
     capture_sccp_committee_generations_once,
     sccp_committee_generations,
     "world.sccp_committee_generations"
@@ -992,6 +1007,9 @@ const TABLE_MATERIALIZERS: &[TableMaterializer] = &[
     capture_sccp_governance_revisions_once::MATERIALIZER,
     capture_sccp_inbound_messages_once::MATERIALIZER,
     capture_sccp_pending_counts_once::MATERIALIZER,
+    capture_sccp_reconciliations_once::MATERIALIZER,
+    capture_sccp_reconciliation_proven_once::MATERIALIZER,
+    capture_sccp_pending_refund_amount_once::MATERIALIZER,
     capture_sccp_light_clients_once::MATERIALIZER,
     capture_sccp_light_client_sets_once::MATERIALIZER,
     capture_sccp_light_client_checkpoints_once::MATERIALIZER,
@@ -1389,6 +1407,9 @@ mod tests {
             "world.sccp_governance_revisions",
             "world.sccp_inbound_messages",
             "world.sccp_pending_counts",
+            "world.sccp_reconciliations",
+            "world.sccp_reconciliation_proven",
+            "world.sccp_pending_refund_amount",
             "world.sccp_light_clients",
             "world.sccp_light_client_sets",
             "world.sccp_light_client_checkpoints",
@@ -1563,6 +1584,95 @@ mod tests {
             network,
             1_000_u64,
             2_000_u64
+        );
+    }
+
+    #[test]
+    fn sccp_reconciliation_readers_bind_actual_values_and_reject_substitution() {
+        use iroha_data_model::{
+            bridge::SccpNetworkV1, sccp::reconciliation::SccpReconciliationStateV1,
+        };
+
+        let state = state();
+        let network = SccpNetworkV1::EthereumMainnet;
+        macro_rules! check {
+            ($field:ident, $capture:ident, $key:expr, $first:expr, $next:expr) => {{
+                let key = $key;
+                let id = concat!("world.", stringify!($field));
+                let publish = |value| {
+                    state
+                        .world
+                        .$field
+                        .try_with_admitted_block(|block| {
+                            block
+                                .try_insert_admitted(key, value)
+                                .map(|_| ())
+                                .map_err(|(_, error)| error)
+                        })
+                        .unwrap();
+                };
+                publish($first);
+                let before = $capture(&state, limits()).unwrap().unwrap();
+                publish($next);
+                let after = $capture(&state, limits()).unwrap().unwrap();
+                assert_eq!(before.table_id(), id);
+                assert_eq!(after.table_id(), id);
+                assert_eq!(before.row_count(), 1);
+                assert_eq!(after.row_count(), 1);
+                assert_ne!(before.root(), after.root());
+                let proof = after.prove_lookup(id, &key).unwrap();
+                CanonicalTableLeafSet::verify_paired_lookup(
+                    id,
+                    limits(),
+                    &after.root(),
+                    &after.ordered_root(),
+                    &key,
+                    &proof,
+                )
+                .expect("the current reconciliation row proves against its own paired roots");
+                assert!(matches!(
+                    CanonicalTableLeafSet::verify_paired_lookup(
+                        id,
+                        limits(),
+                        &before.root(),
+                        &after.ordered_root(),
+                        &key,
+                        &proof,
+                    ),
+                    Err(LeafError::RootMismatch)
+                ));
+            }};
+        }
+        let record = SccpReconciliationStateV1 {
+            opened_at_ms: 1_000,
+            closes_at_ms: 2_000,
+            forged_supply: 10,
+            rho: None,
+            settled_face: 0,
+        };
+        check!(
+            sccp_reconciliations,
+            capture_sccp_reconciliations_once,
+            (network, 1),
+            record,
+            SccpReconciliationStateV1 {
+                forged_supply: 20,
+                ..record
+            }
+        );
+        check!(
+            sccp_reconciliation_proven,
+            capture_sccp_reconciliation_proven_once,
+            (network, 1, [1; 32]),
+            10_u128,
+            20_u128
+        );
+        check!(
+            sccp_pending_refund_amount,
+            capture_sccp_pending_refund_amount_once,
+            (network, 1),
+            30_u128,
+            40_u128
         );
     }
 

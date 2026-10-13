@@ -346,7 +346,8 @@ impl AuthenticatedSignedGenesisV1 {
     pub fn pins(&self) -> &SignedGenesisPinsV1 {
         &self.pins
     }
-    /// The exact authenticated signed genesis block.
+    /// The exact authenticated signed genesis block. Attached authoring results do not
+    /// authenticate execution; that still requires native finality evidence.
     #[must_use]
     pub fn block(&self) -> &SignedBlock {
         &self.block
@@ -376,8 +377,9 @@ impl AuthenticatedSignedGenesisV1 {
 /// Authenticate one exact framed signed genesis original against independent pins.
 ///
 /// # Errors
-/// Invalid pins; bytes that differ from the pinned digest, are not one canonical resultless
-/// height-one block, or carry a different hash or network; anything other than the sole
+/// Invalid pins; bytes that differ from the pinned digest, are not one canonical
+/// height-one block without a commit certificate, or carry a different hash or network;
+/// malformed pre-executed output structure; anything other than the sole
 /// index-zero authority signature; non-explicit or foreign-authority transactions; an invalid
 /// transaction signature; or a reconstructed epoch whose mode, network or ordered committee
 /// differs from the pins. Original allocator/enclosing binary limits and signed JSON
@@ -439,13 +441,21 @@ pub fn authenticate_signed_genesis_v1(
         .map_err(|_| super::malformed("signed genesis cannot encode canonically"))?
         != wire
         || !block.header().is_genesis()
-        || !block.is_resultless_proposal()
+        || block.commit_certificate().is_some()
         || block.hash() != pins.genesis_hash
         || NetworkId::from_genesis_hash(block.hash()) != pins.network_id
     {
         return Err(
             super::malformed("signed genesis differs from selected root or network").into(),
         );
+    }
+    // Canonical genesis authoring may retain pre-executed outputs in the exact signed body.
+    // Their structural validity is required, but neither the author's signature nor this
+    // reader grants execution finality. Never strip them or change the pinned root/network.
+    if block.has_results() {
+        block
+            .validate_output_merkle_cache()
+            .map_err(|_| super::malformed("signed genesis authoring outputs are not canonical"))?;
     }
     let mut signatures = block.signatures();
     let signature = signatures

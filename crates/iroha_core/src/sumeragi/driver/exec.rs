@@ -8,7 +8,7 @@
 //!   hold is *parked* (never `Failed`) until the parent is applied or executed;
 //! - `CommitBlock`s apply strictly in height order in three steps — prepare (the cached
 //!   post-state or a re-execution; an execution of the block in flight finishes first and is
-//!   reused, an `Execute` of it still queued is answered from the apply), durable append to the
+//!   reused, an `Execute` of it still queued is cancelled as superseded), durable append to the
 //!   block store, commit — and `BlockApplied` carries the applied header; a local commitment
 //!   that differs from the certified one is reported as `ApplyDiverged` and apply stops; local
 //!   retryable refusals retain the original owner and await its release when supplied;
@@ -1357,7 +1357,7 @@ impl ExecSched {
                         }
                         Ok(Some(outcome)) => {
                             self.execution_retry.reset();
-                            let valid = matches!(outcome, ExecOutcome::Valid(_));
+                            let valid = matches!(outcome, ExecOutcome::Valid { .. });
                             self.answer(&job, outcome);
                             if valid {
                                 self.unpark(&job.block_hash);
@@ -1385,7 +1385,9 @@ impl ExecSched {
                             Stage::Prepared
                         };
                         for job in std::mem::take(&mut self.merged) {
-                            self.answer(&job, ExecOutcome::Valid(local));
+                            // A certified Commit supersedes this first-vote request.
+                            // A result hash alone cannot mint application signing custody.
+                            self.answer(&job, ExecOutcome::Cancelled);
                         }
                     }
                     Ok(local) => {
@@ -1394,9 +1396,8 @@ impl ExecSched {
                         self.halted = Some(HaltReason::ApplyDiverged {
                             height: commit.block.header().height,
                         });
-                        let outcome = local.map_or(ExecOutcome::Invalid, ExecOutcome::Valid);
                         for job in std::mem::take(&mut self.merged) {
-                            self.answer(&job, outcome.clone());
+                            self.answer(&job, ExecOutcome::Cancelled);
                         }
                         self.events.push(Event::ApplyDiverged {
                             height: commit.block.header().height,
@@ -1478,15 +1479,10 @@ impl ExecSched {
                             list.drain(..).partition(|job| job.height() <= applied);
                         *list = rest;
                         for job in stale {
-                            let outcome = if job.block_hash == commit.qc.block_hash {
-                                ExecOutcome::Valid(commit.qc.result)
-                            } else {
-                                ExecOutcome::Cancelled
-                            };
                             self.events.push(Event::Executed {
                                 block_hash: job.block_hash,
                                 req: job.req,
-                                outcome,
+                                outcome: ExecOutcome::Cancelled,
                             });
                         }
                     }
@@ -1497,12 +1493,9 @@ impl ExecSched {
                     {
                         let job = self.deferred_execution.take().expect("matched applied job");
                         self.execution_retry.reset();
-                        let outcome = if job.block_hash == commit.qc.block_hash {
-                            ExecOutcome::Valid(commit.qc.result)
-                        } else {
-                            ExecOutcome::Cancelled
-                        };
-                        self.answer(&job, outcome);
+                        // Applied jobs are moot; a CommitQC cannot manufacture the
+                        // original executor's first-Prepare admission owner.
+                        self.answer(&job, ExecOutcome::Cancelled);
                     }
                     self.unpark(&commit.qc.block_hash);
                     return Some(height);

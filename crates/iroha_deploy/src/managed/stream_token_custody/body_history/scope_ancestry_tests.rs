@@ -197,6 +197,7 @@ fn graph_scope_ancestry_preserves_missing_foreign_and_parser_scope_recipes() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let native = history.current_history().unwrap();
+    assert_eq!(native.reserved_attempt_count(), 0);
     let snapshot = SnapshotReadPass {
         head: &history.bodies.last().unwrap().snapshots,
     };
@@ -225,12 +226,85 @@ fn graph_scope_ancestry_preserves_missing_foreign_and_parser_scope_recipes() {
     foreign.head.revalidate().unwrap();
     result.unwrap();
     assert_eq!((counts.full, counts.tree, counts.inventories), (2, 0, 2));
-    // The parser's borrowed pass never supplies the graph-only scope-selection capability.
+    // The parser lends its already-owned native tree, without graph-only Original coverage.
     EnrollmentReadPass::run(&snapshot, |pass| {
         pass.test_retain_predecessor(native)?;
-        let (result, counts) = counted(false, None, || pass.test_validate(native));
-        result?;
-        assert_eq!((counts.full, counts.tree, counts.inventories), (2, 0, 2));
+        let read = |original| {
+            counted(original, None, || {
+                graph_original_tests::observe_reads(|| {
+                    operation_scope_tests::observe_leaves(
+                        |_| Ok(()),
+                        || History::test_operation_records(|| pass.test_validate(native)),
+                    )
+                })
+            })
+        };
+        let ((((old, old_records), old_leaves), old_originals), old_counts) = read(true);
+        let ((((new, new_records), new_leaves), new_originals), new_counts) = read(false);
+        old?;
+        new?;
+        assert_eq!(
+            (old_counts.full, old_counts.tree, old_counts.inventories),
+            (2, 0, 2)
+        );
+        assert_eq!(
+            (new_counts.full, new_counts.tree, new_counts.inventories),
+            (0, 2, 2)
+        );
+        assert_eq!(new_records, old_records);
+        // The selected final body has no generated attempt yet. Both local boundaries
+        // read the mandatory pristine image once; all logical child frames remain absent.
+        assert_eq!(new_records, [2, 0, 0, 0]);
+        assert_eq!(new_leaves, old_leaves);
+        use operation_scope_tests::Point as Leaf;
+        assert_eq!(
+            new_leaves,
+            [
+                Leaf::Inventory,
+                Leaf::Semantic,
+                Leaf::Metadata,
+                Leaf::Metadata,
+                Leaf::Semantic,
+                Leaf::Inventory
+            ]
+        );
+        assert_eq!(new_originals, old_originals);
+        assert_eq!(
+            new_originals,
+            [2, 0],
+            "both original records are still freshly read"
+        );
+        // Installing a decoder after the pass exists preserves the full original recipe.
+        let run = |original, capacity| {
+            norito::core::with_decode_limits_measured(limits(capacity), || {
+                counted(original, None, || {
+                    History::test_operation_records(|| outcome(pass.test_validate(native)))
+                })
+            })
+        };
+        let old = run(true, usize::MAX);
+        let new = run(false, usize::MAX);
+        assert_eq!(new, old);
+        assert!(old.0.0.0.is_ok());
+        // An active decoder disables parser predecessor sharing: the full graph reads
+        // and decodes the real dispatch records retained by the earlier bodies.
+        let active_records = old.0.0.1;
+        assert!(active_records[0] > 2 && active_records[1] > 0, "active admission must read beyond both local image boundaries and decode genuine predecessors");
+        assert_eq!(old.0.1.tree, 0);
+        let exact = old.1.total_allocated_bytes();
+        assert!(exact > 1);
+        for capacity in [0, 1, exact - 1, exact] {
+            let old = run(true, capacity);
+            let new = run(false, capacity);
+            assert_eq!(new, old);
+            assert_eq!(new.0.1.tree, 0);
+            if capacity == exact {
+                assert!(new.0.0.0.is_ok());
+                assert_eq!(new.0.0.1, active_records);
+            } else {
+                assert!(new.0.0.0.is_err());
+            }
+        }
         Ok(())
     })
     .unwrap();
@@ -417,4 +491,162 @@ fn graph_scope_ancestry_closes_native_mutations_and_every_ordinary_result() {
     assert!(matches!(result, Err(Error::NativeDeadline)));
     native.test_require_current(6).0.unwrap();
     assert_eq!(fixture.native.chain.height(), 4);
+}
+
+#[cfg(unix)]
+#[test]
+fn parser_scope_ancestry_preserves_native_exit_precedence_and_exact_source_retry() {
+    use std::{cell::Cell, fs, os::unix::fs::PermissionsExt as _, rc::Rc};
+    let _resources = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
+    let native = history.current_history().unwrap();
+    let mut expected_root_names: Vec<_> = SCOPE_ROOT_NAMES
+        .iter()
+        .map(|name| std::ffi::OsString::from(*name))
+        .collect();
+    expected_root_names.sort();
+    assert_eq!(history.root.entries(4).unwrap(), expected_root_names);
+    let snapshot = SnapshotReadPass {
+        head: &history.bodies.last().unwrap().snapshots,
+    };
+    EnrollmentReadPass::run(&snapshot, |pass| {
+        pass.test_retain_predecessor(native)?;
+        for target in [
+            history.root.path().to_owned(),
+            history.root.path().join("bodies"),
+            history.bodies.last().unwrap().directory.path().to_owned(),
+        ] {
+            for ordinary_error in [false, true] {
+                let mut outcomes = Vec::new();
+                for original in [true, false] {
+                    let restore = Permissions::new(&target);
+                    let path = target.clone();
+                    let fired = Rc::new(Cell::new(false));
+                    let observed = Rc::clone(&fired);
+                    let (result, _) = counted(original, None, || {
+                        operation_scope_tests::observe_leaves(
+                            move |point| {
+                                if point == operation_scope_tests::Point::Metadata
+                                    && !observed.get()
+                                {
+                                    fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+                                    observed.set(true);
+                                    if ordinary_error {
+                                        return Err(Error::NativeDeadline);
+                                    }
+                                }
+                                Ok(())
+                            },
+                            || pass.test_validate(native),
+                        )
+                    });
+                    drop(restore);
+                    assert!(fired.get(), "permission mutation did not complete: {:?}", result.0);
+                    assert!(
+                        matches!(&result.0, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied),
+                        "wrong native exit refusal for original={original}, ordinary_error={ordinary_error}: {:?}",
+                        result.0
+                    );
+                    outcomes.push(outcome(result.0));
+                    pass.test_validate(native)?;
+                }
+                assert_eq!(outcomes[0], outcomes[1]);
+            }
+        }
+        // Changed semantic bytes and a newly added root name are still independently read
+        // at the original exit positions after the same successful metadata observation.
+        for changed_original in [false, true] {
+            let mut outcomes = Vec::new();
+            for original in [true, false] {
+                let directory = if changed_original {
+                    Arc::clone(&history.bodies.last().unwrap().directory)
+                } else {
+                    Arc::clone(&history.root)
+                };
+                let restore = LocalSourceRestore::new(Arc::clone(&directory), changed_original);
+                let fired = Rc::new(Cell::new(false));
+                let observed = Rc::clone(&fired);
+                let (result, _) = counted(original, None, || {
+                    operation_scope_tests::observe_leaves(
+                        move |point| {
+                            if point == operation_scope_tests::Point::Metadata
+                                && !observed.get()
+                            {
+                                let (name, mode) = if changed_original {
+                                    ("original.nrt", PublishMode::Replace)
+                                } else {
+                                    ("foreign", PublishMode::CreateNew)
+                                };
+                                directory.write_atomic(name, b"changed native source", mode)?;
+                                observed.set(true);
+                            }
+                            Ok(())
+                        },
+                        || pass.test_validate(native),
+                    )
+                });
+                drop(restore);
+                assert!(fired.get(), "source mutation did not complete: {:?}", result.0);
+                let expected_refusal = if changed_original {
+                    matches!(&result.0, Err(Error::Invalid(message))
+                        if message == "dispatch semantic original was changed")
+                } else {
+                    // The genuine root already has all four allowed names. Its fifth
+                    // entry exceeds the native bound before the allowed-name comparison.
+                    matches!(&result.0, Err(Error::Io(error))
+                        if error.kind() == std::io::ErrorKind::InvalidInput
+                            && error.to_string() == "directory entry count exceeds the bound")
+                };
+                assert!(
+                    expected_refusal,
+                    "wrong source refusal for original={original}, changed_original={changed_original}: {:?}",
+                    result.0
+                );
+                outcomes.push(outcome(result.0));
+                pass.test_validate(native)?;
+            }
+            assert_eq!(outcomes[0], outcomes[1]);
+        }
+        Ok(())
+    })
+    .unwrap();
+    history.read_current(&fixture.owner).unwrap();
+    assert_eq!(fixture.native.chain.height(), 4);
+}
+
+#[cfg(unix)]
+struct LocalSourceRestore {
+    directory: Arc<PrivateDirectory>,
+    original: Option<zeroize::Zeroizing<Vec<u8>>>,
+}
+#[cfg(unix)]
+impl LocalSourceRestore {
+    fn new(directory: Arc<PrivateDirectory>, changed_original: bool) -> Self {
+        let original = changed_original.then(|| {
+            directory
+                .read("original.nrt", journal::MAX_ORIGINAL_BYTES)
+                .unwrap()
+        });
+        Self {
+            directory,
+            original,
+        }
+    }
+}
+#[cfg(unix)]
+impl Drop for LocalSourceRestore {
+    fn drop(&mut self) {
+        match &self.original {
+            Some(bytes) => self
+                .directory
+                .write_atomic("original.nrt", bytes, PublishMode::Replace)
+                .unwrap(),
+            None => {
+                let path = self.directory.path().join("foreign");
+                if path.exists() {
+                    std::fs::remove_file(path).unwrap();
+                }
+            }
+        }
+    }
 }

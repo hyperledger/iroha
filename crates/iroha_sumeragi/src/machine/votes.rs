@@ -382,43 +382,66 @@ impl Core {
             &result,
         );
         let sig = if kind == VoteKind::Prepare {
-            let expected = self
-                .proposal
+            let retained = self
+                .safety
                 .as_ref()
-                .filter(|held| held.bh == bh)
-                .and_then(|held| held.expected);
-            let locked = self
-                .high_pqc
-                .as_ref()
-                .filter(|qc| {
-                    qc.kind == VoteKind::Prepare
-                        && qc.instance == self.instance
-                        && qc.epoch == self.cfg.epoch.id
-                        && qc.height == self.height
-                        && qc.block_hash == bh
+                .filter(|record| {
+                    record.prepare.is_some_and(|vote| {
+                        vote.view == self.view && vote.block_hash == bh && vote.result == result
+                    })
                 })
-                .map(|qc| qc.result);
-            let certified = (expected.is_some() || locked.is_some())
-                && expected.is_none_or(|expected| expected == result)
-                && locked.is_none_or(|locked| locked == result);
-            // MS67: a durable local reservation is not an authenticated PrepareQC.
-            let certified = certified
-                || (cfg!(sumeragi_mutation = "MS67")
-                    && self
-                        .safety
-                        .as_ref()
-                        .and_then(|safety| safety.prepare)
-                        .is_some());
-            let context = crate::crypto::PrepareSigningContext::new(
-                &preimage,
-                self.instance,
-                self.cfg.epoch.id,
-                self.height,
-                bh,
-                result,
-                certified,
-            );
-            self.sign_prepare(me.slot, self.view, &context)?
+                .and_then(|record| record.prepare_signature);
+            if let Some(signature) = retained {
+                signature
+            } else {
+                // The execution owner survives cached Valid, delayed stage raises and
+                // resource refusals. Check it at this actual first signing attempt.
+                let super::ExecState::Valid { admission } = self.exec.get(&bh)?.clone() else {
+                    return None;
+                };
+                if admission.result() != result {
+                    return None;
+                }
+                let request = crate::prepare_admission::PrepareSigningRequest {
+                    instance: self.instance,
+                    epoch: self.cfg.epoch.id,
+                    height: self.height,
+                    view: self.view,
+                    block_hash: bh,
+                    result,
+                    certified: self.certified_results(bh).contains(&result)
+                        || (cfg!(sumeragi_mutation = "MS67")
+                            && self
+                                .safety
+                                .as_ref()
+                                .and_then(|record| record.prepare)
+                                .is_some()),
+                };
+                let signer = self.keys.get(me.slot)?.signer.as_ref()?;
+                let signature = match signer.sign_prepare(&request, &admission) {
+                    Ok(signature) => signature,
+                    Err(error) => {
+                        self.local_fault(crate::api::LocalFault::SigningFailed {
+                            kind: signing_kind,
+                            height: self.height,
+                            view: self.view,
+                            error,
+                        });
+                        #[cfg(sumeragi_mutation = "MS54")]
+                        {
+                            Signature([0; crate::types::SIGNATURE_LEN])
+                        }
+                        #[cfg(not(sumeragi_mutation = "MS54"))]
+                        return None;
+                    }
+                };
+                self.safety.as_mut()?.prepare_signature = Some(signature);
+                // The existing safety barrier must make the actual successful bytes
+                // durable before this vote can be routed or enter a certificate pool.
+                #[cfg(not(sumeragi_mutation = "MS23"))]
+                self.persist();
+                signature
+            }
         } else {
             self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?
         };

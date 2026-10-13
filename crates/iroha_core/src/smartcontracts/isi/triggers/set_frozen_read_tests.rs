@@ -159,6 +159,7 @@ fn frozen_trigger_replacement_reads_its_original_cut_after_target_is_gone() {
         );
         read.validate_world_contract_rows().unwrap();
     }
+
     let original = {
         let target = seeded_set();
         let mut block = target.block_and_revert();

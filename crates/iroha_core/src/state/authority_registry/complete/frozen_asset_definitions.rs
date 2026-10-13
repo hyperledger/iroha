@@ -63,11 +63,10 @@ impl<'frozen> Original<'frozen> {
             transitions.belongs_to(&fields.state_ref.world.confidential_policy_transition_index);
         let counts_owned =
             counts.belongs_to(&fields.state_ref.world.confidential_policy_transition_counts);
-        let homes_owned = homes.belongs_to(&fields.state_ref.world.asset_definition_direct_homes);
-        let incarnations_owned =
-            incarnations.belongs_to(&fields.state_ref.world.axt_asset_incarnations);
-        if !homes_owned
-            || !incarnations_owned
+        let original_homes = &fields.state_ref.world.asset_definition_direct_homes;
+        let original_incarnations = &fields.state_ref.world.axt_asset_incarnations;
+        if !homes.belongs_to(original_homes)
+            || !incarnations.belongs_to(original_incarnations)
             || rows.mode() != homes.mode()
             || rows.mode() != incarnations.mode()
             || !rows_owned

@@ -46,6 +46,7 @@ impl ManagedStreamTokenCustody {
         require_deadline(options.deadline)?;
         self.authority.validate_profile()?;
         let purpose = CustodyPurpose::Renewal(sequence);
+        BodyHistory::recover_original(self, purpose)?;
         let existing = BodyHistory::open(self, purpose)?;
         let history = if existing
             .as_ref()

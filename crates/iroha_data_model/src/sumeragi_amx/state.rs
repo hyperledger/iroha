@@ -13,7 +13,7 @@ use norito::codec::{Decode, Encode};
 use super::{
     AmxBeginV1, AmxDecisionV1, AmxError, AmxForeignInstanceV1, AmxHandoffOutcome,
     AmxHandoffProofV1, AmxOutcomeV1, AmxRecordProofV1, AmxRecordV1, AmxTransactionV1, AmxVoteV1,
-    MAX_AMX_DATASPACES, MAX_AMX_DEADLINE_WINDOW, MAX_AMX_PENDING,
+    MAX_AMX_DATASPACES, MAX_AMX_DEADLINE_WINDOW, MAX_AMX_PENDING, amx_max_time_window_ms,
 };
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize};
 
@@ -85,6 +85,8 @@ pub struct AmxDecidedV1 {
     pub outcome: AmxOutcomeV1,
     /// Height of the block that recorded it.
     pub height: u64,
+    /// Authenticated timestamp of the block that recorded the decision.
+    pub time_ms: u64,
 }
 
 /// A transaction the global chain knows: from its `Begin` until the first block after its
@@ -108,6 +110,10 @@ pub struct AmxGlobalEntryV1 {
     pub begin: AmxBeginV1,
     /// Height of the block that recorded it (`b < d`).
     pub begun_at: u64,
+    /// Authenticated timestamp of the original Begin block.
+    pub begun_time_ms: u64,
+    /// Signed-genesis cadence selected when Begin was admitted.
+    pub original_cadence_ms: u64,
     /// Verified `Yes` votes, ascending by participant.
     pub yes: Vec<AmxYesV1>,
     /// The immutable decision, once recorded.
@@ -203,7 +209,10 @@ impl SumeragiAmxState {
         }
         for entry in &self.transactions {
             entry.begin.validate()?;
-            if entry.begun_at >= entry.begin.deadline
+            let time_window = amx_max_time_window_ms(entry.original_cadence_ms)?;
+            if entry.begin.expires_at_ms <= entry.begun_time_ms
+                || entry.begin.expires_at_ms - entry.begun_time_ms > time_window
+                || entry.begun_at >= entry.begin.deadline
                 || entry.begin.deadline - entry.begun_at > MAX_AMX_DEADLINE_WINDOW
                 || entry
                     .begin
@@ -220,9 +229,11 @@ impl SumeragiAmxState {
                     .any(|yes| !entry.begin.has_participant(yes.participant))
                 || entry.decided.is_some_and(|decided| {
                     decided.height < entry.begun_at
+                        || decided.time_ms < entry.begun_time_ms
+                        || decided.height > entry.begin.deadline.saturating_add(1)
                         || (decided.outcome == AmxOutcomeV1::Commit
                             && (entry.yes.len() != entry.begin.participants.len()
-                                || decided.height > entry.begin.deadline))
+                                || entry.begin.is_due(decided.height, decided.time_ms)))
                 })
             {
                 return Err(rejected("transaction entry breaks its invariants"));
@@ -268,9 +279,18 @@ impl SumeragiAmxState {
     pub fn begin(
         &mut self,
         height: u64,
+        block_time_ms: u64,
+        original_cadence_ms: u64,
         transaction: &AmxTransactionV1,
     ) -> Result<AmxRecordV1, AmxError> {
         let begin = transaction.begin()?;
+        let time_window = amx_max_time_window_ms(original_cadence_ms)?;
+        if begin.expires_at_ms <= block_time_ms || begin.expires_at_ms - block_time_ms > time_window
+        {
+            return Err(rejected(
+                "the expiry is not within the admitted time window",
+            ));
+        }
         if begin.deadline <= height || begin.deadline - height > MAX_AMX_DEADLINE_WINDOW {
             return Err(rejected("the deadline is not within the admitted window"));
         }
@@ -295,6 +315,8 @@ impl SumeragiAmxState {
             AmxGlobalEntryV1 {
                 begin: begin.clone(),
                 begun_at: height,
+                begun_time_ms: block_time_ms,
+                original_cadence_ms,
                 yes: Vec::new(),
                 decided: None,
             },
@@ -313,6 +335,7 @@ impl SumeragiAmxState {
     pub fn relay_prepared(
         &mut self,
         height: u64,
+        block_time_ms: u64,
         proof: &AmxRecordProofV1,
     ) -> Result<AmxRelayOutcome, AmxError> {
         let AmxRecordV1::Prepared(prepared) = &proof.record else {
@@ -352,18 +375,62 @@ impl SumeragiAmxState {
                         effects_hash,
                     },
                 );
-                if entry.yes.len() < entry.begin.participants.len() || height > entry.begin.deadline
+                if entry.yes.len() < entry.begin.participants.len()
+                    || (if cfg!(all(test, sumeragi_model_mutation = "DM39")) {
+                        height > entry.begin.deadline
+                    } else {
+                        entry.begin.is_due(height, block_time_ms)
+                    })
                 {
                     return Ok(AmxRelayOutcome::Voted);
                 }
                 AmxOutcomeV1::Commit
             }
         };
-        entry.decided = Some(AmxDecidedV1 { outcome, height });
+        entry.decided = Some(AmxDecidedV1 {
+            outcome,
+            height,
+            time_ms: block_time_ms,
+        });
         Ok(AmxRelayOutcome::Decided(AmxDecisionV1 {
             tx: entry.begin.tx,
             outcome,
         }))
+    }
+
+    /// Record Abort for one known, unresolved obligation whose signed boundary is due.
+    ///
+    /// The caller writes the returned record in the same transaction as this state change.
+    /// No local time or caller-selected outcome can authorize an expiry.
+    ///
+    /// # Errors
+    /// The obligation is unknown, already decided, or not yet due.
+    pub fn expire_one(
+        &mut self,
+        height: u64,
+        block_time_ms: u64,
+        tx: &[u8; 32],
+    ) -> Result<AmxDecisionV1, AmxError> {
+        let index = self
+            .transactions
+            .binary_search_by(|entry| entry.begin.tx.cmp(tx))
+            .map_err(|_| rejected("the expiry obligation is unknown"))?;
+        let entry = &mut self.transactions[index];
+        if entry.decided.is_some() {
+            return Err(rejected("the expiry obligation is already decided"));
+        }
+        if !entry.begin.is_due(height, block_time_ms) {
+            return Err(rejected("the expiry obligation is not due"));
+        }
+        entry.decided = Some(AmxDecidedV1 {
+            outcome: AmxOutcomeV1::Abort,
+            height,
+            time_ms: block_time_ms,
+        });
+        Ok(AmxDecisionV1 {
+            tx: *tx,
+            outcome: AmxOutcomeV1::Abort,
+        })
     }
 
     /// Relay a handoff proof of `dataspace`'s instance (§11.7).
@@ -396,16 +463,21 @@ impl SumeragiAmxState {
     pub fn expire<E>(
         &mut self,
         height: u64,
+        block_time_ms: u64,
         mut record: impl FnMut(AmxDecisionV1) -> Result<(), E>,
     ) -> Result<usize, E> {
         let mut decisions = 0;
         for entry in &mut self.transactions {
-            if entry.begin.deadline < height && entry.decided.is_none() {
-                #[cfg(all(test, sumeragi_model_mutation = "DM8"))]
+            if entry.begin.is_due(height, block_time_ms) && entry.decided.is_none() {
+                #[cfg(all(
+                    test,
+                    any(sumeragi_model_mutation = "DM8", sumeragi_model_mutation = "DM40")
+                ))]
                 {
                     entry.decided = Some(AmxDecidedV1 {
                         outcome: AmxOutcomeV1::Abort,
                         height,
+                        time_ms: block_time_ms,
                     });
                 }
                 record(AmxDecisionV1 {
@@ -416,7 +488,7 @@ impl SumeragiAmxState {
             }
         }
         self.transactions
-            .retain(|entry| entry.begin.deadline >= height);
+            .retain(|entry| !entry.begin.is_due(height, block_time_ms));
         Ok(decisions)
     }
 }

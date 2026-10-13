@@ -199,14 +199,16 @@ struct Me {
 }
 
 /// Execution state of a block (§6.0 `exec`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExecState {
     Pending {
         since: Millis,
         req: u64,
         attempt: u32,
     },
-    Valid(Hash32),
+    Valid {
+        admission: crate::prepare_admission::ExecutionAdmission,
+    },
     Invalid,
     RetryAt {
         at: Millis,
@@ -316,6 +318,8 @@ enum PqcVia {
 struct Want {
     height: u64,
     sources: Vec<PublicKey>,
+    /// Latest requested and fully verified sync donor; also present in `sources`.
+    sync_responder: Option<PublicKey>,
     cursor: usize,
     attempt: u32,
     next_retry: Millis,
@@ -782,23 +786,6 @@ impl Core {
         let signer = self.keys.get(slot)?.signer.as_ref()?;
         let outcome = signer.sign(preimage);
         self.signing_outcome(kind, height, view, outcome)
-    }
-
-    /// Prepare signs only through the structured original Core context, including restart.
-    fn sign_prepare(
-        &mut self,
-        slot: usize,
-        view: u64,
-        context: &crate::crypto::PrepareSigningContext<'_>,
-    ) -> Option<Signature> {
-        let signer = self.keys.get(slot)?.signer.as_ref()?;
-        let outcome = signer.sign_prepare(context);
-        self.signing_outcome(
-            crate::api::SigningKind::Prepare,
-            context.height(),
-            view,
-            outcome,
-        )
     }
 
     fn signing_outcome(

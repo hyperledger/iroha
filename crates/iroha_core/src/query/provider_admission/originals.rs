@@ -42,6 +42,7 @@ pub fn with_genesis_provider_admission_originals_v1<R>(
         values: ChargedBuffer<(AccountId, ProviderAdmissionGenesisMaterialV1)>,
         charges: ChargedBuffer<AllocationCharge>,
     }
+
     let invalid = ProviderAdmissionErrorV1;
     if maximum_providers == 0
         || maximum_providers > PROVIDER_ADMISSION_GENESIS_MAX_PROVIDERS_V1

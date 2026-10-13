@@ -19,6 +19,17 @@ input guards stayed unchanged. There was no build or executable run. Earlier
 unconditional frontier reports remain intact; the conditional cuts here do not
 retroactively close them.
 
+After this successful interval, local review found concurrent changes to five
+guarded build inputs: `Cargo.lock`, `iroha_allocation`'s
+`allocation/allocator_refusal.rs`, `allocation/shared.rs`, `shared.rs` and
+`shared_reservation_tests.rs`. The [post-analysis check](post-analysis-source-check.json)
+preserves every old/current hash: 2,076 of 2,081 guards still match. A fresh
+[actual checker invocation](current-source-refusal-command.json) refuses with
+[UNKNOWN and its raw reason](current-source-refusal/report.json). The original
+report remains unchanged and valid only for its pinned source/image interval;
+current-source equivalence is not established. No pins were refreshed and no
+source was rebuilt or restored to hide the drift.
+
 ## Boundary and premises
 
 The measured region in this argument starts immediately after the worker's
@@ -63,7 +74,8 @@ The argument requires these explicit premises:
 4. **Native and atomic behavior.** The native zero/copy functions implement
    their valid-range operation, preserve ABI/private state, do not unwind or
    reenter Rust/adapter callbacks, and return normally. Zero-length copy is
-   allowed without a memory access. `_exit` does not return normally or unwind
+   allowed without a memory access, including the empty Vec's aligned dangling
+   destination pointer. `_exit` does not return normally or unwind
    into Rust. Native work, stack and hidden allocation/TLS/loader costs are
    left as unknown parameters below; they are not assumed zero. Ordinary
    atomic/memory accesses complete according to the architecture, with valid
@@ -184,6 +196,13 @@ escapes, lock/private-state/pointer/layout instruction mutations, changed frame
 reports, frozen-source failure preserving UNKNOWN and output-reuse refusal.
 Root independently reran the same 20 tests and reviewed the checker. No old
 artifact or production source was changed.
+
+Independent ownership review also passed all 20 tests and checked the actual
+predicates, all three tree loops, same pointer/N/alignment forwarding, call
+depths, terminal composition and the 5,298/336 bounds. It found no substantive
+blocker under the stated premises and separately discovered the later source
+drift above. This local review does not replace independent unsafe-code or
+cryptographic review.
 
 ```sh
 .venv/bin/python scripts/parliament_ballot_adapter_bound.py \

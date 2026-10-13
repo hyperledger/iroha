@@ -42,11 +42,36 @@ fn cleartext_pools_skip_native_roots_and_ordinary_tls_keeps_them() {
             "http://localhost:{}/status",
             listener.local_addr().expect("cleartext address").port()
         );
+        let (account, key_pair) = iroha_test_samples::gen_account_in("loopback-policy");
+        let pools = Arc::new(ReqwestHttpTransport::default());
+        let base = Url::parse(&url).unwrap().join("/").unwrap();
+        let config = crate::config::Config {
+            chain: iroha_model_base::chain::ChainId::from("loopback-policy"),
+            network_id: crate::client::test_network_id(),
+            account,
+            account_chain_discriminant: 777,
+            key_pair,
+            basic_auth: None,
+            api_token: None,
+            torii_api_url: base,
+            http_transport_policy: crate::config::HttpTransportPolicy::DirectLoopback,
+            torii_request_timeout: Duration::from_secs(2),
+            transaction_ttl: Duration::from_secs(100),
+            transaction_status_timeout: Duration::from_secs(15),
+            transaction_add_nonce: false,
+            sorafs_alias_cache: crate::client::default_alias_policy(),
+            sorafs_anonymity_policy: iroha_service_model::soranet::AnonymityPolicy::GuardPq,
+            sorafs_rollout_phase: iroha_service_model::soranet::RolloutPhase::Canary,
+        };
+        let client = crate::client::Client::builder(config)
+            .http_transport(pools.clone())
+            .build()
+            .unwrap();
         listener.set_nonblocking(true).expect("bounded listener");
         let server = thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(5);
             let mut received = 0;
-            while received < 2 && Instant::now() < deadline {
+            while received < 4 && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream.set_nonblocking(false).expect("blocking stream");
@@ -72,7 +97,7 @@ fn cleartext_pools_skip_native_roots_and_ordinary_tls_keeps_them() {
                         assert!(request[..length].starts_with(b"GET /status HTTP/1.1\r\n"));
                         stream
                             .write_all(
-                                b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                b"HTTP/1.1 302 Found\r\nLocation: https://example.invalid/must-not-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                             )
                             .expect("cleartext response");
                         received += 1;
@@ -97,15 +122,32 @@ fn cleartext_pools_skip_native_roots_and_ordinary_tls_keeps_them() {
                     .send()
                     .await
             });
-        assert_eq!(server.join().expect("cleartext server"), 2);
+        // No per-request direct_loopback call: the immutable SDK policy selects each pool.
+        let sdk_blocking = client
+            .default_request(Method::GET, url.parse().unwrap())
+            .build()
+            .unwrap()
+            .send_blocking();
+        let sdk_async = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async { client.status().get().await });
+        assert_eq!(server.join().expect("cleartext server"), 4);
         assert_eq!(
             blocking_result.unwrap().status(),
-            reqwest::StatusCode::NO_CONTENT
+            reqwest::StatusCode::FOUND
         );
-        assert_eq!(
-            async_result.unwrap().status(),
-            reqwest::StatusCode::NO_CONTENT
-        );
+        assert_eq!(async_result.unwrap().status(), reqwest::StatusCode::FOUND);
+        assert_eq!(sdk_blocking.unwrap().status(), http::StatusCode::FOUND);
+        assert!(matches!(
+            sdk_async,
+            Err(crate::Error::Http { status: 302, .. })
+        ));
+        assert!(pools.blocking.get().is_none());
+        assert!(pools.asynchronous.get().is_none());
+        assert!(pools.blocking_direct_loopback.get().is_some());
+        assert!(pools.asynchronous_direct_loopback.get().is_some());
         return;
     }
 
@@ -127,6 +169,14 @@ fn cleartext_pools_skip_native_roots_and_ordinary_tls_keeps_them() {
         .env(CHILD, "1")
         .env("SSL_CERT_FILE", &roots)
         .env_remove("SSL_CERT_DIR")
+        .env("HTTP_PROXY", "http://127.0.0.1:1")
+        .env("HTTPS_PROXY", "http://127.0.0.1:1")
+        .env("ALL_PROXY", "http://127.0.0.1:1")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("all_proxy")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
         .output()
         .expect("isolated root-store child");
     assert!(

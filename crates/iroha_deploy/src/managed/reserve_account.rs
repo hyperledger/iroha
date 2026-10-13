@@ -8,7 +8,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid, now_ms,
-        read_optional, require_deadline, require_empty,
+        read_optional, require_deadline,
     },
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
@@ -147,7 +147,8 @@ impl ManagedReserveAccountRegistration {
     ) -> Result<ManagedReserveAccountProgress> {
         self.authority.validate_profile()?;
         self.validate_registration(policy, underwriting)?;
-        let directory = self.authority.directory.ensure_child("register")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "register")?;
         let original = self.select_intent(&directory, policy, underwriting, options.deadline)?;
         let account = AccountService::new(self.authority.reserve_operations_config()?)
             .map_err(|_| invalid("cannot open reserve registration wallet"))?;
@@ -162,12 +163,17 @@ impl ManagedReserveAccountRegistration {
         underwriting: &ReserveProviderTermsV1,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(policy, underwriting)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(policy, underwriting)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(policy, deadline)?;
         if current.current().is_some() {
             return Err(invalid("reserve provider partition already exists"));
@@ -200,7 +206,8 @@ impl ManagedReserveAccountRegistration {
             ));
         }
         self.validate_registration(policy, underwriting)?;
-        let directory = self.authority.directory.ensure_child("register")?;
+        let directory =
+            attempts::metadata::ensure_operation(&self.authority.directory, "register")?;
         let original = self.select_intent(&directory, policy, underwriting, deadline)?;
         let account = AccountService::new(self.authority.reserve_operations_config()?)
             .map_err(|_| invalid("cannot open reserve registration wallet"))?;

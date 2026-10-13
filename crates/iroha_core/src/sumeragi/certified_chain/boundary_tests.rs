@@ -218,7 +218,7 @@ fn transcript_proposal(
             .unwrap()
             .into_unsigned_proposal();
     assert_eq!(
-        crate::block::ValidBlock::sumeragi_block_time(
+        crate::block::ValidBlock::sumeragi_block_time_floor(
             &proposal,
             parent.header().creation_time(),
             Duration::from_millis(1),
@@ -233,6 +233,7 @@ fn transcript_proposal(
                 parent,
                 view: 0,
                 cadence: Duration::from_millis(1),
+                proposed_time: Duration::ZERO,
             },
             &[transaction],
         );

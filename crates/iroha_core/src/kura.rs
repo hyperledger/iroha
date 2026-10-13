@@ -224,7 +224,8 @@ mod physical_resource_initialization_tests;
 use crate::publication_lock::{PublicationGuard, PublicationMutex};
 mod publication_lease;
 pub(crate) use publication_lease::{
-    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationSlot,
+    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationReleases,
+    KuraPublicationSlot, ScopedKuraPublicationLease,
 };
 
 /// The interface of Kura subsystem.
@@ -2911,13 +2912,13 @@ impl Kura {
                     ));
                 }
                 let mut options = std::fs::OpenOptions::new();
-                options.read(true).custom_flags(
+                options.read(true).custom_flags(i32::from_ne_bytes(
                     (rustix::fs::OFlags::DIRECTORY
                         | rustix::fs::OFlags::NOFOLLOW
                         | rustix::fs::OFlags::CLOEXEC)
                         .bits()
-                        .cast_signed(),
-                );
+                        .to_ne_bytes(),
+                ));
                 owned_parent = options.open(parent_path)?;
                 let parent_opened = owned_parent.metadata()?;
                 let parent_after = std::fs::symlink_metadata(parent_path)?;
@@ -6240,9 +6241,9 @@ impl Kura {
     /// Persist the canonical block after checking append capacity and durable ordering.
     ///
     /// # Errors
-    ///
-    /// Returns an error if storage requires recovery, append capacity or
-    /// canonical block ordering is invalid, or durable block publication fails.
+    /// Returns an error if canonical storage requires recovery, the height or bytes
+    /// conflict with the durable chain, append capacity is unavailable, or canonical
+    /// encoding, storage accounting, or durable I/O fails.
     pub fn store_block(&self, block: iroha_data_model::block::SharedSignedBlock) -> Result<()> {
         self.store_block_durable(&block)
     }
@@ -7352,21 +7353,30 @@ impl BlockStore {
         )
     }
     fn eviction_reader_digest(reader: &mut impl Read, total: u64) -> std::io::Result<Hash> {
+        // Framing stays at 64 KiB independently of the smaller I/O scratch buffer.
+        const DIGEST_CHUNK_BYTES: u64 = 64 * 1024;
         let mut digest = Hash::new(EVICTION_FILE_DIGEST_DOMAIN);
         let mut remaining = total;
-        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut buffer = [0_u8; 8 * 1024];
         while remaining > 0 {
-            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64))
-                .expect("fixed eviction digest chunk length fits usize");
-            reader.read_exact(&mut buffer[..chunk_len])?;
-            let chunk_len_bytes = (chunk_len as u64).to_le_bytes();
-            digest = Hash::new_from_chunks(&[
-                EVICTION_FILE_DIGEST_DOMAIN,
-                digest.as_ref(),
-                chunk_len_bytes.as_slice(),
-                &buffer[..chunk_len],
-            ]);
-            remaining -= chunk_len as u64;
+            let chunk_len = remaining.min(DIGEST_CHUNK_BYTES);
+            digest = Hash::new_from_writer(|writer| {
+                writer.write_all(EVICTION_FILE_DIGEST_DOMAIN)?;
+                writer.write_all(digest.as_ref())?;
+                writer.write_all(&chunk_len.to_le_bytes())?;
+                let mut chunk_remaining = chunk_len;
+                while chunk_remaining > 0 {
+                    let read_len = usize::try_from(
+                        chunk_remaining.min(u64::try_from(buffer.len()).expect("scratch fits u64")),
+                    )
+                    .expect("scratch read length fits usize");
+                    reader.read_exact(&mut buffer[..read_len])?;
+                    writer.write_all(&buffer[..read_len])?;
+                    chunk_remaining -= u64::try_from(read_len).expect("scratch fits u64");
+                }
+                Ok(())
+            })?;
+            remaining -= chunk_len;
         }
         let total_bytes = total.to_le_bytes();
         Ok(Hash::new_from_chunks(&[

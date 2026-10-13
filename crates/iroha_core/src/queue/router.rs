@@ -585,10 +585,9 @@ impl RoutingResolveError {
 /// Evaluate the routing policy and resolve it against the configured catalogs.
 ///
 /// # Errors
-///
-/// Returns an error for unknown, inactive, or incompatible catalog routes,
-/// conflicting transaction targets, or routing that requires unavailable
-/// authoritative policy or alias state.
+/// Returns the full-plan error for unresolved catalog routes, conflicting
+/// dataspace targets, malformed settlement intent, unavailable governed FX
+/// policy state, or an original local routing-read refusal.
 pub fn evaluate_policy_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -601,10 +600,10 @@ pub fn evaluate_policy_with_catalog(
 /// Evaluate the routing policy and resolve the full routing plan against the configured catalogs.
 ///
 /// # Errors
-///
-/// Returns an error for unknown, inactive, or incompatible catalog routes,
-/// conflicting transaction targets, or routing that requires unavailable
-/// authoritative policy or alias state.
+/// Returns an error if targets conflict, settlement or permission intent cannot
+/// be resolved, a required governed FX policy needs unavailable State, or the
+/// selected catalogs and reserved autoscale lanes reject the plan. Original
+/// local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -661,10 +660,9 @@ pub fn evaluate_policy_plan_with_catalog(
 /// permissions from the current world snapshot when possible.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns the world-aware plan error for invalid or unresolved target, alias,
+/// FX policy, or multisig data, conflicting dataspaces, or invalid catalog and
+/// autoscale routes. Original local read refusals remain distinct.
 pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -684,10 +682,9 @@ pub fn evaluate_policy_with_catalog_and_world<W: WorldReadOnly>(
 /// Evaluate the routing policy against catalogs and the current world at a deterministic ledger time.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns the world-aware plan error if target, alias, FX policy, or multisig
+/// resolution fails at `ledger_time_ms`, targets conflict, or catalogs reject
+/// the selected route. Original local read refusals remain distinct.
 pub fn evaluate_policy_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -727,10 +724,9 @@ fn evaluate_policy_with_catalog_and_world_at_opt<W: WorldReadOnly>(
 /// Evaluate the routing policy and resolve the full routing plan against catalogs/world state.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns an error for invalid or unresolved target, alias, FX policy, or
+/// multisig data, conflicting dataspaces, or invalid catalog and autoscale routes.
+/// Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -751,10 +747,9 @@ pub fn evaluate_policy_plan_with_catalog_and_world<W: WorldReadOnly>(
 /// Evaluate the routing policy and resolve the full plan at a deterministic ledger time.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns an error if target, alias, FX policy, or multisig resolution fails
+/// at `ledger_time_ms`, targets conflict, or catalogs and autoscale policy reject
+/// the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -780,10 +775,9 @@ pub fn evaluate_policy_plan_with_catalog_and_world_at<W: WorldReadOnly>(
 /// helper therefore fails closed to non-elastic/default routing for no-target default traffic.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns an error if target, alias, FX policy, or multisig resolution fails
+/// at `ledger_time_ms`, targets conflict, or the heightless Nexus policy and
+/// catalogs reject the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -804,10 +798,9 @@ pub fn evaluate_policy_plan_with_nexus_and_world_at<W: WorldReadOnly>(
 /// time and block height.
 ///
 /// # Errors
-///
-/// Returns an error if catalog routes, authoritative aliases, settlement or
-/// permission targets cannot be resolved consistently. Malformed or cyclic
-/// multisig proposals are rejected; original resource refusals remain deferrals.
+/// Returns an error if target, alias, FX policy, or multisig resolution fails,
+/// targets conflict, or catalogs and the autoscale range at `block_height` reject
+/// the plan. Original local routing-read refusals remain distinct.
 pub fn evaluate_policy_plan_with_nexus_and_world_at_block_height<W: WorldReadOnly>(
     nexus: &Nexus,
     tx: &dyn TransactionRoutingView,
@@ -8723,9 +8716,9 @@ fn resolve_policy_routing_decision(
 /// participate, including account-scoped rules and explicit catch-all rules.
 ///
 /// # Errors
-///
-/// Returns an error if the selected catalog route is unknown or incompatible,
-/// the authority's dataspace cannot be resolved, or original state reads defer.
+/// Returns an error if authority-scope resolution fails or the selected lane,
+/// dataspace, or reserved autoscale target violates the policy catalogs. Original
+/// local account-resolution refusals remain distinct.
 pub fn resolve_query_routing_decision(
     policy: &LaneRoutingPolicy,
     lane_catalog: &LaneCatalog,
@@ -8800,9 +8793,8 @@ fn resolve_query_routing_decision_with_world<W: WorldReadOnly>(
 /// instead of silently rewriting them to defaults.
 ///
 /// # Errors
-///
-/// Returns an error for an unknown lane or dataspace, or when the lane belongs
-/// to a different dataspace.
+/// Returns an error if either catalog lacks the selected identifier or the
+/// selected lane belongs to a different dataspace.
 pub fn resolve_routing_decision(
     decision: RoutingDecision,
     lane_catalog: &LaneCatalog,
@@ -9464,9 +9456,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Route the given transaction and return deterministic route-resolution errors.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the transaction has no valid route under current
-    /// policy and authoritative state, or an original resource defers resolution.
+    /// Returns the strategy's typed error when the transaction cannot be assigned
+    /// a valid route, preserving unfinished local reads as `Deferred`.
     fn try_route(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9474,9 +9465,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Route with an existing state view and return deterministic route-resolution errors.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route`].
+    /// The default implementation propagates errors from [`Self::try_route`].
+    /// State-aware implementations also preserve original local read refusals.
     fn try_route_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9487,9 +9477,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Route with narrow state access and return deterministic route-resolution errors.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route_with_view`].
+    /// Propagates errors from the state-free probe or, when that probe requires
+    /// State, from [`Self::try_route_with_view`].
     fn try_route_with_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9504,9 +9493,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Route without state snapshot when possible and return deterministic route errors.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route`].
+    /// The default implementation propagates errors from [`Self::try_route`];
+    /// `Ok(None)` in an override means State is required, not that routing failed.
     fn try_route_without_state(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9516,9 +9504,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Build the full routing plan for a transaction and return deterministic errors.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route`].
+    /// The default implementation propagates errors from [`Self::try_route`]
+    /// before constructing its single coordinator leg.
     fn try_route_plan(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9529,9 +9516,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Build the full routing plan with an existing state view.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route_with_view`].
+    /// The default implementation propagates errors from [`Self::try_route_with_view`]
+    /// before constructing its single coordinator leg.
     fn try_route_plan_with_view(
         &self,
         tx: &dyn TransactionRoutingView,
@@ -9543,8 +9529,7 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Build the full routing plan with narrow state access when possible.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
+    /// Propagates errors from the state-free plan probe or, when State is required,
     /// from [`Self::try_route_plan_with_view`].
     fn try_route_plan_with_state(
         &self,
@@ -9560,9 +9545,8 @@ pub trait LaneRouter: Send + Sync + 'static {
     /// Build the full routing plan without state when possible.
     ///
     /// # Errors
-    ///
-    /// Propagates route-resolution failures and original resource deferrals
-    /// from [`Self::try_route_without_state`].
+    /// The default implementation propagates errors from [`Self::try_route_without_state`];
+    /// `Ok(None)` preserves that probe's need for State.
     fn try_route_plan_without_state(
         &self,
         tx: &dyn TransactionRoutingView,

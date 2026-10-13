@@ -43,6 +43,21 @@ isi! {
 }
 
 isi! {
+    /// Record Abort for an existing unresolved AMX obligation whose signed boundary is due.
+    /// The executing Global block's authenticated time and height determine eligibility.
+    #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
+    #[norito_schema(name = "iroha_data_model::isi::sumeragi_amx::ExpireAmxV1")]
+    pub struct ExpireAmxV1 {
+        /// Exact transaction identity of the existing Global Begin.
+        #[norito(
+            with = "crate::json_helpers::fixed_bytes_hex",
+            bounded_with = "crate::json_helpers::fixed_bytes_hex::serialize_bounded"
+        )]
+        pub tx: [u8; 32],
+    }
+}
+
+isi! {
     /// Relay a participant's `Prepared` record proof (§11.4).
     #[derive(crate::DeriveJsonSerialize, crate::DeriveJsonDeserialize)]
     #[norito_schema(name = "iroha_data_model::isi::sumeragi_amx::RelayAmxPreparedV1")]
@@ -87,7 +102,7 @@ isi! {
 }
 isi! {
     /// Prepare the executing dataspace's exact native transfer leg against a global Begin proof.
-    /// The outer transaction authority must own that leg's source account.
+    /// The outer authority must hold the source owner's current exact `CanPrepareAmx` permission.
     /// The current native host supports ordinary non-retail numeric transfers. Enrolled-wallet
     /// and registered retail monetary legs record No without monetary/maintenance effects;
     /// a relayer cannot manufacture the customer's original signed fee assessment.
@@ -133,6 +148,12 @@ impl BeginAmxV1 {
     /// Stable wire identifier.
     pub const WIRE_ID: &'static str = "iroha.sumeragi.amx.begin.v1";
 }
+impl ExpireAmxV1 {
+    /// Stable wire identifier.
+    pub const WIRE_ID: &'static str = "iroha.sumeragi.amx.expire.v1";
+}
+impl crate::seal::Instruction for ExpireAmxV1 {}
+
 impl RelayAmxPreparedV1 {
     /// Stable wire identifier.
     pub const WIRE_ID: &'static str = "iroha.sumeragi.amx.relay_prepared.v1";
@@ -192,6 +213,7 @@ mod tests {
                     },
                 ],
                 deadline: 9,
+                expires_at_ms: 1_000_000,
                 nonce: [3; 32],
             },
         };
@@ -202,6 +224,10 @@ mod tests {
         };
         for (wire_id, instruction) in [
             (BeginAmxV1::WIRE_ID, InstructionBox::from(begin.clone())),
+            (
+                ExpireAmxV1::WIRE_ID,
+                InstructionBox::from(ExpireAmxV1 { tx: [9; 32] }),
+            ),
             (
                 RegisterAmxDataspaceV1::WIRE_ID,
                 InstructionBox::from(register.clone()),

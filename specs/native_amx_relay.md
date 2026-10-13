@@ -17,27 +17,47 @@ The file-only `[amx_relay]` table has these local settings:
 | `max_finality_proof_reads` | 64 | Nonzero bound, at most 64 per observation |
 | `routes` | `[]` | At most 32 explicitly provisioned destinations |
 
-Each `[[amx_relay.routes]]` contains `network_id`, `chain_id`, `scope`, `authority`,
+Each `[[amx_relay.routes]]` contains `network_id`, `chain_id`, `scope_json`, `authority`,
 `account_config`, `signed_genesis`, `signed_genesis_sha256`, `genesis_public_key`
-and `fee_payment`. These use their native Norito JSON/TOML types; the digest is
-exactly 64 lowercase hexadecimal characters. File paths resolve relative to the
+and `fee_payment_json`. Each JSON field is one string containing its exact native
+Norito type. `SumeragiRootScope` retains Global's required `"value":null`, or
+Dataspace's exact parent network and full dataspace ID. `FeePaymentIntent` retains
+its required `gas_limit` field (`null` for native carriers without executable gas).
+TOML cannot represent these null values; the signed wire contracts are unchanged.
+Other fields use
+their native Norito JSON/TOML types; the digest is exactly 64 lowercase hexadecimal
+characters. File paths resolve relative to the
 node configuration. A route's SDK account file is loaded without environment
 aliases and must match all three authority/network/chain pins. The account must
 already hold the assets authorized by its exact signature-bound fee intent.
 There is no validator-key fallback, automatic minting or inferred sponsor.
 
+The current debit-approval proof carries the complete World hash inventory. Its Torii
+transport requires an independently granted `CanReadAllLedgerData` permission, checked
+before projection and again after projection/egress awaits. An exact `CanPrepareAmx`
+debit permission, account read or dataspace read does not authorize this full snapshot.
+The service does not grant broader access automatically. Prepare still independently
+checks the exact current debit permission; broad read access grants no monetary authority.
+Revocation withholds a buffered response, and local capacity refusal remains unavailable
+rather than evidence of missing consent. TODO: replace this complete-snapshot transport
+with a genuinely scoped authenticated State proof under G3; this containment does not
+establish selective disclosure.
+
 Signed genesis bytes must match the independently configured digest and signer.
 The existing genesis authenticator checks the exact lineage, signed authority,
 committee and proofs of possession. The resulting verifier must match the
 opaque source intent's destination network, root scope and consensus instance.
-Duplicate destination networks or invalid explicit custody fail activation.
+Duplicate destination networks or invalid explicit custody fail activation. All routes
+are validated before any worker starts. Each configured destination has one supervised
+blocking worker, bounded by the 32-route limit; cooperative shutdown drains every worker.
 No routes means no background signing and no journal directory creation.
 
 ## Original source and recovery
 
 Core issues a move-only `NativeAmxRelayIntentV1`; its descriptor binds source
-network, scope, height, carrier and complete record key, and destination network,
-scope and instance. Descriptor bytes alone cannot authorize signing. The worker
+network, scope, height, carrier and a source discriminant: either the complete record key
+or the exact current/next epochs of an authenticated boundary. It also binds destination network,
+scope and instance. Descriptor bytes alone cannot authorize signing. Each worker
 selects heights from authenticated State history and keeps the same State view
 and proof job through local acquisition or allocation refusal. It does not scan
 untrusted filenames to manufacture obligations.
@@ -52,7 +72,8 @@ attachments. Journal labels and checksums never authorize a different payload.
 Signed dispatch additionally verifies the signature and both transaction identities.
 There is no second
 queue or acknowledgement journal. The plan identity binds authenticated source
-coordinates; endpoint, fee-cap and observation-cadence changes do not create a
+coordinates, the exact instruction digest and any signed expiry wake coordinate;
+endpoint, fee-cap and observation-cadence changes do not create a
 new plan. Account authority remains the workflow's immutable binding; operators
 must retain that authority and journal while its carriers remain unresolved.
 Changing the configured fee intent refuses signing and dispatch of an old payload;
@@ -104,15 +125,107 @@ never grants signing authority, and no second index or outbound journal is creat
 
 Begin delivery additionally authenticates the original successful signed `BeginAmxV1`
 input. Pending Prepare admission retains that original shared block owner and its input
-indices; no transaction DTO replaces the authorized full terms. Destination signing still
-requires the independently configured account to own the local debit. TODO: add handoff
-delivery and qualify the complete two-bank loop on the current node candidate.
+indices; no transaction DTO replaces the authorized full terms. A foreign Begin never
+creates debit consent. The debit owner must issue the exact direct `CanPrepareAmx`
+permission to the configured relay (an explicit self-grant is also valid). The permission
+binds parent and child genesis, child instance, dataspace, exact debited asset, and the
+canonical transaction digest including every leg, height deadline and signed expiry.
+Role grants, holder redelegation and implicit consent from the carrier's key are refused.
+Native Prepare rechecks the current grant before escrow; later revocation does not block
+settlement or release of an existing Yes escrow.
+
+Before a fresh signature and before dispatching retained signed bytes, the service verifies
+the exact grant in a complete authenticated private World cut. Its account-authenticated
+bounded proof route and async SDK reader bind the requested relay, terms, schema and
+independently verified block. The selected height cannot move below the route verifier's
+retained authenticated height. A historical proof, including one fetched after restart,
+cannot establish that no later revoke exists; the native use-time check remains decisive.
+Evidence unavailability or original memory refusal preserves the unsigned reservation or
+exact signed identity for retry. Read-only recovery of an already finalized carrier does
+not require a still-live grant. Permission comparison streams canonical original payloads
+with exact funded I105 scratch, without constructing another permission or parsed JSON graph.
+
+The same source scan discovers each authenticated final-epoch boundary before taking the
+zero-record fast path. Its original complete certified scheduling result determines the
+next epoch; an `.ami` record, supplied committee or successor block is not required. A
+Global boundary targets every immutable registered participant, bounded by the existing
+256-registration limit. A private boundary targets its original registered Global parent.
+The original header, quorum certificate and result bytes enter the source pool before
+materialization, then move through a retryable funded action into the existing
+`RelayGlobalAmxHandoffV1` or `RelayAmxHandoffV1`. Final source checks precede graph release.
+Ascending source-height discovery and destination verification preserve sequential
+handoffs. Each finite source sweep pins its original authenticated end height; continuous
+new source traffic cannot postpone a historical retry forever. If a handoff has no
+authenticated successful outcome, a bounded ephemeral
+route barrier defers later deliveries for that route; other destinations continue.
+The barrier retains the unresolved source position across passes, so an earlier handoff
+already authenticated during this process cannot reset a later bounded recovery scan.
+Its source network/scope, exact carrier and destination root binding scope the cursor;
+a changed binding discards it. Process restart starts again from original history.
+
+A fresh relayer can encounter an old handoff after independent carriers have advanced
+the destination beyond the retained verifier epochs. Before opening or resuming its
+workflow, the same adapter scans the pinned destination's certified history for an
+exact successful handoff effect. Public node status supplies only an untrusted upper
+scan bound. Each candidate's direction, dataspace, original source header and original
+certified result must match the reconstructed opaque source intent; the shared finality
+verifier authenticates its exact signed input and successful execution. An interchangeable
+valid quorum witness may differ, but rejected inclusion or a reported destination epoch
+never closes the barrier. An exhausted local workflow does not block this read-only recovery.
+
+Each observation has the existing proof-read bound. An unfinished scan retains only its
+next height; a local refusal is neither absence nor delivery. A cached positive height
+is refetched and its exact effect reverified before a later recovery reports success.
+This recognizes an already authenticated delivery without changing an unknown local
+carrier's journal outcome or submitting a replacement. Restart reconstructs the same
+source deliveries and verifies the destination again, with no extra index or journal.
+
+TODO: qualify the complete two-bank loop on the current node candidate.
 Consensus deadline progress must be carried by real committed obligation work;
 local polling is never permission to release escrow or produce empty blocks.
+
+The current native candidate binds a mandatory signed `expires_at_ms` into the complete
+AMX transaction and Begin. Successful Global Begin discovery also emits a funded
+`ExpireAmxV1` intent targeting that same Global root, including after its live entry was
+pruned. The original Begin supplies its wake coordinate; local time only schedules this
+work. Native execution chooses Abort at the signed ledger-time boundary or after the
+height deadline. Neither polling nor an expiry carrier's rejected inclusion releases escrow.
+
+Before dispatch, a bounded local reader searches authenticated Decision history from
+the original Begin through `min(deadline + 1, captured_tip)`. Its one continuation per
+configured route retains the original paid source through partial acquisition. A borrower
+which has not issued its owned source stays with the same State view through refusal.
+Other historical Begins cannot reset the active cursor, and ordinary delivery continues
+between bounded passes once original source issuance permits yielding. Discovery verifies
+the complete common source before selecting the configured destination, then acquires only
+that destination's target proof and instruction. A pre-issuance refusal retains its worker's
+original State view and graph while other destination workers continue independently.
+Global expiry has its own same-Global destination and is selected before unrelated
+participant Prepare acquisition. The original allocation pool remains shared and bounded;
+worker separation does not promise progress through pool exhaustion or fairness among
+obligations within one destination. The issued-read poll bound does not bound a refused
+source acquisition. An absent record establishes only that captured prefix; native
+expiry execution handles any subsequent competing decision. Every cached positive is
+read and authenticated again. A verified Decision suppresses new expiry submission;
+an existing exact carrier journal then receives only read-only outcome recovery. Its
+unknown or rejected carrier is never relabelled Applied because another carrier decided
+the obligation. Restart reconstructs authority from history without an extra journal.
+
+TODO: qualify this native idle path on the current whole-node candidate, including a
+carrier delayed beyond the first-Prepare freshness limit, resource refusal, partitions
+and restart. Fresh proposals retain the same signed input while choosing an authenticated
+timestamp above the deterministic floors; retained same-view output and certified replay
+keep the original timestamp. A local stale-time refusal is neither rejection nor absence
+and cannot authorize a replacement identity. A valid pre-expiry PrepareQC can finalize
+later, so the signed deadline is not an absolute wall-clock finality bound.
 
 Focused daemon tests use genuine exact-quorum certificates over explicit
 synthetic execution outputs, including rejected execution, substituted history,
 source-intent and resumed-payload substitution before signing or dispatch,
 proof-read refusal, no successor block, and durable
 ambiguous-submit restart with one signature and identical retransmission.
-These component tests do not establish whole-network payment qualification.
+The handoff catch-up control additionally executes real native Global boundaries, delivers
+them through different funded participant accounts, replays the participant from signed
+genesis, and recovers both effects with a fresh verifier at the final tip. Its DKG sessions
+are explicitly proved component prestate. These tests do not establish whole-network
+payment qualification.

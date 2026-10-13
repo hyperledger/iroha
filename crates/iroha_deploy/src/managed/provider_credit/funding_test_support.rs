@@ -1,5 +1,6 @@
 //! Genuine native component helpers; no production constructors, source mutators or proof stubs.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_fs::PublishMode;
 impl ManagedInitialProviderCredit {
     pub(in crate::managed) fn funding_prepare(
@@ -36,7 +37,7 @@ impl ManagedInitialProviderCredit {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(&original)?;
-        let directory = self.authority.directory.ensure_child("install")?;
+        let directory = metadata::ensure_operation(&self.authority.directory, "install")?;
         journal::publish_intent(&directory, &original)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("fixture wallet"))?;

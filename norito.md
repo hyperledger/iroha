@@ -1055,6 +1055,17 @@ These descriptions add no wire wrapper and do not change Norito frame identities
 The release identity therefore changes when an evidence field or defect tag
 changes, even though block effects carry the canonical evidence frame as bytes.
 
+The current `SafetyRecord` layout includes mandatory `prepare_signature:
+Option<Signature>` immediately after its optional `(view, block_hash, result)` Prepare
+reservation. `None` records an unsigned reservation; `Some` contains the exact signature
+successfully produced for that reservation. The canonical `SafetyRecordEnvelope` checksum
+covers this field together with the complete record and release identities. Decode and
+restore verify a present signature against the retained key and exact instance, epoch,
+height, view, block hash and result before reuse. An unsigned reservation retains its
+sign-once constraint but cannot authorize a first signature after restart. There is no
+fallback decoder for a record missing this field. Application `ExecutionAdmission` owners
+are local, source-bound custody and have no Norito wire representation.
+
 ## Hidden RAM-FHE program encoding
 
 The private program tape uses the declared frame identity
@@ -1538,6 +1549,22 @@ certificate preimage. It checks header/body height, network, committee and rotat
 then callers holding the original block check its height and timestamp. The scope comes from
 original signed genesis or independently registered authority, never from the offered header.
 AMX tracker state explicitly encodes `result_scope` with no missing-field default.
+
+`SumeragiParameters` includes the mandatory `due_work_max_lag_ms: NonZeroU64`
+after `max_clock_drift_ms`. Its JSON field is required. Programmatic genesis defaults
+use 60,000 ms; committed validation checks the exact `2 × drift + 4 × cadence`
+minimum with checked arithmetic. `SumeragiParameter::DueWorkMaxLagMs` is the
+current typed setter, and signed native genesis explicitly includes all eight
+settable Sumeragi parameters. Retired seven-parameter genesis layouts are rejected.
+
+`AmxDebitApprovalV1` canonically binds Global network, participant network and
+instance, dataspace, complete transaction digest and exact debited asset bucket.
+Its direct `CanPrepareAmx` permission payload is the single JSON object
+`{ "approval": <AmxDebitApprovalV1> }`. `AmxDebitApprovalProofV1` contains one
+complete `WorldStateSnapshotV1` followed by the relay's direct `Permissions` row.
+The borrowed proof encoder uses the same nominal/frame identity and byte layout.
+Neither decoded object grants debit authority; verification requires independently
+selected private finality and execution rechecks the current direct grant.
 
 The certificate result is raw `SHA-256(RESULT_TAG ‖ X ‖ D_body)`, where
 `D_body = H_iroha(RESULT_BODY_TAG ‖ body)`. Raw `R` remains `Hash32`; marker-setting Iroha

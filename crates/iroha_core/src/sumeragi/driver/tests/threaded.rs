@@ -839,7 +839,8 @@ fn serving_flood_does_not_delay_the_nodes_fetch() {
         &vals.crypto,
         vals.signer(0),
     );
-    let ExecOutcome::Valid(r1) = block_exec(&genesis.1, &b1, &iroha_sumeragi::testing::TEST_EPOCH)
+    let ExecOutcome::Valid { result: r1, .. } =
+        block_exec(&genesis.1, &b1, &iroha_sumeragi::testing::TEST_EPOCH)
     else {
         panic!("the block executes")
     };

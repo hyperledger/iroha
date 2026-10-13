@@ -5,7 +5,7 @@ use error_stack::{Report, ResultExt};
 use expect_test::expect_file;
 use iroha_config::parameters::user::ParseError;
 use iroha_config::parameters::{
-    actual::{FraudRiskBand, LaneProfile, NoritoRpcStage, Root as Config, ToriiMcpProfile},
+    actual::{LaneProfile, NoritoRpcStage, Root as Config, ToriiMcpProfile},
     defaults,
     user::Root as UserConfig,
 };
@@ -2370,7 +2370,7 @@ fn fraud_monitoring_config_overrides_and_defaults() {
     let cfg = load_config_from_fixtures("fraud_monitoring.toml")
         .expect("fraud monitoring config should parse");
     let fraud = &cfg.fraud_monitoring;
-    assert!(fraud.enabled);
+    assert!(!fraud.policy.enabled);
     let endpoints: Vec<&str> = fraud.service_endpoints.iter().map(Url::as_str).collect();
     assert_eq!(
         endpoints,
@@ -2384,8 +2384,34 @@ fn fraud_monitoring_config_overrides_and_defaults() {
         defaults::fraud_monitoring::CONNECT_TIMEOUT,
     );
     assert_eq!(fraud.request_timeout, Duration::from_millis(1_800));
-    assert_eq!(fraud.missing_assessment_grace, Duration::from_secs(5),);
-    assert_eq!(fraud.required_minimum_band, Some(FraudRiskBand::Medium));
+    assert!(!fraud.policy.missing_assessment_permitted);
+    assert!(fraud.policy.required_minimum_band.is_none());
+    assert!(fraud.policy.attesters.is_empty());
+}
+#[test]
+fn fraud_monitoring_rejects_node_local_validity_policy() {
+    for (field, value) in [
+        ("enabled", "true"),
+        ("required_minimum_band", "'high'"),
+        ("missing_assessment_grace_secs", "1"),
+        ("missing_assessment_permitted", "true"),
+        ("attesters", "[]"),
+    ] {
+        let table = format!("[fraud_monitoring]\n{field} = {value}\n")
+            .parse()
+            .unwrap();
+        let error = ConfigReader::new()
+            .read_toml_with_extends(fixtures_dir().join("base.toml"))
+            .unwrap()
+            .with_toml_source(TomlSource::inline(table))
+            .read_and_complete::<UserConfig>()
+            .expect_err("admission policy is committed state, never node configuration");
+        let report = strip_ansi_codes(&format!("{error:?}"));
+        assert!(
+            report.contains(&format!("unknown parameter: `fraud_monitoring.{field}`")),
+            "{report}"
+        );
+    }
 }
 #[test]
 fn sumeragi_explicit_schema_parses() {

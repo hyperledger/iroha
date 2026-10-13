@@ -5,7 +5,7 @@ use super::*;
 use crate::managed::native_operation::{
     test_support::{
         UnavailablePeers,
-        native_fixture::{NativeFixture, NativeReadHttp, quote_instructions},
+        native_fixture::{NativeFixture, quote_instructions},
     },
     verify_carrier,
 };
@@ -78,6 +78,7 @@ impl Fixture {
         policy.max_validity_ms = renewal_validity_ms;
         policy.max_anchor_age_ms = 120_000;
         let mut native = NativeFixture::from_generated(&prepared, &owner.authority);
+        native.retain_http_listeners(&prepared, &ports);
         let log = quote_instructions(
             &native,
             &owner.authority.config,
@@ -136,6 +137,10 @@ impl Fixture {
             initial,
         }
     }
+    pub(super) fn unavailable_peers(&self) -> UnavailablePeers {
+        self.native.unavailable_peers(&self.prepared)
+    }
+
     pub(super) fn current(&self) -> (FinalityVerifier, VerifiedStreamTokenCustodyStateV1) {
         let checkpoint =
             fixture_observe(&self.native, &self.owner.authority, self.options.deadline).unwrap();
@@ -197,10 +202,7 @@ impl Fixture {
             .owner
             .required_enrollment(CustodyPurpose::Renewal(2))
             .unwrap();
-        let mut http = NativeReadHttp::start_config(
-            &self.owner.authority.config,
-            Arc::clone(self.native.chain.state()),
-        );
+        let mut http = self.native.read_http(&self.owner.authority.config);
         let journal::Request::Enroll(request) = original
             .request(
                 original
@@ -704,7 +706,7 @@ fixture.options.deadline,
     );
     let mut changed_options = fixture.options.clone();
     changed_options.max_total_fees.clear();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     assert!(
         fixture
             .owner
@@ -1041,7 +1043,7 @@ fn unprepared_renewal_expires_without_replacing_original_or_creating_wallet_on_r
     let bytes = directory
         .read("original.nrt", MAX_CHECKPOINT_BYTES + 128 * 1024)
         .unwrap();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let report = fixture
         .owner
         .recover_renewal(2, Instant::now() + Duration::from_secs(10))
@@ -1416,7 +1418,7 @@ fn expired_unsigned_renewal_uses_new_closed_epoch_same_body_and_recovers_exact_n
         NativePreparationPhase::RequestOnly
     );
     wait_until(old_utc, Duration::from_secs(3));
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let progress = fixture
         .owner
         .recover_renewal(2, fixture.options.deadline)
@@ -1473,10 +1475,7 @@ fn expired_unsigned_renewal_uses_new_closed_epoch_same_body_and_recovers_exact_n
     peers.finish();
 
     // Prepare the same retained successor through the ordinary positive-fee quote path once.
-    let mut http = NativeReadHttp::start_config(
-        &fixture.owner.authority.config,
-        Arc::clone(fixture.native.chain.state()),
-    );
+    let mut http = fixture.native.read_http(&fixture.owner.authority.config);
     let journal::Request::Enroll(request) = selected.request(fixture.options.deadline).unwrap()
     else {
         unreachable!()
@@ -1582,7 +1581,7 @@ fn expired_unsigned_renewal_uses_new_closed_epoch_same_body_and_recovers_exact_n
     );
     drop(turn);
     drop(fixture.owner);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.native.unavailable_peers(&fixture.prepared);
     let mut reopened = ManagedStreamTokenCustody::open(
         &fixture.prepared,
         crate::managed::native_operation::test_support::provider_id(&fixture.prepared, 0),
@@ -1626,7 +1625,7 @@ fn renewal_selection_commitment_refuses_lost_body_and_uncertain_epoch_cannot_rei
     let body = directory
         .read("original.nrt", journal::MAX_ORIGINAL_BYTES)
         .unwrap();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     // Actual signed body publication precedes dispatch and grants no wallet phase by itself.
     assert!(
         BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2))
@@ -1745,7 +1744,7 @@ fn expired_original_attester_body_is_terminal_without_epoch_or_wallet_replacemen
         .unwrap();
     let inventory = wallet.entries(8).unwrap();
     wait_until(expires, Duration::from_secs(10));
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     // Explicit one-intent calls cannot refresh the retained dispatch UTC or replace this body.
     // Semantic replacement requires a separate live generated issuer and native predecessor join.
     assert!(
@@ -1783,7 +1782,7 @@ fn expired_original_attester_body_is_terminal_without_epoch_or_wallet_replacemen
 fn renewal_observation_resumes_exact_cursor_with_fresh_quorum_and_persists_catchup() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let trace = std::cell::RefCell::new(ObservationTrace::default());
     let observe = |fixture: &Fixture| {
         fixture.owner.authority.observe_finality_with_source(
@@ -2021,7 +2020,7 @@ fn generated_pending_signed_body_requires_fresh_quorum_before_dispatch_and_prese
     // The material phase sees native head 1 and an existing signed Renewal 2. It must enter
     // pending dispatch, preserve the paid body, and reach the ordinary fresh HTTP quorum gate.
     // This transport refuses that gate; it supplies no invented pending or successful receipt.
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let result = fixture.owner.reconcile_generated_with_reads(
         &mut turn,
         fixture.options.deadline,

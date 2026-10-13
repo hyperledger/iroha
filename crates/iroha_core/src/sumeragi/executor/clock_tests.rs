@@ -31,7 +31,11 @@ pub(crate) fn assert_clock_ahead_defers_original(
             let boundary = time
                 .checked_sub(drift)
                 .expect("fixture exceeds the drift allowance");
-            clock.set(boundary.checked_sub(Duration::from_millis(1)).unwrap());
+            clock.set(
+                boundary
+                    .checked_sub(Duration::from_millis(1))
+                    .expect("fixture time has the original one-millisecond predecessor"),
+            );
             let height = worker.state.view().height();
             for _ in 0..2 {
                 assert!(
@@ -52,14 +56,16 @@ pub(crate) fn assert_clock_ahead_defers_original(
                 assert!(events.try_recv().is_err());
             }
             clock.set(boundary);
-            let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
+            let Ok(Some(ExecOutcome::Valid { result, admission })) =
+                worker.execute(&block, hash, false)
+            else {
                 panic!("exact clock boundary must permit genuine execution of the same source")
             };
             // A valid original was already guarded; later clock regression does not erase it.
             clock.set(Duration::ZERO);
             assert_eq!(
                 worker.execute(&block, hash, false).unwrap(),
-                Some(ExecOutcome::Valid(result))
+                Some(ExecOutcome::Valid { result, admission })
             );
         },
     );
@@ -69,6 +75,80 @@ pub(crate) fn assert_clock_ahead_defers_original(
 fn prepare_withheld_while_block_time_ahead() {
     assert_clock_ahead_defers_original(|| {
         CertifiedTestChain::start(TestChainConfig::new(crate::state::World::new(), 1_000)).unwrap()
+    });
+}
+
+#[test]
+fn authenticated_proposer_time_above_floor_executes_and_replays_without_restamping() {
+    let chosen = Duration::from_millis(20_000);
+    let (clock, source) = TimeSource::new_mock(chosen);
+    publication_tests::with_worker_clock(source, move |chain, worker, blocks, _events| {
+        let original = publication_tests::proposal(chain, worker);
+        let proposal = payload::decode(original.payload().as_slice()).unwrap();
+        assert!(proposal.header().creation_time() < chosen);
+        let mut header = proposal.header();
+        header.creation_time_ms = u64::try_from(chosen.as_millis()).unwrap();
+        let mut builder = iroha_data_model::block::builder::BlockBuilder::new(header);
+        for transaction in proposal.external_transactions() {
+            builder.push_transaction(transaction.clone());
+        }
+        builder.set_da_commitments(proposal.da_commitments().cloned());
+        builder.set_da_proof_policies(proposal.da_proof_policies().cloned());
+        builder.set_da_pin_intents(proposal.da_pin_intents().cloned());
+        builder.set_npos_consensus_effects(proposal.npos_consensus_effects().cloned());
+        builder.set_global_beacon_pulse(proposal.global_beacon_pulse().cloned());
+        builder.set_execution_context(proposal.execution_context().cloned());
+        let fresh = builder.build(Default::default());
+        assert_eq!(
+            fresh.external_entrypoints_slice(),
+            proposal.external_entrypoints_slice()
+        );
+        let bytes = payload::encode(&fresh).unwrap();
+        let mut native_header = original.header().clone();
+        native_header.payload_hash = iroha_sumeragi::preimage::payload_hash(
+            &**worker.context.crypto.as_ref().unwrap(),
+            &bytes,
+        );
+        native_header.payload_len = u32::try_from(bytes.len()).unwrap();
+        let body = chain.author_payload(native_header, bytes);
+        let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
+        let outcome = worker.execute(&body, hash, false);
+        assert!(
+            matches!(outcome, Ok(Some(ExecOutcome::Valid { .. }))),
+            "authenticated proposer time above the input floor must execute: {outcome:?}"
+        );
+        let Ok(Some(ExecOutcome::Valid { result, .. })) = outcome else {
+            unreachable!()
+        };
+        let qc = chain.commit_qc(
+            2,
+            hash,
+            result,
+            crate::sumeragi::test_chain::Signers::Quorum,
+        );
+        worker.discard(2, &[]);
+        clock.set(Duration::ZERO);
+        let context = worker.context.clone();
+        let mut executor = StateExecutor::spawn(context.clone()).unwrap();
+        assert!(matches!(executor.execute(&body, &hash, false),
+            Err(PublicationError::Retryable(reason)) if reason.contains("ClockAhead")));
+        assert_eq!(executor.prepare(&body, &qc).unwrap(), Some(result));
+        blocks.append(&body, &qc).unwrap();
+        // A restart releases the original prepared owner before cold replay can acquire it.
+        drop(executor);
+        let mut restored = StateExecutor::spawn(context).unwrap();
+        restored.replay(&body, &qc).unwrap();
+        assert_eq!(
+            worker.state.view().native_execution_tip().unwrap().result(),
+            result
+        );
+        assert_eq!(
+            payload::decode(body.payload().as_slice())
+                .unwrap()
+                .header()
+                .creation_time(),
+            chosen
+        );
     });
 }
 
@@ -86,9 +166,9 @@ fn certified_execution_skips_clock_guards() {
             executor.execute(&block, &qc.block_hash, false),
             Err(PublicationError::Retryable(reason)) if reason.contains("ClockAhead")
         ));
-        assert_eq!(
-            executor.execute(&block, &qc.block_hash, true).unwrap(),
-            Some(ExecOutcome::Valid(qc.result)),
+        assert!(
+            matches!(executor.execute(&block, &qc.block_hash, true),
+            Ok(Some(ExecOutcome::Valid { result, .. })) if result == qc.result),
             "the genuine certified re-proposal executes the exact same deterministic result"
         );
         executor.discard(block.header().height, &[]);
@@ -197,7 +277,10 @@ fn sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry(
                 assert!(!worker.results.contains_key(&hash));
             }
             assert!(events.try_recv().is_err());
-            let Ok(Some(ExecOutcome::Valid(certified_result))) = worker.execute(&block, hash, true)
+            let Ok(Some(ExecOutcome::Valid {
+                result: certified_result,
+                ..
+            })) = worker.execute(&block, hash, true)
             else {
                 panic!("a certified retry must finish the same original execution")
             };
@@ -212,10 +295,10 @@ fn sccp_ct5_completion_resamples_clock_and_retains_original_for_certified_retry(
             assert!(
                 matches!(worker.execute(&block, hash, false), Err(PublicationError::Retryable(reason)) if reason.contains("StaleDueWork"))
             );
-            assert_eq!(
-                worker.execute(&block, hash, true).unwrap(),
-                Some(ExecOutcome::Valid(certified_result))
-            );
+            assert!(matches!(
+                worker.execute(&block, hash, true),
+                Ok(Some(ExecOutcome::Valid { result: actual, .. })) if actual == certified_result
+            ));
         },
     );
 }
@@ -248,61 +331,68 @@ fn sccp_ct5_prepare_signing_resamples_original_after_valid_and_binds_every_coord
             let block = chain.author_payload(header, bytes);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
             clock.set(Duration::from_millis(due + lag));
-            let Ok(Some(ExecOutcome::Valid(result))) = worker.execute(&block, hash, false) else {
+            let Ok(Some(ExecOutcome::Valid { result, admission })) =
+                worker.execute(&block, hash, false)
+            else {
                 panic!("genuine due candidate is valid at the exact CT5 boundary");
             };
-            let guard = &worker.prepare_clock;
+            let authorize = |header: &iroha_sumeragi::message::BlockHeader, hash, result| {
+                admission.check(&iroha_sumeragi::testing::prepare_signing_request(
+                    header.instance,
+                    header.epoch,
+                    header.height,
+                    header.origin_view,
+                    hash,
+                    result,
+                    false,
+                ))
+            };
             let header = block.header();
-            assert_eq!(
-                guard.authorize_uncertified_for_test(header, hash, result),
-                Ok(())
-            );
+            assert_eq!(authorize(header, hash, result), Ok(()));
             let mut foreign = header.clone();
             foreign.instance.0[0] ^= 1;
             assert_eq!(
-                guard.authorize_uncertified_for_test(&foreign, hash, result),
-                Err(SigningError::Refused)
+                authorize(&foreign, hash, result),
+                Err(SigningError::InvalidInput)
             );
             foreign = header.clone();
             foreign.epoch.epoch += 1;
             assert_eq!(
-                guard.authorize_uncertified_for_test(&foreign, hash, result),
-                Err(SigningError::Refused)
+                authorize(&foreign, hash, result),
+                Err(SigningError::InvalidInput)
             );
             foreign = header.clone();
             foreign.epoch.context.0[0] ^= 1;
             assert_eq!(
-                guard.authorize_uncertified_for_test(&foreign, hash, result),
-                Err(SigningError::Refused)
+                authorize(&foreign, hash, result),
+                Err(SigningError::InvalidInput)
             );
             foreign = header.clone();
             foreign.height += 1;
             assert_eq!(
-                guard.authorize_uncertified_for_test(&foreign, hash, result),
-                Err(SigningError::Refused)
+                authorize(&foreign, hash, result),
+                Err(SigningError::InvalidInput)
             );
             assert_eq!(
-                guard.authorize_uncertified_for_test(header, Hash32::ZERO, result),
-                Err(SigningError::Refused)
+                authorize(header, Hash32::ZERO, result),
+                Err(SigningError::InvalidInput)
             );
             assert_eq!(
-                guard.authorize_uncertified_for_test(header, hash, Hash32::ZERO),
-                Err(SigningError::Refused)
+                authorize(header, hash, Hash32::ZERO),
+                Err(SigningError::InvalidInput)
             );
             clock.advance(Duration::from_millis(1));
             assert_eq!(
-                guard.authorize_uncertified_for_test(header, hash, result),
+                authorize(header, hash, result),
                 Err(SigningError::Refused),
                 "CT5 must resample the original clock at Prepare signing after Valid was delivered"
             );
+            assert!(matches!(
+                worker.execute(&block, hash, true),
+                Ok(Some(ExecOutcome::Valid { result: actual, .. })) if actual == result
+            ));
             assert_eq!(
-                worker.execute(&block, hash, true).unwrap(),
-                Some(ExecOutcome::Valid(result))
-            );
-            assert_eq!(
-                worker
-                    .prepare_clock
-                    .authorize_uncertified_for_test(header, hash, result),
+                authorize(header, hash, result),
                 Err(SigningError::Refused),
                 "an earlier certified execution cannot exempt a later uncertified signature"
             );

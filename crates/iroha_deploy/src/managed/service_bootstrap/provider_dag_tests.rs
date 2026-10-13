@@ -5,6 +5,7 @@
 use super::*;
 use crate::managed::{
     native_operation::{
+        attempts::metadata,
         now_ms,
         test_support::{
             UnavailablePeers,
@@ -178,7 +179,7 @@ fn native_provider_dag_recovers_interleaved_and_same_block_originals() {
             ProviderPurpose::InitialProviderIngestAuthority,
         )
         .unwrap();
-        let leaf = later.directory.ensure_child("setup").unwrap();
+        let leaf = metadata::ensure_operation(&later.directory, "setup").unwrap();
         leaf.write_atomic(
             "original.nrt",
             b"unexecuted later original",

@@ -6,6 +6,15 @@
 //! client state.
 
 use super::*;
+
+mod operation;
+mod verified;
+pub use operation::{
+    PrivateSettlementError, PrivateSettlementOperation, PrivateSettlementRecovery,
+    PrivateSettlementRequest, PrivateSettlementResult, PrivateSettlementRunOptions,
+};
+pub use verified::{PrivateSettlementReceiptError, VerifiedPrivateSettlementReceipt};
+
 use iroha_data_model::{
     isi::private_settlement::{
         AbortAtomicPrivateSettlementV1, FinalizeAtomicPrivateSettlementV1,
@@ -518,6 +527,41 @@ fn exact_private_settlement_carrier_v1(
     Err(eyre!(
         "private-settlement bundle submission requires one direct carrier"
     ))
+}
+
+// One validator for the final manifest over the exact retained all-leg snapshot.
+fn private_settlement_manifest_with_availability_v1(
+    materials: &[PrivateSettlementProvisionalLegMaterialV1],
+    certificates: &[PrivateSettlementSidecarAvailabilityV1],
+) -> Result<AtomicPrivateSettlementV1> {
+    let first = materials
+        .first()
+        .ok_or_else(|| eyre!("private-settlement provisional leg set is empty"))?;
+    if materials.len() != first.manifest.legs.len() || certificates.len() != materials.len() {
+        return Err(eyre!(
+            "private-settlement availability snapshot is incomplete"
+        ));
+    }
+    let mut manifest = first.manifest.clone();
+    for (index, (material, certificate)) in materials.iter().zip(certificates).enumerate() {
+        material
+            .validate()
+            .map_err(|_| eyre!("private-settlement provisional leg is invalid"))?;
+        if material.manifest != first.manifest
+            || usize::from(material.statement.leg_ordinal) != index
+            || certificate.body != material.availability_body
+        {
+            return Err(eyre!(
+                "private-settlement availability snapshot is substituted"
+            ));
+        }
+        validate_availability_certificate_v1(certificate, &material.committee_authority)?;
+        manifest.legs[index].availability_certificate_digest = certificate.digest()?;
+    }
+    manifest
+        .validate()
+        .map_err(|_| eyre!("private-settlement final manifest is invalid"))?;
+    Ok(manifest)
 }
 
 fn validate_availability_certificate_v1(
@@ -2519,7 +2563,7 @@ impl Client {
         Ok(decoded)
     }
 
-    /// Certify every leg, finalize one common manifest, and promote each leg on its signers.
+    /// Certify every leg, finalize one common manifest, and promote each leg on a healthy quorum.
     ///
     /// `committee_endpoints[leg][validator]` is aligned with the canonical leg
     /// ordinal and that leg's four-validator authority roster. Exactly three
@@ -2529,7 +2573,9 @@ impl Client {
     /// # Errors
     ///
     /// Fails on inconsistent provisional manifests, endpoint matrices,
-    /// insufficient shares, final manifest validation, or any promotion error.
+    /// insufficient shares, final manifest validation, or fewer than `q = n - f`
+    /// exact upload acknowledgements for any leg. These acknowledgements are a
+    /// transport preflight; the independent Prepare QC remains protocol authority.
     pub fn certify_and_upload_private_settlement_legs_v1(
         &self,
         materials: &[PrivateSettlementProvisionalLegMaterialV1],
@@ -2562,48 +2608,94 @@ impl Client {
             certificates
                 .push(self.certify_private_settlement_leg_availability_v1(endpoints, material)?);
         }
-        let mut final_manifest = first.manifest.clone();
-        for (index, certificate) in certificates.iter().enumerate() {
-            final_manifest.legs[index].availability_certificate_digest = certificate
-                .digest()
-                .map_err(|_| eyre!("private-settlement certificate encoding failed"))?;
-        }
-        final_manifest
-            .validate()
-            .map_err(|_| eyre!("private-settlement final manifest is invalid"))?;
+        self.promote_private_settlement_legs_v1(materials, &certificates, committee_endpoints)
+    }
 
-        let mut responses =
-            Vec::with_capacity(materials.len() * first.committee_authority.validators.len());
-        for (index, ((material, certificate), endpoints)) in materials
-            .iter()
-            .zip(&certificates)
-            .zip(committee_endpoints)
-            .enumerate()
+    // Promote the original exact availability snapshot using q = n - f bound endpoint
+    // acknowledgements as transport preflight. These unsigned acknowledgements are not
+    // committee authority: Prepare independently verifies the proof and obtains its QC.
+    // Original availability signers are not a mandatory later liveness set.
+    fn promote_private_settlement_legs_v1(
+        &self,
+        materials: &[PrivateSettlementProvisionalLegMaterialV1],
+        certificates: &[PrivateSettlementSidecarAvailabilityV1],
+        committee_endpoints: &[Vec<Url>],
+    ) -> Result<Vec<PrivateSettlementLegUploadResponseV1>> {
+        let final_manifest =
+            private_settlement_manifest_with_availability_v1(materials, certificates)?;
+        validate_private_settlement_sponsor_context_v1(
+            &final_manifest,
+            &self.network_id,
+            &self.account,
+            "private-settlement promotion sponsor or network binding is invalid",
+        )?;
+        if committee_endpoints.len() != materials.len() {
+            return Err(eyre!(
+                "private-settlement promotion endpoint matrix is incomplete"
+            ));
+        }
+        for (material, endpoints) in materials.iter().zip(committee_endpoints) {
+            validate_private_settlement_committee_endpoints_v1(endpoints)?;
+            if endpoints.len() != material.committee_authority.validators.len() {
+                return Err(eyre!(
+                    "private-settlement promotion endpoints do not match authority"
+                ));
+            }
+        }
+        let mut responses = Vec::new();
+        for ((material, certificate), endpoints) in
+            materials.iter().zip(certificates).zip(committee_endpoints)
         {
-            let payload = material.payload_with_certificate(certificate.clone());
             let request = PrivateSettlementLegUploadRequestV1 {
                 manifest: final_manifest.clone(),
                 audit_policy: material.audit_policy.clone(),
                 committee_authority: material.committee_authority.clone(),
-                payload,
+                payload: material.payload_with_certificate(certificate.clone()),
             };
-            for (validator_index, endpoint) in endpoints.iter().enumerate() {
+            let n = material.committee_authority.validators.len();
+            let required = n - (n - 1) / 3;
+            let mut promoted = 0;
+            let mut first_failure = None;
+            let mut failed = Vec::with_capacity(n);
+            for (index, endpoint) in endpoints.iter().enumerate() {
                 match self.upload_private_settlement_leg_to_v1(endpoint, &request) {
                     Ok(response) => {
-                        if usize::from(response.leg_ordinal) != index {
-                            return Err(eyre!(
-                                "private-settlement promotion response is substituted"
-                            ));
-                        }
+                        promoted += 1;
                         responses.push(response);
                     }
-                    Err(error) if certificate.signers_bitmap & (1_u8 << validator_index) != 0 => {
-                        return Err(error).wrap_err(
-                            "private-settlement availability signer did not durably promote",
-                        );
+                    Err(error) => {
+                        failed.push(index);
+                        first_failure.get_or_insert(error);
                     }
-                    Err(_) => {}
                 }
+            }
+            if promoted < required {
+                // A returned replica may have missed the original provisional upload.
+                // Rehydrate only failed endpoints, with the exact original material,
+                // at most once per replica in this call. A verified new share confirms
+                // its identity/custody but is never selected into a new certificate.
+                for index in failed {
+                    let endpoint = &endpoints[index];
+                    let hydrated =
+                        self.request_private_settlement_availability_share_v1(endpoint, material);
+                    let Ok(hydrated) = hydrated else {
+                        continue;
+                    };
+                    if hydrated.share.signer != material.committee_authority.validators[index] {
+                        continue;
+                    }
+                    if let Ok(response) =
+                        self.upload_private_settlement_leg_to_v1(endpoint, &request)
+                    {
+                        promoted += 1;
+                        responses.push(response);
+                    }
+                }
+            }
+            if promoted < required {
+                let error = first_failure
+                    .unwrap_or_else(|| eyre!("private-settlement promotion has no quorum"));
+                return Err(error).wrap_err(format!("private-settlement promotion acknowledgements unavailable ({promoted}/{required})"));
             }
         }
         Ok(responses)
@@ -3986,7 +4078,7 @@ mod tests {
         (authority, keys, body)
     }
 
-    fn phase_votes_v1(
+    pub(super) fn phase_votes_v1(
         authority: &PrivateSettlementCommitteeAuthorityV1,
         keys: &[iroha_crypto::KeyPair],
         body: &PrivateSettlementPhaseBodyV1,
@@ -4054,7 +4146,7 @@ mod tests {
         }
     }
 
-    fn finalization_authority_v1(
+    pub(super) fn finalization_authority_v1(
         route: PrivateSettlementRouteV1,
         ordinal: u8,
     ) -> (
@@ -4088,7 +4180,7 @@ mod tests {
         (authority, keys)
     }
 
-    fn finalization_delta_v1(
+    pub(super) fn finalization_delta_v1(
         manifest: &AtomicPrivateSettlementV1,
         index: usize,
     ) -> PrivateSettlementDeltaV1 {
@@ -5158,7 +5250,7 @@ mod tests {
     // real material validator. It neither generates nor verifies a native proof.
     // Binding order follows Core sidecar_store::provisional_material_fixture;
     // padded opaque capsule shape follows torii_shared's response-validation fixture.
-    fn availability_material_fixture_v1(
+    pub(super) fn availability_material_fixture_v1(
         client: &Client,
     ) -> (
         PrivateSettlementProvisionalLegMaterialV1,
@@ -5324,7 +5416,7 @@ mod tests {
         (material, shares)
     }
 
-    fn availability_endpoints_fixture_v1() -> Vec<Url> {
+    pub(super) fn availability_endpoints_fixture_v1() -> Vec<Url> {
         (0..4)
             .map(|index| {
                 Url::parse(&format!("http://availability-{index}.mock/")).expect("fixture endpoint")

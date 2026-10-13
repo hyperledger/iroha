@@ -574,6 +574,7 @@ pub(crate) fn parse_account_literal_with_world(
     now_ms: u64,
 ) -> Result<Option<AccountId>, crate::sns::SnsError> {
     use iroha_data_model::account::address::{AccountAddress, AccountAddressError};
+
     let literal = input.trim();
     if literal.is_empty() {
         return Ok(None);
@@ -640,6 +641,7 @@ pub(crate) fn resolve_network_xor_asset_definition(
     now_ms: u64,
 ) -> Result<Option<AssetDefinitionId>, crate::execution_attempt::ExecutionDeferred> {
     use iroha_data_model::parameter::system::SumeragiNposParameters;
+
     if input.trim() != input
         || (input != "xor#universal" && AssetDefinitionId::parse_address_literal(input).is_err())
     {
@@ -1744,10 +1746,10 @@ pub enum BlockValidationError {
     BlockInThePast,
     /// Block's creation time is later than the current node local time
     BlockInTheFuture,
-    /// Sumeragi block creation time is not the canonical logical time. Expected: {expected_ms} ms, actual: {actual_ms} ms
-    NonCanonicalBlockTime {
-        /// Deterministic timestamp derived from the parent, cadence, and transactions.
-        expected_ms: u64,
+    /// Sumeragi block creation time is below its required floor. Minimum: {minimum_ms} ms, actual: {actual_ms} ms
+    BlockTimeBeforeRequiredFloor {
+        /// Deterministic minimum derived from the parent, cadence, and authenticated inputs.
+        minimum_ms: u64,
         /// Timestamp committed by the proposed block.
         actual_ms: u64,
     },
@@ -1924,7 +1926,9 @@ impl From<crate::sumeragi::lanes::merge::MergeError> for BlockValidationError {
                 observed_generation,
             },
             MergeError::StateView(error) => Self::StateView(error),
-            MergeError::RoutingDeferred(reason) => Self::ExecutionDeferred(reason),
+            MergeError::RoutingDeferred(reason) | MergeError::ResourceDeferred(reason) => {
+                Self::ExecutionDeferred(reason)
+            }
             MergeError::Storage(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 local,
             )) => Self::ExecutionDeferred(local),
@@ -2003,6 +2007,7 @@ fn epoch_schedule_capacity_preserves_original_local_release() {
 #[test]
 fn epoch_schedule_allocator_refusal_and_invalid_context_stay_distinct() {
     use crate::sumeragi::schedule::ScheduleError;
+
     let source = crate::sumeragi::certified_chain::ChainReadError::NotInView { height: 2 };
     let local = BlockValidationError::from(
         crate::sumeragi::schedule::ScheduleError::CommittedSource(source.into()),
@@ -3401,6 +3406,7 @@ pub(crate) mod valid {
                 facts: ivm::axt::AxtProofUseFacts,
             }
             type VerifiedProofBuckets = BTreeMap<(Option<u64>, Hash), Vec<usize>>;
+
             if let Some(envelope) = envelopes
                 .iter()
                 .find(|envelope| !envelope.spends.is_empty())
@@ -5032,31 +5038,31 @@ pub(crate) mod valid {
         }
 
         /// All static checks that require a state snapshot.
-        fn canonical_block_time(
+        fn block_time_floor(
             block: &SignedBlock,
             prev_block: &SignedBlock,
             block_cadence: Duration,
         ) -> Result<Duration, BlockValidationError> {
-            Self::canonical_block_time_from_parent_time(
+            Self::block_time_floor_from_parent_time(
                 block,
                 prev_block.header().creation_time(),
                 block_cadence,
             )
         }
-        /// The canonical creation time of a Sumeragi block over a parent created at
-        /// `parent_creation_time`: at least one cadence later and strictly after every timed
-        /// network input (`specs/sumeragi.md` Appendix E: parent + cadence rule).
+        /// Minimum permitted creation time over a parent created at `parent_creation_time`:
+        /// at least one cadence later, at the certified lane floor and strictly after every
+        /// timed native input. A proposer may authenticate a later time (§4.5).
         ///
         /// # Errors
         /// The time overflows.
-        pub(crate) fn sumeragi_block_time(
+        pub(crate) fn sumeragi_block_time_floor(
             block: &SignedBlock,
             parent_creation_time: Duration,
             block_cadence: Duration,
         ) -> Result<Duration, BlockValidationError> {
-            Self::canonical_block_time_from_parent_time(block, parent_creation_time, block_cadence)
+            Self::block_time_floor_from_parent_time(block, parent_creation_time, block_cadence)
         }
-        fn canonical_block_time_from_parent_time(
+        fn block_time_floor_from_parent_time(
             block: &SignedBlock,
             parent_creation_time: Duration,
             block_cadence: Duration,
@@ -5065,7 +5071,7 @@ pub(crate) mod valid {
                 .checked_add(block_cadence)
                 .ok_or(BlockValidationError::BlockTimeOverflow)?;
             // Merged lane transactions do not set the time: the merge section's floor does
-            // (`specs/sumeragi_lanes.md` §4.2), so the proposal alone fixes its time.
+            // (`specs/sumeragi_lanes.md` §4.2), so the original proposal fixes this floor.
             let floor = Duration::from_millis(
                 block
                     .lane_merge()
@@ -5216,12 +5222,14 @@ pub(crate) mod valid {
                 if let Some(prev_block) = prev_block {
                     let prev_block_time = prev_block.header().creation_time();
                     if let Some(block_cadence) = validation_profile.block_cadence() {
-                        let expected =
-                            Self::canonical_block_time(block, &prev_block, block_cadence)?;
+                        let minimum = Self::block_time_floor(block, &prev_block, block_cadence)?;
                         let actual = block.header().creation_time();
-                        if actual != expected {
-                            return Err(BlockValidationError::NonCanonicalBlockTime {
-                                expected_ms: u64::try_from(expected.as_millis())
+                        if actual < minimum
+                            || cfg!(all(test, sumeragi_core_mutation = "HC329"))
+                                && actual != minimum
+                        {
+                            return Err(BlockValidationError::BlockTimeBeforeRequiredFloor {
+                                minimum_ms: u64::try_from(minimum.as_millis())
                                     .map_err(|_| BlockValidationError::BlockTimeOverflow)?,
                                 actual_ms: u64::try_from(actual.as_millis())
                                     .map_err(|_| BlockValidationError::BlockTimeOverflow)?,
@@ -9079,10 +9087,10 @@ mod event {
             BlockValidationError::SignatureVerification(e) => map_sig_err_to_reason(e),
             BlockValidationError::InvalidGenesis(_)
             | BlockValidationError::GenesisPolicyMismatch { .. } => Reason::InvalidGenesis,
-            BlockValidationError::BlockInThePast => Reason::BlockInThePast,
+            BlockValidationError::BlockInThePast
+            | BlockValidationError::BlockTimeBeforeRequiredFloor { .. } => Reason::BlockInThePast,
             BlockValidationError::BlockInTheFuture => Reason::BlockInTheFuture,
-            BlockValidationError::NonCanonicalBlockTime { .. }
-            | BlockValidationError::BlockTimeOverflow => Reason::BlockInTheFuture,
+            BlockValidationError::BlockTimeOverflow => Reason::BlockInTheFuture,
             BlockValidationError::FinalityAuthorityInvalid(_) => Reason::ConsensusBlockRejection,
             BlockValidationError::TransactionInTheFuture => Reason::TransactionInTheFuture,
             BlockValidationError::ConfidentialFeaturesMismatch { .. } => {
@@ -11321,6 +11329,7 @@ seiyaku DynamicTarget { permission CanWriteCounters;
         use iroha_data_model::sumeragi_lanes::{
             SumeragiFixedLane, SumeragiLaneMember, SumeragiLanePolicy, SumeragiLaneRoute,
         };
+
         let (authority, keypair) = gen_account_in("wonderland");
         let (destination, _destination_keypair) = gen_account_in("wonderland");
         let sealed_dataspace = DataSpaceId::new(7);
@@ -11998,8 +12007,8 @@ seiyaku DynamicTarget { permission CanWriteCounters;
             &time_source,
         )
         .expect("Valid");
-        let fail_hash = tx_fail.as_ref().hash_as_entrypoint();
-        let accept_hash = tx_accept.as_ref().hash_as_entrypoint();
+        let fail_hash = tx_fail.hash_as_entrypoint();
+        let accept_hash = tx_accept.hash_as_entrypoint();
         // Creating a block of where first transaction must fail and second one fully executed
         let transactions = vec![tx_fail, tx_accept];
         let unverified_block = BlockBuilder::new(transactions)

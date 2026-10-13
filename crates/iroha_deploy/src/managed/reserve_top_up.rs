@@ -7,7 +7,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, require_deadline, require_empty, verify_carrier,
+        now_ms, read_optional, require_deadline, verify_carrier,
     },
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
 };
@@ -203,7 +203,7 @@ impl ManagedReserveTopUpRequest {
     ) -> Result<ManagedReserveTopUpProgress> {
         self.authority.validate_profile()?;
         self.validate_intent(intent)?;
-        let directory = self.authority.directory.ensure_child("request")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "request")?;
         let original = self.select_intent(&directory, intent, options.deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open funding wallet"))?;
@@ -217,12 +217,17 @@ impl ManagedReserveTopUpRequest {
         intent: &ManagedReserveTopUpIntent,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            original.matches_intent(intent)?;
+            self.validate_original(original)?;
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_intent(intent)?;
             self.validate_original(&original)?;
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(&intent.policy, deadline)?;
         if current.current() != Some(&intent.partition) {
             return Err(invalid(
@@ -283,7 +288,7 @@ impl ManagedReserveTopUpRequest {
             return Err(invalid("funding policy differs from startup authorization"));
         }
         self.validate_intent(intent)?;
-        let directory = self.authority.directory.ensure_child("request")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "request")?;
         let original = self.select_intent(&directory, intent, deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open funding wallet"))?;
@@ -386,7 +391,7 @@ impl ManagedReserveTopUpRequest {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;

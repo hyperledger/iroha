@@ -25,7 +25,7 @@ fn push_with_gossip_payload_with_state_and_routing_validates_precomputed_plan() 
         }),
     );
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     let payload = tx.entrypoint_bytes();
     queue
         .push_with_gossip_payload_with_state_and_routing_plan(

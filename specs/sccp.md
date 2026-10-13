@@ -970,11 +970,14 @@ rotation (§5.4).
 
 ### 4.3 Certified time
 
-Canonical block time is `max(parent + cadence, lane time floor, max
-tx.creation_time + 1)`, and only genesis is checked against a wall clock. One
-Byzantine leader could therefore move Taira's clock arbitrarily far forward
-with a post-dated transaction, or include an old due transaction and anchor due
-work at a stale time. SCCP and the governance clock anchor deadlines at
+Certified block time is the original authenticated timestamp in the proposal body.
+Validity requires at least `max(parent + cadence, lane time floor, max
+tx.creation_time + 1)`. A fresh proposer also includes one captured wall-clock
+reading in that maximum. It can reuse the exact same still-admissible signed
+inputs at a fresh view after an idle period; certified blocks retain their
+original bytes and time. Followers and replay never restamp them. Without the
+Prepare guards below, a Byzantine leader could choose an arbitrarily far-future
+time or include old due work at a stale time. SCCP and the governance clock anchor deadlines at
 certified block times (generation starts, fast-pause expiries, Parliament
 anchors), so both directions need a bound. The rules are application-level
 executor rules, specified normatively in `specs/sumeragi.md` §4.5; no validity
@@ -6326,7 +6329,7 @@ resource and process failures are errors, never killed mutations.
 | SC2/SC3: outgoing boundary identity and `ROTATION` (§4.2.2) | HC226 changes the outgoing generation; HC325 substitutes the successor committee root; HC309 omits a pre-heartbeat key-change rotation | Current-candidate causal qualification required |
 | SC4: dedicated consensus signing API (§3.8) | SC4, with actual single/aggregate cross-suite refusal controls | None for the registered suite fault |
 | SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck; DM36 bounds committed drift | Run the controls under their respective owners |
-| SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC291, HC294; MS51, MS65, MS67 | Run the production and simulator controls independently |
+| SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC334, HC337; MS51, MS65, MS67 | Run the production and simulator controls independently |
 | SC7/SC8/SC22: heartbeat/governance due predicate and degraded run | HC278 bounds degraded heartbeat retries; HC302 preserves the original parent pause-due set; HC312 omits the heartbeat deadline; HC313 omits the pause-due leg | Current consumer controls require qualification; full cross-owner Parliament scheduling still needs its authoritative producer |
 | SC9/SC16: K1 and K2 (§4.7.4) | HC277 rejects a second carrier; HC279 and HC280 cover canonical shape and stale-carrier selection; HC314 admits without established due work | Current-candidate causal qualification required |
 | SC10/SC11/SC23: missing inputs, `BEAT`, resync | HC227 binds resync to the native parent; HC324 omits resync; HC228 preserves parent anchors through degradation; HC310 invalidates missing inputs; HC311 disables heartbeat rotation | Current-candidate causal qualification required |

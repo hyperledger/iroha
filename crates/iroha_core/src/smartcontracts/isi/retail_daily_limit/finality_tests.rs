@@ -551,7 +551,9 @@ fn store_lane_block(
     let lane_payload = LaneBatch {
         anchor_height,
         anchor_hash: anchor,
-        transactions: vec![transaction],
+        transactions: vec![
+            iroha_data_model::transaction::TransactionEntrypoint::External(transaction),
+        ],
     }
     .to_payload();
     let config = lane_height_config(record).expect("native lane configuration");
@@ -642,6 +644,7 @@ fn merge_lane(chain: &mut CertifiedTestChain, stores: &LaneStores) {
                 parent: &parent,
                 view: 0,
                 cadence,
+                proposed_time: std::time::Duration::ZERO,
             },
             &[],
             &merges,

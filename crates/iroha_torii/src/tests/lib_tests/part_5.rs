@@ -1396,3 +1396,65 @@ fn settlement_replay_maps_to_conflict_without_claiming_new_success() {
         );
     }
 }
+
+#[tokio::test]
+async fn optional_canonical_body_auth_busy_source_preserves_capacity_and_nonce() {
+    use axum::{Extension, Router, routing::post};
+    use tower::ServiceExt as _;
+    use std::sync::{atomic::{AtomicUsize, Ordering}, mpsc};
+
+    async fn probe(
+        Extension(visibility): Extension<ToriiAccountReadVisibility>,
+        Extension(calls): Extension<Arc<AtomicUsize>>,
+    ) -> StatusCode {
+        assert!(visibility.is_signed(), "capacity must never select anonymous visibility");
+        calls.fetch_add(1, Ordering::SeqCst);
+        StatusCode::NO_CONTENT
+    }
+    let app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world(
+        crate::tests_runtime_handlers::world_with_account(&iroha_test_samples::ALICE_ID),
+    );
+    let method = Method::POST;
+    let uri: Uri = "/v1/accounts/query".parse().expect("query URI");
+    let body = b"{}";
+    let headers = crate::tests_runtime_handlers::signed_app_headers(
+        &iroha_test_samples::ALICE_ID,
+        &iroha_test_samples::ALICE_KEYPAIR,
+        &method, &uri, body,
+    );
+    let request = || {
+        let mut request = axum::http::Request::builder()
+            .method(method.clone()).uri(uri.clone())
+            .body(Body::from(body.as_slice())).expect("canonical request");
+        *request.headers_mut() = headers.clone();
+        request
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = Router::new()
+        .route("/v1/accounts/query", post(probe))
+        .layer(Extension(Arc::clone(&calls)))
+        .layer(axum::middleware::from_fn_with_state(
+            OptionalCanonicalAccountBodyAuthState { app: app.clone(), max_body_bytes: 1024 },
+            enforce_optional_canonical_account_body_authentication,
+        ));
+    let (held_tx, held_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
+    let state = app.state.clone();
+    let holder = std::thread::spawn(move || state.with_held_header_for_reader_test(|_| {
+        held_tx.send(()).expect("notify original writer acquired");
+        let _ = release_rx.recv();
+    }));
+    held_rx.recv_timeout(std::time::Duration::from_secs(5)).expect("original header writer");
+    let refused = router.clone().oneshot(request()).await.expect("capacity response");
+    drop(release_tx);
+    holder.join().expect("release original writer");
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS,
+        "real source contention cannot become invalid credentials");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let accepted = router.clone().oneshot(request()).await.expect("same request after release");
+    assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let replayed = router.oneshot(request()).await.expect("replay response");
+    assert_eq!(replayed.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

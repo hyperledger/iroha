@@ -113,7 +113,7 @@ fn assert_original_local_refusal<const N: usize>(ceilings: [norito::DecodeLimits
         }
         assert!(matches!(
             worker.execute(&block, hash, false),
-            Ok(Some(ExecOutcome::Valid(_)))
+            Ok(Some(ExecOutcome::Valid { .. }))
         ));
 
         assert_eq!(

@@ -2,10 +2,8 @@
 //! The scoped test hook restores its actual private file on ordinary return or unwind.
 
 use super::*;
-use crate::managed::{
-    native_operation::test_support::UnavailablePeers,
-    stream_token_custody::renewal_tests::{Fixture, wait_until},
-};
+use crate::managed::native_operation::attempts::metadata;
+use crate::managed::stream_token_custody::renewal_tests::{Fixture, wait_until};
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -194,11 +192,15 @@ fn publish_unsigned(history: &BodyHistory) {
     let pending = history.anchor.pending.as_ref().unwrap();
     let bytes = encode(pending, MAX_BODY_BYTES).unwrap();
     let container = history.root.ensure_child("bodies").unwrap();
+    let image = metadata::reserved_body(&bytes).unwrap();
     private_parent(&container)
         .unwrap()
         .publish_private_child(
             body_name(pending.ordinal).unwrap(),
-            &[("reserved.nrt", bytes.as_slice())],
+            &[
+                ("reserved.nrt", bytes.as_slice()),
+                (metadata::FILE, image.as_slice()),
+            ],
         )
         .unwrap();
 }
@@ -227,7 +229,7 @@ fn decoded_original_anchor_and_reference_cannot_bind_later_replacement_bytes() {
     let _guard = crate::managed::native_test_guard();
     // This separate native fixture isolates parser races from the unchanged original 4s test.
     let fixture = Fixture::enrolled(20_000);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let history = pending(&fixture);
     let mut selection = history.selection.clone();
     selection.profile[0] ^= 1;
@@ -285,7 +287,7 @@ fn decoded_original_anchor_and_reference_cannot_bind_later_replacement_bytes() {
 fn parsed_container_inventory_cannot_bind_a_later_unexpected_name() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(20_000);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let history = pending(&fixture);
     // With no parsed body or container, a late new allowed root name must still refuse.
     refuses(
@@ -318,7 +320,7 @@ fn parsed_container_inventory_cannot_bind_a_later_unexpected_name() {
 fn unsigned_body_records_and_absences_are_rechecked_before_parser_return() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled(20_000);
-    let peers = UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let history = pending(&fixture);
     publish_unsigned(&history);
     let history = history.reopen(&fixture.owner).unwrap();
@@ -333,6 +335,7 @@ fn unsigned_body_records_and_absences_are_rechecked_before_parser_return() {
             encode(&reservation, MAX_BODY_BYTES).unwrap(),
         ),
         ("original.nrt", b"not an original".to_vec()),
+        (metadata::FILE, b"not a canonical operation image".to_vec()),
     ] {
         refuses(
             &fixture,
@@ -343,13 +346,24 @@ fn unsigned_body_records_and_absences_are_rechecked_before_parser_return() {
             bytes,
         );
     }
-    assert!(
-        history.bodies[0]
-            .directory
-            .entries(1)
-            .unwrap()
-            .iter()
-            .all(|name| name == "reserved.nrt")
+    let mutation = ScopedMutation::arm_remove(
+        Point::HistoriesVerified,
+        history.root.path(),
+        Arc::clone(&history.bodies[0].directory),
+        metadata::FILE,
+    );
+    assert!(open(&fixture).is_err());
+    assert!(mutation.fired());
+    assert!(mutation.applied());
+    drop(mutation);
+    assert!(open(&fixture).is_ok());
+    metadata::require_reserved(&history.bodies[0].directory).unwrap();
+    assert_eq!(
+        history.bodies[0].directory.entries(2).unwrap(),
+        [
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("reserved.nrt")
+        ]
     );
     assert_eq!(fixture.native.chain.height(), 4);
     assert!(peers.requests.lock().unwrap().is_empty());

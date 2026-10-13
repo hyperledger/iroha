@@ -2,6 +2,7 @@
 //! Local reservation counting does not claim paid execution or current signing eligibility.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::stream_token_custody::{
     bootstrap_test_support::NativeEnrollmentReads,
     renewal_tests::{Fixture, wait_until},
@@ -286,11 +287,9 @@ fn expired_request_retirement_recovers_after_actual_wallet_retirement_before_clo
         NativePreparationPhase::Retired
     );
     assert!(
-        !reserved.bodies[0]
-            .directory
-            .path()
-            .join("closed.nrt")
-            .exists()
+        !metadata::test_read_component(&reserved.bodies[0].directory, None, "closed.nrt")
+            .unwrap()
+            .is_some()
     );
     let resumed = reopen(&fixture)
         .finish_pending_with_reads(
@@ -326,11 +325,9 @@ fn expired_request_retirement_recovers_after_actual_wallet_retirement_before_clo
             && !request_path.join("operation.json").exists()
     );
     assert!(
-        resumed.bodies[0]
-            .directory
-            .path()
-            .join("closed.nrt")
-            .exists()
+        metadata::test_read_component(&resumed.bodies[0].directory, None, "closed.nrt")
+            .unwrap()
+            .is_some()
     );
     assert_ne!(
         resumed.original().unwrap().digest().unwrap(),
@@ -340,9 +337,7 @@ fn expired_request_retirement_recovers_after_actual_wallet_retirement_before_clo
     // The replacement body then reaches the same paid wallet/native verifier, with the exact
     // original predecessor CAS; no synthetic completion or relaxed expiry is needed.
     let replacement = retain_request(&fixture, &resumed, 15_000);
-    let mut http = crate::managed::native_operation::test_support::native_fixture::NativeReadHttp::start_config(
-        &fixture.owner.authority.config, Arc::clone(fixture.native.chain.state()),
-    );
+    let mut http = fixture.native.read_http(&fixture.owner.authority.config);
     let journal::Request::Enroll(request) = replacement.request(fixture.options.deadline).unwrap()
     else {
         unreachable!()
@@ -453,8 +448,11 @@ fn unused_expired_reservation_retires_without_inventing_a_wallet_or_dispatch_his
     assert!(!activated.has_pending());
     assert!(activated.original().is_none());
     assert_eq!(
-        activated.bodies[0].directory.entries(1).unwrap(),
-        vec![std::ffi::OsString::from("reserved.nrt")]
+        activated.bodies[0].directory.entries(2).unwrap(),
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("reserved.nrt")
+        ]
     );
     let replacement = activated
         .reserve_successor(
@@ -483,11 +481,9 @@ fn unused_expired_reservation_retires_without_inventing_a_wallet_or_dispatch_his
     assert!(replacement.bodies[0].unused.is_some());
     assert!(replacement.bodies[0].original.is_none());
     assert!(
-        !replacement.bodies[0]
-            .directory
-            .path()
-            .join("dispatch.nrt")
-            .exists()
+        !metadata::test_read_component(&replacement.bodies[0].directory, None, "dispatch.nrt")
+            .unwrap()
+            .is_some()
     );
     assert!(
         !replacement.bodies[0]
@@ -502,7 +498,6 @@ fn unused_expired_reservation_retires_without_inventing_a_wallet_or_dispatch_his
 #[test]
 fn signed_applied_expired_body_preserves_wire_and_recovers_missing_carrier_before_current_use_refusal()
  {
-    use crate::managed::native_operation::test_support::native_fixture::NativeReadHttp;
     use crate::managed::stream_token_custody::renewal_tests::FixtureReads;
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled_with_renewal_validity(4_000, 30_000);
@@ -517,10 +512,7 @@ fn signed_applied_expired_body_preserves_wire_and_recovers_missing_carrier_befor
         .unwrap();
     let account = fixture.owner.wallet().unwrap();
     let wallet_path = old.directory().path().join("transaction");
-    let mut http = NativeReadHttp::start_config(
-        &fixture.owner.authority.config,
-        Arc::clone(fixture.native.chain.state()),
-    );
+    let mut http = fixture.native.read_http(&fixture.owner.authority.config);
     let journal::Request::Enroll(request) = old.request(fixture.options.deadline).unwrap() else {
         unreachable!()
     };
@@ -732,7 +724,6 @@ fn closed_body_count_carries_into_next_body_and_never_refunds_sixty_four_origina
 
 #[test]
 fn paid_payload_and_signed_body_refuse_semantic_replacement_without_changing_originals() {
-    use crate::managed::native_operation::test_support::native_fixture::NativeReadHttp;
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled_with_renewal_validity(4_000, 20_000);
     wait_until(
@@ -743,10 +734,7 @@ fn paid_payload_and_signed_body_refuse_semantic_replacement_without_changing_ori
     let selected = retain_request(&fixture, &history, 15_000);
     let account = fixture.owner.wallet().unwrap();
     let path = selected.directory().path().join("transaction");
-    let mut http = NativeReadHttp::start_config(
-        &fixture.owner.authority.config,
-        Arc::clone(fixture.native.chain.state()),
-    );
+    let mut http = fixture.native.read_http(&fixture.owner.authority.config);
     let journal::Request::Enroll(request) = selected.request(fixture.options.deadline).unwrap()
     else {
         unreachable!()
@@ -852,11 +840,15 @@ fn same_body_retired_wallet_prefix_finishes_before_outer_terminal_closure() {
         )
         .unwrap();
     // Exact crash prefix: successor is retained, predecessor's genuine wallet is retired, and
-    // its shared retired.nrt has not yet been published. No second wallet exists.
+    // its shared retirement component has not yet been published. No second wallet exists.
     request
         .retire(&account, &first.directory().path().join("transaction"))
         .unwrap();
-    assert!(!first.directory().path().join("retired.nrt").exists());
+    assert!(
+        !metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
+            .unwrap()
+            .is_some()
+    );
     assert!(!second.wallet_path().exists());
     wait_until(expiry(&history), Duration::from_secs(10));
     let mut body_turn = fixture.renewal_turn();
@@ -892,7 +884,11 @@ fn same_body_retired_wallet_prefix_finishes_before_outer_terminal_closure() {
             .unwrap()
             .is_none()
     );
-    assert!(!first.directory().path().join("retired.nrt").exists());
+    assert!(
+        !metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
+            .unwrap()
+            .is_some()
+    );
     let resumed = reserved
         .finish_pending_with_reads(
             &fixture.owner,
@@ -902,13 +898,15 @@ fn same_body_retired_wallet_prefix_finishes_before_outer_terminal_closure() {
             &NativeEnrollmentReads(&fixture.native),
         )
         .unwrap();
-    assert!(first.directory().path().join("retired.nrt").exists());
     assert!(
-        resumed.bodies[0]
-            .directory
-            .path()
-            .join("closed.nrt")
-            .exists()
+        metadata::test_read_attempt_component(first.attempt(), "retired.nrt")
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        metadata::test_read_component(&resumed.bodies[0].directory, None, "closed.nrt")
+            .unwrap()
+            .is_some()
     );
     assert_eq!(
         resumed
@@ -1111,7 +1109,13 @@ fn expired_reserved_successor_keeps_one_claim_per_turn_and_later_fresh_turn_prog
         anchor
     );
     assert!(!root_path.join("bodies/0002/original.nrt").exists());
-    assert!(!root_path.join("bodies/0002/dispatch.nrt").exists());
+    let reserved_body = PrivateDirectory::open_exact(root_path.join("bodies/0002")).unwrap();
+    metadata::require_reserved(&reserved_body).unwrap();
+    assert!(
+        metadata::test_read_component(&reserved_body, None, "dispatch.nrt")
+            .unwrap()
+            .is_none()
+    );
     assert!(!root_path.join("bodies/0003").exists());
     let retained = reopen(&fixture);
     let mut later_turn = fixture.renewal_turn();
@@ -1154,8 +1158,7 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
         fixture.initial.issued_at_unix_ms + 2_000,
         Duration::from_secs(4),
     );
-    let peers =
-        crate::managed::native_operation::test_support::UnavailablePeers::start(&fixture.prepared);
+    let peers = fixture.unavailable_peers();
     let mut turn = fixture.renewal_turn();
     let unsigned = fresh_unsigned(&fixture).0;
     let unsigned_bytes = encode(&unsigned, MAX_BODY_BYTES).unwrap();
@@ -1190,9 +1193,16 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
     let container = history.root.ensure_child("bodies").unwrap();
     let mut changed = reservation.clone();
     *changed.last_mut().unwrap() ^= 1;
+    let image = metadata::reserved_body(&reservation).unwrap();
     let body = private_parent(&container)
         .unwrap()
-        .publish_private_child("0001", &[("reserved.nrt", changed.as_slice())])
+        .publish_private_child(
+            "0001",
+            &[
+                ("reserved.nrt", changed.as_slice()),
+                (metadata::FILE, image.as_slice()),
+            ],
+        )
         .unwrap();
     let root = Arc::clone(&history.root);
     let reads = NativeEnrollmentReads(&fixture.native);
@@ -1216,7 +1226,10 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
     assert!(!container.path().join("0001-unused.nrt").exists());
     assert_eq!(
         body.entries(2).unwrap(),
-        vec![std::ffi::OsString::from("reserved.nrt")]
+        vec![
+            std::ffi::OsString::from(metadata::FILE),
+            std::ffi::OsString::from("reserved.nrt")
+        ]
     );
     assert_eq!(fixture.native.chain.height(), 4);
     assert!(peers.requests.lock().unwrap().is_empty());
@@ -1277,7 +1290,11 @@ fn first_reservation_refuses_changed_original_before_activation_and_preserves_ex
         reference
     );
     assert!(completed.current_history().unwrap().last().is_none());
-    assert!(!retained.directory.path().join("dispatch.nrt").exists());
+    assert!(
+        !metadata::test_read_component(&retained.directory, None, "dispatch.nrt")
+            .unwrap()
+            .is_some()
+    );
     assert!(!retained.directory.path().join("attempts").exists());
     assert_eq!(fixture.native.chain.height(), 4);
     assert!(peers.requests.lock().unwrap().is_empty());

@@ -12,12 +12,12 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
     let history = fixture.history().unwrap();
     let root = history.root.as_ref().unwrap();
     let row_identity = attempt.directory.identity().unwrap();
-    let authorization_path = attempt.directory.path().join("authorization.nrt");
+    let authorization_path = fixture.operation.path().join(metadata::FILE);
     let authorization_identity =
         FileIdentity::of(&std::fs::File::open(&authorization_path).unwrap()).unwrap();
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
+    let original = fixture
+        .operation
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let original_names = attempt.directory.entries(7).unwrap();
     let reopened = PrivateDirectory::open(attempt.directory.path()).unwrap();
@@ -28,7 +28,8 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
                 tree.read_scope(directory, |reader| {
                     let before = checked_attempt_inventory(reader.entries(7)?)?;
                     let authorization: Option<Authorization> =
-                        read_record_in_scope(reader, "authorization.nrt")?;
+                        metadata::load(&fixture.operation)
+                            .and_then(|image| image.read(Some(attempt.ordinal()), 0))?;
                     assert!(authorization.as_ref() == Some(&attempt.authorization));
                     assert_eq!(checked_attempt_inventory(reader.entries(7)?)?, before);
                     Ok::<_, Error>(authorization)
@@ -40,11 +41,20 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
         assert_eq!(counts.reads, 1);
         assert_eq!(counts.decoded, 1);
     }
+    attempt
+        .directory
+        .write_atomic(
+            "replay.nrt",
+            b"bounded native census",
+            PublishMode::CreateNew,
+        )
+        .unwrap();
     let counter = parse_digest_tests::Counter::begin();
     let bounded: Result<Option<Authorization>> = root.read_tree_scope(|tree| {
         tree.read_scope(&attempt.directory, |reader| {
             reader.entries(0)?;
-            read_record_in_scope(reader, "authorization.nrt")
+            metadata::load(&fixture.operation)
+                .and_then(|image| image.read(Some(attempt.ordinal()), 0))
         })
     });
     let counts = counter.finish();
@@ -53,6 +63,7 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
     );
     assert_eq!(counts.reads, 0);
     assert_eq!(counts.decoded, 0);
+    std::fs::remove_file(attempt.directory.path().join("replay.nrt")).unwrap();
 
     attempt
         .directory
@@ -62,7 +73,8 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
     let unknown: Result<Option<Authorization>> = root.read_tree_scope(|tree| {
         tree.read_scope(&attempt.directory, |reader| {
             checked_attempt_inventory(reader.entries(7)?)?;
-            read_record_in_scope(reader, "authorization.nrt")
+            metadata::load(&fixture.operation)
+                .and_then(|image| image.read(Some(attempt.ordinal()), 0))
         })
     });
     let counts = counter.finish();
@@ -77,7 +89,8 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
     let changed: Result<Option<Authorization>> = root.read_tree_scope(|tree| {
         tree.read_scope(&attempt.directory, |reader| {
             let before = checked_attempt_inventory(reader.entries(7)?)?;
-            let authorization = read_record_in_scope(reader, "authorization.nrt")?;
+            let authorization = metadata::load(&fixture.operation)
+                .and_then(|image| image.read(Some(attempt.ordinal()), 0))?;
             // This is a real permitted native name, so fresh equality is needed after reading.
             attempt
                 .directory
@@ -107,9 +120,9 @@ fn closed_row_scope_keeps_before_after_native_inventory_and_original_retry() {
     );
     assert_eq!(attempt.directory.entries(7).unwrap(), original_names);
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
+        fixture
+            .operation
+            .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
             .unwrap(),
         original
     );
@@ -127,12 +140,12 @@ fn closed_row_scope_custody_overrides_real_optional_and_decode_results_and_resto
     let root = history.root.as_ref().unwrap();
     let row_path = attempt.directory.path().to_owned();
     let original_identity = attempt.directory.identity().unwrap();
-    let authorization_path = row_path.join("authorization.nrt");
+    let authorization_path = fixture.operation.path().join(metadata::FILE);
     let authorization_identity =
         FileIdentity::of(&fs::File::open(&authorization_path).unwrap()).unwrap();
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
+    let original = fixture
+        .operation
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
     let original_names = attempt.directory.entries(7).unwrap();
     let held_authorization = fixture.temporary.path().join("held-authorization.nrt");
@@ -141,13 +154,9 @@ fn closed_row_scope_custody_overrides_real_optional_and_decode_results_and_resto
         for kind in ["present", "absence", "decoder_error", "native_not_found"] {
             if kind == "decoder_error" {
                 fs::rename(&authorization_path, &held_authorization).unwrap();
-                attempt
-                    .directory
-                    .write_atomic(
-                        "authorization.nrt",
-                        b"not canonical",
-                        PublishMode::CreateNew,
-                    )
+                fixture
+                    .operation
+                    .write_atomic(metadata::FILE, b"not canonical", PublishMode::CreateNew)
                     .unwrap();
             }
             let counter = parse_digest_tests::Counter::begin();
@@ -158,12 +167,12 @@ fn closed_row_scope_custody_overrides_real_optional_and_decode_results_and_resto
                         reader.read("missing.nrt", MAX_RECORD_BYTES, decode_record::<Authorization>)
                             .map_err(Error::from).and_then(|value| value.map(Some))
                     } else {
-                        read_record_in_scope::<Authorization>(reader, if kind == "absence" { "missing.nrt" } else { "authorization.nrt" })
+                        metadata::load(&fixture.operation).and_then(|image| image.read::<Authorization>(Some(attempt.ordinal()), usize::from(kind == "absence")))
                     };
                     match kind {
                         "present" => assert!(result.as_ref().unwrap().as_ref() == Some(&attempt.authorization)),
                         "absence" => assert!(result.as_ref().unwrap().is_none()),
-                        "decoder_error" => assert!(matches!(&result, Err(Error::Invalid(message)) if message == "invalid canonical dispatch custody record")),
+                        "decoder_error" => assert!(matches!(&result, Err(Error::Invalid(message)) if message == "invalid canonical operation metadata image")),
                         _ => assert!(matches!(&result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound)),
                     }
                     if boundary == "row" {
@@ -209,9 +218,9 @@ fn closed_row_scope_custody_overrides_real_optional_and_decode_results_and_resto
             );
             assert_eq!(attempt.directory.entries(7).unwrap(), original_names);
             assert_eq!(
-                attempt
-                    .directory
-                    .read("authorization.nrt", MAX_RECORD_BYTES)
+                fixture
+                    .operation
+                    .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
                     .unwrap(),
                 original
             );

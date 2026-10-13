@@ -1,5 +1,6 @@
 //! Genuine native absence is reused only for unsigned retention, never later preparation.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::test_support::{
         UnavailablePeers,
@@ -68,7 +69,7 @@ fn first_native_absence_retains_unsigned_request_but_changed_state_blocks_prepar
     );
     assert_eq!(native.chain.commit(vec![log]), vec![true]);
     assert_eq!(native.chain.height(), 2);
-    let directory = owner.authority.directory.ensure_child("set").unwrap();
+    let directory = metadata::ensure_operation(&owner.authority.directory, "set").unwrap();
     let observations = Cell::new(0);
     let (original, mut admission) = owner
         .select_intent_using(&directory, &policy, deadline, |owner, policy, _| {
@@ -224,7 +225,7 @@ fn equal_original_and_late_active_proof_admissions_use_the_canonical_source() {
             ))],
         );
         assert_eq!(native.chain.commit(vec![log]), vec![true]);
-        let directory = owner.authority.directory.ensure_child("set").unwrap();
+        let directory = metadata::ensure_operation(&owner.authority.directory, "set").unwrap();
         let (original, mut admission) = owner
             .select_intent_using(&directory, &policy, deadline, |owner, policy, _| {
                 Ok(current(&native, owner, policy))
@@ -313,7 +314,11 @@ fn equal_original_and_late_active_proof_admissions_use_the_canonical_source() {
         assert_eq!(history.reserved_attempt_count(), 1);
         let first = history.last().unwrap();
         assert!(!first.wallet_path().exists());
-        assert!(!first.directory().path().join("observation.nrt").exists());
+        assert!(
+            metadata::test_read_attempt_component(first, "observation.nrt")
+                .unwrap()
+                .is_none()
+        );
         unavailable.finish();
     }
 }

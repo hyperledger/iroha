@@ -310,10 +310,6 @@ fn committed_result_decode_refusal_keeps_original_read_slot_and_retries() {
 
 #[test]
 fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
-    use crate::test_allocations::refuse_one_layout_during;
-    use iroha_data_model::{
-        block::decode_framed_signed_block, sumeragi_finality::test_fixtures::NativeFinalityFixture,
-    };
     struct OriginalSchedule {
         instance: Hash32,
         config: HeightConfig,
@@ -327,6 +323,11 @@ fn committed_certificate_allocator_refusal_retains_original_slot_and_retries() {
             Ok(Some(self.config.clone()))
         }
     }
+
+    use crate::test_allocations::refuse_one_layout_during;
+    use iroha_data_model::{
+        block::decode_framed_signed_block, sumeragi_finality::test_fixtures::NativeFinalityFixture,
+    };
     let fixture = NativeFinalityFixture::new();
     let parent = fixture
         .verifier()

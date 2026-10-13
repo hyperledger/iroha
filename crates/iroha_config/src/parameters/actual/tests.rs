@@ -546,7 +546,7 @@ mod tests {
                 .expect("nonzero history depth");
         assert_changed("oracle execution policy", changed);
         let mut changed = baseline.clone();
-        changed.fraud_monitoring.enabled = !changed.fraud_monitoring.enabled;
+        changed.fraud_monitoring.policy.enabled = !changed.fraud_monitoring.policy.enabled;
         assert_changed("fraud admission policy", changed);
         let mut changed = baseline.clone();
         changed.gov.plain_voting_enabled = !changed.gov.plain_voting_enabled;
@@ -703,7 +703,10 @@ mod tests {
     #[test]
     fn execution_policy_digest_excludes_only_result_preserving_operational_drift() {
         let mut baseline = super::sora_profile_tests::minimal_root();
-        baseline.fraud_monitoring.missing_assessment_grace = Duration::from_secs(1);
+        baseline
+            .fraud_monitoring
+            .policy
+            .missing_assessment_permitted = true;
         let expected = execution_policy_hash(&baseline);
         let mut operational = baseline;
         operational.pipeline.workers = operational.pipeline.workers.saturating_add(1);
@@ -721,7 +724,7 @@ mod tests {
         operational.crypto.enable_sm_openssl_preview =
             !operational.crypto.enable_sm_openssl_preview;
         operational.fraud_monitoring.request_timeout += Duration::from_millis(1);
-        operational.fraud_monitoring.missing_assessment_grace += Duration::from_secs(1);
+        // Missing-assessment permission is semantic and is never a transport setting.
         operational.gov.alias_frontier_telemetry = !operational.gov.alias_frontier_telemetry;
         operational.gov.debug_trace_pipeline = !operational.gov.debug_trace_pipeline;
         operational.content.limits.max_requests_per_second = NonZeroU32::new(

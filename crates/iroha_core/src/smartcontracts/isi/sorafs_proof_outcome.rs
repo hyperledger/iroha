@@ -402,6 +402,7 @@ fn policy_digest(
             Ok(())
         }
     }
+
     let encoded_len = norito::canonical_frame_len(policy)
         .map_err(|error| invalid_parameter(format!("failed to encode signer policy: {error}")))?;
     let mut hasher = blake3::Hasher::new();

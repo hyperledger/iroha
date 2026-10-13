@@ -413,6 +413,7 @@ impl Fixture {
         use iroha_data_model::transaction::{
             FeeChargeKind, FeeChargeLimit, FeePaymentIntent, TransactionBuilder,
         };
+
         let Some(asset) = &self.fee_asset else {
             return chain_fixture::sign(&self.state, instruction, seed, now);
         };

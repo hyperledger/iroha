@@ -5115,6 +5115,7 @@ fn install_existing_nexus_geometry_for_test(
             &activation_heights,
             &lineage,
             None,
+            &mut LaneLifecycleReleases::new(state),
         )
         .unwrap_or_else(|failure| {
             panic!(
@@ -26025,7 +26026,7 @@ state_test! { sync execute_called_trigger_failure_rolls_back_state
             ALICE_ID.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(vec![], None),
         );
-        builder.set_creation_time(block.as_ref().header().creation_time().checked_sub(Duration::from_millis(1)).unwrap());
+        builder.set_creation_time(block.as_ref().header().creation_time().checked_sub(Duration::from_millis(1)).expect("fixture time has the original one-millisecond predecessor"));
         let signed_payload = builder
             .with_instructions([ExecuteTrigger::new(trigger_id.clone())])
             .sign(ALICE_KEYPAIR.private_key());
@@ -26657,7 +26658,7 @@ state_test! { sync native_trigger_instructions_are_not_an_unmetered_execution_pa
     let mut transaction = block.transaction();
     // The low-level callback fixture retains the source invocation before its
     // body, just as the canonical external execution owner does.
-    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash()));
+    transaction.tx_call_hash = Some(Hash::from(dummy_accepted_transaction().hash_as_entrypoint()));
     transaction.gas_limit_per_block = 4;
     transaction.world.add_account_permission(
         &ALICE_ID,

@@ -407,6 +407,7 @@ fn initial_executor_archive_registration_fixture() -> (State, AccountId, Registe
         startup,
         test_chain::{CertifiedTestChain, TestChainConfig},
     };
+
     let mut archive = retention_archive(0x34);
     let publisher = archive.registered_by.clone();
     let broker = archive

@@ -456,7 +456,7 @@ impl<F: PoseidonField> CoreState<F> {
     }
 }
 
-/// The 13 rest elements (opaque to the step relations; the lineage relation
+/// The eight rest elements (opaque to the step relations; the lineage relation
 /// opens them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StateRest {

@@ -924,10 +924,6 @@ impl Prepared {
         );
         let signer =
             KeyPairSigner::new(&key_pair).map_err(|error| NodeError::Key(error.to_string()))?;
-        let signer = super::crypto::prepare_clock::NativePrepareSigner::new(
-            signer,
-            executor.prepare_clock(),
-        );
         let (_, beacon_key) = key_pair
             .public_key()
             .try_to_bytes()

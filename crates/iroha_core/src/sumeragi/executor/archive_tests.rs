@@ -213,11 +213,6 @@ fn context(
 
 fn worker(context: &ExecutorContext, archives: FinalizedArchives) -> Worker<'_> {
     Worker {
-        prepare_clock: crate::sumeragi::crypto::prepare_clock::PrepareClock::new(
-            &context.state.ivm_execution_budget(),
-            context.time_source.clone(),
-        )
-        .expect("original worker clock admission"),
         payload_build: None,
         assembly_parent_service: None,
         signature_decode: None,

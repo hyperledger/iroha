@@ -700,6 +700,13 @@ Root {
         pin_retention_horizon_secs: 2592000,
         pin_transaction_authority: IngressBroker,
     },
+    amx_relay: AmxRelay {
+        journal_dir: "./storage/amx/workflows",
+        poll_interval: 2s,
+        max_source_heights_per_pass: 32,
+        max_finality_proof_reads: 64,
+        routes: [],
+    },
     kura: Kura {
         init_mode: Strict,
         store_dir: WithOrigin {
@@ -1392,13 +1399,16 @@ Root {
         max_archive_len: 1073741824,
     },
     fraud_monitoring: FraudMonitoring {
-        enabled: false,
+        policy: FraudAdmissionPolicyV1 {
+            version: 1,
+            enabled: false,
+            required_minimum_band: None,
+            missing_assessment_permitted: false,
+            attesters: [],
+        },
         service_endpoints: [],
         connect_timeout: 500ms,
         request_timeout: 1.5s,
-        missing_assessment_grace: 0ns,
-        required_minimum_band: None,
-        attesters: [],
     },
     zk: Zk {
         trace: DiagnosticTrace {

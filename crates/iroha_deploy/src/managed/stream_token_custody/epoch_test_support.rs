@@ -1,5 +1,6 @@
 //! Test-only generated Configure retention from native absence; execution uses the existing owner.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::NativeFixture;
 
 impl ManagedStreamTokenCustody {
@@ -33,7 +34,7 @@ impl ManagedStreamTokenCustody {
         };
         self.validate_original(&original, CustodyPurpose::Configure)
             .unwrap();
-        let directory = self.authority.directory.ensure_child("configure").unwrap();
+        let directory = metadata::ensure_operation(&self.authority.directory, "configure").unwrap();
         journal::publish_intent(&directory, &original).unwrap();
         let account = authorization.bind_account(self.wallet().unwrap()).unwrap();
         attempts::generated(

@@ -2998,11 +2998,26 @@ fn record_original(runtime: &Iso20022BridgeRuntime, message_id: &str, message_ty
     );
 }
 fn record_lifecycle(runtime: &Iso20022BridgeRuntime, message_id: &str, message_type: &str) {
+    let metadata = inbound_metadata(message_id, message_type);
+    let mut parties = runtime.compatibility_test_parties(&metadata);
+    if message_type == "pacs.004" {
+        parties.admitting_participant_id = parties.counterparty_participant_id.clone();
+        parties.admitting_operator_key = runtime
+            .participants_by_key
+            .iter()
+            .find(|(_, participant)| participant.id == parties.counterparty_participant_id)
+            .expect("configured return counterparty")
+            .0
+            .to_string();
+    }
     assert!(
-        runtime.check_and_record_inbound(message_id, inbound_metadata(message_id, message_type)),
+        runtime
+            .admit_inbound(message_id, metadata, parties, false)
+            .is_ok(),
         "record lifecycle {message_id}"
     );
 }
+
 fn signed_pacs008_xml_with_certificate_chain_issuer_name_mismatch() -> CertificateChainSignedPayload
 {
     signed_pacs008_xml_with_certificate_chain_options(
@@ -3471,9 +3486,43 @@ fn write_snapshot(contents: &str) -> NamedTempFile {
     file.write_all(contents.as_bytes()).expect("write snapshot");
     file
 }
+fn native_payment_recipient() -> AccountId {
+    AccountId::new(fixture_key_pair(0xAD).public_key().clone())
+}
+fn native_payment_message(message_type: &str, fields: &[u8]) -> Result<ParsedMessage, MsgError> {
+    let fields = std::str::from_utf8(fields)
+        .expect("UTF-8 test fields")
+        .replace(
+            "CdtrAcct=GB82WEST12345698765432",
+            "CdtrAcct=GB33BUKB20201555555555",
+        )
+        .replace(
+            "CdtrAcct=GB29NWBK60161331926819",
+            "CdtrAcct=GB33BUKB20201555555555",
+        );
+    let network = crate::test_utils::signed_query_network_id();
+    let mut fields = format!(
+        "{fields}\nUETR=123e4567-e89b-42d3-a456-426614174000\nNexusSettlement/NetworkId={network}\nNexusSettlement/ExpiresAtHeight=100"
+    );
+    for (name, value) in [
+        ("SourceAccountId", sample_account_bundle().0.to_string()),
+        ("TargetAccountId", native_payment_recipient().to_string()),
+        ("AssetDefinitionId", sample_asset_definition_literal()),
+    ] {
+        let key = format!("NexusSettlement/{name}=");
+        if !fields.lines().any(|line| line.starts_with(&key)) {
+            fields.push_str(&format!("\n{key}{value}"));
+        }
+    }
+    parse_message(message_type, fields.as_bytes())
+}
 fn payment_runtime_with_bic_reference(
     mut config: actual::IsoBridge,
 ) -> (Iso20022BridgeRuntime, NamedTempFile) {
+    config.account_aliases.push(actual::IsoAccountAlias {
+        iban: "GB33BUKB20201555555555".into(),
+        account_id: native_payment_recipient().to_string(),
+    });
     let reference_file = write_snapshot(include_str!(
         r"../../../fixtures/iso_bridge/bic_lei.sample.json"
     ));
@@ -8484,59 +8533,43 @@ fn candidate_execution_events_do_not_terminalize_queued_iso_payment() {
     assert!(status.settled_at().is_none());
 }
 #[test]
-fn pacs004_return_requires_settlement_and_preserves_original_transaction() {
+fn pacs004_return_update_preserves_original_before_and_after_settlement() {
     let runtime = sample_runtime();
     let original_id = "settled-payment-return";
     let lifecycle_id = "settled-payment-return-message";
-    let original = inbound_metadata(original_id, "pacs.008");
-    assert!(runtime.check_and_record_inbound(original_id, original.clone()));
-    runtime.mark_accepted(original_id, "tx-settled-payment-return");
+    let hash = record_report_original(&runtime, original_id, false);
     record_lifecycle(&runtime, lifecycle_id, "pacs.004");
-    assert_eq!(
-        runtime
-            .apply_lifecycle_update(
-                lifecycle_id,
-                original_id,
-                "pacs.004",
-                None,
-                Some("AC04"),
-                None,
-            )
-            .expect("unsettled return is ignored"),
-        "ignored_unsettled_return"
-    );
-    let unsettled = runtime
-        .message_status(original_id)
-        .expect("unsettled status");
-    assert_eq!(unsettled.status_label(), "Accepted");
-    assert_eq!(
-        unsettled.transaction_hash(),
-        Some("tx-settled-payment-return")
-    );
-    assert!(runtime.mark_settled(original_id, SystemTime::now()));
-    assert_eq!(
-        runtime
-            .apply_lifecycle_update(
-                lifecycle_id,
-                original_id,
-                "pacs.004",
-                None,
-                Some("AC04"),
-                None,
-            )
-            .expect("settled return applies"),
-        "marked_returned"
-    );
-    let returned = runtime
-        .message_status(original_id)
-        .expect("returned status");
-    assert_eq!(returned.status_label(), "Rejected");
-    assert!(returned.settled_at().is_some());
-    assert_eq!(
-        returned.transaction_hash(),
-        Some("tx-settled-payment-return")
-    );
-    assert!(!runtime.check_and_record_inbound(original_id, original));
+    for settled in [false, true] {
+        if settled {
+            assert!(runtime.mark_settled(original_id, SystemTime::now()));
+        }
+        let before =
+            persisted_record_value(original_id, &runtime.records.get(original_id).unwrap());
+        assert_eq!(
+            runtime
+                .apply_lifecycle_update(
+                    lifecycle_id,
+                    original_id,
+                    "pacs.004",
+                    None,
+                    Some("AC04"),
+                    None
+                )
+                .expect("separate return report"),
+            "recorded_return"
+        );
+        assert_eq!(
+            persisted_record_value(original_id, &runtime.records.get(original_id).unwrap()),
+            before
+        );
+        assert_eq!(
+            runtime
+                .message_status(original_id)
+                .unwrap()
+                .transaction_hash(),
+            Some(hash.as_str())
+        );
+    }
 }
 #[test]
 fn retry_replacement_rejects_conflicting_uetr() {
@@ -8905,11 +8938,12 @@ fn lifecycle_journal_recovers_second_record_after_partial_roll_forward() {
             Some("PDNG"),
             None,
             None,
+            None,
         )
         .expect("prepare original after-image");
     let original = original.expect("status transition mutates original");
     let lifecycle = runtime
-        .prepare_lifecycle_accepted(
+        .prepare_lifecycle_record(
             lifecycle_id,
             None,
             Some("recorded test lifecycle".to_owned()),
@@ -10800,7 +10834,7 @@ fn dedupe_prevents_duplicates_within_ttl() {
     assert!(!runtime.check_and_record_message("abc"));
 }
 #[test]
-fn build_transaction_extracts_transfer() {
+fn build_transaction_extracts_native_payment() {
     let (runtime, _reference_file) = payment_runtime_with_bic_reference(sample_config());
     let (expected_account, canonical_account, _) = sample_account_bundle();
     let account_address = AccountAddress::from_account_id(&expected_account).expect("address");
@@ -10808,7 +10842,7 @@ fn build_transaction_extracts_transfer() {
         .to_i105_for_discriminant(iroha_data_model::account::address::chain_discriminant())
         .expect("i105 encoding");
     let canonical_address = account_address.canonical_hex().expect("canonical hex");
-    let msg = parse_message(
+    let msg = native_payment_message(
             "pacs.008",
             format!("MsgId=m1\nIntrBkSttlmAmt=10\nIntrBkSttlmCcy=USD\nIntrBkSttlmDt=2024-01-01\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB82WEST12345698765432\nDbtrAgt=DEUTDEFF\nCdtrAgt=DEUTDEFF\nSplmtryData/SourceAccountAddress={account_i105}\nSplmtryData/TargetAccountAddress={account_i105}").as_bytes(),
         )
@@ -10834,7 +10868,7 @@ fn build_transaction_extracts_transfer() {
     );
     assert_eq!(
         context.target_account_id.as_deref(),
-        Some(canonical_account.as_str())
+        Some(native_payment_recipient().to_string().as_str())
     );
     let asset_definition = sample_asset_definition_literal();
     assert_eq!(
@@ -10886,11 +10920,13 @@ fn build_transaction_extracts_transfer() {
     assert_eq!(context.asset_id.as_deref(), Some(stored_asset_id.as_str()));
 }
 #[test]
-fn build_transaction_accepts_asset_alias_hint() {
-    let (runtime, _reference_file) = payment_runtime_with_bic_reference(sample_config());
-    let msg = parse_message(
+fn build_transaction_validates_configured_asset_alias_against_canonical_signed_definition() {
+    let mut config = sample_config();
+    config.currency_assets[0].asset_definition = "usd#test".to_owned();
+    let (runtime, _reference_file) = payment_runtime_with_bic_reference(config);
+    let msg = native_payment_message(
             "pacs.008",
-            b"MsgId=m1\nIntrBkSttlmAmt=10\nIntrBkSttlmCcy=USD\nIntrBkSttlmDt=2024-01-01\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB82WEST12345698765432\nDbtrAgt=DEUTDEFF\nCdtrAgt=DEUTDEFF\nSplmtryData/AssetDefinitionId=usd#test",
+            b"MsgId=m1\nIntrBkSttlmAmt=10\nIntrBkSttlmCcy=USD\nIntrBkSttlmDt=2024-01-01\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB82WEST12345698765432\nDbtrAgt=DEUTDEFF\nCdtrAgt=DEUTDEFF",
         )
         .expect("parsed");
     let world = sample_world(Some("usd#test"));
@@ -10953,7 +10989,8 @@ impl PaymentRail {
                 "MsgId=pacs009-group\nBizMsgIdr=b1\nMsgDefIdr=pacs.009.001.10\nCreDtTm=2024-01-01T12:00:00Z\nIntrBkSttlmAmt={amount}\nIntrBkSttlmCcy={currency}\nIntrBkSttlmDt=2024-01-03\nDbtrAcct={iban}\nCdtrAcct={iban}\nInstgAgt={bic}\nInstdAgt={bic}\nPurp=SECU\n{extra}"
             ),
         };
-        parse_message(self.message_type(), input.as_bytes()).expect("payment message parses")
+        native_payment_message(self.message_type(), input.as_bytes())
+            .expect("payment message parses")
     }
     fn build(
         self,
@@ -10992,7 +11029,10 @@ fn assert_supplementary_accounts_match_iban_bindings(rail: PaymentRail) {
     let world_view = world.view();
     let chain_id: ChainId = "test-chain".parse().unwrap();
     let telemetry = MaybeTelemetry::for_tests();
-    for hint_field in ["SplmtryData/SourceAccountId", "SplmtryData/TargetAccountId"] {
+    for hint_field in [
+        "NexusSettlement/SourceAccountId",
+        "NexusSettlement/TargetAccountId",
+    ] {
         let extra = format!("{hint_field}={mismatched_account}");
         let parsed = rail.message(
             rail.default_amount(),
@@ -11057,7 +11097,7 @@ fn assert_currency_cap_and_asset_binding(rail: PaymentRail) {
             &runtime,
             &message(
                 "10",
-                &format!("SplmtryData/AssetDefinitionId={other_asset}"),
+                &format!("NexusSettlement/AssetDefinitionId={other_asset}"),
             ),
             &world_view,
             &chain_id,
@@ -11069,7 +11109,7 @@ fn assert_currency_cap_and_asset_binding(rail: PaymentRail) {
         MsgError::InvalidValue {
             ref field,
             kind: InvalidValueKind::Enum,
-        } if field == "SplmtryData/AssetDefinitionId"
+        } if field == "NexusSettlement/AssetDefinitionId"
     ));
 }
 #[derive(Clone, Copy)]
@@ -11152,14 +11192,14 @@ fn pacs008_rejects_unbound_currency() {
     );
 }
 #[test]
-fn build_pacs009_payload_extracts_transfer() {
+fn build_pacs009_payload_extracts_native_payment() {
     let (runtime, _reference_file) = payment_runtime_with_bic_reference(sample_config());
     let (expected_account, _, _) = sample_account_bundle();
     let account_i105 = AccountAddress::from_account_id(&expected_account)
         .expect("address")
         .to_i105_for_discriminant(iroha_data_model::account::address::chain_discriminant())
         .expect("i105 encoding");
-    let msg = parse_message(
+    let msg = native_payment_message(
             "pacs.009",
             format!("MsgId=pacs009-group\nBizMsgIdr=b1\nMsgDefIdr=pacs.009.001.10\nCreDtTm=2024-01-01T12:00:00Z\nIntrBkSttlmAmt=2500\nIntrBkSttlmCcy=USD\nIntrBkSttlmDt=2024-01-03\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB82WEST12345698765432\nInstgAgt=DEUTDEFF\nInstdAgt=DEUTDEFF\nPurp=SECU\nSplmtryData/SourceAccountAddress={account_i105}\nSplmtryData/TargetAccountAddress={account_i105}").as_bytes(),
         )
@@ -11186,7 +11226,7 @@ fn build_pacs009_payload_extracts_transfer() {
     );
     assert_eq!(
         context.target_account_id.as_deref(),
-        Some(canonical_account.as_str())
+        Some(native_payment_recipient().to_string().as_str())
     );
     let asset_definition = sample_asset_definition_literal();
     assert_eq!(
@@ -11652,7 +11692,7 @@ fn message_context_is_preserved_in_status() {
 #[test]
 fn payment_outbox_xml_uses_durable_amount_currency_and_escapes_reasons() {
     let (runtime, _reference_file) = payment_runtime_with_bic_reference(sample_config());
-    let msg = parse_message(
+    let msg = native_payment_message(
             "pacs.008",
             b"MsgId=m-outbox\nIntrBkSttlmAmt=10.25\nIntrBkSttlmCcy=USD\nIntrBkSttlmDt=2024-01-01\nDbtrAcct=GB82WEST12345698765432\nCdtrAcct=GB82WEST12345698765432\nDbtrAgt=DEUTDEFF\nCdtrAgt=DEUTDEFF",
         )
@@ -12230,7 +12270,10 @@ fn lifecycle_authorization_rejects_prune_readmit_aba_and_old_settlement_hash() {
             "pacs.002",
             &lifecycle,
             &authorization,
-            Some("tx-aba-original-v1"),
+            Some(IsoSuccessfulExecution {
+                transaction_hash: "tx-aba-original-v1",
+                settled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(123),
+            }),
         )
         .expect_err("authorization and evidence for the old incarnation must fail closed");
     assert!(matches!(
@@ -12362,7 +12405,7 @@ fn counterparty_owns_every_return_and_securities_lifecycle_message() {
 }
 
 #[test]
-fn settling_pacs002_requires_committed_transaction_evidence() {
+fn settling_pacs002_requires_successful_transaction_evidence() {
     let runtime = sample_runtime();
     record_original(&runtime, "settlement-evidence", "pacs.008");
     runtime.mark_accepted("settlement-evidence", "tx-settlement-evidence");
@@ -12403,7 +12446,10 @@ fn settling_pacs002_requires_committed_transaction_evidence() {
                 "pacs.002",
                 &lifecycle,
                 &authorization,
-                Some("tx-from-another-record"),
+                Some(IsoSuccessfulExecution {
+                    transaction_hash: "tx-from-another-record",
+                    settled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(123),
+                }),
             )
             .is_err(),
         "an unrelated committed hash must not authorize settlement"
@@ -12414,7 +12460,10 @@ fn settling_pacs002_requires_committed_transaction_evidence() {
             "pacs.002",
             &lifecycle,
             &authorization,
-            Some("tx-settlement-evidence"),
+            Some(IsoSuccessfulExecution {
+                transaction_hash: "tx-settlement-evidence",
+                settled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(123),
+            }),
         )
         .expect("committed evidence permits settlement transition");
     assert_eq!(
@@ -12998,3 +13047,7 @@ fn valid_but_stale_iso_audit_index_is_regenerated_after_validation() {
 
 include!("iso20022_bridge/tests/lifecycle_tail.rs");
 include!("iso20022_bridge/tests/wrong_family_test.rs");
+
+include!("iso20022_bridge/tests/reported_returns.rs");
+
+include!("iso20022_bridge/tests/native_payments.rs");

@@ -14,26 +14,23 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// Fresh authenticated operator selection, including explicit revocation/removal.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the current authenticated operator configuration
-    /// cannot be obtained.
+    /// Returns an error when the deployment cannot obtain its current authenticated
+    /// issuer configuration; stale or unavailable selection must not be substituted.
     fn current_configuration(&mut self) -> Result<Arc<KagemushaEnrollmentIssuer>>;
     /// Admit the actual current transport, prepared worker and rooted signer owners.
     /// Checking strings or hashes alone does not satisfy this requirement.
     ///
     /// # Errors
-    ///
-    /// Returns an error if configured selection changed or the transport,
-    /// worker, or rooted signer owners are unavailable or fail revalidation.
+    /// Returns an error if the selected configuration no longer matches the actual
+    /// transport, worker or rooted signer owners, or those dependencies are unavailable.
     fn require_dependencies(&mut self, config: &KagemushaEnrollmentIssuer) -> Result<()>;
     /// Verify the actual Torii signature/witness, exact network/method/path/body, freshness and
     /// replay. The signature must cover the entire operation envelope and its exact `expected_dispatch`;
     /// a bare account header or unsigned extracted dispatch is insufficient.
     ///
     /// # Errors
-    ///
-    /// Returns an error for invalid or unavailable call authentication,
-    /// including mismatched dispatch, freshness, or replay evidence.
+    /// Returns an error when the original request fails account authentication,
+    /// exact dispatch/envelope binding, freshness or replay checks.
     fn authenticate_call(
         &mut self,
         call: &Self::Call,
@@ -42,8 +39,8 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// Actual UTC clock observation; failures and rollback abort the operation.
     ///
     /// # Errors
-    ///
-    /// Returns an error if a valid UTC millisecond observation is unavailable.
+    /// Returns an error if the deployment cannot obtain a valid UTC millisecond
+    /// observation; the issuer separately rejects rollback against its retained clock.
     fn now_ms(&mut self) -> Result<u64>;
     /// Derive the exact asset policy from the selected template, then exchange one canonical eligibility request through this configured HTTPS
     /// endpoint and private credential. Disable redirects and cap the response before allocation.
@@ -51,9 +48,8 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// current eligibility. Configured routing and request DATA alone must never grant approval.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the selected provider or authenticated transport is
-    /// unavailable, the bounded request/response is invalid, or the exchange times out.
+    /// Returns an error if provider selection or authenticated bounded HTTPS
+    /// observation fails. Request routing alone must not be treated as eligibility.
     fn observe_eligibility(
         &mut self,
         provider: &KagemushaEnrollmentProvider,
@@ -64,9 +60,8 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// Bind actual authenticated worker custody to the exact selected app/policy/root/runtime.
     ///
     /// # Errors
-    ///
-    /// Returns an error if provider selection changed or the authenticated
-    /// worker cannot bind the selected application, policy, asset, and root.
+    /// Returns an error if the selected provider lacks the exact authenticated
+    /// worker custody for this asset, application, policy, root and runtime.
     fn worker_configuration(
         &mut self,
         provider: &KagemushaEnrollmentProvider,
@@ -76,9 +71,8 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// Missing worker custody is unavailable; fabricated protocol-shaped replies are forbidden.
     ///
     /// # Errors
-    ///
-    /// Returns an error for missing or changed worker custody, invalid framing
-    /// or configuration, or an unavailable or uncertain worker exchange.
+    /// Returns an error if selection or admitted channel custody differs, or the
+    /// exact bounded worker exchange cannot complete with an authenticated response.
     fn worker_exchange(
         &mut self,
         provider: &KagemushaEnrollmentProvider,
@@ -89,9 +83,8 @@ pub trait EnrollmentIssuerRuntimeV1 {
     /// actual bounded DER original. The owner verifies its role and public key again natively.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the selected rooted signer is unavailable or fails
-    /// custody/signing checks; an uncertain outcome must not be reported as success.
+    /// Returns an error if provider selection or rooted Enrollment signer custody
+    /// is unavailable or mismatched, or signing cannot produce the bounded DER original.
     fn sign_enrollment(
         &mut self,
         provider: &KagemushaEnrollmentProvider,

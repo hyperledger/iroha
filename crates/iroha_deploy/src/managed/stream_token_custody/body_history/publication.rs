@@ -181,7 +181,7 @@ impl PublishedBodyDelta {
         expected: &Reservation,
     ) -> Result<Self> {
         let directory = Arc::new(directory);
-        let names = checked_names(&directory, &["reserved.nrt"], 1)?;
+        let names = checked_names(&directory, &["reserved.nrt", "operation.nrt"], 2)?;
         let (reservation, reserved): (Reservation, _) =
             read_observed(&directory, "reserved.nrt", MAX_BODY_BYTES)?;
         if !same(&reservation, expected, MAX_BODY_BYTES)? {
@@ -215,7 +215,10 @@ impl PublishedBodyDelta {
         let snapshots = Arc::new(Snapshot {
             previous: None,
             records: vec![reserved, original_record, activation_record, unused_record],
-            names: vec![NamesSnapshot::from_read(Arc::clone(&directory), 1, names)],
+            names: vec![NamesSnapshot::from_reserved_read(
+                Arc::clone(&directory),
+                names,
+            )],
             root: None,
         });
         Ok(Self::Reserved {
@@ -738,8 +741,8 @@ impl BodyHistory {
             Some(&previous),
             &mut epochs,
             wallets,
+            Some(&snapshots),
         )?;
-        snapshots.revalidate()?;
         root_names.revalidate()?;
         if let Some(graph) = previous.retained_graph() {
             graph.revalidate_retained_handles()?;
@@ -751,3 +754,7 @@ impl BodyHistory {
 #[cfg(test)]
 #[path = "publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "publication_close_tests.rs"]
+mod publication_close_tests;

@@ -239,23 +239,20 @@ pub trait Transaction {
     /// Read registered scheme and current asset scope.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the scheme/asset registration is missing, malformed,
-    /// or incompatible with the current authoritative asset scope.
+    /// Returns an error if the registration is absent, unavailable or malformed,
+    /// or its registered asset no longer matches the current ledger definition.
     fn registration(&self, scheme: &Digest, asset: &Digest) -> Result<Registration>;
     /// Read the permanent wallet lifecycle and next load ordinal.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the protected wallet lifecycle record cannot be read
-    /// or decoded. An absent record is returned as `None`.
+    /// Returns an error if the retained wallet row cannot be read or validated.
+    /// Only a genuinely absent row may return `Ok(None)`.
     fn wallet(&self, scheme: &Digest, wallet: &Digest) -> Result<Option<WalletRecord>>;
     /// Read a retained load by its client retry identity.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the protected retained load record cannot be read
-    /// or decoded. An absent record is returned as `None`.
+    /// Returns an error if the retained issuance row cannot be read or validated.
+    /// Unavailable or malformed data must not be treated as an absent retry identity.
     fn issuance(
         &self,
         scheme: &Digest,
@@ -265,9 +262,8 @@ pub trait Transaction {
     /// Read the original exact-once payout.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the protected payout record cannot be read
-    /// or decoded. An absent record is returned as `None`.
+    /// Returns an error if the immutable payout row cannot be read or validated.
+    /// Only a genuinely absent exact-once key may return `Ok(None)`.
     fn payout(
         &self,
         scheme: &Digest,
@@ -276,9 +272,8 @@ pub trait Transaction {
     /// Read an immutable signer certificate by its object digest.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the signer certificate is absent or cannot be read
-    /// and decoded from its protected record.
+    /// Returns an error if the historical signer certificate is missing,
+    /// unavailable or invalid for its retained ledger row.
     fn certificate(
         &self,
         scheme: &Digest,
@@ -287,16 +282,14 @@ pub trait Transaction {
     /// Resolve all historical inputs named by this Payment from ledger records.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the request or payer credential referenced by the
-    /// claim is absent or its protected record cannot be decoded.
+    /// Returns an error if the Payment's historical request, payer credential or
+    /// associated certificate record is missing, unavailable or malformed.
     fn fee_inputs(&self, claim: &KagemushaWalletFeeClaimV1) -> Result<FeeInputs>;
     /// Commit the entire verified batch, or leave the transaction unchanged.
     ///
     /// # Errors
-    ///
-    /// Returns an error for invalid scheme/asset bindings, conflicting immutable
-    /// records, failed encoding, or a failed balance movement. No partial batch
-    /// is committed on failure.
+    /// Returns an error for invalid source/asset bindings, replay-key conflicts,
+    /// encoding or arithmetic failure, or rejected funding/transfer authorization.
+    /// Every transfer and index must remain in the same atomic rollback scope.
     fn apply(&mut self, batch: Batch) -> Result<()>;
 }

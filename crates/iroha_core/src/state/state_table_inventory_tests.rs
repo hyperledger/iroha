@@ -350,9 +350,12 @@ fn evidence_list(items: &[(&str, &str)]) -> String {
 }
 
 /// State-level canonical cells whose Rust owner is a node configuration value, read from
-/// the registry declaration itself.
+/// the registry declaration itself and joined to its compiled authority classification.
+/// A derived projection can retain that Rust type without retaining policy authority.
 fn node_configuration_cells() -> Vec<String> {
     const REGISTRY: &str = "crates/iroha_core/src/state/authority_registry/state.rs";
+    let mut fields = Vec::new();
+    flatten(STATE_FIELDS, &mut fields);
     source(REGISTRY)
         .lines()
         .filter(|line| line.contains("iroha_config::parameters::actual::"))
@@ -364,6 +367,20 @@ fn node_configuration_cells() -> Vec<String> {
                 .expect("registry identity is a string literal")
                 .0
                 .to_owned()
+        })
+        .filter(|id| {
+            let field = fields
+                .iter()
+                .find(|field| field.id == id.as_str())
+                .unwrap_or_else(|| panic!("unclassified node-configuration owner {id}"));
+            match field.role {
+                Role::Canonical(Canonical::Cell(_)) => true,
+                Role::Derived {
+                    sources: &["world.parameters"],
+                    check: DerivationCheck::Rebuild(_),
+                } => false,
+                _ => panic!("node-configuration owner {id} lacks reviewed policy authority"),
+            }
         })
         .collect()
 }
@@ -583,7 +600,7 @@ const ROOTS: &[Root] = &[
             ),
             (
                 "crates/iroha_core/src/sumeragi/genesis_meta.rs",
-                "staged.execution_policy_digest_v1().map(Hash::prehashed)",
+                ".genesis_execution_policy_digest_v1()",
             ),
             (
                 "crates/iroha_data_model/src/block/consensus.rs",
@@ -1734,6 +1751,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Accumulator("sccp_message_accumulator"),
     },
     ConstructionUse {
+        path: "crates/iroha_core/src/smartcontracts/isi/sccp/forgery/keeper.rs",
+        uses: &[("anchor_node", 2)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
+    },
+    ConstructionUse {
         path: "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
         uses: &[("HistoryAccumulator", 2)],
         owner: UseOwner::Roots(&["sccp_certified_history_root"]),
@@ -1855,6 +1877,14 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         path: "crates/iroha_core/src/telemetry.rs",
         uses: &[("ConfidentialTree", 5)],
         owner: UseOwner::Accumulator("confidential_note_tree"),
+    },
+    ConstructionUse {
+        path: "crates/iroha_core/src/telemetry/classified_status.rs",
+        uses: &[("MerkleTree", 1)],
+        owner: UseOwner::Other(
+            Use::Test,
+            "Inline telemetry test replaces the output tree to verify rejection of a stale classified-result cache",
+        ),
     },
     ConstructionUse {
         path: "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
@@ -5297,7 +5327,7 @@ const CARRIERS: &[Carrier] = &[
             ),
             (
                 "LaneBatch.transactions",
-                "the signed transactions of the lane block, in lane order: block content that admission checks and the global merge executes",
+                "the complete transaction entrypoints of the lane block, in lane order: original signed external, commitment or reveal content that admission checks and the global merge executes",
             ),
             (
                 "LaneResult.anchor_height",
@@ -5311,8 +5341,8 @@ const CARRIERS: &[Carrier] = &[
         exhaustive: &["LaneBatch", "LaneResult"],
         opaque: &[
             (
-                "SignedTransaction",
-                "a network input as its author signed it, as the transaction entrypoints of the block_payload_and_result carrier. A State value that a transaction names is an expected-value precondition (other_domains and state_hash_functions, use precondition)",
+                "TransactionEntrypoint",
+                "a complete network entrypoint, including its original signed input and any commitment/reveal envelope, as in the block_payload_and_result carrier. A State value that a transaction names is an expected-value precondition (other_domains and state_hash_functions, use precondition)",
             ),
             ("ChainParamsRecord", "chain parameters: numbers"),
         ],
@@ -7867,10 +7897,23 @@ fn state_level_canonical_fields_have_no_accumulator_slot_and_no_witness_family()
             .all(|id| id.starts_with("state.") || id.starts_with("runtime."))
     );
     let configured = node_configuration_cells();
-    assert_eq!(configured.len(), 9);
+    assert_eq!(configured.len(), 8);
     for id in &configured {
         assert!(uncommitted.contains(&id.as_str()), "{id}");
     }
+    let fraud = rows
+        .iter()
+        .find(|row| row.field.id == "state.fraud_monitoring")
+        .expect("fraud projection remains inventoried");
+    assert!(matches!(
+        fraud.field.role,
+        Role::Derived {
+            sources: &["world.parameters"],
+            check: DerivationCheck::Rebuild(_),
+        }
+    ));
+    assert_eq!(fraud.commitment, Commitment::Derived);
+    assert!(!configured.iter().any(|id| id == fraud.field.id));
     // No execution-witness family carries a State-level field, so the witnessed roots
     // cannot depend on one either.
     let witnessed = witnessed_fields();
@@ -8649,11 +8692,6 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "capture_frozen_action_authority_table",
             "state_table_substrate",
         ),
-        (
-            "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
-            "original_begin",
-            "execution_witness_roots",
-        ),
     ] {
         let listed = STATE_HASH_FUNCTIONS
             .iter()
@@ -8664,6 +8702,18 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "{name}"
         );
     }
+    // Borrowing the retained Begin proof graph creates no new root or authority.
+    let original_begin = STATE_HASH_FUNCTIONS
+        .iter()
+        .find(|listed| {
+            listed.path == "crates/iroha_core/src/query/native_receipts/amx_begins.rs"
+                && listed.name == "original_begin"
+        })
+        .expect("the original Begin record reader is listed");
+    assert!(matches!(
+        original_begin.owner,
+        UseOwner::Other(Use::Record, reason) if !reason.is_empty()
+    ));
     for (header, target) in [
         ("impl<'a> A for B<'a> where B: C", Some("B<'a>")),
         ("impl<T: X<Y>> Holder<T>", Some("Holder<T>")),
@@ -10549,7 +10599,7 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
             ),
             (
                 "transactions".to_owned(),
-                "Vec<SignedTransaction>".to_owned()
+                "Vec<TransactionEntrypoint>".to_owned()
             ),
         ]
     );
@@ -11297,4 +11347,31 @@ fn inventory_text_helpers_escape_and_cite_exactly() {
     put_lines(&mut text, "  ", &["1".to_owned(), "2".to_owned()]);
     put(&mut text, "]");
     assert_eq!(text, "[\n  1,\n  2\n]\n");
+}
+
+#[test]
+fn telemetry_counter_corruption_fixture_has_exact_test_construction_custody() {
+    let path = "crates/iroha_core/src/telemetry/classified_status.rs";
+    let listed = CONSTRUCTION_USES
+        .iter()
+        .find(|listed| listed.path == path)
+        .expect("the telemetry counter corruption fixture must be classified");
+    assert_eq!(listed.uses, &[("MerkleTree", 1)]);
+    assert!(matches!(listed.owner, UseOwner::Other(Use::Test, _)));
+    let text = source(path);
+    assert!(
+        scan_sources([(path, text.as_str())])
+            .unlisted_uses
+            .is_empty()
+    );
+    let changed =
+        format!("{text}\nfn extra_counter_tree() -> MerkleTree<[u8; 32]> {{ todo!() }}\n");
+    let changed = scan_sources([(path, changed.as_str())]);
+    assert_eq!(changed.unlisted_uses.len(), 1);
+    assert!(
+        changed
+            .unlisted_uses
+            .iter()
+            .all(|report| report.starts_with(path))
+    );
 }

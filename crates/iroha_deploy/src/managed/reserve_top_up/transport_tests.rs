@@ -2,6 +2,7 @@
 
 use super::tests::{fixture, intent, options};
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::{UnavailablePeers, wallet_http::WalletHttp};
 use iroha_data_model::transaction::FeePaymentIntent;
 use std::{io, time::Duration};
@@ -141,7 +142,7 @@ fn unavailable_top_up_finality_never_prepares_quotes_or_dispatches() {
             .directory
             .open_child("request")
             .unwrap();
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         assert_eq!(
             directory.open_child("transaction").err().unwrap().kind(),
             io::ErrorKind::NotFound
@@ -162,7 +163,7 @@ fn unavailable_top_up_finality_never_prepares_quotes_or_dispatches() {
                 .is_err()
         );
         assert_eq!(peers.requests.lock().unwrap().len(), count);
-        require_empty(&directory).unwrap();
+        metadata::require_unselected(&directory).unwrap();
         drop(directory);
         drop(coordinator);
         coordinator = ManagedReserveTopUpRequest::open(
@@ -199,11 +200,8 @@ fn unproved_top_up_checkpoint_cannot_advance_recover_or_mint_historical_authorit
     let (_temporary, prepared, mut coordinator) = fixture();
     let mut peers = UnavailablePeers::start(&prepared);
     let original = unproved_original(&coordinator);
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("request")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "request").unwrap();
     let original = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -262,11 +260,8 @@ fn unproved_top_up_checkpoint_cannot_advance_recover_or_mint_historical_authorit
 fn top_up_wallet503_reopen_preserves_original_wire_and_single_dispatch() {
     let _resources = crate::managed::native_test_guard();
     let (_temporary, prepared, mut coordinator) = fixture();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("request")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "request").unwrap();
     let options = options();
     let original = unproved_original(&coordinator);
     // Codec-only checkpoint: real wallet journal/HTTP only, never native historical evidence.

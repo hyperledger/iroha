@@ -3520,6 +3520,69 @@
         ],
         "type": "object"
       },
+      "AmxDebitApprovalProofV1": {
+        "additionalProperties": false,
+        "description": "Data-only complete World preimages and the authenticated caller relay direct permission row at one current certified private-root cut. The client separately verifies the exact genesis-rooted block, World root, participant binding and exact consent. Historical evidence cannot override revocation; Prepare rechecks current permission. Roles do not supply this approval.",
+        "properties": {
+          "relay_permissions": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NativePermissionsV1"
+              }
+            ],
+            "maxItems": 256
+          },
+          "world": {
+            "$ref": "#/components/schemas/WorldStateSnapshotV1"
+          }
+        },
+        "required": [
+          "world",
+          "relay_permissions"
+        ],
+        "type": "object",
+        "x-iroha-max-bytes": 33554432,
+        "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1"
+      },
+      "AmxDebitApprovalV1": {
+        "additionalProperties": false,
+        "description": "Exact owner-issued direct AMX debit consent selector. Both genesis identities, participant instance, private dataspace, full transaction digest and exact scoped debit balance are mandatory. This value alone grants no permission.",
+        "properties": {
+          "dataspace": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "debited_asset": {
+            "$ref": "#/components/schemas/NativeAssetIdV1"
+          },
+          "global_network": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "participant_instance": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "participant_network": {
+            "$ref": "#/components/schemas/NetworkId"
+          },
+          "transaction_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "global_network",
+          "participant_network",
+          "participant_instance",
+          "dataspace",
+          "transaction_id",
+          "debited_asset"
+        ],
+        "type": "object",
+        "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1"
+      },
       "AppApiTransactionDraftV1": {
         "additionalProperties": false,
         "properties": {
@@ -5831,7 +5894,7 @@
         "type": "object"
       },
       "CollectionFilter": {
-        "description": "Filter in the text form (`owned_by = \"sorau…\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
+        "description": "Filter in the text form (`owned_by = \"sorau\u2026\" and quantity >= 10.5`) or the JSON form; see specs/torii/collection_queries.md.",
         "oneOf": [
           {
             "maxLength": 32768,
@@ -21220,6 +21283,16 @@
           "message_type": {
             "$ref": "#/components/schemas/Iso20022NullableMessageTypeV2"
           },
+          "native_payment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativePaymentV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "originator_participant_id": {
             "$ref": "#/components/schemas/Iso20022ParticipantIdV2"
           },
@@ -21246,6 +21319,17 @@
           },
           "reference_snapshot_id": {
             "$ref": "#/components/schemas/Iso20022NullableSha256HexV2"
+          },
+          "reported_return": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022ReportedReturnV1"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Authenticated external return report on this separate lifecycle record. Original settlement evidence is preserved; no reverse native execution is asserted."
           },
           "security_instrument_id": {
             "$ref": "#/components/schemas/Iso20022NullableRecordStringV2"
@@ -21351,7 +21435,9 @@
           "admitting_operator_key",
           "pinned_profile_id",
           "pinned_signature_policy",
-          "status_history"
+          "status_history",
+          "reported_return",
+          "native_payment"
         ],
         "type": "object"
       },
@@ -21368,6 +21454,163 @@
           "colr.012"
         ],
         "type": "string"
+      },
+      "Iso20022NativeBusinessSettlementV1": {
+        "additionalProperties": false,
+        "description": "Original successful business carrier and complete settlement receipt plus actual Nexus fee receipt. Null fee means no Nexus charge was reported; it does not manufacture a zero-fee receipt. Obtain authenticated finality evidence and independently verify this original source before customer credit.",
+        "properties": {
+          "nexus_fee_frame": {
+            "anyOf": [
+              {
+                "contentEncoding": "base64",
+                "description": "Canonical padded-base64 complete canonical Norito frame. The enclosing lifecycle record is bounded to one MiB; bytes alone grant no authentication.",
+                "maxLength": 1048576,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt_frame": {
+            "contentEncoding": "base64",
+            "description": "Canonical padded-base64 complete canonical Norito frame. The enclosing lifecycle record is bounded to one MiB; bytes alone grant no authentication.",
+            "maxLength": 1048576,
+            "minLength": 4,
+            "type": "string"
+          },
+          "transaction_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_hash",
+          "receipt_frame",
+          "nexus_fee_frame"
+        ],
+        "type": "object"
+      },
+      "Iso20022NativeCarrierV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "else": {
+              "properties": {
+                "rejection": {
+                  "type": "string"
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "applied": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "rejection": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Canonical execution of the top-level attempted transaction_hash. A rejected retry remains rejected even when the exact business intent settled through another carrier.",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "height": {
+            "maximum": 18446744073709551615,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "rejection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022RecordStringV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "height",
+          "applied",
+          "rejection"
+        ],
+        "type": "object"
+      },
+      "Iso20022NativePaymentV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "conflicting_intent": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "business_settlement": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "business_settlement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativeBusinessSettlementV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "carrier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Iso20022NativeCarrierV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conflicting_intent": {
+            "type": "boolean"
+          },
+          "intent_frame": {
+            "contentEncoding": "base64",
+            "description": "Complete retained SettleAtomic intent: committed network, payer-owned canonical UETR, exact Global source/recipient/quantity, absolute committed expiry, empty intent metadata. Signed NexusSettlement requires canonical SourceAccountId, TargetAccountId, and AssetDefinitionId; gateway mappings only validate those identities. Gateway envelope IDs and local observation time do not change this intent.",
+            "maxLength": 1048576,
+            "minLength": 4,
+            "type": "string"
+          },
+          "verified": {
+            "description": "This process reauthenticated the projected sources against its canonical State. This HTTP observation is not an independent finality proof. Restored journal data reports false until reauthentication.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "intent_frame",
+          "carrier",
+          "business_settlement",
+          "conflicting_intent",
+          "verified"
+        ],
+        "type": "object"
       },
       "Iso20022NullableMessageTypeV2": {
         "anyOf": [
@@ -21446,6 +21689,124 @@
         "minLength": 1,
         "pattern": "^(?!\\s)(?:[^\\u0000-\\u001F\\u007F-\\u009F])*[^\\s\\u0000-\\u001F\\u007F-\\u009F]$",
         "type": "string"
+      },
+      "Iso20022ReportedReturnV1": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "original_payload_hash": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "original_transaction_hash": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "if": {
+              "properties": {
+                "disposition": {
+                  "enum": [
+                    "external_report",
+                    "original_rejected"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "original_transaction_hash": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "disposition": {
+                  "const": "original_not_submitted"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "original_transaction_hash": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
+        "description": "One authenticated counterparty report bound to an original payment. Pending reports survive restart and resolve only from canonical native outcome and matching terms. At least one immutable original payload or transaction hash is required; external_report and original_rejected require its canonical transaction hash. No native refund is asserted. original_not_submitted records only this gateway rejecting the original before assigning or queuing a carrier; its original transaction hash is null and it is not proof of native non-execution. For native intent payments, original_transaction_hash binds the successful business effect, which may differ from the attempted carrier. A rejected attempt alone leaves the report pending because another exact carrier can settle that intent.",
+        "properties": {
+          "amount": {
+            "description": "Positive canonical returned quantity, no greater than the original payment amount.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "pending_original",
+              "external_report",
+              "original_rejected",
+              "original_not_submitted",
+              "invalid_terms"
+            ],
+            "type": "string"
+          },
+          "original_message_id": {
+            "$ref": "#/components/schemas/Iso20022RecordStringV2"
+          },
+          "original_payload_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "original_transaction_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_code": {
+            "$ref": "#/components/schemas/Iso20022NullableRecordStringV2"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "disposition",
+          "original_message_id",
+          "original_payload_hash",
+          "original_transaction_hash",
+          "reason_code"
+        ],
+        "type": "object"
       },
       "Iso20022Sha256HexV2": {
         "maxLength": 64,
@@ -39567,10 +39928,11 @@
       },
       "SccpFinalityConstantsV1": {
         "additionalProperties": false,
-        "description": "Compiled native finality constants as fixed-byte hex strings. Compare the exact values with the independently selected release; an offered constants object is not authentication.",
+        "description": "Compiled native finality constants as fixed-length hexadecimal strings. Compare the exact values with the independently selected release; an offered constants object is not authentication.",
         "properties": {
           "dst_sig": {
             "const": "424C535F5349475F424C53313233383147325F584D443A5348412D3235365F535357555F524F5F504F505F",
+            "description": "Exactly 43 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 86,
             "minLength": 86,
             "pattern": "^[0-9A-Fa-f]{86}$",
@@ -39578,6 +39940,7 @@
           },
           "result_body_tag": {
             "const": "69726F68612F73756D65726167692F726573756C742D626F64792F7631",
+            "description": "Exactly 29 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 58,
             "minLength": 58,
             "pattern": "^[0-9A-Fa-f]{58}$",
@@ -39585,6 +39948,7 @@
           },
           "result_tag": {
             "const": "69726F68612F73756D65726167692F726573756C742F7631",
+            "description": "Exactly 24 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 48,
             "minLength": 48,
             "pattern": "^[0-9A-Fa-f]{48}$",
@@ -39592,6 +39956,7 @@
           },
           "x_layout_id": {
             "const": "534343502F46494E414C4954592F5631",
+            "description": "Exactly 16 bytes as hexadecimal; Norito JSON emits uppercase.",
             "maxLength": 32,
             "minLength": 32,
             "pattern": "^[0-9A-Fa-f]{32}$",
@@ -53538,6 +53903,13 @@
             "minimum": 1,
             "type": "integer"
           },
+          "due_work_max_lag_ms": {
+            "description": "Positive committed first-Prepare freshness allowance for due work, in milliseconds.",
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 1,
+            "type": "integer"
+          },
           "epoch_length_blocks": {
             "description": "Epoch length in heights.",
             "format": "uint64",
@@ -53618,6 +53990,7 @@
         "required": [
           "block_cadence_ms",
           "max_clock_drift_ms",
+          "due_work_max_lag_ms",
           "key_activation_lead_blocks",
           "key_overlap_grace_blocks",
           "key_expiry_grace_blocks",
@@ -53861,7 +54234,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -53936,7 +54309,7 @@
         "additionalProperties": false,
         "properties": {
           "confidence_ms": {
-            "description": "Confidence interval (±ms) reported by the network time service.",
+            "description": "Confidence interval (\u00b1ms) reported by the network time service.",
             "format": "uint64",
             "type": "integer"
           },
@@ -57775,7 +58148,7 @@
         "description": "List accounts with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60312,7 +60685,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60501,7 +60874,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60742,7 +61115,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -60931,7 +61304,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -62654,6 +63027,248 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/amx/debit-approval/{height}": {
+      "post": {
+        "description": "Read-only account-signed POST. The caller relay signs the exact method, canonical URI and canonical Norito AmxDebitApprovalV1 body; API-token possession alone is insufficient. The caller must independently hold CanReadAllLedgerData because this proof contains the complete World hash inventory. Exact debit, account or dataspace grants do not authorize this disclosure. The read grant is checked before projection and again after projection/egress awaits; revocation withholds the buffered response. The decimal height must be at least two and equal the current applied certified private-root height. The response binds the selected participant network, parent network, instance, dataspace, complete transaction and scoped debit balance. At most 65536 request bytes and 33554432 response bytes (or the smaller configured response limit) are admitted. No current authorization is inferred from historical grant evidence: Prepare rechecks the live direct permission after revocation or rotation.",
+        "operationId": "amxDebitApprovalProofV1",
+        "parameters": [
+          {
+            "description": "Canonical decimal u64 current certified non-genesis height, at least 2; no sign or leading zero.",
+            "in": "path",
+            "name": "height",
+            "required": true,
+            "schema": {
+              "maxLength": 20,
+              "pattern": "^(?:[2-9]|[1-9][0-9]+)$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-norito": {
+              "schema": {
+                "description": "One complete canonical Norito frame of iroha_data_model::sumeragi_amx::AmxDebitApprovalV1. Decoding grants no authority.",
+                "format": "binary",
+                "maxLength": 65536,
+                "minLength": 1,
+                "type": "string",
+                "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1",
+                "x-iroha-norito-schema": "iroha_data_model::sumeragi_amx::AmxDebitApprovalV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AmxDebitApprovalProofV1"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "One complete canonical Norito frame of iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1. Decoding grants no authority.",
+                  "format": "binary",
+                  "maxLength": 33554432,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-iroha-norito-frame": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1",
+                  "x-iroha-norito-schema": "iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1"
+                }
+              }
+            },
+            "description": "Exact current-cut native data; independent finality and permission verification are required.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Height or exact canonical Norito approval frame is malformed or has substituted terms.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical account authentication is absent or invalid; capacity refusal is reported separately as retryable 503.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Explicit CanReadAllLedgerData is absent or revoked, or the deployment-required API token was rejected. Exact AMX debit permission alone never authorizes a complete World snapshot.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Accept must permit application/json or application/x-norito.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Request exceeds the 65536-byte route body bound.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Heavy-query admission, rate or exact egress limits refused the read.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Current certified source, exact approval, response capacity or authentication capacity is unavailable. amx_debit_approval_authentication_capacity and query capacity refusals are retryable and never permission absence or an authorization denial. amx_debit_approval_proof_unavailable supplies no negative evidence.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Account-authenticated data is never shared or retained by caches.",
+                "required": true,
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "IrohaCanonicalAccount": [],
+            "IrohaCanonicalNonce": [],
+            "IrohaCanonicalSignature": [],
+            "IrohaCanonicalTimestampMs": []
+          },
+          {
+            "IrohaCanonicalWitness": []
+          }
+        ],
+        "summary": "Read exact AMX debit consent at the current certified private cut.",
+        "tags": [
+          "Nexus"
+        ],
+        "x-iroha-max-request-bytes": 65536,
+        "x-iroha-max-response-bytes": 33554432,
+        "x-iroha-route-auth": {
+          "admission": "authenticated_account",
+          "authentication": "canonical_account_signature",
+          "schemaVersion": 1,
+          "stableRouteId": "contracts.amx_debit_approval_proof_post"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/api/version": {
       "get": {
         "description": "Returns the block header version string. Responds with 503 if genesis is not committed.",
@@ -62768,7 +63383,7 @@
         "description": "List asset definitions with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -63168,7 +63783,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -65161,7 +65776,7 @@
         "description": "Call-derived contract activity: one row per committed top-level `ContractCall`, with `contract_address` and `contract_entrypoint` from the signed invocation; `contract_alias` and `contract_payload` appear only when the call committed successfully, because only then has consensus bound that metadata to the invocation. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -66876,7 +67491,7 @@
         "description": "Call-derived contract events: one row per committed top-level `ContractCall`, projected from the signed invocation and the metadata consensus bound to it; contracts do not emit these rows, `provenance` is always `derived`, and `contract_module`/`contract_event_*` transaction metadata is ignored. Rows are in descending chain position order, with bounded authenticated history reads. Accepts shared filter, select, limit and cursor. Continue until next_cursor is null, including after short or empty pages. sort, include_total, aggregate, offset and count_mode are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -68801,7 +69416,7 @@
         "description": "List domains with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -75954,7 +76569,7 @@
     },
     "/v1/gov/parliament/attempts/{governance_attempt_id}/plan": {
       "get": {
-        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` §4.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
+        "description": "Returns the transitions the Parliament reducer accepts at the execution height of a transaction submitted now, the exact-height checkpoints, and the ballots waiting for a corpus relay or the combined TLE release (`specs/sccp.md` \u00a74.14.5 item 4). The plan is advice for a driver; consensus rechecks every submitted transition.",
         "operationId": "governanceParliamentAttemptPlanV1",
         "parameters": [
           {
@@ -87307,7 +87922,7 @@
         "description": "List NFTs with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -91141,7 +91756,7 @@
         "description": "List repo agreements with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -92363,7 +92978,7 @@
         "description": "List RWA lots with the collection query language: `filter`, `sort`, `select`, `limit`, `cursor` and `include_total`. Rows follow `sort`, then the collection's identity order. Unknown parameters and fields are rejected. See specs/torii/collection_queries.md.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -119961,7 +120576,7 @@
             }
           },
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120141,7 +120756,7 @@
         "description": "Subscriptions with flat state fields and optional invoice and plan. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -120388,7 +121003,7 @@
         "description": "Subscription plans. Accepts filter, sort, select, limit, cursor and include_total. Returns {items,next_cursor,total?}; pass next_cursor as cursor until null.",
         "parameters": [
           {
-            "description": "Text filter, e.g. `owned_by = \"sorau…\" and quantity >= 10.5`.",
+            "description": "Text filter, e.g. `owned_by = \"sorau\u2026\" and quantity >= 10.5`.",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -127891,7 +128506,7 @@
       "name": "Applications"
     },
     {
-      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` §6). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
+      "description": "SCCP v1 public read API under `/v1/sccp/*` (`specs/sccp.md` \u00a76). Every peer serves identical bytes derived from committed state; readers verify every proof themselves.",
       "name": "SCCP"
     }
   ]

@@ -2,7 +2,6 @@
 
 use super::renewal_tests::Fixture;
 use super::*;
-use crate::managed::native_operation::test_support::UnavailablePeers;
 
 #[test]
 fn native_current_read_keeps_expired_deadline_before_transport_and_original_retry() {
@@ -11,7 +10,7 @@ fn native_current_read_keeps_expired_deadline_before_transport_and_original_retr
     let verifier = fixture.native.observe(&fixture.owner.authority);
     let original = verifier.checkpoint().encode_canonical().unwrap();
     let height = fixture.native.chain.height();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     assert!(matches!(
         fixture
             .owner

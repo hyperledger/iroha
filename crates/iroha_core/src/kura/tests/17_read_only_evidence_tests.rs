@@ -9,6 +9,28 @@ mod canonical_evidence_reader_tests {
         root: PathBuf,
         blocks: Vec<iroha_data_model::block::SharedSignedBlock>,
     }
+    #[test]
+    fn index_and_hash_reject_unaddressable_heights_without_overflow() {
+        let fixture = Fixture::new();
+        let reader = fixture.open();
+        for height in [
+            0,
+            u64::MAX,
+            u64::MAX / BlockIndex::SIZE + 1,
+            u64::MAX / SIZE_OF_BLOCK_HASH + 1,
+        ] {
+            assert!(reader.index(height).is_err());
+            assert!(reader.hash(height).is_err());
+        }
+        let first = reader.index(1).unwrap();
+        assert_eq!(first.start, 0);
+        assert_eq!(
+            first.length,
+            u64::try_from(fixture.blocks[0].encode_wire().unwrap().len()).unwrap()
+        );
+        assert_eq!(reader.hash(1).unwrap(), fixture.blocks[0].hash());
+    }
+
     impl Fixture {
         fn new() -> Self {
             // Native originals execute once; individual tests retain only immutable block images.

@@ -199,12 +199,12 @@ mod tests {
             let proof = GlobalThresholdBeaconDkgConstantProofV1 {
                 commitment: std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x31)
                 }),
                 response: std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x73)
                 }),
             };
@@ -214,12 +214,12 @@ mod tests {
                 index: 3,
                 participant_seat_binding: std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x17)
                 }),
                 public_key_share: std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x91)
                 }),
             };
@@ -227,17 +227,17 @@ mod tests {
             let mut session = crate::beacon::fixtures::adaptive_dkg_session_fixture();
             session.session_id = std::array::from_fn(|i| {
                 u8::try_from(i)
-                    .expect("fixture value fits u8")
+                    .expect("fixed byte array index fits u8")
                     .wrapping_add(0x23)
             });
             session.attempt_id = std::array::from_fn(|i| {
                 u8::try_from(i)
-                    .expect("fixture value fits u8")
+                    .expect("fixed byte array index fits u8")
                     .wrapping_add(0x47)
             });
             session.roster_hash = std::array::from_fn(|i| {
                 u8::try_from(i)
-                    .expect("fixture value fits u8")
+                    .expect("fixed byte array index fits u8")
                     .wrapping_add(0xb3)
             });
             let session_wire = encoded(&session);
@@ -265,12 +265,12 @@ mod tests {
             let _flags = DecodeFlagsGuard::enter(flags);
             let commitment: [u8; 96] = std::array::from_fn(|i| {
                 u8::try_from(i)
-                    .expect("fixture value fits u8")
+                    .expect("fixed byte array index fits u8")
                     .wrapping_add(0x31)
             });
             let response: [u8; 32] = std::array::from_fn(|i| {
                 u8::try_from(i)
-                    .expect("fixture value fits u8")
+                    .expect("fixed byte array index fits u8")
                     .wrapping_add(0x73)
             });
             let generic_commitment = encoded(&commitment);
@@ -313,12 +313,12 @@ mod tests {
             let coefficients: Vec<[u8; 96]> = vec![
                 std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x29)
                 }),
                 std::array::from_fn(|i| {
                     u8::try_from(i)
-                        .expect("fixture value fits u8")
+                        .expect("fixed byte array index fits u8")
                         .wrapping_add(0x83)
                 }),
             ];

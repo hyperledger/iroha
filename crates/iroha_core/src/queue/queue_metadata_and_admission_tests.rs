@@ -6,7 +6,7 @@ fn queue_metadata_cleared_on_commit_and_clear_all() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push tx");
     let _ = queue.gossip_batch(1, &state.view());
     let removed = queue.remove_committed_hashes(std::iter::once(hash), None);
@@ -60,7 +60,7 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         &crypto_cfg,
     )
     .expect("accept gossip entrypoint with cached payload");
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     assert!(
         Arc::ptr_eq(&tx.entrypoint_bytes(), &payload),
         "accepted gossip transaction should reuse inbound entrypoint bytes"
@@ -234,7 +234,7 @@ fn push_with_lane_with_state_rejects_committed_transaction() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let tx_hash = tx.as_ref().hash_as_entrypoint();
+    let tx_hash = tx.hash_as_entrypoint();
     {
         let mut transactions = state.transactions.block();
         transactions.insert_block_with_single_tx(tx_hash, nonzero!(1_usize));
@@ -246,7 +246,7 @@ fn push_with_lane_with_state_rejects_committed_transaction() {
         .push_with_lane_with_state(tx, &state)
         .expect_err("committed transaction must be rejected");
     assert!(matches!(err.err, Error::InBlockchain));
-    assert_eq!(err.tx.as_ref().as_ref().hash_as_entrypoint(), tx_hash);
+    assert_eq!(err.tx.as_ref().hash_as_entrypoint(), tx_hash);
 }
 #[test]
 fn push_with_lane_with_state_rejects_unresolved_route() {
@@ -285,7 +285,7 @@ fn contains_pending_hash_ignores_committed_entries() {
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
     register_accepted_tx_authority_for_queue_test(&mut state, &tx);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push tx");
     assert!(queue.contains_pending_hash(hash, &state));
     {
@@ -306,7 +306,7 @@ fn contains_pending_hash_waiting_for_state_does_not_pin_queue_removal() {
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
     register_accepted_tx_authority_for_queue_test(&mut state, &tx);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push tx");
     assert!(queue.contains_pending_hash(hash, &state));
     let generation = state.state_view_generation();
@@ -405,7 +405,7 @@ fn gossip_batch_with_state_removes_committed_entries() {
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
     register_accepted_tx_authority_for_queue_test(&mut state, &tx);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push tx");
     {
         let mut transactions = state.transactions.block();

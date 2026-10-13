@@ -66,6 +66,7 @@
 //! - `app_api_wss` (on by default): enables WebSocket/WebSocket Secure webhook delivery
 #[cfg(feature = "app_api")]
 mod account_activity;
+mod amx_approval_proof;
 #[cfg(feature = "app_api")]
 mod app_api;
 mod authority_originals;
@@ -1174,7 +1175,8 @@ where
 #[path = "tests/lib_tcp_listener_bind.rs"]
 mod tcp_listener_bind_tests;
 use crate::iso20022_bridge::{
-    Iso20022BridgeRuntime, IsoLifecycleApplyError, IsoMessageStatus, Pacs002Status,
+    Iso20022BridgeRuntime, IsoLifecycleApplyError, IsoMessageStatus, IsoSuccessfulExecution,
+    Pacs002Status,
 };
 use crate::{
     router::builder::{
@@ -3434,7 +3436,34 @@ fn reconcile_iso_bridge_transactions(
     runtime: &Iso20022BridgeRuntime,
     state: &CoreState,
 ) -> Result<(), Error> {
-    for transaction_hash in runtime.queued_transaction_hashes() {
+    for request in runtime.native_payment_requests().map_err(|error| {
+        pipeline_status_projection_error(format!("invalid retained ISO native intent: {error}"))
+    })? {
+        let attempted = request
+            .attempted_hash
+            .as_deref()
+            .map(|hash| {
+                let hash = parse_signed_transaction_hash(hash).map_err(|_| {
+                    pipeline_status_projection_error(
+                        "ISO native intent retains invalid attempted hash",
+                    )
+                })?;
+                canonical_transaction_outcome(state, &hash)
+            })
+            .transpose()?
+            .flatten();
+        let business = canonical_iso_business(state, &request)?;
+        publish_iso_native_outcomes(runtime, &request, attempted, business)?;
+    }
+    runtime.resolve_unsubmitted_return_reports().map_err(|error| pipeline_status_projection_error(format!(
+        "ISO bridge could not durably resolve locally unsubmitted original reports: {error:?}"
+    )))?;
+    let pending_returns = runtime.pending_return_transactions();
+    let mut transactions = runtime.queued_transaction_hashes();
+    transactions.extend(pending_returns.keys().cloned());
+    transactions.sort_unstable();
+    transactions.dedup();
+    for transaction_hash in transactions {
         let hash = parse_signed_transaction_hash(&transaction_hash).map_err(|_| {
             pipeline_status_projection_error(format!(
                 "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
@@ -3443,6 +3472,7 @@ fn reconcile_iso_bridge_transactions(
         let Some(outcome) = canonical_transaction_outcome(state, &hash)? else {
             continue;
         };
+        let applied = matches!(outcome, CanonicalTransactionOutcome::Applied { .. });
         match outcome {
             CanonicalTransactionOutcome::Applied { settled_at, .. } => {
                 let transitioned = runtime.mark_transaction_applied(&transaction_hash, settled_at);
@@ -3463,6 +3493,13 @@ fn reconcile_iso_bridge_transactions(
                     "rejection",
                 )?;
             }
+        }
+        if let Some(reports) = pending_returns.get(&transaction_hash) {
+            runtime
+                .resolve_pending_return_reports(&transaction_hash, reports, applied)
+                .map_err(|error| pipeline_status_projection_error(format!(
+                    "ISO bridge could not durably resolve reports for original transaction {transaction_hash}: {error:?}"
+                )))?;
         }
     }
     Ok(())
@@ -3519,7 +3556,14 @@ fn start_iso_bridge_projection_worker(
                 () = shutdown_signal.receive() => {
                     return ToriiCriticalWorkerExit::StoppedByShutdown;
                 }
-                event_result = receiver.recv() => event_result,
+                () = runtime.projection_work_available() => {
+                    if let Err(error) = reconcile_iso_bridge_transactions(&runtime, &state) {
+                        iroha_logger::error!(?error, "ISO bridge notified projection failed closed");
+                        return ToriiCriticalWorkerExit::UnexpectedExit;
+                    }
+                    continue;
+                }
+                received = receiver.recv() => received,
             };
             match event_result {
                 Ok(EventBox::Pipeline(event)) => {
@@ -7578,11 +7622,7 @@ async fn enforce_optional_canonical_account_body_authentication(
         Ok(Some(verified)) => ToriiAccountReadVisibility::Signed(verified.account),
         Ok(None) => ToriiAccountReadVisibility::None,
         Err(error) => {
-            return Error::AppUnauthorized {
-                code: "canonical_authentication_invalid",
-                message: error.to_string(),
-            }
-            .into_response();
+            return crate::app_auth::canonical_authentication_error(error).into_response();
         }
     };
     parts.extensions.insert(visibility);
@@ -15266,10 +15306,7 @@ fn torii_visibility_account_from_headers(
             None,
             authentication_owner.allocation_context(),
         )
-        .map_err(|error| Error::AppUnauthorized {
-            code: "canonical_authentication_invalid",
-            message: error.to_string(),
-        })?;
+        .map_err(crate::app_auth::canonical_authentication_error)?;
         return Ok(
             verified.map_or(ToriiAccountReadVisibility::None, |request| {
                 ToriiAccountReadVisibility::Signed(request.account)
@@ -27791,6 +27828,19 @@ macro_rules! iso_payment_submission_handlers {
                         }
                     }
                 };
+                if !runtime.update_message_context(&msg_id, context.clone()) {
+                    runtime.mark_rejected(
+                        &msg_id,
+                        Some("failed to retain admitted ISO message context".to_owned()),
+                        Some("PRTRY:DURABILITY_FAILURE"),
+                    );
+                    return Err(Error::Query(
+                        iroha_data_model::ValidationFail::NotPermitted(
+                            "failed to retain the admitted ISO message context before queue admission"
+                                .into(),
+                        ),
+                    ));
+                }
                 transaction_payload.fee_payment = match quote_internal_fee_payment(&app, &transaction_payload) {
                     Ok(intent) => intent,
                     Err(err) => {
@@ -27805,19 +27855,6 @@ macro_rules! iso_payment_submission_handlers {
                         return Err(Error::Query(map_iso_error(err)));
                     }
                 };
-                if !runtime.update_message_context(&msg_id, context.clone()) {
-                    runtime.mark_rejected(
-                        &msg_id,
-                        Some("failed to retain admitted ISO message context".to_owned()),
-                        Some("PRTRY:DURABILITY_FAILURE"),
-                    );
-                    return Err(Error::Query(
-                        iroha_data_model::ValidationFail::NotPermitted(
-                            "failed to retain the admitted ISO message context before queue admission"
-                                .into(),
-                        ),
-                    ));
-                }
                 let tx_hash = transaction.hash();
                 let tx_hash_str = format!("{}", tx_hash);
                 if !runtime.bind_transaction_hash(&msg_id, &tx_hash_str) {
@@ -27984,26 +28021,91 @@ async fn handler_iso_lifecycle_submit(
     let settlement_transaction_hash = lifecycle_authorization
         .settlement_transaction_hash(message_type, &parsed)
         .map_err(|err| Error::Query(map_iso_error(err)))?;
-    let applied_transaction_hash = match settlement_transaction_hash {
-        Some(transaction_hash) => {
-            let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
+    let native_request =
+        if iso20022_bridge::IsoLifecycleAuthorization::requires_successful_execution(
+            message_type,
+            &parsed,
+        ) {
+            runtime
+                .native_payment_for_lifecycle(&lifecycle_authorization)
+                .map_err(|error| Error::Query(map_iso_error(error)))?
+        } else {
+            None
+        };
+    let mut native_evidence = None;
+    if let Some(request) = native_request.as_ref() {
+        let attempted = request
+            .attempted_hash
+            .as_deref()
+            .map(|hash| {
+                let hash = parse_signed_transaction_hash(hash).map_err(|_| {
+                    pipeline_status_projection_error("ISO native attempt has invalid signed hash")
+                })?;
+                reconcile_pending_pipeline_transaction(&app, &hash)
+            })
+            .transpose()?
+            .flatten();
+        let business = canonical_iso_business_for_request(&app, request)?;
+        if iso20022_bridge::IsoLifecycleAuthorization::requires_successful_execution(
+            message_type,
+            &parsed,
+        ) && business.is_none()
+        {
+            return Err(Error::AppServiceUnavailable {
+                code: "iso_settlement_outcome_pending",
+                message: "ISO settlement requires the original canonical business effect; retry after finality".into(),
+            });
+        }
+        if let Some(effect) = business
+            .as_ref()
+            .and_then(|outcome| outcome.settlement.as_ref())
+        {
+            let receipt = effect.receipt().ok_or_else(|| {
+                pipeline_status_projection_error("invalid canonical ISO receipt frame")
+            })?;
+            let at = UNIX_EPOCH
+                .checked_add(Duration::from_millis(receipt.executed_at_ms))
+                .ok_or_else(|| {
+                    pipeline_status_projection_error("ISO native carrier time exceeds SystemTime")
+                })?;
+            native_evidence = Some((effect.transaction_hash.clone(), at));
+        }
+        publish_iso_native_outcomes(&runtime, request, attempted, business)?;
+    }
+    let applied_transaction = if native_request.is_some() {
+        native_evidence
+            .as_ref()
+            .map(|(hash, settled_at)| IsoSuccessfulExecution {
+                transaction_hash: hash,
+                settled_at: *settled_at,
+            })
+    } else {
+        match settlement_transaction_hash {
+            Some(transaction_hash) => {
+                let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
                 pipeline_status_projection_error(format!(
                     "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
                 ))
             })?;
-            match reconcile_pending_pipeline_transaction(&app, &hash)? {
-                Some(CanonicalTransactionOutcome::Applied { .. }) => Some(transaction_hash),
-                Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
-                None => {
-                    return Err(Error::AppServiceUnavailable {
+                match reconcile_pending_pipeline_transaction(&app, &hash)? {
+                    Some(CanonicalTransactionOutcome::Applied { settled_at, .. }) => {
+                        Some(IsoSuccessfulExecution {
+                            transaction_hash,
+                            settled_at,
+                        })
+                    }
+                    Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
+                    None => {
+                        return Err(Error::AppServiceUnavailable {
                         code: "iso_settlement_outcome_pending",
                         message: "ISO settlement requires a canonical execution outcome; retry after finality"
                             .to_owned(),
                     });
+                    }
                 }
             }
+            None => None,
         }
-        None => None,
     };
     // A failed authenticated carrier read must leave this lifecycle identity retryable.
     runtime
@@ -28014,7 +28116,7 @@ async fn handler_iso_lifecycle_submit(
         message_type,
         &parsed,
         &lifecycle_authorization,
-        applied_transaction_hash,
+        applied_transaction,
     ) {
         Ok(result) => result,
         Err(error) => return Err(map_iso_lifecycle_apply_error(&runtime, &msg_id, error)),
@@ -29025,6 +29127,8 @@ fn insert_iso_metadata_fields(
     payload: &mut norito::json::native::Map,
     status: &crate::iso20022_bridge::IsoMessageStatus,
 ) {
+    payload.insert("reported_return".into(), status.reported_return_json());
+    payload.insert("native_payment".into(), status.native_payment_json());
     let metadata = status.metadata();
     payload.insert(
         "profile_id".into(),
@@ -29843,6 +29947,7 @@ fn precheck_transaction_batch_ed25519(
     prechecks
 }
 include!("lib_pipeline_handlers.rs");
+include!("lib_iso_native_payment.rs");
 struct AdmittedSignedQuery {
     query: SignedQuery,
     query_bytes: Vec<u8>,
@@ -37908,6 +38013,7 @@ impl Torii {
             SORAFS_ORDERBOOK_EVENTS_WS_GET => limited_canonical_account_get(sorafs::api::handle_get_sorafs_orderbook_events_ws, app_state, 0, 0);
             SORAFS_RESERVE_POLICY_GET => canonical_signature_get(sorafs::reserve_api::handle_get_sorafs_reserve_policy);
             SORAFS_RESERVE_POLICY_PROOF_GET => canonical_signature_get(reserve_policy_proof::handler);
+            AMX_DEBIT_APPROVAL_PROOF_POST => limited_canonical_signature_post(amx_approval_proof::handler, iroha_data_model::sumeragi_amx::approval_proof::MAX_AMX_DEBIT_APPROVAL_PERMISSION_BYTES_V1);
             SORAFS_RESERVE_ACCOUNT_PROOF_GET => canonical_signature_get(reserve_account_proof::handler);
             KAGEMUSHA_LOAD_ISSUANCE_GET => limited_canonical_account_get(kagemusha_wallet::handler, app_state, 0, 0);
             KAGEMUSHA_ENROLLMENT_POST => limited_canonical_signature_post(kagemusha_enrollment::handler, iroha_torii_shared::kagemusha_enrollment::ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1);

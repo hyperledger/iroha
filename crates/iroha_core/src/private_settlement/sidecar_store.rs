@@ -3651,6 +3651,7 @@ fn load_file_store_v1(
 
 fn sidecar_file_name_v1(digest: Hash) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
+
     let mut name = String::with_capacity(64 + SIDECAR_RECORD_EXTENSION_V1.len());
     for byte in digest.as_ref() {
         name.push(char::from(HEX[usize::from(*byte >> 4)]));

@@ -307,14 +307,46 @@ impl Core {
             .clone()
             .and_then(|t| self.build_timeout(me, t.view, t.high_pqc));
         let prepare = record.prepare.filter(|v| v.view == view);
+        #[cfg(sumeragi_mutation = "MS72")]
+        let record = {
+            let mut record = record;
+            if record.prepare_signature.is_none()
+                && let Some(vote) = prepare
+            {
+                record.prepare_signature = self.sign(
+                    me.slot,
+                    crate::api::SigningKind::Prepare,
+                    self.height,
+                    self.view,
+                    &crate::preimage::vote_preimage(
+                        VoteKind::Prepare,
+                        &self.instance,
+                        &self.cfg.epoch.id,
+                        self.height,
+                        self.view,
+                        &vote.block_hash,
+                        &vote.result,
+                    ),
+                );
+            }
+            record
+        };
+        let signed_prepare = record.prepare_signature;
         let proposal = (record.proposal.clone())
             .filter(|p| p.view == view && !cfg!(sumeragi_mutation = "MS1"));
         self.safety = Some(record);
         self.mine.timeout.clone_from(&timeout);
-        // The recorded Prepare of the resumed view: identical preimage, identical bytes
-        // (deterministic signatures), on the retransmit schedule from now.
-        let prepare =
-            prepare.and_then(|v| self.record_vote(me, VoteKind::Prepare, (v.block_hash, v.result)));
+        // Only the exact authenticated successful signature can resume retransmission.
+        // An unsigned reservation must reacquire current execution admission before its
+        // first signing attempt; deterministic re-signing is not evidence it happened.
+        let prepare = prepare.and_then(|v| {
+            if signed_prepare.is_some() {
+                self.record_vote(me, VoteKind::Prepare, (v.block_hash, v.result))
+            } else {
+                self.want(v.block_hash, self.height, Vec::new());
+                None
+            }
+        });
         if let Some(qc) = self.high_pqc.clone() {
             let sources = self.signer_keys(&qc);
             self.want(qc.block_hash, self.height, sources);
@@ -383,7 +415,9 @@ impl Core {
                                 && self.verifier(config).verify_qc(qc).is_ok()
                         })
                 });
-        parent_matches && self.record_round_certificates_verify(record)
+        parent_matches
+            && record.prepare_signature_verifies(&*self.crypto)
+            && self.record_round_certificates_verify(record)
     }
 
     /// Fully verify the record height's retained certificates without consulting or filling
@@ -392,6 +426,9 @@ impl Core {
     fn record_round_certificates_verify(&self, record: &SafetyRecord) -> bool {
         if cfg!(sumeragi_mutation = "MS57") {
             return true;
+        }
+        if !record.prepare_signature_verifies(&*self.crypto) {
+            return false;
         }
         let authority_matches = self.config(record.height).map_or_else(
             || !Self::record_has_round_certificates(record),

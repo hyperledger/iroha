@@ -328,10 +328,8 @@ impl PreparedContractCache {
     /// changes cannot reuse a VM carrying stale heap authority.
     ///
     /// # Errors
-    ///
-    /// Returns a VM error if memory admission or allocation fails, the heap
-    /// limit is invalid, or loading the prepared contract or creating its runtime
-    /// template fails.
+    /// Returns the original VM error if runtime allocation, heap-limit installation,
+    /// prepared-program loading or funded runtime-template construction fails.
     pub fn checkout_runtime(
         &self,
         contract: &ivm::PreparedContract,
@@ -1913,6 +1911,7 @@ mod tests {
     fn generic_runtime_replacement_keeps_its_own_reset_baseline() {
         const GAS_LIMIT: u64 = 10_000;
         const GOVERNED_HEAP_LIMIT: u64 = 64;
+
         let _retention = default_retention();
         let program = minimal_generic_program();
         let mut cache = IvmCache::with_capacity(2);
@@ -2039,6 +2038,7 @@ mod tests {
     fn runtime_is_reused_across_transactions() {
         const TEST_REGISTER: usize = 1;
         const GAS_LIMIT: u64 = 10_000;
+
         let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
@@ -2103,6 +2103,7 @@ mod tests {
     #[test]
     fn runtime_pool_discards_a_vm_with_mismatched_template_geometry() {
         const GAS_LIMIT: u64 = 10_000;
+
         let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
@@ -2167,6 +2168,7 @@ mod tests {
         const GAS_LIMIT: u64 = 10_000;
         const SMALL_HEAP_LIMIT: u64 = 64;
         const LARGE_HEAP_LIMIT: u64 = 128;
+
         let _retention = default_retention();
         let program = minimal_program();
         let mut cache = IvmCache::with_capacity(2);
@@ -2209,6 +2211,7 @@ mod tests {
     #[test]
     fn content_addressed_hit_skips_repreparation_and_reuses_dirty_reset_runtime() {
         const GAS_LIMIT: u64 = 10_000;
+
         let _retention = default_retention();
         let program = minimal_program();
         let code_hash = ivm::contract_code_hash(&program);
@@ -2358,6 +2361,7 @@ mod tests {
     #[test]
     fn concurrent_workers_singleflight_contract_preparation() {
         const WORKERS: usize = 8;
+
         let _retention = default_retention();
         let program = Arc::new(minimal_program());
         let code_hash = ivm::contract_code_hash(program.as_slice());
@@ -2394,6 +2398,7 @@ mod tests {
     fn nested_runtime_pool_reuses_allocation_and_dirty_resets_memory() {
         const GAS_LIMIT: u64 = 10_000;
         const GOVERNED_HEAP_LIMIT: u64 = 96;
+
         let _retention = default_retention();
         let program = minimal_program();
         let code_hash = ivm::contract_code_hash(&program);
@@ -2466,9 +2471,10 @@ mod tests {
 
     #[test]
     fn nested_runtime_and_template_charges_survive_final_baseline_owner() {
+        const GAS_LIMIT: u64 = 10_000;
+
         // This positive requires enabled retention for its whole owner lifetime.
         // Serialize the canonical configuration writers that may evict every pool.
-        const GAS_LIMIT: u64 = 10_000;
         let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
             capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
             max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,
@@ -2731,8 +2737,6 @@ mod tests {
     }
     #[test]
     fn program_summary_owned_lease_reuses_runtime_on_early_return() {
-        // This positive requires enabled retention for its whole owner lifetime.
-        // Serialize the canonical configuration writers that may evict every pool.
         const GAS_LIMIT: u64 = 10_000;
         fn dirty_then_return(summary: &ProgramSummary) -> Result<(), *const u8> {
             let mut runtime = summary
@@ -2750,6 +2754,9 @@ mod tests {
                 .expect("dirty input page");
             Err(allocation)
         }
+
+        // This positive requires enabled retention for its whole owner lifetime.
+        // Serialize the canonical configuration writers that may evict every pool.
         let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(ivm::ivm_cache::CacheLimits {
             capacity: iroha_config::parameters::defaults::pipeline::CACHE_SIZE,
             max_bytes: iroha_config::parameters::defaults::pipeline::IVM_CACHE_MAX_BYTES,

@@ -222,7 +222,14 @@ fn census(
         ));
     }
     if later && let Some(child) = directory.open_child_optional(operation)? {
-        require_empty(&child).map_err(|_| {
+        // Enrollment history and composite funding own their outer directories;
+        // the fixed-purpose children are born with an explicit Unselected image.
+        let empty = if matches!(operation, "enroll" | "funding") {
+            require_empty(&child)
+        } else {
+            crate::managed::native_operation::attempts::metadata::require_unselected(&child)
+        };
+        empty.map_err(|_| {
             invalid("later bootstrap material exists behind an incomplete prerequisite")
         })?
     }

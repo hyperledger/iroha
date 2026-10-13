@@ -154,6 +154,16 @@ impl LaneReadCustody {
 }
 
 impl FileLaneBlockStore {
+    // Every nested operation retains the same original pool. Its outermost scope
+    // outlives both state and batch guards before invoking arbitrary release callbacks.
+    fn with_original_refunds<R>(budget: &AllocationBudget, operation: impl FnOnce() -> R) -> R {
+        if cfg!(all(test, sumeragi_core_mutation = "HC350")) {
+            operation()
+        } else {
+            budget.with_deferred_refund_notifications(|_| operation())
+        }
+    }
+
     /// Bind this store to the actual original node Queue before its lane driver launches.
     /// Recovery/reconciliation may repeat this same-owner binding; neither a foreign pool
     /// nor another Queue can replace it. Historical read-only stores need no notification.
@@ -331,18 +341,20 @@ impl FileLaneBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<(AvailableBody, Qc)>, Attempt<io::Error>> {
-        self.revalidate_custody()?;
-        let mut state = self.state.lock();
-        if height == 0 || height > state.tip {
-            return Ok(None);
-        }
-        self.read_prepared(&mut state, height)?;
-        let prepared = state
-            .read
-            .take()
-            .and_then(|read| read.ready)
-            .expect("completed original lane read");
-        Ok(Some(prepared.into_parts()))
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height == 0 || height > state.tip {
+                return Ok(None);
+            }
+            self.read_prepared(&mut state, height)?;
+            let prepared = state
+                .read
+                .take()
+                .and_then(|read| read.ready)
+                .expect("completed original lane read");
+            Ok(Some(prepared.into_parts()))
+        })
     }
 
     /// Decode a merge batch while retaining the exact authenticated source on local refusal.
@@ -355,39 +367,39 @@ impl FileLaneBlockStore {
         &self,
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
-        self.revalidate_custody()?;
-        let mut slot = self.batch_read.lock();
-        loop {
-            if slot.is_none() {
-                let Some((body, qc)) = self.committed_body(height)? else {
-                    return Ok(None);
-                };
-                *slot = Some(BatchRead { body, qc });
-            }
-            let read = slot.as_ref().expect("retained authenticated batch read");
-            let batch = match LaneBatch::from_payload(read.body.payload().as_slice()) {
-                Ok(batch) => Some(batch),
-                // An authenticated malformed payload is distinct from local resource pressure.
-                Err(AdmissionAttemptError::Rejected(_)) => None,
-                Err(AdmissionAttemptError::AnchorDeferred(reason)) => {
-                    return Err(Attempt::Deferred(reason));
-                }
-                Err(AdmissionAttemptError::Deferred(reason)) => {
-                    return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
-                        reason.into(),
-                    ));
-                }
-            };
+        Self::with_original_refunds(&self.budget, || {
             self.revalidate_custody()?;
-            let read = slot.take().expect("completed original batch decode");
-            if read.body.header().height == height {
-                return Ok(Some(CommittedLaneBlock {
-                    block_hash: read.qc.block_hash,
-                    result: read.qc.result,
-                    batch,
-                }));
+            let mut slot = self.batch_read.lock();
+            loop {
+                if slot.is_none() {
+                    let Some((body, qc)) = self.committed_body(height)? else {
+                        return Ok(None);
+                    };
+                    *slot = Some(BatchRead { body, qc });
+                }
+                let read = slot.as_ref().expect("retained authenticated batch read");
+                let batch = match LaneBatch::from_payload(read.body.payload().as_slice()) {
+                    Ok(batch) => Some(batch),
+                    // An authenticated malformed payload is distinct from local resource pressure.
+                    Err(AdmissionAttemptError::Rejected(_)) => None,
+                    Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
+                        return Err(Attempt::Deferred(reason));
+                    }
+                    Err(AdmissionAttemptError::Deferred(reason)) => {
+                        return Err(Attempt::Deferred(reason.into()));
+                    }
+                };
+                self.revalidate_custody()?;
+                let read = slot.take().expect("completed original batch decode");
+                if read.body.header().height == height {
+                    return Ok(Some(CommittedLaneBlock {
+                        block_hash: read.qc.block_hash,
+                        result: read.qc.result,
+                        batch,
+                    }));
+                }
             }
-        }
+        })
     }
 
     /// Observe the durable tip only after the original retained read authenticates.
@@ -398,15 +410,17 @@ impl FileLaneBlockStore {
     /// Propagates the original incomplete attempt or authentication/storage rejection
     /// without taking, replacing or abandoning its retained restoration owner.
     pub(super) fn authenticated_height(&self) -> Result<u64, Attempt<io::Error>> {
-        self.revalidate_custody()?;
-        let mut state = self.state.lock();
-        if let Some(read) = state.read.as_mut()
-            && read.ready.is_none()
-        {
-            read.ready = Some(read.job.poll(&self.budget)?);
-        }
-        self.revalidate_custody()?;
-        Ok(state.tip)
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if let Some(read) = state.read.as_mut()
+                && read.ready.is_none()
+            {
+                read.ready = Some(read.job.poll(&self.budget)?);
+            }
+            self.revalidate_custody()?;
+            Ok(state.tip)
+        })
     }
 
     /// Retirement preserves the original unfinished read, publication and batch owners.
@@ -493,21 +507,23 @@ impl BlockStore for FileLaneBlockStore {
         self.state.lock().tip
     }
     fn entry(&self, height: u64) -> Result<Option<SyncEntry>, Attempt<io::Error>> {
-        self.revalidate_custody()?;
-        let mut state = self.state.lock();
-        if height == 0 || height > state.tip {
-            return Ok(None);
-        }
-        let prepared = self.read_prepared(&mut state, height)?;
-        let entry = SyncEntry {
-            manifest: PayloadManifest {
-                header: prepared.body().header().clone(),
-                availability: prepared.body().availability().clone(),
-            },
-            commit_qc: prepared.commit_qc().clone(),
-        };
-        state.read = None;
-        Ok(Some(entry))
+        Self::with_original_refunds(&self.budget, || {
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height == 0 || height > state.tip {
+                return Ok(None);
+            }
+            let prepared = self.read_prepared(&mut state, height)?;
+            let entry = SyncEntry {
+                manifest: PayloadManifest {
+                    header: prepared.body().header().clone(),
+                    availability: prepared.body().availability().clone(),
+                },
+                commit_qc: prepared.commit_qc().clone(),
+            };
+            state.read = None;
+            Ok(Some(entry))
+        })
     }
     fn availability_source(
         &self,
@@ -517,62 +533,65 @@ impl BlockStore for FileLaneBlockStore {
         resolve_source(&*self.schedule, self.instance, height, block_hash)
     }
     fn append(&self, body: &AvailableBody, qc: &Qc) -> Result<(), Attempt<io::Error>> {
-        if !body.admitted_to(&self.budget) {
-            return Err(invalid("lane append original pool mismatch").into());
-        }
-        let height = body.header().height;
-        let source = certified_source(&*self.schedule, &*self.crypto, height, body.header(), qc)?;
-        if body.source() != &source {
-            return Err(
-                invalid("lane body was authenticated under another historical source").into(),
-            );
-        }
-        self.revalidate_custody()?;
-        let mut state = self.state.lock();
-        if height <= state.tip {
-            let stored = self.read_prepared(&mut state, height)?;
-            if stored.body() != body || stored.commit_qc().result != qc.result {
-                // This healthy stored read is complete; reject the incoming decision without
-                // pinning unrelated future reads behind it. Pending publication is untouched.
-                state.read = None;
-                return Err(invalid("another lane decision is already durable").into());
+        Self::with_original_refunds(&self.budget, || {
+            if !body.admitted_to(&self.budget) {
+                return Err(invalid("lane append original pool mismatch").into());
             }
-            let bytes = stored.prepare(&self.budget).map_err(record_error)?;
-            self.publish_frame(height, bytes)?;
-            state.read = None;
-            drop(state);
-            self.notify_global_queue();
-            return Ok(());
-        }
-        if height != state.tip.saturating_add(1) {
-            return Err(invalid("lane append is not the next durable height").into());
-        }
-        if let Some(original) = &state.write {
-            if original.body() != body || original.commit_qc() != qc {
-                return Err(io::Error::new(
+            let height = body.header().height;
+            let source =
+                certified_source(&*self.schedule, &*self.crypto, height, body.header(), qc)?;
+            if body.source() != &source {
+                return Err(
+                    invalid("lane body was authenticated under another historical source").into(),
+                );
+            }
+            self.revalidate_custody()?;
+            let mut state = self.state.lock();
+            if height <= state.tip {
+                let stored = self.read_prepared(&mut state, height)?;
+                if stored.body() != body || stored.commit_qc().result != qc.result {
+                    // This healthy stored read is complete; reject the incoming decision without
+                    // pinning unrelated future reads behind it. Pending publication is untouched.
+                    state.read = None;
+                    return Err(invalid("another lane decision is already durable").into());
+                }
+                let bytes = stored.prepare(&self.budget).map_err(record_error)?;
+                self.publish_frame(height, bytes)?;
+                state.read = None;
+                drop(state);
+                self.notify_global_queue();
+                return Ok(());
+            }
+            if height != state.tip.saturating_add(1) {
+                return Err(invalid("lane append is not the next durable height").into());
+            }
+            if let Some(original) = &state.write {
+                if original.body() != body || original.commit_qc() != qc {
+                    return Err(io::Error::new(
                     io::ErrorKind::WouldBlock,
                     "different prepared artifact cannot replace original pending lane publication",
                 )
                 .into());
+                }
+            } else {
+                state.write = Some(PreparedLaneWrite::new(body.clone(), qc.clone()));
             }
-        } else {
-            state.write = Some(PreparedLaneWrite::new(body.clone(), qc.clone()));
-        }
-        let pending = state.write.as_mut().expect("original publication retained");
-        pending
-            .check_context(&source, &*self.crypto)
-            .map_err(record_error)?;
-        let bytes = pending.prepare(&self.budget).map_err(record_error)?;
-        if bytes.len() > MAX_FRAME_FILE_BYTES {
-            return Err(invalid("lane frame exceeds disk custody bound").into());
-        }
-        self.publish_frame(height, bytes)?;
-        state.write = None;
-        state.tip = height;
-        self.grown.notify_all();
-        drop(state);
-        self.notify_global_queue();
-        Ok(())
+            let pending = state.write.as_mut().expect("original publication retained");
+            pending
+                .check_context(&source, &*self.crypto)
+                .map_err(record_error)?;
+            let bytes = pending.prepare(&self.budget).map_err(record_error)?;
+            if bytes.len() > MAX_FRAME_FILE_BYTES {
+                return Err(invalid("lane frame exceeds disk custody bound").into());
+            }
+            self.publish_frame(height, bytes)?;
+            state.write = None;
+            state.tip = height;
+            self.grown.notify_all();
+            drop(state);
+            self.notify_global_queue();
+            Ok(())
+        })
     }
 }
 impl BodyReader for FileLaneBlockStore {
@@ -609,3 +628,7 @@ mod publication_tests;
 #[cfg(test)]
 #[path = "store/retirement_probe_tests.rs"]
 mod retirement_probe_tests;
+
+#[cfg(test)]
+#[path = "store/refund_tests.rs"]
+mod refund_tests;

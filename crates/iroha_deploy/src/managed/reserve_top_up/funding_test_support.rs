@@ -1,5 +1,6 @@
 //! Genuine native component helpers; no production constructors, source mutators or proof stubs.
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_fs::PublishMode;
 impl ManagedReserveTopUpRequest {
     pub(in crate::managed) fn funding_prepare(
@@ -34,7 +35,7 @@ impl ManagedReserveTopUpRequest {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(&original)?;
-        let directory = self.authority.directory.ensure_child("request")?;
+        let directory = metadata::ensure_operation(&self.authority.directory, "request")?;
         journal::publish_intent(&directory, &original)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("fixture wallet"))?;

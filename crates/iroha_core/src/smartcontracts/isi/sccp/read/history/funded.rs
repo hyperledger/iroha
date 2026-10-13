@@ -12,6 +12,8 @@ use std::alloc::Layout;
 
 const MIN_LEVEL: u32 = 5;
 const CHUNK: u64 = 1 << MIN_LEVEL;
+// Derive physical element counts from the same fixed level without narrowing heights.
+const CHUNK_LEN: usize = 1 << MIN_LEVEL;
 type Hash = [u8; 32];
 
 /// Typed failure without replacing the caller's original capacity/release observation.
@@ -237,8 +239,7 @@ impl SccpHistoryNodeCache {
                 .ok_or(SccpHistoryReadError::Inconsistent)?,
         )
         .map_err(|_| SccpHistoryReadError::Inconsistent)?;
-        if count == 0 || count > usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize")
-        {
+        if count == 0 || count > CHUNK_LEN {
             return Err(SccpHistoryReadError::Inconsistent);
         }
         scratch.truncate(0);
@@ -398,7 +399,7 @@ impl HistoryDraft<'_> {
         array_bytes(self.new_capacity.unwrap_or(0))
     }
     pub(crate) fn request_demand(&self) -> Result<usize, AllocationRefusal> {
-        array_bytes(usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize"))?
+        array_bytes(CHUNK_LEN)?
             .checked_add(array_bytes(self.path_len)?)
             .ok_or(AllocationRefusal::DemandOverflow)
     }
@@ -416,10 +417,7 @@ impl HistoryDraft<'_> {
         expected: Option<(Hash, Hash)>,
     ) -> Result<RetainedSccpHistoryPath, SccpHistoryReadError> {
         // All actual allocations precede cache mutation; a physical failure preserves it.
-        let mut scratch = ChargedBuffer::from_reservation(
-            usize::try_from(CHUNK).expect("4096-entry anchor chunk fits usize"),
-            reservation,
-        )?;
+        let mut scratch = ChargedBuffer::from_reservation(CHUNK_LEN, reservation)?;
         let mut path = ChargedBuffer::from_reservation(self.path_len, reservation)?;
         let replacement = if let Some(capacity) = self.new_capacity {
             let mut nodes = ChargedBuffer::from_reservation(capacity, cache_reservation)?;

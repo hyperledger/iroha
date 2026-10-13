@@ -309,6 +309,7 @@ impl Sandbox {
             startup,
             test_chain::{CertifiedTestChain, TestChainConfig},
         };
+
         let mut world = {
             let domain = Domain::new(DOMAIN.clone()).build(&GENESIS_ACCOUNT.id);
             let asset_def = {

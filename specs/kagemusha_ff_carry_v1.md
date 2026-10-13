@@ -321,17 +321,33 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    premises. It does not call `audit` on every proof. The independent audit and
    malformed-layout tests check the construction; the audit is not a new circuit
    constraint or authority for arbitrary shared-table callers.
-8. The retained raw output establishes 22 FF and four Q-layout passes for the
-   reviewed sources, with three expensive FF cases ignored. The whole historical
-   gadget run failed (284 passed, one failed, eight ignored). The malformed-layout
-   audit circuit uses `Fq` only and exercises SHA/window overlap and `q_dyn` on a
-   fixed row; explicit `ValueRange`, `Namespace` and nonboolean dynamic-row
-   rejection cases remain uncovered there. Final-row tests exercise four
-   representative modulus/field/table combinations, not the full Cartesian
-   matrix. Both fused every-cell mutation sweeps remain ignored. These are
-   coverage limits, not demonstrated carry forgeries. Positive M3 proofs do not
-   replace adversarial coverage or qualify other FF backends, recursive Q,
-   complete P-256, privacy, devices or the whole candidate.
+8. The completed post-retirement Gadgets library output records 22 FF and five
+   Q-leaf ordinary passes. The audit now exercises both native fields, including
+   `ValueRange`, `Namespace` and nonboolean dynamic-row rejection. Final-row
+   checks cover all 12 supported combinations: all four moduli in both fields
+   on private tables, and P-256 p/n in both fields on the shared table. Carry
+   endpoint checks cover both fields and both table layouts. Both fused
+   every-cell sweeps and the 9,000-product proof remain ignored. The sweeps
+   select a `+1` mutation at every assigned advice cell only for Fq-in-Fp and
+   P-256 p-in-Fq; there is no dedicated exhaustive FF sweep for Fp-in-Fq or
+   P-256 n, or the full field/table matrix. The P-256 leaf mutation suite samples
+   FF/glue/SHA cells and does not supply that missing exhaustive coverage.
+
+   The component record is
+   `target/qualification/kagemusha-post-retirement-correctness-1/02-gadgets-all-ordinary-3.stdout.log`
+   (SHA-256 `390409988d880d8b29d350176163825b2d0eb7d56c486a2b0a559fd20e822e67`).
+   Its `source-before.json`, `02-gadgets-all-built-source.json` and
+   `02-gadgets-all-ordinary-3-after-source.json` retain identical hashes for
+   the four FF/Q-leaf production and test files; production still matches the
+   scoped fused review above. The built, pre-list and post-test executable
+   records retain SHA-256
+   `b60ed10a22f1905a131093cee8424570715b5a69c122730ac25c348b90e983f7`.
+   The runner ended after 362 selected test passes with a strict-lint failure
+   in the MSM fallback (`clippy::option_if_let_else`). Its result remains
+   unsuccessful; the equivalent style repair requires fresh focused checks.
+   These component passes do not replace the ignored adversarial/proof cases, recover the
+   original four-item wording checklist, qualify other FF backends, recursive
+   Q, complete P-256, privacy or devices, or establish release readiness.
 
 The retained source correspondence packet is
 `target/qualification/m3b-current-source-review-20261009-1/manifest.json`, SHA-256
@@ -1454,12 +1470,15 @@ belongs to the captured source; matching descriptors cannot establish source
 identity or transfer qualification to the pinned-catalog producer.
 
 These captured Load-derived component chains use the superseded dedicated-publisher
-voucher trust model. The native and recursive Load producers now consume an
-ordinary transaction receipt and its compact block-finality evidence. Their
-integration helpers require genuine original proving artifacts and finality
-evidence; the retired issuer fixture is removed. Installing that fixture and
-rebuilding the complete source/catalog remain open. No measured component key
-is an admitted release key.
+voucher trust model. Current Load verifies the ordinary BLS certificate and counted
+receipt-event inclusion natively, under authenticated genesis and epoch authority,
+before signing Advance. Its four-A/three-W monetary relation binds the exact receipt
+and credential-bound signature; it does not verify BLS finality in-circuit. See the
+[native finality goals](kagemusha_native_finality_goals.md) for this accepted trust
+boundary. Integration helpers require genuine monetary proving originals and native
+receipt evidence; the retired issuer fixture is removed. Current native-finality
+fixture and complete source/catalog qualification remain open. No measured component
+key is an admitted release key.
 The other seven Send masks and full fourteen-terminal composition remain open.
 
 Fresh merged-wire size tests pass 2/2 in

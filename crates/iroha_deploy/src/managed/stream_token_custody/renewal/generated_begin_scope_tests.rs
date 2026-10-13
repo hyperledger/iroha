@@ -1,7 +1,6 @@
 //! Genuine generated Begin source refusal, lexical scope and original outer admission.
 
 use super::*;
-use crate::managed::native_operation::test_support::UnavailablePeers;
 use crate::managed::stream_token_custody::renewal_tests::{Fixture, wait_until};
 use std::path::PathBuf;
 
@@ -132,7 +131,7 @@ fn retained_sources(fixture: &Fixture) -> Vec<(PathBuf, &'static str, usize)> {
 fn begin_epoch_workspace_preserves_paid_sources_inventory_error_order_and_retry() {
     let _guard = crate::managed::native_test_guard();
     let fixture = fixture_with_renewal_body();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     // Capture the already authenticated initial floor before mutation or budget measurement.
     let floor = *fixture
@@ -214,7 +213,7 @@ fn begin_epoch_workspace_preserves_late_finite_outer_charge_refusal_and_retry() 
     }
     let _guard = crate::managed::native_test_guard();
     let fixture = fixture_with_renewal_body();
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     // Capture the already authenticated initial floor before mutation or budget measurement.
     let floor = *fixture

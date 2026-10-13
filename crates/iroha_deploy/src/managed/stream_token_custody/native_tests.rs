@@ -2,6 +2,7 @@
 //! Direct component commits do not qualify full coordinator HTTP or running service readiness.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::test_support::native_fixture::signed_recovery_http::{
     assert_recovery_reads, with_recovery_http,
 };
@@ -200,7 +201,7 @@ fn selected_custody_recovery_keeps_unprepared_wallets_absent_and_exact_carriers_
                 action: Action::Configure(policy.clone()),
                 checkpoint: checkpoint_bytes(&checkpoint).unwrap(),
             };
-            let directory = owner.authority.directory.ensure_child(name).unwrap();
+            let directory = metadata::ensure_operation(&owner.authority.directory, name).unwrap();
             journal::publish_intent(&directory, &original).unwrap();
             (original, now + 600_000, None)
         } else {
@@ -423,10 +424,10 @@ fn selected_custody_recovery_keeps_unprepared_wallets_absent_and_exact_carriers_
         assert_eq!(carrier.checkpoint().height(), height);
         let finalized = verify_carrier(&carrier, &signed).unwrap();
         assert_eq!(finalized.height, height);
-        let authorization_bytes = original
-            .directory()
-            .read("authorization.nrt", 64 * 1024)
-            .unwrap();
+        let authorization_bytes =
+            metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+                .unwrap()
+                .expect("retained authorization frame");
         for permit_finality in [false, true] {
             let recovered =
                 with_recovery_http(&native, &prepared, &signed, permit_finality, |requests| {
@@ -444,10 +445,9 @@ fn selected_custody_recovery_keeps_unprepared_wallets_absent_and_exact_carriers_
             assert_eq!(recovered.finalized, permit_finality.then_some(finalized));
             assert!(recovered.current.is_none());
             assert_eq!(
-                original
-                    .directory()
-                    .read("authorization.nrt", 64 * 1024)
-                    .unwrap(),
+                metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+                    .unwrap()
+                    .expect("retained authorization frame"),
                 authorization_bytes,
             );
             assert_eq!(

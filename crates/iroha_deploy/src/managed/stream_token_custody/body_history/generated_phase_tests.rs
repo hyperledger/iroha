@@ -1,6 +1,7 @@
 //! Genuine generated read prefixes close native custody before callbacks or reservation.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::native_operation::authorization::DispatchAuthorization;
 use std::{
     cell::{Cell, RefCell},
@@ -100,15 +101,31 @@ struct ChangedRecord {
 }
 impl ChangedRecord {
     fn replace(directory: &Arc<PrivateDirectory>, name: &'static str) -> Self {
+        let logical = matches!(name, "dispatch.nrt" | "closing.nrt" | "closed.nrt");
+        let physical = if logical { metadata::FILE } else { name };
+        let maximum = if logical {
+            metadata::MAX_IMAGE_BYTES
+        } else {
+            journal::MAX_ORIGINAL_BYTES
+        };
         let value = Self {
             directory: Arc::clone(directory),
-            name,
-            original: directory.read(name, journal::MAX_ORIGINAL_BYTES).unwrap(),
+            name: physical,
+            original: directory.read(physical, maximum).unwrap(),
         };
-        let mut changed = value.original.to_vec();
-        changed[0] ^= 1;
+        let changed = if logical {
+            let mut component = metadata::test_read_component(directory, None, name)
+                .unwrap()
+                .expect("genuine retained metadata component");
+            component[0] ^= 1;
+            metadata::test_changed_image(&value.original, None, name, Some(&component)).unwrap()
+        } else {
+            let mut changed = value.original.to_vec();
+            changed[0] ^= 1;
+            changed
+        };
         directory
-            .write_atomic(name, &changed, PublishMode::Replace)
+            .write_atomic(physical, &changed, PublishMode::Replace)
             .unwrap();
         value
     }
@@ -548,16 +565,14 @@ fn native_generated_reread_discovery_closes_before_first_wallet_callback() {
 
 #[test]
 fn native_generated_exit_keeps_refresh_custody_and_original_error_closure() {
+    struct AddedDispatch(Arc<PrivateDirectory>, zeroize::Zeroizing<Vec<u8>>);
     impl Drop for AddedDispatch {
         fn drop(&mut self) {
-            assert!(
-                self.0
-                    .remove_private("dispatch.nrt")
-                    .expect("restore absent dispatch")
-            );
+            self.0
+                .write_atomic(metadata::FILE, &self.1, PublishMode::Replace)
+                .expect("restore pristine canonical metadata image");
         }
     }
-    struct AddedDispatch(Arc<PrivateDirectory>);
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let mut turn = fixture.renewal_turn();
@@ -693,14 +708,25 @@ fn native_generated_exit_keeps_refresh_custody_and_original_error_closure() {
             let current = Arc::clone(&history.bodies[2].directory);
             let hook: Hook = Box::new(move |observed, _| {
                 if observed == point {
-                    current
-                        .write_atomic(
-                            "dispatch.nrt",
-                            b"not a dispatch record",
-                            PublishMode::CreateNew,
-                        )
+                    assert!(
+                        metadata::test_read_component(&current, None, "dispatch.nrt")
+                            .unwrap()
+                            .is_none()
+                    );
+                    let original = current
+                        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
                         .unwrap();
-                    *saved_added.borrow_mut() = Some(AddedDispatch(Arc::clone(&current)));
+                    let changed = metadata::test_changed_image(
+                        &original,
+                        None,
+                        "dispatch.nrt",
+                        Some(b"not a dispatch record"),
+                    )
+                    .unwrap();
+                    current
+                        .write_atomic(metadata::FILE, &changed, PublishMode::Replace)
+                        .unwrap();
+                    *saved_added.borrow_mut() = Some(AddedDispatch(Arc::clone(&current), original));
                     saved
                         .borrow_mut()
                         .push(ChangedRecord::replace(&oldest, "closed.nrt"));

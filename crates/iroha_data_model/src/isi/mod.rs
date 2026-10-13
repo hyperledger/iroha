@@ -119,7 +119,9 @@ pub mod ministry;
 pub struct InstructionBox(InstructionStorage);
 
 mod amx_owner;
-pub use amx_owner::{AmxInstructionAdmissionErrorV1, PendingAmxInstructionV1};
+pub use amx_owner::{
+    AmxInstructionAdmissionErrorV1, PendingAmxHandoffInstructionV1, PendingAmxInstructionV1,
+};
 
 enum InstructionStorage {
     Boxed(Box<dyn Instruction>),
@@ -264,6 +266,7 @@ impl_direct_instruction_box!(crate::isi::retail_daily_limit::RetailMonetaryMovem
 impl_direct_instruction_box!(
     crate::isi::sumeragi_amx::RegisterAmxDataspaceV1,
     crate::isi::sumeragi_amx::BeginAmxV1,
+    crate::isi::sumeragi_amx::ExpireAmxV1,
     crate::isi::sumeragi_amx::RelayAmxPreparedV1,
     crate::isi::sumeragi_amx::RelayAmxHandoffV1,
     crate::isi::sumeragi_amx::RegisterAmxParticipantV1,

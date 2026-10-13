@@ -245,6 +245,7 @@ async fn normal_snapshot_restore_rejects_overdue_pending_consensus_evidence() {
     use crate::sumeragi::test_chain::{CertifiedTestChain, Signers, TestChainConfig};
     use iroha_data_model::parameter::system::SumeragiConsensusMode;
     use iroha_sumeragi::{message::Evidence as NativeEvidence, types::Hash32};
+
     let tmp_root = tempdir().expect("snapshot tempdir");
     let store_dir = tmp_root.path().join("snapshot");
     let mut config = TestChainConfig::new(crate::state::World::new(), 1_000);
@@ -1321,6 +1322,7 @@ async fn snapshot_missing_space_directory_section_rejects_without_manifest_histo
 async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     use crate::state::WorldReadOnly as _;
     use mv::storage::StorageReadOnly as _;
+
     let tmp_root = tempdir().unwrap();
     let store_dir = tmp_root.path().join("snapshot");
     let mut state = state_factory();

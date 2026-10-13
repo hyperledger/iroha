@@ -21,6 +21,7 @@ const RESPONSE_READ_BUFFER_BYTES: usize = 16 * 1024;
 pub struct DefaultHttpTransport {
     inner: Arc<dyn HttpTransport>,
     deadline: Option<std::time::Instant>,
+    policy: crate::config::HttpTransportPolicy,
 }
 
 impl std::fmt::Debug for DefaultHttpTransport {
@@ -53,6 +54,7 @@ impl DefaultHttpTransport {
         Self {
             inner: Arc::new(ReqwestHttpTransport::default()),
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
         }
     }
 
@@ -60,12 +62,30 @@ impl DefaultHttpTransport {
         Self {
             inner: transport,
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
+        }
+    }
+
+    pub(crate) fn with_policy(mut self, policy: crate::config::HttpTransportPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub(crate) fn policy(&self) -> crate::config::HttpTransportPolicy {
+        self.policy
+    }
+
+    pub(crate) fn with_inner(&self, inner: Arc<dyn HttpTransport>) -> Self {
+        Self {
+            inner,
+            ..self.clone()
         }
     }
 
     pub(crate) fn with_deadline(&self, deadline: std::time::Instant) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
+            policy: self.policy,
             deadline: Some(
                 self.deadline
                     .map_or(deadline, |current| current.min(deadline)),
@@ -88,6 +108,12 @@ impl DefaultHttpTransport {
                     .timeout
                     .map_or(remaining, |limit| limit.min(remaining)),
             );
+        }
+        if self.policy == crate::config::HttpTransportPolicy::DirectLoopback
+            || request.direct_loopback
+        {
+            require_direct_loopback(&request.url)?;
+            request.direct_loopback = true;
         }
         Ok(request)
     }
@@ -132,8 +158,18 @@ impl DefaultHttpTransport {
         Self {
             inner: Arc::new(MockHttpTransport { responder }),
             deadline: None,
+            policy: crate::config::HttpTransportPolicy::Ordinary,
         }
     }
+}
+
+fn require_direct_loopback(url: &Url) -> Result<()> {
+    if !crate::config::HttpTransportPolicy::DirectLoopback.permits_url(url) {
+        return Err(eyre!(
+            "direct cleartext HTTP is restricted to exact localhost, 127/8, or ::1 without URL credentials or fragments"
+        ));
+    }
+    Ok(())
 }
 
 pub fn request_deadline_elapsed() -> Error {
@@ -264,17 +300,7 @@ impl DefaultRequestBuilder {
     /// Require a direct, proxy-free cleartext connection to an exact loopback host.
     pub(crate) fn direct_loopback(self) -> Self {
         self.and_then(|mut pending| {
-            let loopback = match pending.url.host() {
-                Some(url::Host::Domain(domain)) => domain == "localhost",
-                Some(url::Host::Ipv4(address)) => address.is_loopback(),
-                Some(url::Host::Ipv6(address)) => address.is_loopback(),
-                None => false,
-            };
-            if pending.url.scheme() != "http" || !loopback {
-                return Err(eyre!(
-                    "direct cleartext HTTP is restricted to exact localhost, 127/8, or ::1 loopback hosts"
-                ));
-            }
+            require_direct_loopback(&pending.url)?;
             pending.direct_loopback = true;
             Ok(pending)
         })

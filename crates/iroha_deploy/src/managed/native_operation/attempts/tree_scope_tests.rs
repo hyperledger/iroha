@@ -48,20 +48,23 @@ fn retained_row_tree_keeps_exact_record_counts_inventory_refusals_and_source_ret
     let history = fixture.history().unwrap();
     let (accepted, counts) = current(&history);
     accepted.unwrap();
-    assert_eq!(counts.reads, 18);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 13);
     assert_eq!(counts.requested, 0);
     assert_eq!(counts.computed, 0);
     assert_eq!(history.reserved_attempt_count(), 3);
     let first = &history.attempts[0];
-    let authorization = first
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
-    let observation = first
-        .directory
-        .read("observation.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let authorization = metadata::test_read_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
+    let observation =
+        metadata::test_read_component(&fixture.operation, Some(first.ordinal()), "observation.nrt")
+            .unwrap()
+            .unwrap();
     let before = first.directory.entries(7).unwrap();
     first
         .directory
@@ -73,38 +76,53 @@ fn retained_row_tree_keeps_exact_record_counts_inventory_refusals_and_source_ret
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 3);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 1);
     std::fs::remove_file(first.directory.path().join("foreign.nrt")).unwrap();
-    std::fs::remove_file(first.directory.path().join("authorization.nrt")).unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        None,
+    )
+    .unwrap();
     let (refused, counts) = current(&history);
     assert!(
         matches!(&refused, Err(Error::Invalid(message)) if message == "original dispatch authorization was lost or changed"),
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 4);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 1);
-    first
-        .directory
-        .write_atomic("authorization.nrt", &authorization, PublishMode::CreateNew)
-        .unwrap();
-    first
-        .directory
-        .write_atomic("observation.nrt", b"not canonical", PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "authorization.nrt",
+        Some(&authorization),
+    )
+    .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "observation.nrt",
+        Some(b"not canonical"),
+    )
+    .unwrap();
     let (refused, counts) = current(&history);
     assert!(
         matches!(&refused, Err(Error::Invalid(message)) if message == "invalid canonical dispatch custody record"),
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 5);
+    assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 2);
-    first
-        .directory
-        .write_atomic("observation.nrt", &observation, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(
+        &fixture.operation,
+        Some(first.ordinal()),
+        "observation.nrt",
+        Some(&observation),
+    )
+    .unwrap();
     let root = history.root.as_ref().unwrap();
     let extra = root.create_child("0042").unwrap();
     drop(extra);
@@ -114,12 +132,12 @@ fn retained_row_tree_keeps_exact_record_counts_inventory_refusals_and_source_ret
         "{:?}",
         refused.as_ref().err()
     );
-    assert_eq!(counts.reads, 3);
+    assert_eq!(counts.reads, 1);
     std::fs::remove_dir(root.path().join("0042")).unwrap();
     assert_eq!(first.directory.entries(7).unwrap(), before);
     let (retried, counts) = current(&history);
     retried.unwrap();
-    assert_eq!(counts.reads, 18);
+    assert_eq!(counts.reads, 2);
     assert_eq!(counts.decoded, 13);
     assert_eq!(history.reserved_attempt_count(), 3);
     assert!(
@@ -141,16 +159,24 @@ fn retained_row_tree_preserves_late_active_allocation_refusal_and_exact_original
     let _resources = crate::managed::native_test_guard();
     let fixture = Fixture::new();
     let attempt = fixture.reserve();
-    let original = attempt
-        .directory
-        .read("authorization.nrt", MAX_RECORD_BYTES)
-        .unwrap();
+    let original = metadata::test_read_component(
+        &fixture.operation,
+        Some(attempt.ordinal()),
+        "authorization.nrt",
+    )
+    .unwrap()
+    .unwrap();
     let history = fixture.history().unwrap();
     let root = history.root.as_ref().unwrap();
-    for allocation in [0, 1] {
+    let ample = 64 * 1024 * 1024;
+    // Install the owner after both native tree scopes have opened. Indexing the canonical
+    // image and decoding its lazy Authorization are distinct charged stages of this read.
+    let read = |allocation, decode_authorization| {
+        let allocated = std::cell::Cell::new(0);
+        let child_entered = std::cell::Cell::new(false);
         let counter = parse_digest_tests::Counter::begin();
-        let refused = root.read_tree_scope(|tree| {
-            tree.read_scope(&attempt.directory, |reader| {
+        let result = root.read_tree_scope(|tree| {
+            tree.read_scope(&attempt.directory, |_reader| {
                 let limits = norito::DecodeLimits::new(
                     MAX_RECORD_BYTES,
                     MAX_RECORD_BYTES,
@@ -158,46 +184,74 @@ fn retained_row_tree_preserves_late_active_allocation_refusal_and_exact_original
                     allocation,
                     32,
                 );
-                norito::core::with_decode_limits_scope(limits, || {
-                    read_record_in_scope::<Authorization>(reader, "authorization.nrt")
-                })
+                let (result, usage) = norito::core::with_decode_limits_measured(limits, || {
+                    let image = metadata::load(&fixture.operation)?;
+                    if decode_authorization {
+                        child_entered.set(true);
+                        image.read::<Authorization>(Some(attempt.ordinal()), 0)
+                    } else {
+                        Ok(None)
+                    }
+                });
+                allocated.set(usage.total_allocated_bytes());
+                result
             })
         });
-        let counts = counter.finish();
-        assert!(
-            matches!(&refused, Err(Error::Invalid(message)) if message == "invalid canonical dispatch custody record"),
-            "{:?}",
-            refused.as_ref().err()
-        );
-        assert_eq!(counts.reads, 1);
-        assert_eq!(counts.decoded, 0);
-    }
-    let counter = parse_digest_tests::Counter::begin();
-    let wide = norito::DecodeLimits::new(
-        MAX_RECORD_BYTES,
-        MAX_RECORD_BYTES,
-        MAX_RECORD_BYTES,
-        64 * 1024 * 1024,
-        32,
-    );
-    let restored = root
-        .read_tree_scope(|tree| {
-            tree.read_scope(&attempt.directory, |reader| {
-                norito::core::with_decode_limits_scope(wide, || {
-                    read_record_in_scope::<Authorization>(reader, "authorization.nrt")
-                })
-            })
-        })
-        .unwrap();
-    let counts = counter.finish();
-    assert!(restored.as_ref() == Some(&attempt.authorization));
+        (
+            result,
+            counter.finish(),
+            allocated.get(),
+            child_entered.get(),
+        )
+    };
+    let (indexed, counts, envelope, child_entered) = read(ample, false);
+    assert!(indexed.unwrap().is_none());
+    assert_eq!(counts.reads, 1);
+    assert_eq!(counts.decoded, 0);
+    assert!(!child_entered);
+    assert!(envelope > 1);
+
+    let (restored, counts, exact, child_entered) = read(ample, true);
+    assert!(restored.unwrap().as_ref() == Some(&attempt.authorization));
     assert_eq!(counts.reads, 1);
     assert_eq!(counts.decoded, 1);
+    assert!(child_entered);
+    assert!(exact > envelope);
+
+    for allocation in [0, 1, envelope - 1, envelope, exact - 1] {
+        let (refused, counts, allocated, child_entered) = read(allocation, true);
+        let expected = if allocation < envelope {
+            "invalid canonical operation metadata image"
+        } else {
+            "invalid canonical dispatch custody record"
+        };
+        assert!(
+            matches!(&refused, Err(Error::Invalid(message)) if message == expected),
+            "allocation {allocation}: {:?}",
+            refused.as_ref().err()
+        );
+        assert_eq!(child_entered, allocation >= envelope);
+        assert_eq!(counts.reads, 1);
+        assert_eq!(counts.decoded, 0);
+        assert!(allocated <= allocation);
+        if allocation == envelope {
+            assert_eq!(allocated, envelope);
+        }
+    }
+    let (restored, counts, allocated, child_entered) = read(exact, true);
+    assert!(restored.unwrap().as_ref() == Some(&attempt.authorization));
+    assert_eq!(counts.reads, 1);
+    assert_eq!(counts.decoded, 1);
+    assert_eq!(allocated, exact);
+    assert!(child_entered);
     assert_eq!(
-        attempt
-            .directory
-            .read("authorization.nrt", MAX_RECORD_BYTES)
-            .unwrap(),
+        metadata::test_read_component(
+            &fixture.operation,
+            Some(attempt.ordinal()),
+            "authorization.nrt"
+        )
+        .unwrap()
+        .unwrap(),
         original
     );
     history.require_current_local(None).unwrap();

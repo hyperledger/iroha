@@ -479,28 +479,25 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
     within.expect("the operation must complete successfully");
 }
 
-/// The default 16 MiB block policy admits and selects the full 10 MiB transaction cap.
-/// Admission and block validation both reject the next byte. The same cap-sized
-/// transaction is refused without queue custody under an explicitly smaller route,
-/// preserving the independent includability boundary.
+/// The current defaults carry the full inclusive 10 MiB transaction cap in the
+/// 16 MiB block payload. Admission, queue custody, proposal selection and follower
+/// validation preserve that boundary and refuse its first oversize byte.
 #[test]
 fn default_limits_admit_and_select_the_largest_includable_transaction() {
     let (_, time) = TimeSource::new_mock(Duration::default());
     let limits = TransactionParameters::default();
     let parameters = iroha_data_model::parameter::Parameters::default();
-    assert_eq!(
-        parameters.sumeragi.max_block_bytes().get(),
-        16 * 1024 * 1024
-    );
     let includable = parameters.max_includable_transaction_bytes(
         iroha_data_model::parameter::system::TransactionInclusionRoute::Global,
     );
     let cap = limits.max_tx_bytes().get();
     assert_eq!(cap, 10_485_760);
-    assert_eq!(
-        includable, cap,
-        "the default block carries the full transaction cap"
-    );
+    assert_eq!(parameters.sumeragi().max_block_bytes.get(), 16_777_216);
+    let reserve = iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
+    assert!(u64::from(reserve) + cap <= u64::from(parameters.sumeragi().max_block_bytes.get()));
+    // An independent numeric pin: this fixture must exercise the full signed 10 MiB
+    // carrier, not silently shrink along with a changed implementation predicate.
+    assert_eq!(includable, 10_485_760);
     // A signed transaction of exactly `target` framed bytes, measured by admission itself.
     let measure = |message_len: usize| {
         let signed = resource_contract_signed_log(&time, message_len);
@@ -537,6 +534,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
             transaction.creation_time(),
         )
     };
+    follower(&largest).expect("block validation accepts the cap itself");
     let largest = resource_contract_accept(largest, limits, &time).expect("includable");
     follower(&at_cap).expect("block validation accepts the cap itself");
     let at_cap = resource_contract_accept(at_cap, limits, &time).expect("the cap itself");
@@ -545,7 +543,7 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         Err(crate::tx::AcceptTransactionFail::TransactionLimit(_))
     ));
     assert!(matches!(
-        resource_contract_accept(over_cap, limits, &time),
+        resource_contract_accept(over_cap.clone(), limits, &time),
         Err(crate::tx::AcceptTransactionFail::TransactionLimit(_))
     ));
 
@@ -568,7 +566,20 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         includable
     );
     let queue = Arc::new(Queue::test(config_factory(), &time));
-    let reserve = iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES;
+    // Exercise the queue's independent committed-policy backstop with an envelope
+    // previously admitted under a looser cap. Current ingress already refuses it above.
+    let refused = resource_contract_accept(over_cap, resource_contract_limits(cap + 1), &time)
+        .expect("only the prior admission fixture has one extra byte of allowance");
+    assert_eq!(refused.encoded_len(), cap as usize + 1);
+    let failure = queue
+        .push(refused, state.view())
+        .expect_err("committed cap is authoritative");
+    assert!(
+        matches!(failure.err, Error::UnsupportedTransactionAdmission { .. }),
+        "{} bytes: {:?}",
+        cap + 1,
+        failure.err
+    );
     let smaller_block = reserve + u32::try_from(includable).unwrap() - 1;
     let mut smaller_state = resource_contract_state(smaller_block);
     register_accepted_tx_authority_for_queue_test(&mut smaller_state, &at_cap);
@@ -586,10 +597,20 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
     );
     assert_eq!(smaller_queue.active_len(), 0);
     assert_eq!(queue.active_len(), 0);
+    assert_eq!(queue.queued_len(), 0);
+    assert_eq!(
+        queue.retained_bytes(),
+        0,
+        "refusal retains no queue custody"
+    );
     queue
         .push(largest.clone(), state.view())
         .expect("the largest includable transaction is admitted");
-    // A cap-sized proposal budget selects the full accepted transaction.
+    // Full committed block budget has room for the complete cap. A residual
+    // selection window still distinguishes the exact signed size from one byte less.
+    let global_budget =
+        usize::try_from(parameters.sumeragi().max_block_bytes.get() - reserve).unwrap();
+    assert!(global_budget > cap as usize);
     let budget = usize::try_from(includable).unwrap();
     let selected = crate::sumeragi::payload::select(
         &state.view(),
@@ -605,6 +626,32 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         largest.hash_as_entrypoint()
     );
     assert_eq!(selected[0].encoded_len(), budget);
+    assert_eq!(selected[0].entrypoint_bytes().as_slice(), largest.entrypoint_bytes().as_slice());
+    assert!(
+        crate::sumeragi::payload::select(
+            &state.view(),
+            &queue,
+            budget - 1,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
+        )
+        .unwrap()
+        .is_empty(),
+        "one byte less residual budget cannot select the cap-sized transaction"
+    );
+    assert_eq!(
+        crate::sumeragi::payload::select(
+            &state.view(),
+            &queue,
+            global_budget,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
+        )
+        .unwrap()
+        .len(),
+        1,
+        "the full committed block budget carries the complete 10 MiB cap"
+    );
 }
 
 /// Admission state whose includable assessment is one fixed local refusal. Every later

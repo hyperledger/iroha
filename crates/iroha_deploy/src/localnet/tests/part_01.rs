@@ -1502,6 +1502,7 @@ fn generated_configs_parse_with_current_schema() {
         Some(GENESIS_EXPECTED_HASH_FILE)
     );
     assert!(!client.contains_key("network_id"));
+    assert_eq!(client["http_transport_policy"].as_str(), Some("ordinary"));
 }
 #[test]
 fn generated_configs_for_user_localnet_parse() {

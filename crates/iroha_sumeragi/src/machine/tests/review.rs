@@ -302,9 +302,12 @@ fn review_stale_view_proposal_outcome_is_ignored() {
             .any(|a| matches!(a, Action::PayloadRejected { .. })),
         "{out:?}"
     );
-    h.core
-        .exec
-        .insert(bh, super::super::ExecState::Valid(result_of(&b)));
+    h.core.exec.insert(
+        bh,
+        super::super::ExecState::Valid {
+            admission: crate::testing::no_sensitive_work_admission(result_of(&b)),
+        },
+    );
     h.core.maybe_execute();
     assert!(votes(&h.core.out).is_empty(), "no Prepare for view 1");
 }

@@ -244,7 +244,7 @@ fn with_native_state_sources<T>(
             header
                 .creation_time()
                 .checked_sub(Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let mut transaction = transaction.with_instructions(body);
         {

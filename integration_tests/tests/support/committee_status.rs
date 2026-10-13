@@ -310,6 +310,7 @@ mod status_observation_tests {
             key_pair: iroha_test_samples::ALICE_KEYPAIR.clone(),
             account: iroha_test_samples::ALICE_ID.clone(),
             account_chain_discriminant: iroha_torii_shared::MINAMOTO_CHAIN_DISCRIMINANT,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: "http://status-observation.invalid/".parse().unwrap(),
             torii_request_timeout: iroha::config::DEFAULT_TORII_REQUEST_TIMEOUT,
             basic_auth: None,

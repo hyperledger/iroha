@@ -1,3 +1,6 @@
+import { AccountAddress, AccountAddressError } from "./address.js";
+import { networkIdBytes } from "./networkId.js";
+import { normalizeAssetDefinitionId } from "./normalizers.js";
 import { normalizeIban } from "./identifiers.js";
 import { createValidationError, ValidationErrorCode } from "./validationError.js";
 
@@ -72,6 +75,7 @@ export function buildPacs008Message(options) {
     instructionId,
     endToEndId,
     transactionId,
+    uetr: requireUetr(opts.uetr),
   });
   const amount = encodeAmount(opts.amount, "amount");
   const settlementDate = opts.settlementDate
@@ -123,6 +127,7 @@ export function buildPacs008Message(options) {
     remittance && `      ${remittance}`,
     supplementary && `      ${supplementary}`,
     "    </CdtTrfTxInf>",
+    `    ${renderNexusSettlement(opts.nexusSettlement)}`,
     "  </FIToFICstmrCdtTrf>",
     "</Document>",
   ]
@@ -165,6 +170,7 @@ export function buildPacs009Message(options) {
     instructionId,
     endToEndId: undefined,
     transactionId,
+    uetr: requireUetr(opts.uetr),
   });
   const amount = encodeAmount(opts.amount, "amount");
   const settlementDate = opts.settlementDate
@@ -216,6 +222,7 @@ export function buildPacs009Message(options) {
     remittance && `      ${remittance}`,
     supplementary && `      ${supplementary}`,
     "    </CdtTrfTxInf>",
+    `    ${renderNexusSettlement(opts.nexusSettlement)}`,
     "  </FICdtTrf>",
     "</Document>",
   ]
@@ -229,12 +236,15 @@ function namespaceForMessageDefinitionId(messageDefinitionId) {
 
 /**
  * Build a schema-compliant pacs.008 demo payload for ISO bridge walkthroughs.
- * @param {{messageSuffix?: string, creationDateTime?: string | Date, settlementDate?: string | Date}} [options]
+ * @param {import("./index").SamplePacsMessageOptions} options
  * @returns {string}
  */
-export function buildSamplePacs008Message(options = {}) {
-  const sample = normalizeSampleOptions(options, "buildSamplePacs008Message");
+export function buildSamplePacs008Message(options) {
+  const { uetr, nexusSettlement, ...sampleOptions } = requireObject(options, "options");
+  const sample = normalizeSampleOptions(sampleOptions, "buildSamplePacs008Message");
   return buildPacs008Message({
+    uetr,
+    nexusSettlement,
     messageId: `sample-${sample.suffix}`,
     creationDateTime: sample.creationDateTime,
     instructionId: `sample-${sample.suffix}-instr`,
@@ -257,12 +267,15 @@ export function buildSamplePacs008Message(options = {}) {
 
 /**
  * Build a schema-compliant pacs.009 demo payload for ISO bridge walkthroughs.
- * @param {{messageSuffix?: string, creationDateTime?: string | Date, settlementDate?: string | Date}} [options]
+ * @param {import("./index").SamplePacsMessageOptions} options
  * @returns {string}
  */
-export function buildSamplePacs009Message(options = {}) {
-  const sample = normalizeSampleOptions(options, "buildSamplePacs009Message");
+export function buildSamplePacs009Message(options) {
+  const { uetr, nexusSettlement, ...sampleOptions } = requireObject(options, "options");
+  const sample = normalizeSampleOptions(sampleOptions, "buildSamplePacs009Message");
   return buildPacs009Message({
+    uetr,
+    nexusSettlement,
     messageId: `sample-${sample.suffix}-msg`,
     businessMessageId: `sample-${sample.suffix}-biz`,
     messageDefinitionId: "pacs.009.001.08",
@@ -275,11 +288,11 @@ export function buildSamplePacs009Message(options = {}) {
     instructedAgent: { bic: "DEUTDEFF" },
     debtorAgent: { bic: "BOFAUS3NXXX" },
     creditorAgent: { bic: "DEUTDEFF500" },
-    debtorAccount: { otherId: "USD-NOSTRO-DEBIT" },
+    debtorAccount: { iban: "DE89370400440532013000" },
     creditorAccount: { iban: "GB82WEST12345698765432" },
     purposeCode: "SECU",
     supplementaryData: {
-      note: "demo pacs.009 PvP funding",
+      note: "demo pacs.009 Global payment",
     },
   });
 }
@@ -690,7 +703,7 @@ function buildGroupHeader({ messageId, creationDateTime }) {
   ].join("");
 }
 
-function buildPaymentIds({ instructionId, endToEndId, transactionId }) {
+function buildPaymentIds({ instructionId, endToEndId, transactionId, uetr }) {
   const resolvedEndToEnd = endToEndId ?? instructionId;
   const resolvedTransaction = transactionId ?? instructionId;
   return [
@@ -698,10 +711,87 @@ function buildPaymentIds({ instructionId, endToEndId, transactionId }) {
     `  <InstrId>${escapeXml(instructionId)}</InstrId>`,
     resolvedEndToEnd ? `  <EndToEndId>${escapeXml(resolvedEndToEnd)}</EndToEndId>` : "",
     `  <TxId>${escapeXml(resolvedTransaction)}</TxId>`,
+    `  <UETR>${uetr}</UETR>`,
     "</PmtId>",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** The payer retains this reference; gateway envelope IDs never replace it. */
+function requireUetr(value) {
+  if (typeof value !== "string" || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/u.test(value)) {
+    fail(ValidationErrorCode.INVALID_STRING, "uetr must be an explicit 36-character UUID", "uetr");
+  }
+  return value.toLowerCase();
+}
+
+function requireSettlementExpiry(value) {
+  const label = "nexusSettlement.expiresAtHeight";
+  if ((typeof value === "number" && !Number.isSafeInteger(value)) ||
+      !["string", "number", "bigint"].includes(typeof value)) {
+    fail(ValidationErrorCode.INVALID_NUMERIC, `${label} must be an exact positive u64`, label);
+  }
+  const text = String(value);
+  if (!/^[1-9][0-9]{0,19}$/u.test(text) || BigInt(text) > 18_446_744_073_709_551_615n) {
+    fail(ValidationErrorCode.VALUE_OUT_OF_RANGE, `${label} must be an exact positive u64`, label);
+  }
+  return text;
+}
+
+function requireSettlementAccount(value, label) {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
+    fail(ValidationErrorCode.INVALID_ACCOUNT_ID, `${label} must be an exact canonical AccountId`, label);
+  }
+  try {
+    // Rust owns address parsing and checksums. Canonical AccountId display uses
+    // the default account prefix; a gateway cannot substitute a routing alias.
+    if (AccountAddress.parseEncoded(value).address.toString() !== value) {
+      fail(ValidationErrorCode.INVALID_ACCOUNT_ID, `${label} must be an exact canonical AccountId`, label);
+    }
+  } catch (cause) {
+    if (!(cause instanceof AccountAddressError)) throw cause;
+    fail(ValidationErrorCode.INVALID_ACCOUNT_ID, `${label} must be an exact canonical AccountId`, label, cause);
+  }
+  return value;
+}
+
+/** Native payment identity and terms have one owned extension, separate from metadata. */
+function renderNexusSettlement(value) {
+  const label = "nexusSettlement";
+  const terms = requireObject(value, label);
+  if (Array.isArray(terms)) {
+    fail(ValidationErrorCode.INVALID_OBJECT, `${label} must be an object`, label);
+  }
+  const fields = ["networkId", "expiresAtHeight", "sourceAccountId", "targetAccountId", "assetDefinitionId"];
+  for (const field of fields) {
+    if (!Object.hasOwn(terms, field) || terms[field] === undefined || terms[field] === null) {
+      fail(ValidationErrorCode.INVALID_OBJECT, `${label}.${field} is required`, `${label}.${field}`);
+    }
+  }
+  for (const field of Object.keys(terms)) {
+    if (!fields.includes(field)) {
+      fail(ValidationErrorCode.INVALID_OBJECT, `${label}.${field} is not supported`, `${label}.${field}`);
+    }
+  }
+  // Closed-world NetworkId validation prevents a duck-typed toString authority.
+  networkIdBytes(terms.networkId, `${label}.networkId`);
+  const expiry = requireSettlementExpiry(terms.expiresAtHeight);
+  const asset = normalizeAssetDefinitionId(terms.assetDefinitionId, `${label}.assetDefinitionId`);
+  if (asset !== terms.assetDefinitionId) {
+    fail(ValidationErrorCode.INVALID_ASSET_DEFINITION_ID, `${label}.assetDefinitionId must be exact`, `${label}.assetDefinitionId`);
+  }
+  const source = requireSettlementAccount(terms.sourceAccountId, `${label}.sourceAccountId`);
+  const target = requireSettlementAccount(terms.targetAccountId, `${label}.targetAccountId`);
+  return [
+    '<SplmtryData><Envlp><nx:NexusSettlement xmlns:nx="urn:iroha:iso20022:nexus:v1">',
+    `<nx:NetworkId>${escapeXml(terms.networkId.toString())}</nx:NetworkId>`,
+    `<nx:ExpiresAtHeight>${expiry}</nx:ExpiresAtHeight>`,
+    `<nx:SourceAccountId>${escapeXml(source)}</nx:SourceAccountId>`,
+    `<nx:TargetAccountId>${escapeXml(target)}</nx:TargetAccountId>`,
+    `<nx:AssetDefinitionId>${escapeXml(asset)}</nx:AssetDefinitionId>`,
+    "</nx:NexusSettlement></Envlp></SplmtryData>",
+  ].join("");
 }
 
 function encodeAmount(amount, label) {

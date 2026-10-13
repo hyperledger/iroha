@@ -151,7 +151,7 @@ impl VerificationRefusal {
     /// Move out the exact decoder owner, leaving other native causes intact on mismatch.
     ///
     /// # Errors
-    /// Returns this owner unchanged when the original cause is a native math or initialization failure.
+    /// Returns this refusal unchanged if it retains a native math or initialization cause.
     pub fn into_decode_refusal(self) -> Result<DecodeLocalRefusal, Self> {
         match self.original {
             OriginalRefusal::Decode(original) => Ok(original),
@@ -336,8 +336,8 @@ pub fn captured_codec_error<E>(
 /// Any protocol-specific nested limits must be entered by `operation`, after capture begins.
 ///
 /// # Errors
-/// Returns a deferred attempt retaining the original captured local refusal when decoding cannot
-/// complete. Other codec errors become completed rejections through `rejected`.
+/// Returns a mapped completed rejection for invalid input, or a deferred refusal retaining
+/// the original local cause when the codec operation could not complete.
 pub fn codec_attempt<T, E>(
     operation: impl FnOnce() -> Result<T, norito::Error>,
     rejected: impl FnOnce(norito::Error) -> E,

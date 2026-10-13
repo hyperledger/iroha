@@ -87,7 +87,8 @@ Run with:
 
 ```bash
 npm install
-node ./recipes/iso_bridge.mjs
+ISO_NETWORK_ID="$NETWORK_ID" ISO_OPERATOR_SIGNER_MODULE=/path/to/runtime-signer.mjs \
+ISO_MESSAGE_ID=existing-message node ./recipes/iso_bridge.mjs
 ```
 
 Environment variables:
@@ -96,10 +97,16 @@ Environment variables:
 - `ISO_MESSAGE_KIND` — switch between `pacs.008` (default) and `pacs.009`.
 - `ISO_POLL_ATTEMPTS` / `ISO_POLL_INTERVAL_MS` — control wait cadence.
 - `ISO_MESSAGE_ID` — skip submission and wait on an existing message.
-- `ISO_RESOLVE_ON_ACCEPTED=1` — treat `Accepted` without a transaction hash as terminal.
+- `ISO_RESOLVE_ON_ACCEPTED=1` — stop polling on reported `Accepted` without a carrier hash; this does not verify settlement.
+- `ISO_NETWORK_ID` — exact canonical selected-network hash literal.
+- `ISO_OPERATOR_SIGNER_MODULE` — runtime module whose default export has `publicKey` and `sign(message)`; the existing `OperatorSigningContext` binds each fresh request to `ISO_NETWORK_ID`. Keep signer keys outside the repository and config documents. API tokens do not replace operator signatures.
+- For a new payment, supply `ISO_UETR`, `ISO_EXPIRES_AT_HEIGHT`, `ISO_SOURCE_ACCOUNT_ID`, `ISO_TARGET_ACCOUNT_ID`, and `ISO_ASSET_DEFINITION_ID`. These are payer-approved, retained business terms; the recipe never invents them. Use the same UETR and exact terms across retries.
 
-If the bridge is protected by API tokens, export `X-API-Token` alongside
-`TORII_URL`.
+The sample payment helpers fill demo envelope, amount, and IBAN fields. Configure
+matching ledger identities and bridge bindings before using those samples. Use
+`iso_bridge_builder.mjs` for explicit production payment fields. Both recipes
+report node status; they do not return independently verified monetary receipts
+or authorize customer credit.
 
 ## iso_alias.mjs
 
@@ -139,10 +146,16 @@ Run with:
 
 ```bash
 npm install
-node ./recipes/iso_bridge_builder.mjs \
-  ISO_SUBMIT=1 TORII_URL=http://localhost:8080 ISO_KIND=pacs.009 \
-  ISO_AMOUNT=1250.50 ISO_CURRENCY=USD ISO_PURPOSE=SECU
+ISO_BUILDER_CONFIG=/path/to/retained-payment.json \
+  node ./recipes/iso_bridge_builder.mjs
 ```
+
+The JSON config uses `BuildPacs008Options` / `BuildPacs009Options`, with
+`nexusSettlement.networkId` as its exact canonical string. It must retain `uetr`,
+`expiresAtHeight`, `sourceAccountId`, `targetAccountId`, and `assetDefinitionId`;
+the latter four are nested inside `nexusSettlement`. Generic supplementary JSON
+remains metadata and cannot replace these terms. `ISO_DRY_RUN=1` only prints XML,
+including when `ISO_SUBMIT=1`; actual submission requires the runtime signer.
 
 Environment variables (in addition to the common `ISO_*` knobs above):
 

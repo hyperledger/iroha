@@ -284,11 +284,6 @@
   ],
   "loader_classified_definitions": [
     {
-      "path": "crates/iroha_core/src/tx.rs",
-      "name": "compat_signed_hash",
-      "classification": "retypes the single entrypoint hash as HashOf<SignedTransaction> for the accepted-transaction cache; it computes no second hash and decodes no second layout. The name is a leftover, not a compatibility path"
-    },
-    {
       "path": "crates/iroha_core/src/kura/bound_progress_and_retained_support.rs",
       "name": "prepend_old_layout",
       "classification": "reads the index image a bound-progress prepend intent recorded before it rewrote the same sidecar; `old` is the pre-mutation state of the current layout during crash recovery, not an earlier layout version"

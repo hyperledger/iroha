@@ -101,10 +101,9 @@ impl ZkAssetState {
     /// need only recheck its current authenticated tail.
     ///
     /// # Errors
-    ///
-    /// Returns an error for excessive checkpoint history, invalid frontier or
-    /// root metadata, inconsistent retained-root tails, or an invalid latest
-    /// checkpoint count or root.
+    /// Returns an error if the frontier, current root, retained root-history tail,
+    /// or latest checkpoint contradicts the commitment count or tree profile,
+    /// contains a non-canonical node, or exceeds a fixed bound.
     pub fn validate_tree_metadata(&self) -> Result<(), String> {
         if self.frontier_checkpoints.len()
             > crate::zk::confidential_v2::CONFIDENTIAL_TREE_CAPACITY_V2
@@ -172,10 +171,9 @@ impl ZkAssetState {
     /// [`Self::validate_tree_metadata`] and the persisted incremental frontier.
     ///
     /// # Errors
-    ///
-    /// Returns an error if metadata or commitment leaves are invalid, rebuilt
-    /// roots/frontier differ from persisted values, or checkpoint ordering,
-    /// counts, or roots do not match the commitment history.
+    /// Returns an error for invalid tree metadata or commitment leaves, a persisted
+    /// root or frontier that differs from its reconstruction, or inconsistent
+    /// retained roots, checkpoint ordering, counts, or checkpoint roots.
     pub fn validate_tree_integrity(&self) -> Result<(), String> {
         self.validate_tree_metadata()?;
         let projection =
@@ -244,9 +242,9 @@ impl ZkAssetState {
     /// Returns the new Merkle root.
     ///
     /// # Errors
-    ///
-    /// Propagates malformed metadata/leaf, capacity, arithmetic, and allocation
-    /// failures from [`Self::push_commitments`], or rejects a missing resulting root.
+    /// Returns an error if tree metadata or the commitment is invalid, tree capacity
+    /// is exhausted, required storage cannot be reserved, or the append produces
+    /// no root.
     pub fn push_commitment(&mut self, c: [u8; 32], cap: NonZeroUsize) -> Result<[u8; 32], String> {
         self.push_commitments(&[c], cap)?
             .into_iter()
@@ -260,9 +258,9 @@ impl ZkAssetState {
     /// values unchanged.
     ///
     /// # Errors
-    ///
-    /// Returns an error for count overflow, exceeded tree capacity, invalid
-    /// metadata or commitment leaves, or failed commitment/root-history reservations.
+    /// Returns an error if the count overflows or exceeds tree capacity, metadata
+    /// or a commitment is invalid, or commitment and root-history storage cannot
+    /// be reserved.
     pub fn push_commitments(
         &mut self,
         commitments: &[[u8; 32]],
@@ -313,8 +311,8 @@ impl ZkAssetState {
     /// Record a frontier checkpoint for reorg recovery, enforcing interval and depth bounds.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the current confidential tree metadata fails validation.
+    /// Returns an error if the retained tree metadata fails validation before the
+    /// checkpoint policy is applied.
     pub fn record_frontier_checkpoint(
         &mut self,
         height: u64,

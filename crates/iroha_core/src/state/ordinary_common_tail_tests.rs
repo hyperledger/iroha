@@ -138,7 +138,7 @@ fn run_ordinary_tail_independent_batches(
         header
             .creation_time()
             .checked_sub(Duration::from_millis(1))
-            .unwrap(),
+            .expect("fixture time has the original one-millisecond predecessor"),
     );
     let signed = transaction
         .with_instructions([ordinary_tail_batch(&fixture)])
@@ -170,7 +170,7 @@ fn run_ordinary_tail_independent_batches(
             header
                 .creation_time()
                 .checked_sub(Duration::from_millis(1))
-                .unwrap(),
+                .expect("fixture time has the original one-millisecond predecessor"),
         );
         let extra = extra
             .with_instructions([

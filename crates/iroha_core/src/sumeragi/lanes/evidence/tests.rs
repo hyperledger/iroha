@@ -9,7 +9,7 @@ use iroha_data_model::{
     block::BlockHeader as GlobalHeader,
     isi::Log,
     sumeragi_lanes::SumeragiLaneMember,
-    transaction::{FeePaymentIntent, SignedTransaction, TransactionBuilder, TransactionEntrypoint},
+    transaction::{FeePaymentIntent, TransactionBuilder, TransactionEntrypoint},
 };
 use iroha_model_base::{
     peer::PeerId,
@@ -60,13 +60,28 @@ impl AnchorSource for Anchors {
 }
 struct NoTransactions;
 impl LaneTransactions for NoTransactions {
+    type Lease = ();
+
     fn candidates(
         &self,
         _height: u64,
         _max_bytes: usize,
         _skip: &BTreeSet<HashOf<TransactionEntrypoint>>,
-    ) -> Result<Vec<SignedTransaction>, crate::sumeragi::lanes::executor::LaneSelectionError> {
-        Ok(Vec::new())
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<
+        (Vec<TransactionEntrypoint>, Self::Lease),
+        crate::sumeragi::lanes::executor::LaneSelectionError,
+    > {
+        Ok((Vec::new(), ()))
+    }
+
+    fn retain_prefix(&self, _: &mut Self::Lease, _: usize) {}
+    fn lease_is_current(
+        &self,
+        _: &Self::Lease,
+        _: &iroha_allocation::AllocationBudget,
+    ) -> Result<bool, crate::sumeragi::driver::traits::PublicationError> {
+        Ok(true)
     }
 }
 struct EmptyStore;
@@ -162,7 +177,7 @@ impl Fixture {
         let batch = LaneBatch {
             anchor_height: 3,
             anchor_hash: anchors.hash,
-            transactions: vec![tx.sign(user.private_key())],
+            transactions: vec![TransactionEntrypoint::External(tx.sign(user.private_key()))],
         };
         let config = lane_height_config(&record).unwrap();
         let crypto = Arc::new(BlsCrypto::new());
@@ -221,7 +236,7 @@ impl Fixture {
         )
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty original lane recovery: {error}"));
-        let Ok(Some(ExecOutcome::Valid(result))) =
+        let Ok(Some(ExecOutcome::Valid { result, .. })) =
             executor.execute(&block, &block.hash(&*crypto), false)
         else {
             panic!("original lane execution must be valid");

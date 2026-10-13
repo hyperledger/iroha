@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Users/mtakemiya/dev/iroha/.venv/bin/python",
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_adapter_bound.py",
+    "--root",
+    "/Users/mtakemiya/dev/iroha",
+    "--output",
+    "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_bound/current-source-refusal"
+  ],
+  "exit": 1,
+  "expected_source_drift_refusal": true,
+  "log": "/Users/mtakemiya/dev/iroha/docs/validation/parliament_ballot_adapter_bound/current-source-refusal-command.txt",
+  "log_sha256": "12b9501955b5404f6803391b53d1d85794772f5fe94ed2c3fd67c846d1899c98",
+  "pins_refreshed": false
+}

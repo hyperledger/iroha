@@ -350,13 +350,6 @@ impl FakeSigner {
 }
 
 impl Signer for FakeSigner {
-    fn sign_prepare(
-        &self,
-        context: &crate::crypto::PrepareSigningContext<'_>,
-    ) -> Result<Signature, crate::crypto::SigningError> {
-        self.sign(context.preimage())
-    }
-
     fn public_key(&self) -> &PublicKey {
         &self.key
     }
@@ -621,6 +614,59 @@ pub fn author_body(
         .complete(instance, config, budget, crypto, signer)
         .unwrap_or_else(|(_, error)| panic!("fixture authoring failed: {error:?}"))
         .body
+}
+
+/// Explicit admission of the deterministic fixture application, which has no native effects.
+/// This helper is compiled only for tests or the simulator; native executors supply their
+/// own source-bound owner and never call it.
+pub fn no_sensitive_work_admission(result: Hash32) -> crate::prepare_admission::ExecutionAdmission {
+    #[derive(Debug)]
+    struct FixtureApplication(Hash32);
+    impl crate::prepare_admission::PrepareAdmission for FixtureApplication {
+        fn result(&self) -> Hash32 {
+            self.0
+        }
+        fn check(
+            &self,
+            _: &crate::prepare_admission::PrepareSigningRequest,
+        ) -> Result<(), crate::crypto::SigningError> {
+            Ok(())
+        }
+    }
+    let owner = iroha_allocation::shared::Shared::new(FixtureApplication(result), ());
+    crate::prepare_admission::ExecutionAdmission::from_owner(
+        owner.project::<dyn crate::prepare_admission::PrepareAdmission>(|value| value),
+    )
+}
+
+/// Successful deterministic fixture execution with its explicit application admission.
+pub fn valid_execution(result: crate::types::Hash32) -> crate::api::ExecOutcome {
+    crate::api::ExecOutcome::Valid {
+        result,
+        admission: no_sensitive_work_admission(result),
+    }
+}
+
+/// Construct an exact signing request for native adapter and simulator controls only.
+/// Production callers obtain this value solely from the consensus core.
+pub fn prepare_signing_request(
+    instance: Hash32,
+    epoch: crate::types::EpochId,
+    height: u64,
+    view: u64,
+    block_hash: Hash32,
+    result: Hash32,
+    certified: bool,
+) -> crate::prepare_admission::PrepareSigningRequest {
+    crate::prepare_admission::PrepareSigningRequest {
+        instance,
+        epoch,
+        height,
+        view,
+        block_hash,
+        result,
+        certified,
+    }
 }
 
 #[cfg(test)]

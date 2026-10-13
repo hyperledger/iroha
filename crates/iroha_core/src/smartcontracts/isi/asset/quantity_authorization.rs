@@ -610,6 +610,7 @@ mod tests {
     #[test]
     fn streamed_movement_hash_matches_original_owned_oracle_across_purposes_and_limits() {
         use NumericAssetTransferSourcePolicy as P;
+
         let (source, destination, amount) = inputs();
         let bindings = vec![(source.clone(), destination, amount)];
         let [orchard, private_ivm] = reserve_owners();

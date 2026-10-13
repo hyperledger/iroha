@@ -2178,7 +2178,7 @@ impl NativeTransactionIngressV1 {
         prepared: AcceptedTransaction<'static>,
         transaction: &SignedTransaction,
     ) -> ProviderIngestIngressDispositionV1 {
-        if prepared.hash() != transaction.hash() {
+        if prepared.hash_as_entrypoint() != transaction.hash_as_entrypoint() {
             return ProviderIngestIngressDispositionV1::Rejected;
         }
         match self

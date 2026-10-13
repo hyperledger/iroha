@@ -103,6 +103,13 @@ fn executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state() {
             let mut parameters = world.parameters.block();
             parameters
                 .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
+                    iroha_data_model::parameter::SumeragiParameter::DueWorkMaxLagMs(
+                        std::num::NonZeroU64::new(124_000).unwrap(),
+                    ),
+                ))
+                .unwrap();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
                     iroha_data_model::parameter::SumeragiParameter::MaxClockDriftMs(value),
                 ))
                 .expect("raw State bypasses instruction admission for this control");
@@ -121,6 +128,38 @@ fn executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state() {
                 )) if message == expected.to_string()
             ));
         }
+    }
+}
+
+#[test]
+fn executed_genesis_due_work_policy_cannot_be_bypassed_by_raw_state() {
+    let signed = crate::sumeragi::epoch::tests::genesis_fixture(
+        SumeragiConsensusMode::Permissioned,
+        10,
+        false,
+    );
+    let context = crate::sumeragi::epoch::authenticated_genesis(&signed)
+        .map(|genesis| genesis.into_parts().0)
+        .unwrap();
+    let world = registered_world(&context);
+    for (cadence, lag, accepted) in [
+        (1_000, 6_000, true),
+        (1_000, 5_999, false),
+        (u64::MAX / 7_201 + 1, u64::MAX, false),
+    ] {
+        {
+            let mut parameters = world.parameters.block();
+            let mut current = parameters.sumeragi().clone();
+            current.block_cadence_ms = std::num::NonZeroU64::new(cadence).unwrap();
+            current.due_work_max_lag_ms = std::num::NonZeroU64::new(lag).unwrap();
+            parameters.set_sumeragi(current);
+            parameters.commit();
+        }
+        assert_eq!(
+            validate_executed_genesis(&world.view(), &context).is_ok(),
+            accepted,
+            "cadence={cadence}, lag={lag}"
+        );
     }
 }
 

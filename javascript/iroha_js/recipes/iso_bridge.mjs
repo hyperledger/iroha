@@ -2,18 +2,20 @@
 /**
  * ISO 20022 pacs.008 / pacs.009 submission walkthrough.
  *
- * Demonstrates how to post an ISO 20022 payment (pacs.008) or PvP funding
- * (pacs.009) payload to Torii's ISO bridge and poll the resulting status until
- * the message is accepted, rejected, or a timeout elapses.
+ * Demonstrates how to post an ISO 20022 customer or bank payment
+ * (pacs.008 / pacs.009) payload to Torii's ISO bridge and poll the resulting status until
+ * the node reports a terminal status or a timeout elapses. Status polling does
+ * not independently verify monetary settlement.
  *
  * Usage:
  *   TORII_URL=http://localhost:8080 node ./recipes/iso_bridge.mjs
  */
 import {
-  ToriiClient,
   buildSamplePacs008Message,
   buildSamplePacs009Message,
-} from "../src/index.js";
+} from "../dist/index.js";
+import { NetworkId } from "../dist/index.js";
+import { nativeIntentFromEnvironment, parseConfiguredNativeIntent, createIsoOperatorClient } from "./iso_bridge_context.mjs";
 
 const TORII_URL = process.env.TORII_URL ?? "http://localhost:8080";
 const MAX_POLL_ATTEMPTS = Number(process.env.ISO_POLL_ATTEMPTS ?? 12);
@@ -35,11 +37,9 @@ if (CONTENT_TYPE !== undefined && CONTENT_TYPE.length === 0) {
   process.exit(1);
 }
 
-const SAMPLE_PACS008_XML = buildSamplePacs008Message({ messageSuffix: MESSAGE_SUFFIX });
-const SAMPLE_PACS009_XML = buildSamplePacs009Message({ messageSuffix: MESSAGE_SUFFIX });
-
 async function main() {
-  const client = new ToriiClient(TORII_URL);
+  const networkId = NetworkId.parse(process.env.ISO_NETWORK_ID);
+  const client = await createIsoOperatorClient(TORII_URL, networkId);
   const waitOptions = {
     maxAttempts: MAX_POLL_ATTEMPTS,
     pollIntervalMs: POLL_INTERVAL_MS,
@@ -59,7 +59,13 @@ async function main() {
     console.log(`Waiting for ISO message ${EXISTING_MESSAGE_ID}...`);
     finalStatus = await client.waitForIsoMessageStatus(EXISTING_MESSAGE_ID, waitOptions);
   } else {
-    const payload = MESSAGE_KIND === "pacs.009" ? SAMPLE_PACS009_XML : SAMPLE_PACS008_XML;
+    const options = parseConfiguredNativeIntent({
+      ...nativeIntentFromEnvironment(),
+      messageSuffix: MESSAGE_SUFFIX,
+    });
+    const payload = MESSAGE_KIND === "pacs.009"
+      ? buildSamplePacs009Message(options)
+      : buildSamplePacs008Message(options);
     console.log(`Submitting ${MESSAGE_KIND} to ${TORII_URL}`);
     const submissionOptions = CONTENT_TYPE
       ? { contentType: CONTENT_TYPE, wait: waitOptions }
@@ -72,7 +78,7 @@ async function main() {
 
   const hash = finalStatus.transaction_hash ?? "<pending>";
   console.log(
-    `Final status for ${finalStatus.message_id}: ${finalStatus.status ?? "unknown"} tx=${hash}`,
+    `Node-reported status for ${finalStatus.message_id}: ${finalStatus.status ?? "unknown"} tx=${hash}`,
   );
 }
 

@@ -158,7 +158,9 @@ impl NativeCheckRoundV1 {
     }
     #[cfg(test)]
     pub(crate) fn expire_for_test(&mut self) {
-        self.started = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
+        self.started = Instant::now()
+            .checked_sub(Duration::from_secs(61))
+            .expect("fixture clock supports the original expired deadline");
     }
 }
 

@@ -1077,7 +1077,7 @@ fn cold_prepare_keeps_original_recovery_refusal_after_execution_latches_recovery
                     .sign(key.private_key())
             });
         let hash = body.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Ok(Some(iroha_sumeragi::api::ExecOutcome::Valid(result))) =
+        let Ok(Some(iroha_sumeragi::api::ExecOutcome::Valid { result, .. })) =
             worker.execute(&body, hash, false)
         else {
             panic!("the genuine original execution must produce the certified result")

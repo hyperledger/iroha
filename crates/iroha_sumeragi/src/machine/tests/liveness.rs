@@ -506,7 +506,7 @@ fn det_l17_hidden_pqc_reexecutes() {
             let outcome = if variant == 'a' {
                 ExecOutcome::Cancelled
             } else {
-                ExecOutcome::Valid(result_of(&b))
+                crate::testing::valid_execution(result_of(&b))
             };
             h.fire(Event::Executed {
                 block_hash: bh,
@@ -621,7 +621,7 @@ fn det_s51_execute_certified_flag() {
     let stale = h.fire(Event::Executed {
         block_hash: bh,
         req: r1b,
-        outcome: ExecOutcome::Valid(result_of(&b)),
+        outcome: crate::testing::valid_execution(result_of(&b)),
     });
     assert!(votes(&stale).is_empty() && faults(&stale).is_empty());
     assert!(votes_of(&h.all, VoteKind::Prepare).is_empty());
@@ -640,7 +640,7 @@ fn det_s51_execute_certified_flag() {
         1,
         "only the certified retry is answered"
     );
-    let out = h.exec(bh, ExecOutcome::Valid(result_of(&b)));
+    let out = h.exec(bh, crate::testing::valid_execution(result_of(&b)));
     let prepared = votes_of(&out, VoteKind::Prepare);
     assert_eq!(prepared.len(), 1);
     assert_eq!((prepared[0].view, prepared[0].result), (2, pqc.result));
@@ -681,7 +681,7 @@ fn det_s51_execute_certified_flag() {
     }));
     assert_eq!(h.my_sigs(KIND_COMMIT, 1, 0).len(), 1);
     assert_eq!(h.pending_exec.len(), 1);
-    let out = h.exec(ch, ExecOutcome::Valid(result_of(&c)));
+    let out = h.exec(ch, crate::testing::valid_execution(result_of(&c)));
     assert!(
         faults(&out).is_empty(),
         "the certified execution agrees with the lock: {out:?}"
@@ -818,7 +818,7 @@ fn det_l23_commit_before_own_execution() {
     let out = h.fire(Event::Executed {
         block_hash: bh1,
         req: r1,
-        outcome: ExecOutcome::Valid(result_of(&b1)),
+        outcome: crate::testing::valid_execution(result_of(&b1)),
     });
     assert_eq!(executes(&out).len(), 1, "B2 is executed at once");
     assert!(h.core.tip.exec_ok);
@@ -834,7 +834,7 @@ fn det_l23_commit_before_own_execution() {
     let out = h.fire(Event::Executed {
         block_hash: bh1,
         req: r1,
-        outcome: ExecOutcome::Valid(Hash32([0x42; 32])),
+        outcome: crate::testing::valid_execution(Hash32([0x42; 32])),
     });
     assert!(matches!(
         faults(&out)[..],

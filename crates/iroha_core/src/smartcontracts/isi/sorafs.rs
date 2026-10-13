@@ -1761,6 +1761,7 @@ fn verify_council_envelope(
         "profile_aliases",
         "signatures",
     ];
+
     let manifest_label = manifest_hex(&record.digest);
     validate_council_approval_policy(approval_policy, executing_block_height, &manifest_label)?;
     if envelope.is_empty() || envelope.len() > MAX_COUNCIL_ENVELOPE_BYTES {
@@ -1909,6 +1910,7 @@ fn verify_council_envelope(
     for entry in signatures {
         const ALLOWED_SIGNATURE_FIELDS: &[&str] =
             &["algorithm", "signature", "signer", "signer_multihash"];
+
         let entry = entry.as_object().ok_or_else(|| {
             invalid_parameter(format!(
                 "council envelope signature entries for manifest {manifest_label} must be objects"

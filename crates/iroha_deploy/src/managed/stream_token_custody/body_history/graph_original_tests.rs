@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::Error;
+use crate::managed::native_operation::attempts::metadata;
 use std::{cell::Cell, rc::Rc};
 
 thread_local! {
@@ -268,17 +269,20 @@ fn graph_original_source_exit_wins_mutation_errors_and_parser_callbacks_keep_fre
     }
     // Mutable metadata remains outside Original coverage. Both directions still decode it.
     let first = Arc::clone(&history.bodies[0].directory);
-    let closed = first
-        .read("closed.nrt", attempts::MAX_RECORD_BYTES)
+    let closed = metadata::test_read_component(&first, None, "closed.nrt")
+        .unwrap()
         .unwrap();
     let changed_directory = Arc::clone(&first);
     let (result, census) = native.test_require_current_after_forward(6, move || {
-        changed_directory.write_atomic("closed.nrt", b"changed closure", PublishMode::Replace)?;
+        metadata::test_replace_component(
+            &changed_directory,
+            None,
+            "closed.nrt",
+            Some(b"changed closure"),
+        )?;
         Ok(())
     });
-    first
-        .write_atomic("closed.nrt", &closed, PublishMode::Replace)
-        .unwrap();
+    metadata::test_replace_component(&first, None, "closed.nrt", Some(&closed)).unwrap();
     assert!(result.is_err());
     assert!(census.visits > 3);
     native.test_require_current(6).0.unwrap();

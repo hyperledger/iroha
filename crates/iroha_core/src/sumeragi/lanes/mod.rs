@@ -36,7 +36,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     NetworkId,
     sumeragi_lanes::{SumeragiLanePolicy, SumeragiLaneRecord},
-    transaction::{SignedTransaction, TransactionEntrypoint},
+    transaction::TransactionEntrypoint,
 };
 use iroha_model_base::topology::LaneId;
 use iroha_sumeragi::{
@@ -175,10 +175,10 @@ pub fn lane_genesis_result(record: &SumeragiLaneRecord) -> Hash32 {
 /// A pinned member whose key is not BLS-normal, an empty or oversized committee, or chain
 /// parameters that fail §9.4 validation.
 pub fn lane_height_config(record: &SumeragiLaneRecord) -> Result<HeightConfig, LaneError> {
-    iroha_data_model::parameter::system::validate_max_clock_drift_ms(
-        record.params.max_clock_drift_ms,
-    )
-    .map_err(|error| LaneError::Schedule(ScheduleError::Epoch(error.to_string())))?;
+    record
+        .params
+        .validate_clock_policy()
+        .map_err(|error| LaneError::Schedule(ScheduleError::Epoch(error.to_string())))?;
     record
         .da_layout
         .validate()
@@ -223,7 +223,7 @@ pub struct LaneBatch {
     /// Global block hash of the anchor.
     pub anchor_hash: HashOf<iroha_data_model::block::BlockHeader>,
     /// The transactions, in lane order.
-    pub transactions: Vec<SignedTransaction>,
+    pub transactions: Vec<TransactionEntrypoint>,
 }
 
 impl LaneBatch {
@@ -233,11 +233,8 @@ impl LaneBatch {
         let input_floor = self
             .transactions
             .iter()
-            .map(|transaction| {
-                u64::try_from(transaction.creation_time().as_millis())
-                    .unwrap_or(u64::MAX)
-                    .saturating_add(1)
-            })
+            .filter_map(TransactionEntrypoint::creation_time_ms)
+            .map(|created| created.saturating_add(1))
             .max()
             .unwrap_or_default();
         std::time::Duration::from_millis(anchor_time_ms.max(input_floor))
@@ -380,9 +377,9 @@ pub enum AdmissionAttemptError {
     /// The original authenticated payload must be retried locally.
     #[error("lane decode attempt deferred: {0:?}")]
     Deferred(norito::core::DecodeLocalRefusal),
-    /// The original global-anchor history read must be retried with its allocation owner.
-    #[error("lane anchor read deferred: {0}")]
-    AnchorDeferred(crate::execution_attempt::ExecutionDeferred),
+    /// Original anchor history or execution admission must retry with its allocation owner.
+    #[error("lane resource admission deferred: {0}")]
+    ResourceDeferred(crate::execution_attempt::ExecutionDeferred),
 }
 
 /// Why a lane block is not admissible (`Invalid`).
@@ -444,7 +441,7 @@ pub trait TransactionCheck {
     ///
     /// # Errors
     /// The transaction fails an intrinsic check.
-    fn check(&self, tx: &SignedTransaction, anchor_time_ms: u64) -> Result<(), String>;
+    fn check(&self, tx: &TransactionEntrypoint, anchor_time_ms: u64) -> Result<(), String>;
 }
 
 /// Lane admission (§3.2): the result of a lane block with `payload`, or why it is invalid.
@@ -521,7 +518,7 @@ fn admit_decoded(
                     }
                     .into()
                 } else {
-                    AdmissionAttemptError::AnchorDeferred(reason)
+                    AdmissionAttemptError::ResourceDeferred(reason)
                 }
             }
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
@@ -541,7 +538,7 @@ fn admit_decoded(
         checks
             .check(tx, anchor_time_ms)
             .map_err(|reason| AdmissionError::Transaction { index, reason })?;
-        let hash = tx.hash_as_entrypoint();
+        let hash = tx.hash();
         if chain.repeats(&hash, batch.anchor_height, record.anchor_freshness) || !seen.insert(hash)
         {
             return Err(AdmissionError::Duplicate(index).into());
@@ -571,7 +568,7 @@ mod tests {
         isi::{InstructionBox, Log},
         parameter::system::SumeragiParameters,
         sumeragi_lanes::{SumeragiLaneFrontier, SumeragiLaneMember},
-        transaction::TransactionBuilder,
+        transaction::{SignedTransaction, TransactionBuilder},
     };
     use iroha_model_base::{
         peer::PeerId,
@@ -601,7 +598,7 @@ mod tests {
 
     struct AcceptAll;
     impl TransactionCheck for AcceptAll {
-        fn check(&self, _tx: &SignedTransaction, _anchor_time_ms: u64) -> Result<(), String> {
+        fn check(&self, _tx: &TransactionEntrypoint, _anchor_time_ms: u64) -> Result<(), String> {
             Ok(())
         }
     }
@@ -640,10 +637,19 @@ mod tests {
     fn lane_height_config_clock_drift_bound_rejects_unbounded_original_records() {
         use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
         let mut record = record(None);
+        record.params.due_work_max_lag_ms = std::num::NonZeroU64::new(124_000).unwrap();
         for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
             record.params.max_clock_drift_ms = value;
             assert!(lane_height_config(&record).is_ok());
         }
+        record.params.max_clock_drift_ms = 1_000;
+        record.params.due_work_max_lag_ms = std::num::NonZeroU64::new(5_999).unwrap();
+        assert!(
+            lane_height_config(&record)
+                .unwrap_err()
+                .to_string()
+                .contains("due_work_max_lag_ms")
+        );
         for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
             record.params.max_clock_drift_ms = value;
             assert!(
@@ -691,7 +697,10 @@ mod tests {
         LaneBatch {
             anchor_height: anchor,
             anchor_hash: block_hash(u8::try_from(anchor).expect("small")),
-            transactions: txs,
+            transactions: txs
+                .into_iter()
+                .map(TransactionEntrypoint::External)
+                .collect(),
         }
         .to_payload()
     }
@@ -747,7 +756,10 @@ mod tests {
         let signed = tx(0x61);
         let bytes = payload(8, vec![signed.clone()]);
         let control = LaneBatch::from_payload(&bytes).expect("original canonical signed batch");
-        assert_eq!(control.transactions, vec![signed]);
+        assert_eq!(
+            control.transactions,
+            vec![TransactionEntrypoint::External(signed)]
+        );
         for limits in [
             norito::DecodeLimits::new(96, 1 << 25, usize::MAX, 0, 32),
             norito::DecodeLimits::new(96, 1 << 25, 0, usize::MAX, 32),
@@ -886,7 +898,7 @@ mod tests {
         let wrong = LaneBatch {
             anchor_height: 8,
             anchor_hash: block_hash(99),
-            transactions: vec![tx(1)],
+            transactions: vec![TransactionEntrypoint::External(tx(1))],
         }
         .to_payload();
         assert!(matches!(

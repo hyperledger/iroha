@@ -66,12 +66,15 @@ fn execution_pool_refusal_retains_same_job_without_event_then_retries_on_origina
         assert_eq!(scheduler.outstanding(), 1);
         assert!(scheduler.take_events().is_empty());
         let result = Hash32([8; 32]);
-        scheduler.done(0, ExecDone::Executed(Ok(Some(ExecOutcome::Valid(result)))));
+        scheduler.done(
+            0,
+            ExecDone::Executed(Ok(Some(iroha_sumeragi::testing::valid_execution(result)))),
+        );
         assert_eq!(scheduler.outstanding(), 0);
         assert!(scheduler.execution_retry.error.is_none());
         let events = scheduler.take_events();
         assert!(
-            matches!(events.as_slice(), [Event::Executed { req: 9, block_hash, outcome: ExecOutcome::Valid(actual) }] if *block_hash == hash && *actual == result)
+            matches!(events.as_slice(), [Event::Executed { req: 9, block_hash, outcome: ExecOutcome::Valid { result: actual, .. } }] if *block_hash == hash && *actual == result)
         );
     }
 }
@@ -122,7 +125,9 @@ fn execution_scoped_decoder_refusal_has_no_pool_wait_and_cancels_without_verdict
     scheduler.discard(1, Vec::new());
     scheduler.done(
         at,
-        ExecDone::Executed(Ok(Some(ExecOutcome::Valid(Hash32([6; 32]))))),
+        ExecDone::Executed(Ok(Some(iroha_sumeragi::testing::valid_execution(Hash32(
+            [6; 32],
+        ))))),
     );
     assert_eq!(scheduler.outstanding(), 0);
     assert!(scheduler.execution_retry.error.is_none());
@@ -267,13 +272,15 @@ fn native_budget_and_cancelled_execution_keep_original_cause_without_a_pool_wait
         assert!(scheduler.take_events().is_empty());
         scheduler.done(
             wakeup,
-            ExecDone::Executed(Ok(Some(ExecOutcome::Valid(Hash32([10; 32]))))),
+            ExecDone::Executed(Ok(Some(iroha_sumeragi::testing::valid_execution(Hash32(
+                [10; 32],
+            ))))),
         );
         assert!(matches!(
             scheduler.take_events().as_slice(),
             [Event::Executed {
                 req: 17,
-                outcome: ExecOutcome::Valid(_),
+                outcome: ExecOutcome::Valid { .. },
                 ..
             }]
         ));
@@ -380,7 +387,9 @@ fn trusted_initializer_recovery_retains_original_and_halts_without_publication_o
             Event::BlockApplied { .. }
                 | Event::PayloadBuilt { .. }
                 | Event::Executed {
-                    outcome: ExecOutcome::Valid(_) | ExecOutcome::Invalid | ExecOutcome::Failed(_),
+                    outcome: ExecOutcome::Valid { .. }
+                        | ExecOutcome::Invalid
+                        | ExecOutcome::Failed(_),
                     ..
                 }
         )));
@@ -429,7 +438,7 @@ fn assert_original_recovery_halt(scheduler: &mut ExecSched, height: u64) {
             | Event::ControlWitnessBuilt { .. }
             | Event::ApplicationControlBuilt { .. }
             | Event::Executed {
-                outcome: ExecOutcome::Valid(_) | ExecOutcome::Invalid | ExecOutcome::Failed(_),
+                outcome: ExecOutcome::Valid { .. } | ExecOutcome::Invalid | ExecOutcome::Failed(_),
                 ..
             }
     )));

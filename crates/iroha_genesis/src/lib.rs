@@ -1558,8 +1558,9 @@ impl RawGenesisTransaction {
             .find_map(|transaction| transaction.parameters.as_ref())
             .cloned()
             .unwrap_or_default();
-        iroha_data_model::parameter::system::validate_max_clock_drift_ms(
-            parameters.sumeragi().max_clock_drift_ms(),
+        parameters.sumeragi().validate_clock_policy()?;
+        iroha_data_model::sumeragi_amx::amx_max_time_window_ms(
+            parameters.sumeragi().block_cadence_ms().get(),
         )?;
         iroha_data_model::parameter::system::resource_coherence::validate_transaction_block_limits(
             parameters.transaction().max_tx_bytes(),
@@ -3200,6 +3201,11 @@ mod tests {
                 .parameters
                 .get_or_insert_default()
                 .sumeragi
+                .due_work_max_lag_ms = std::num::NonZeroU64::new(124_000).unwrap();
+            manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .sumeragi
                 .max_clock_drift_ms = value;
             let result = manifest.effective_parameters();
             if value <= MAX_CLOCK_DRIFT_BOUND_MS {
@@ -3208,12 +3214,40 @@ mod tests {
                 let error = result.unwrap_err();
                 assert_eq!(
                     error
-                        .downcast_ref::<iroha_data_model::parameter::system::ClockDriftAboveBound>(
+                        .downcast_ref::<iroha_data_model::parameter::system::DueWorkClockPolicyError>(
                         ),
-                    Some(&iroha_data_model::parameter::system::ClockDriftAboveBound {
+                    Some(&iroha_data_model::parameter::system::DueWorkClockPolicyError::Drift(iroha_data_model::parameter::system::ClockDriftAboveBound {
                         actual_ms: value
-                    })
+                    }))
                 );
+                assert!(manifest.with_consensus_meta().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn effective_genesis_due_work_policy_checks_combined_margin_and_amx_window() {
+        for (cadence, lag, accepted) in [
+            (1_000, 6_000, true),
+            (1_000, 5_999, false),
+            (u64::MAX, u64::MAX, false),
+            (u64::MAX / 7_201 + 1, u64::MAX, false),
+        ] {
+            let mut manifest =
+                GenesisBuilder::new_without_executor(ChainId::from("due-work-clock-policy"), ".")
+                    .build_raw_for_test();
+            let params = &mut manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .sumeragi;
+            params.block_cadence_ms = std::num::NonZeroU64::new(cadence).unwrap();
+            params.due_work_max_lag_ms = std::num::NonZeroU64::new(lag).unwrap();
+            assert_eq!(
+                manifest.effective_parameters().is_ok(),
+                accepted,
+                "cadence={cadence}, lag={lag}"
+            );
+            if !accepted {
                 assert!(manifest.with_consensus_meta().is_err());
             }
         }

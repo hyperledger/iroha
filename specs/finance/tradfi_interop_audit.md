@@ -252,8 +252,10 @@ does not claim direct live SWIFT, Fedwire, SEPA, or CSD network connectivity.
   reconciliation. A rejected transaction's inclusion is insufficient; absent or
   conflicting canonical evidence refuses before reserving the notification identity,
   allowing the same notification to resume after evidence becomes available.
-  Settled payments accept only an explicit `pacs.004` return while retaining
-  the original transaction hash and settlement evidence; other stale
+  Explicit `pacs.004` reports are separate journaled evidence; unresolved original
+  outcomes remain pending through restart and retention, and a local notification
+  wakes canonical reconciliation without later network traffic. Reports preserve
+  the original successful status, transaction hash, and settlement evidence; other stale
   transitions remain ignored. Direct status mutators enforce the same terminal
   monotonicity.
 - Either recorded party may read its own records; configured audit admins have

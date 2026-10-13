@@ -52,6 +52,12 @@ below. A listed source test is not a claim of exhaustive coverage.
   [Fresh compiled stack captures](../docs/validation/parliament_ballot_fatal_stack_eon/README.md)
   now decode both complete images without frame-analysis errors, while retaining
   native/indirect/exceptional frontiers and recursion as unknown costs.
+  A [conditional adapter bound](../docs/validation/parliament_ballot_adapter_bound/README.md)
+  isolates 336 stack bytes, 5,298 issued instructions and one input block of at
+  most 524,288 bytes around the opaque verifier. Native and verifier costs remain
+  unresolved; 20 checker tests do not establish whole-call sufficiency. Subsequent
+  lockfile/allocator edits are recorded as current-source drift; the earlier
+  capture is retained and the live-input check refuses.
 - Standalone source checks: [relations](../crates/iroha_parliament_ballot_proof/tests/relation.rs),
   [proofs](../crates/iroha_parliament_ballot_proof/tests/proofs.rs),
   [test decoder](../crates/iroha_parliament_ballot_proof/src/test_codec.rs),
@@ -221,7 +227,7 @@ integration obligations, not new standalone work authorized by this audit.
 | Both security weakenings, approved premises and envelope-order resolution | Design owner with required independent review; open |
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
-| Current Core source-contract mismatch | SCCP and Parliament integration owners; open. The [latest actual recheck](../docs/validation/parliament_ballot_b6/fatal-stack-source-check.json), after a concurrent queue edit, still first fails at the missing modeled `Executable::IvmProved(proved)` queue binding. Earlier start-phase failures, historical 1,115/92 totals and in-memory isolation describe their earlier source snapshots; later assertions have not passed merely because the first failure changed |
+| Current Core source-contract mismatch | SCCP and Parliament integration owners; open. The [latest actual recheck](../docs/validation/parliament_ballot_b6/adapter-deletion-source-check.json), after a concurrent queue edit, still first fails at the missing modeled `Executable::IvmProved(proved)` queue binding. Earlier start-phase failures, historical 1,115/92 totals and in-memory isolation describe their earlier source snapshots; later assertions have not passed merely because the first failure changed |
 | Production implementation, retirement and launch qualification | Postselection owners; gated by unmet selection conditions and eventual owner qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the

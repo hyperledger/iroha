@@ -23,7 +23,6 @@ use iroha_sumeragi::{
 use parking_lot::RwLock;
 
 pub(crate) mod funded;
-pub(crate) mod prepare_clock;
 
 /// Why a key cannot be used as a Sumeragi consensus key.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -335,13 +334,6 @@ impl core::fmt::Debug for KeyPairSigner {
 impl Signer for KeyPairSigner {
     fn public_key(&self) -> &PublicKey {
         &self.public
-    }
-
-    fn sign_prepare(
-        &self,
-        context: &iroha_sumeragi::crypto::PrepareSigningContext<'_>,
-    ) -> Result<Signature, SigningError> {
-        self.sign(context.preimage())
     }
 
     fn sign(&self, preimage: &[u8]) -> Result<Signature, SigningError> {

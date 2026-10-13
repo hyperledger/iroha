@@ -209,6 +209,29 @@ async fn dispatch_classification_follows_the_closed_non_admission_table() {
             ),
         }
     }
+    for row in DEFINITE_DISPATCH_ROWS
+        .iter()
+        .filter(|row| row.envelope_code.starts_with("sccp_"))
+    {
+        let mut response = rejection(
+            row.status,
+            row.envelope_code,
+            Some(row.reject_code),
+            Some(row.reject_code),
+        );
+        response.headers_mut().insert(
+            super::SIGNED_TRANSACTION_HASH_HEADER,
+            "conflicting-transport-identity".parse().unwrap(),
+        );
+        assert!(
+            matches!(
+                dispatch_one(Ok(response)).await.0,
+                DispatchOutcome::Ambiguous { .. }
+            ),
+            "{} cannot override a conflicting admission identity",
+            row.envelope_code
+        );
+    }
     // The same refusal in the canonical Norito representation.
     let envelope =
         ErrorEnvelope::new("transaction_expired", "scripted").with_details(ErrorDetails {
@@ -260,6 +283,15 @@ async fn dispatch_classification_follows_the_closed_non_admission_table() {
                 "queue_admission_invariant",
                 Some("PRTRY:QUEUE_ADMISSION_INVARIANT"),
                 Some("PRTRY:QUEUE_ADMISSION_INVARIANT"),
+            )),
+        ),
+        (
+            "unavailable SCCP source remains ambiguous",
+            Ok(rejection(
+                503,
+                "sccp_forgery_unavailable",
+                Some("PRTRY:SCCP_FORGERY_UNAVAILABLE"),
+                Some("PRTRY:SCCP_FORGERY_UNAVAILABLE"),
             )),
         ),
         (
@@ -938,6 +970,37 @@ fn match_arms<'a>(
                 .split(|character: char| !character.is_ascii_alphanumeric())
                 .next()
                 .expect("variant");
+            if variant == "SccpForgeryIngress" {
+                // This one queue variant has four distinct outcomes. Pin every actual
+                // condition and branch; taking its first literal would silently omit three.
+                let branches = pair[1].split("else").collect::<Vec<_>>();
+                assert_eq!(
+                    branches.len(),
+                    4,
+                    "{function}: SCCP outcome branches changed"
+                );
+                for (branch, (name, condition)) in branches.iter().zip([
+                    ("SccpForgeryIngressLocal", "if error.is_local()"),
+                    ("SccpForgeryIngressThrottled", "if error.is_throttled()"),
+                    (
+                        "SccpForgeryIngressDuplicate",
+                        "if matches!(error, queue::ForgeryIngressError::Duplicate)",
+                    ),
+                    ("SccpForgeryIngressRejected", "{"),
+                ]) {
+                    assert!(
+                        branch.contains(condition),
+                        "{function}: {name} predicate changed"
+                    );
+                    let found = value(branch)
+                        .unwrap_or_else(|| panic!("{function}: {name} has no mapped value"));
+                    assert!(
+                        arms.insert(name, found).is_none(),
+                        "{function}: repeated {name}"
+                    );
+                }
+                continue;
+            }
             arms.insert(variant, found);
         }
     }
@@ -967,6 +1030,7 @@ fn the_non_admission_table_classifies_every_torii_queue_rejection() {
         "AdmissionInvariant",
         "Governance",
         "NexusFeeAdmissionConfigInvalid",
+        "SccpForgeryIngressLocal",
     ];
     let status_number = |name: &str| match name {
         "BAD_REQUEST" => 400,
@@ -1004,8 +1068,13 @@ fn the_non_admission_table_classifies_every_torii_queue_rejection() {
         );
         let expected = match *variant {
             "InBlockchain" | "IsInQueue" => DefiniteDispatchResult::AlreadyKnown,
-            "Deferred" | "Full" | "LatencySaturated" | "MaximumTransactionsPerUser" => {
-                DefiniteDispatchResult::Deferred
+            "Deferred"
+            | "Full"
+            | "LatencySaturated"
+            | "MaximumTransactionsPerUser"
+            | "SccpForgeryIngressThrottled" => DefiniteDispatchResult::Deferred,
+            "SccpForgeryIngressDuplicate" | "SccpForgeryIngressRejected" => {
+                DefiniteDispatchResult::Refused
             }
             _ => DefiniteDispatchResult::Refused,
         };

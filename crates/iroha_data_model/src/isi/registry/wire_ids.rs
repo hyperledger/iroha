@@ -75,6 +75,7 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(crate::isi::private_dataspace::RegisterPrivateDataspace => "iroha.private_dataspace.register.v1", register),
     built_in_wire_id!(crate::isi::private_dataspace::AnchorPrivateDataspace => "iroha.private_dataspace.anchor.v1", register),
     built_in_wire_id!(crate::isi::sumeragi_amx::BeginAmxV1 => "iroha.sumeragi.amx.begin.v1", register),
+    built_in_wire_id!(crate::isi::sumeragi_amx::ExpireAmxV1 => "iroha.sumeragi.amx.expire.v1", register),
     built_in_wire_id!(crate::isi::sumeragi_amx::RelayAmxPreparedV1 => "iroha.sumeragi.amx.relay_prepared.v1", register),
     built_in_wire_id!(crate::isi::sumeragi_amx::RelayAmxHandoffV1 => "iroha.sumeragi.amx.relay_handoff.v1", register),
     built_in_wire_id!(crate::isi::sumeragi_amx::RegisterAmxParticipantV1 => "iroha.sumeragi.amx.register_participant.v1", register),

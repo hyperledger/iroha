@@ -2,7 +2,11 @@
 //! Integration coverage for fraud monitoring admission policy using mocked assessments.
 use eyre::{Report, Result};
 use integration_tests::sandbox;
-use iroha::data_model::{Level, prelude::*};
+use iroha::data_model::{
+    Level,
+    fraud::{FraudAdmissionPolicyV1, FraudRiskBandV1},
+    prelude::*,
+};
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::name::Name;
 use iroha_primitives::json::Json;
@@ -15,21 +19,25 @@ fn error_chain(err: &Report) -> Vec<String> {
 #[test]
 fn fraud_monitoring_requires_assessment_bands() -> Result<()> {
     let context = stringify!(fraud_monitoring_requires_assessment_bands);
-    let builder = NetworkBuilder::new().with_config_layer(|layer| {
-        layer
-            .write(["fraud_monitoring", "enabled"], true)
-            .write(["fraud_monitoring", "required_minimum_band"], "high")
-            .write(
-                ["fraud_monitoring", "missing_assessment_grace_secs"],
-                TomlValue::Integer(0),
-            )
-            .write(
+    let policy = FraudAdmissionPolicyV1 {
+        enabled: true,
+        required_minimum_band: Some(FraudRiskBandV1::High),
+        missing_assessment_permitted: false,
+        ..FraudAdmissionPolicyV1::protocol_default()
+    };
+    let builder = NetworkBuilder::new()
+        .with_peers(4)
+        .with_genesis_instruction(SetParameter::new(Parameter::Custom(
+            policy.into_custom_parameter(),
+        )))
+        .with_config_layer(|layer| {
+            layer.write(
                 ["fraud_monitoring", "service_endpoints"],
                 TomlValue::Array(vec![TomlValue::String(
                     "https://mocked.assessor.test/api".to_string(),
                 )]),
             );
-    });
+        });
     let Some((network, _rt)) = sandbox::start_network_blocking_or_skip(builder, context)? else {
         return Ok(());
     };

@@ -234,8 +234,18 @@ lane, and §6.4 closes a stalled lane.
 A lane block's payload is the canonical Norito encoding of
 
 ```text
-LaneBatch { anchor_height: u64, anchor_hash: Hash, transactions: Vec<SignedTransaction> }
+LaneBatch { anchor_height: u64, anchor_hash: Hash, transactions: Vec<TransactionEntrypoint> }
 ```
+
+Each element preserves its complete external, sealed-commitment or sealed-reveal entrypoint.
+Lane admission, recent-input deduplication and `LaneResult.tx_hashes` use the canonical
+`HashOf<TransactionEntrypoint>`. Merge moves this same carrier into global execution, where
+sealed-reveal commitment, salt, deadline and replay checks remain mandatory.
+
+The queue-backed lane selection budget counts each complete cached entrypoint frame,
+including its enum envelope, commitment and salt. The inner signed/variant size used
+for transaction admission is a separate limit. The lane builder still checks its
+actual complete encoded batch against the pinned payload limit.
 
 It is never empty (work-driven, `sumeragi.md` §6.10): the lane's payload builder answers `EMPTY`
 when the lane queue partition (§5) has nothing admissible. Future-only queued work instead
@@ -245,7 +255,8 @@ resume without unrelated network traffic.
 The lane's effective timestamp is
 `max(authenticated_anchor.creation_time_ms, max(tx.creation_time_ms + 1))`, using saturating
 arithmetic at the timestamp limit. It is derived from the original authenticated anchor and
-signed transaction bytes; no new wire field or result commitment is introduced. The proposer
+signed external or revealed transaction bytes; a commitment has no creation timestamp and
+contributes no input time floor. No new time field or time commitment is introduced. The proposer
 waits while that timestamp exceeds its injected local Unix clock, including after completed
 payload encoding and after a clock rewind. It retains the same original batch and funded
 encoding across this wait.
@@ -261,7 +272,9 @@ A lane member executes a lane block `B` at lane height `x` as follows; `Valid(R)
 2. Monotone anchors: `anchor_height ≥` the anchor of lane block `x − 1` (from its `R` preimage).
 3. The lane is active at the anchor: `active_from ≤ anchor_height` and not
    (`closing = Some(c)` with `anchor_height ≥ c`).
-4. Every transaction is for this network and its signature verifies. Limits, expiry and every
+4. Every entrypoint is for this network and its original signature verifies: the signed
+   transaction for external/reveal inputs, or the signed commitment for a commitment.
+   Limits, expiry and every
    state check belong to merge execution (§4.3), where `G`'s parameters of the merge height apply.
 5. No transaction hash appears earlier in `B`, or in one of the last `W = 64` lane blocks
    (`LANE_DEDUP_WINDOW`) whose anchor is at least `a(B) − A` — a block `G` may still merge fresh
@@ -343,15 +356,24 @@ recomputes the floor from the lane blocks; a different declaration makes the blo
    lane heights ascending, transactions in batch order — after lane 0's transactions, exactly as
    if they were one ordered list in the `G` block: the executed block is the proposal with these
    entrypoints appended (`merged_count` records how many; removing them recovers the proposal).
-   A merged transaction is dropped — no effect, no fee, not in the executed block — when
-   `route(tx, state before h)` (§5.1) is not the lane that carried it (*misrouted*), the chain
-   already committed it or it occurs earlier in the block (*duplicate*), or a block at `h` could
-   not carry it (not an ordinary admission intent, created at or after the block time, or failing
-   the network, signature, limit or expiry checks at the block time). Dropping instead of
-   invalidating keeps a lane committee from blocking `G` with a transaction `G` refuses. Every
-   other transaction executes and its outcome (accepted / rejected with reason, fees as usual)
-   is committed in `R_h`. Admission at the lane does not guarantee acceptance: state may have
-   changed since the anchor.
+   Each transaction retains its complete `TransactionEntrypoint`: `External`, sealed
+   commitment or sealed reveal. A merged transaction is dropped — no effect, no fee, not in
+   the executed block — when `route(tx, state before h)` (§5.1) is not the lane that carried it
+   (*misrouted*), the chain already committed its original carrier or the reveal's signed-work
+   alias, or its work duplicates an earlier admitted entrypoint. External transactions and
+   reveals with the same inner signed transaction are duplicates across the global prefix and
+   all merged lanes; commitments are duplicates by commitment digest. A commitment's
+   `reveal_after_height` must be strictly greater than `h`. Other stateless refusals are a
+   signed creation time at or after the block time, or failure of the original network,
+   signature, limit or expiry checks at that time. Commitments have no signed creation time.
+   Dropping instead of invalidating keeps a lane committee from blocking `G` with a
+   transaction `G` refuses. Every other original carrier executes and its outcome (accepted /
+   rejected with reason, fees as usual) is committed in `R_h`. The original salt, reveal window
+   and pending-commitment checks remain stateful execution checks; rejection retains the
+   original carrier in the executed block. Admission at the lane does not guarantee acceptance:
+   state may have changed since the anchor. Refusal of the original finite scratch budget
+   defers the local merge for retry with the same source; it does not deterministically drop a
+   transaction.
 4. The **lane step** (in the execution output's finalizer, with the schedule step): the merged
    frontiers advance to `to` (`merged_at = h`, `rescued = 0`); the block's lane-0 transactions
    routed to another lane add to that lane's `rescued`; the load sample of §6.1 is recorded;

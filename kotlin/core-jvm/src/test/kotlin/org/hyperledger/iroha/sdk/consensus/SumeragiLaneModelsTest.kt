@@ -91,6 +91,7 @@ class SumeragiLaneModelsTest {
         assertEquals("22".repeat(32), running.record.merged.blockHash)
         assertEquals("33".repeat(32), running.record.merged.result)
         assertEquals(listOf("bls_normal"), running.record.params.keyAllowedAlgorithms)
+        assertEquals(BigInteger.valueOf(60_000), running.record.params.dueWorkMaxLagMs)
         assertEquals("reed_solomon16", running.record.daLayout.encoding)
         assertEquals(BigInteger.valueOf(262144), running.record.daLayout.chunkSizeBytes)
         assertEquals(BigInteger.valueOf(4), running.record.daLayout.dataShards)
@@ -168,7 +169,12 @@ class SumeragiLaneModelsTest {
     @Test fun `lane data availability keeps compact final stripes and rejects malformed RS16 geometry`() {
         val record = (lanes()[0] as Map<String, Any?>)["record"] as Map<String, Any?>
         val layout = record["da_layout"] as Map<String, Any?>
-        fun changedLayout(values: Map<String, Any?>): String = changedRecord { it["da_layout"] = layout + values }
+        val params = record["params"] as Map<String, Any?>
+        fun changedLayout(values: Map<String, Any?>): String = changedRecord {
+            // Keep the block bound valid so these cases exercise the changed DA geometry.
+            it["params"] = params + ("max_block_bytes" to 4194304L)
+            it["da_layout"] = layout + values
+        }
         val compact = mapOf("max_payload_size_bytes" to 4194305L, "max_chunk_count" to 30L)
         assertEquals(BigInteger.valueOf(4194305), SumeragiLaneStatus.parseJsonList(changedLayout(compact))[0].record.daLayout.maxPayloadSizeBytes)
         for ((field, bad) in listOf(
@@ -183,7 +189,6 @@ class SumeragiLaneModelsTest {
             mapOf("encoding" to mapOf("encoding" to "reed_solomon16", "details" to emptyMap<String, Any?>())),
             compact + ("max_chunk_count" to 29L),
         )) assertFails { SumeragiLaneStatus.parseJsonList(changedLayout(bad)) }
-        val params = record["params"] as Map<String, Any?>
         assertFails { SumeragiLaneStatus.parseJsonList(changedRecord { it["params"] = params + ("max_block_bytes" to 16777217L) }) }
     }
 
@@ -200,9 +205,17 @@ class SumeragiLaneModelsTest {
             assertFails("incarnation $bad") { SumeragiLaneStatus.parseJsonList(changedRecord { it["incarnation"] = bad }) }
         }
         val params = record["params"] as Map<String, Any?>
-        for (field in listOf("block_cadence_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms",
+        for (field in listOf("block_cadence_ms", "due_work_max_lag_ms", "payload_retry_interval_ms", "exec_budget_ms", "apply_budget_ms",
             "max_block_bytes", "epoch_length_blocks", "demotion_window")) {
             assertFails("zero $field") { SumeragiLaneStatus.parseJsonList(changedRecord { it["params"] = params + (field to 0L) }) }
+        }
+        assertEquals(u64Max, SumeragiLaneStatus.parseJsonList(changedRecord {
+            it["params"] = params + ("due_work_max_lag_ms" to u64Max)
+        })[0].record.params.dueWorkMaxLagMs)
+        for (bad in listOf<Any?>(-1L, u64Max + BigInteger.ONE, "60000", true, null)) {
+            assertFails("due-work lag $bad") {
+                SumeragiLaneStatus.parseJsonList(changedRecord { it["params"] = params + ("due_work_max_lag_ms" to bad) })
+            }
         }
         assertFails { SumeragiLaneStatus.parseJsonList(changedRecord { it["params"] = params + ("max_block_bytes" to BigInteger.ONE.shiftLeft(32)) }) }
         for (algorithms in listOf<Any?>(listOf("bls"), listOf("BLS_NORMAL"), "bls_normal", listOf(1L))) {

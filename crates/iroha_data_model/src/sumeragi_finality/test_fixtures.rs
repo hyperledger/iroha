@@ -51,13 +51,6 @@ struct FixtureSigner<'a> {
     key: &'a KeyPair,
 }
 impl Signer for FixtureSigner<'_> {
-    fn sign_prepare(
-        &self,
-        context: &iroha_sumeragi::crypto::PrepareSigningContext<'_>,
-    ) -> Result<Signature, iroha_sumeragi::crypto::SigningError> {
-        self.sign(context.preimage())
-    }
-
     fn public_key(&self) -> &CoreKey {
         &self.public
     }

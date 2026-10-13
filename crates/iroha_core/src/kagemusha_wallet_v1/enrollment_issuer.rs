@@ -87,8 +87,7 @@ pub struct EnrollmentIssuerV1<R> {
 /// Ordinary service startup opens an existing scope and never calls journal initialization.
 ///
 /// # Errors
-///
-/// Returns an invalid-input error if `scope` is all zero bytes.
+/// Returns `Invalid` when `scope` is the all-zero identifier.
 pub fn enrollment_issuer_journal_scope_v1(scope: [u8; 32]) -> Result<Vec<u8>> {
     if scope == [0; 32] {
         return Err(Invalid);

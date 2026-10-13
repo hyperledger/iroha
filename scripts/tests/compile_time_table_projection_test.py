@@ -391,7 +391,7 @@ class CompileTimeTableProjectionTests(unittest.TestCase):
         self.assertTrue(all(len(row) == 8 for row in rows))
         self.assertEqual(
             collections.Counter(row[0] for row in rows),
-            {"schema": 19, "field": 193, "alias": 183},
+            {"schema": 19, "field": 200, "alias": 193},
         )
         owners = [row[1] for row in rows if row[0] == "schema"]
         self.assertEqual(len(owners), len(set(owners)))

@@ -99,12 +99,8 @@ fn default_content_cfg() -> iroha_config::parameters::actual::Content {
 }
 fn default_fraud_monitoring_cfg() -> iroha_config::parameters::actual::FraudMonitoring {
     iroha_config::parameters::actual::FraudMonitoring::new(
-        iroha_config::parameters::defaults::fraud_monitoring::ENABLED,
         Vec::new(),
         iroha_config::parameters::defaults::fraud_monitoring::CONNECT_TIMEOUT,
         iroha_config::parameters::defaults::fraud_monitoring::REQUEST_TIMEOUT,
-        iroha_config::parameters::defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-        None,
-        Vec::new(),
     )
 }

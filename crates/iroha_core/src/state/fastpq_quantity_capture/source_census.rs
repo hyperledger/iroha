@@ -225,9 +225,9 @@ impl QuantitySourceCensus {
         &mut self,
         archive: &mut QuantityCandidateArchive,
     ) -> Result<(), QuantityCaptureIssue> {
-        let original_already_retained = self.archive.is_some();
-        if archive.issue.is_some()
-            || original_already_retained
+        let incoming_issue = &archive.issue;
+        if incoming_issue.is_some()
+            || self.archive.is_some()
             || archive.applied_world_transactions != self.applied_world_transactions
             || archive.usage != self.usage
             || !archive.entries.belongs_to(&self.pool)

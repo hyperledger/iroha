@@ -11,6 +11,7 @@ use crate::genesis::{
     validate_consensus_mode,
 };
 use color_eyre::eyre::{Result, WrapErr as _, ensure, eyre};
+use iroha::config::HttpTransportPolicy;
 use iroha_config::{
     base::toml::TomlSource,
     parameters::{actual, defaults::taira as taira_defaults},
@@ -1676,6 +1677,7 @@ fn generate_localnet_runtime<T: Write>(
             &chain_id,
             chain_discriminant,
             &client_identity,
+            HttpTransportPolicy::DirectLoopback,
             publication_client_selection
                 .as_ref()
                 .map(|selection| &selection.table),
@@ -1703,6 +1705,7 @@ fn generate_localnet_runtime<T: Write>(
         &chain_id,
         chain_discriminant,
         &client_identity,
+        HttpTransportPolicy::Ordinary,
         publication_client_selection
             .as_ref()
             .map(|selection| &selection.table),
@@ -8075,7 +8078,9 @@ fn write_owner_only_localnet_file(path: &Path, contents: &[u8]) -> Result<()> {
 /// Write the operator client configuration.
 ///
 /// Its account network context is always explicit: the configured chain prefix, or the node
-/// default that peers rendered without `chain_discriminant` run with.
+/// default that peers rendered without `chain_discriminant` run with. Managed contexts select
+/// direct loopback explicitly; exported configs retain ordinary HTTP transport.
+#[allow(clippy::too_many_arguments)]
 fn write_client_config(
     out_dir: &Path,
     base_api_port: u16,
@@ -8083,6 +8088,7 @@ fn write_client_config(
     chain_id: &str,
     chain_discriminant: Option<u16>,
     client: &LocalnetClientIdentity,
+    http_transport_policy: HttpTransportPolicy,
     publication: Option<&toml::Table>,
 ) -> Result<()> {
     let path = out_dir.join("client.toml");
@@ -8092,6 +8098,7 @@ fn write_client_config(
         chain_id,
         chain_discriminant,
         client,
+        http_transport_policy,
         publication,
     )?;
     write_owner_only_localnet_file(&path, rendered.as_bytes())
@@ -8103,6 +8110,7 @@ fn render_client_config(
     chain_id: &str,
     chain_discriminant: Option<u16>,
     client: &LocalnetClientIdentity,
+    http_transport_policy: HttpTransportPolicy,
     publication: Option<&toml::Table>,
 ) -> Result<Zeroizing<String>> {
     // Render explicitly to avoid pretty-printer wrapping the long keys.
@@ -8114,6 +8122,7 @@ fn render_client_config(
             "chain = \"{chain}\"\n",
             "network_id_file = \"{network_id_file}\"\n",
             "torii_url = \"http://{torii_host}:{torii_port}/\"\n",
+            "http_transport_policy = \"{http_transport_policy}\"\n",
             "\n",
             "[transaction]\n",
             "time_to_live_ms = {ttl_ms}\n",
@@ -8133,6 +8142,7 @@ fn render_client_config(
         network_id_file = GENESIS_EXPECTED_HASH_FILE,
         torii_port = base_api_port,
         torii_host = torii_host,
+        http_transport_policy = http_transport_policy.as_str(),
         ttl_ms = LOCALNET_CLIENT_TTL_MS,
         status_timeout_ms = LOCALNET_CLIENT_STATUS_TIMEOUT_MS,
         chain_discriminant = chain_discriminant,

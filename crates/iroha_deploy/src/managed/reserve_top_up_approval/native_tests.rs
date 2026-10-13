@@ -5,6 +5,7 @@
 //! does not qualify the complete coordinator HTTP workflow, consensus startup or service readiness.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::managed::{
     native_operation::test_support::{
         UnavailablePeers,
@@ -250,11 +251,8 @@ fn generated_native_approval_joins_exact_request_and_manager_decision_with_separ
     // Retain an exact wallet approval under policy 1. A later genuine policy rotation must cause
     // native rejection, not rewrite this immutable signed decision to use a newer policy.
     let stale_original = original(&coordinator, &history, &intent, &requested);
-    let stale_directory = coordinator
-        .authority
-        .directory
-        .ensure_child("stale-approval")
-        .unwrap();
+    let stale_directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "stale-approval").unwrap();
     let stale_original = super::tests::retain_explicit_request(
         &coordinator,
         &stale_directory,
@@ -366,11 +364,8 @@ fn generated_native_approval_joins_exact_request_and_manager_decision_with_separ
         retained.selection.partition_policy_digest,
         history.policy_digest()
     );
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("approval")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "approval").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -768,11 +763,8 @@ fn genuinely_expired_unprepared_approval_recovers_without_http_or_new_authorizat
         checkpoint,
     };
     coordinator.validate_original(&history, &retained).unwrap();
-    let directory = coordinator
-        .authority
-        .directory
-        .ensure_child("approval")
-        .unwrap();
+    let directory =
+        metadata::ensure_operation(&coordinator.authority.directory, "approval").unwrap();
     let retained = super::tests::retain_explicit_request(
         &coordinator,
         &directory,
@@ -789,8 +781,16 @@ fn genuinely_expired_unprepared_approval_recovers_without_http_or_new_authorizat
         "committed.nrt",
         "transaction/preparation.json",
     ];
-    let request_only_bytes =
-        retained_names.map(|name| std::fs::read(retained.directory().path().join(name)).unwrap());
+    let retained_bytes = |name: &str| {
+        if name == "transaction/preparation.json" {
+            std::fs::read(retained.directory().path().join(name)).unwrap()
+        } else {
+            metadata::test_read_attempt_component(retained.attempt(), name)
+                .unwrap()
+                .expect("retained request-only metadata frame")
+        }
+    };
+    let request_only_bytes = retained_names.map(&retained_bytes);
     let wait_until = Instant::now() + Duration::from_secs(2);
     while now_ms().unwrap() < retained.terms.signing_deadline_unix_ms {
         assert!(
@@ -809,8 +809,7 @@ fn genuinely_expired_unprepared_approval_recovers_without_http_or_new_authorizat
         .unwrap();
         assert_eq!(result.transaction_status, OperationStatus::Expired);
         assert_eq!(
-            retained_names
-                .map(|name| { std::fs::read(retained.directory().path().join(name)).unwrap() }),
+            retained_names.map(&retained_bytes),
             request_only_bytes,
             "expired recovery preserves the exact committed request-only epoch"
         );

@@ -239,6 +239,7 @@ fn returning_archive_cancels_pending_bytes_but_preserves_completed_byte_owner() 
 #[cfg(unix)]
 fn original_intent_read_shares_exact_descriptor_capacity_and_prefix_custody() {
     use std::os::unix::fs::MetadataExt as _;
+
     let original = vec![0x42; 5_000];
     let budget = AllocationBudget::new(original.len());
     let (directory, read) = fixture(&original, budget.clone());

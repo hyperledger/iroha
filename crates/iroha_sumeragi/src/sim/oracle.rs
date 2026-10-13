@@ -287,7 +287,7 @@ pub fn build_chain(
             author,
         );
         let bh = block.hash(crypto);
-        let ExecOutcome::Valid(result) = reference_exec(&parent_result, &payload) else {
+        let ExecOutcome::Valid { result, .. } = reference_exec(&parent_result, &payload) else {
             break;
         };
         let msg = preimage::vote_preimage(
@@ -1106,7 +1106,9 @@ impl World {
             return Err("foreign instance".to_owned());
         }
         match self.app_exec(inst, &parent_result, block) {
-            ExecOutcome::Valid(expected) if expected == qc.result => {}
+            ExecOutcome::Valid {
+                result: expected, ..
+            } if expected == qc.result => {}
             other => return Err(format!("result {:?} but reference {other:?}", qc.result)),
         }
         let window = instance.window;

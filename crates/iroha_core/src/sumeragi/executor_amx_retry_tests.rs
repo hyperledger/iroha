@@ -69,7 +69,7 @@ fn original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry() {
                     let retry_attempt = worker.run_execution(&block, hash, false);
                     assert!(matches!(&retry_attempt, Ok(Some(_))),
                         "same original paid candidate must retry after genuine capacity release: {retry_attempt:?}");
-                    let Ok(Some(ExecOutcome::Valid(public_result))) = worker.execute(&block, hash, false) else {
+                    let Ok(Some(ExecOutcome::Valid { result: public_result, .. })) = worker.execute(&block, hash, false) else {
                         panic!("same original paid candidate must retry after genuine capacity release");
                     };
                     assert_eq!(Some(public_result), retry_attempt.unwrap(),

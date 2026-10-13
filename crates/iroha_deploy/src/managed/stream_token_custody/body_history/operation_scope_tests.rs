@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::managed::Error;
+use crate::managed::native_operation::attempts::metadata;
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,35 +228,62 @@ fn operation_trios_with_original_reads() {
     }
 
     let first = Arc::clone(&history.bodies[0].directory);
-    first
-        .write_atomic("foreign.nrt", b"foreign", PublishMode::CreateNew)
-        .unwrap();
-    for original in [true, false] {
-        let ((result, records), counts) = counted(original, None, || {
-            History::test_operation_records(|| native.test_require_current(6).0)
-        });
-        assert!(
-            matches!(result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput)
-        );
-        assert_eq!(records, [0, 0, 0, 0]);
-        assert_eq!(counts.leaves, [Point::Inventory]);
+    let names = first.entries(6).unwrap();
+    assert_eq!(
+        names,
+        ["attempts", "operation.nrt", "original.nrt", "reserved.nrt"].map(std::ffi::OsString::from)
+    );
+    // A single unknown leaf now fits the canonical image layout's native bound and
+    // reaches the typed name check. Also retain a genuine seven-entry overflow case.
+    for foreign in [
+        &["foreign.nrt"][..],
+        &["foreign.nrt", "second-foreign.nrt", "third-foreign.nrt"][..],
+    ] {
+        for name in foreign {
+            first
+                .write_atomic(name, b"foreign", PublishMode::CreateNew)
+                .unwrap();
+        }
+        for original in [true, false] {
+            let ((result, records), counts) = counted(original, None, || {
+                History::test_operation_records(|| native.test_require_current(6).0)
+            });
+            if foreign.len() == 1 {
+                assert!(
+                    matches!(&result, Err(Error::Invalid(message)) if message == "dispatch operation contains unknown material"),
+                    "{:?}",
+                    result.as_ref().err()
+                );
+            } else {
+                assert!(
+                    matches!(&result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput && error.to_string() == "directory entry count exceeds the bound"),
+                    "{:?}",
+                    result.as_ref().err()
+                );
+            }
+            assert_eq!(records, [0, 0, 0, 0]);
+            assert_eq!(counts.leaves, [Point::Inventory]);
+        }
+        for name in foreign {
+            std::fs::remove_file(first.path().join(name)).unwrap();
+        }
+        assert_eq!(first.entries(6).unwrap(), names);
+        native.test_require_current(6).0.unwrap();
     }
-    std::fs::remove_file(first.path().join("foreign.nrt")).unwrap();
-    native.test_require_current(6).0.unwrap();
 
     // Change the real first dispatch only after immutable/source entry. The first decoder
     // error must stop closing/closed and all later attempts, preserving exact lazy counts.
-    let dispatch = first
-        .read(
-            "dispatch.nrt",
-            crate::managed::native_operation::attempts::MAX_RECORD_BYTES,
-        )
+    let image = first
+        .read(metadata::FILE, metadata::MAX_IMAGE_BYTES)
         .unwrap();
+    let changed =
+        metadata::test_changed_image(&image, None, "dispatch.nrt", Some(b"not canonical")).unwrap();
     for original in [true, false] {
-        let path = first.path().join("dispatch.nrt");
+        let path = first.path().join(metadata::FILE);
+        let changed = changed.clone();
         let hook: Hook = Box::new(move |point| {
             if point == Point::Inventory {
-                std::fs::write(&path, b"not canonical").unwrap();
+                std::fs::write(&path, &changed).unwrap();
             }
             Ok(())
         });
@@ -263,7 +291,7 @@ fn operation_trios_with_original_reads() {
             History::test_operation_records(|| native.test_require_current(6).0)
         });
         first
-            .write_atomic("dispatch.nrt", &dispatch, PublishMode::Replace)
+            .write_atomic(metadata::FILE, &image, PublishMode::Replace)
             .unwrap();
         assert!(
             matches!(result, Err(Error::Invalid(message)) if message == "invalid canonical dispatch custody record")

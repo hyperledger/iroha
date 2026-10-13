@@ -253,23 +253,57 @@ impl Client {
                 request = request.header("X-Iroha-Finality-Challenge", &hex::encode(challenge));
             }
             let response = self.send_builder(request)?;
-            if response.status() != StatusCode::TOO_MANY_REQUESTS {
-                return Ok(response);
-            }
-            let Some(deadline) = self.http_transport.deadline() else {
+            let Some(delay) = self.activation_evidence_retry_delay(&response)? else {
                 return Ok(response);
             };
-            let minimum_delay = Duration::from_millis(100);
-            let delay = transaction_wait::retry_after_delay(&response)?
-                .unwrap_or(minimum_delay)
-                .max(minimum_delay);
-            if deadline.saturating_duration_since(std::time::Instant::now()) <= delay {
-                return Err(eyre!(
-                    "activation evidence deadline cannot accommodate HTTP 429 Retry-After"
-                ));
-            }
             std::thread::sleep(delay);
         }
+    }
+
+    /// Read the same bounded canonical evidence through the context's async transport.
+    /// An inherited runtime is never converted into a blocking SDK capability.
+    async fn send_activation_evidence_read_async(
+        &self,
+        path: &str,
+        maximum: usize,
+        challenge: Option<[u8; 32]>,
+        auth: ActivationEvidenceReadAuth,
+    ) -> Result<Response<Vec<u8>>> {
+        loop {
+            self.ensure_activation_evidence_deadline()?;
+            let mut request = self.canonical_norito_get_request(path, maximum, auth)?;
+            if let Some(challenge) = challenge {
+                request = request.header("X-Iroha-Finality-Challenge", &hex::encode(challenge));
+            }
+            let response = self.dispatch_request(request.build()?).await?;
+            let Some(delay) = self.activation_evidence_retry_delay(&response)? else {
+                return Ok(response);
+            };
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    /// Preserve the same explicit-deadline-only retry policy for both transport capabilities.
+    fn activation_evidence_retry_delay(
+        &self,
+        response: &Response<Vec<u8>>,
+    ) -> Result<Option<Duration>> {
+        if response.status() != StatusCode::TOO_MANY_REQUESTS {
+            return Ok(None);
+        }
+        let Some(deadline) = self.http_transport.deadline() else {
+            return Ok(None);
+        };
+        let minimum_delay = Duration::from_millis(100);
+        let delay = transaction_wait::retry_after_delay(response)?
+            .unwrap_or(minimum_delay)
+            .max(minimum_delay);
+        if deadline.saturating_duration_since(std::time::Instant::now()) <= delay {
+            return Err(eyre!(
+                "activation evidence deadline cannot accommodate HTTP 429 Retry-After"
+            ));
+        }
+        Ok(Some(delay))
     }
 
     fn ensure_activation_evidence_deadline(&self) -> Result<()> {

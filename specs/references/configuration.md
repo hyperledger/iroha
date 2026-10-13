@@ -359,12 +359,11 @@ Defaults first: configuration values are curated for typical Iroha blockchain de
   4. **Telemetry & admission smoke tests.** Before turning on traffic, run `cargo test -p iroha_crypto --features sm` and the SM integration matrix scripts, then verify `/status` exposes `crypto.sm_helpers_available = true` and that Torii rejects SM2 signatures when `sm2` is absent from `allowed_signing`.
   5. **Rollback plan.** Document how to revert to Ed25519-only mode (remove `sm2` from `allowed_signing`, restore `default_hash = "blake2b-256"`) and confirm hosts drop in-flight SM transactions deterministically.
 
-- `[fraud_monitoring]`: Admission guardrails for PSP-provided fraud assessments.
-  - `enabled` (default: false): master toggle; without a `required_minimum_band` the host logs a warning and skips enforcement.
+- `[fraud_monitoring]`: Node-local transport for PSP-provided fraud assessments.
   - `service_endpoints` (default: `[]`): ordered list of verifier URLs (deduplicated); reserved for the upcoming remote fraud service.
-  - `connect_timeout_ms` / `request_timeout_ms` (defaults: 500 / 1500): HTTP timeouts for the verifier; zero collapses to the default.
-  - `missing_assessment_grace_secs` (default: 0): deterministic fallback window; non-zero values allow temporary pass-through while emitting a warning.
-  - `required_minimum_band` (default: `null`): required severity band (`low`, `medium`, `high`, or `critical`). Transactions missing the band or below the threshold are rejected when `enabled` is true.
+  - `connect_timeout_ms` / `request_timeout_ms` (defaults: 500 / 1500): HTTP timeouts; zero selects the default. These file-only settings cannot alter transaction admission.
+  - Admission comes from the validated `fraud_admission_policy_v1` custom parameter in signed genesis or an authorized `SetParameter`: `version = 1`, `enabled`, typed `required_minimum_band`, `missing_assessment_permitted`, and strictly sorted unique `attesters`. The fixed absent-parameter policy is disabled. `missing_assessment_permitted` is a boolean permission, never an elapsed-time window. A block uses its predecessor's policy throughout; updates take effect in the following block.
+  - Each engine identifier is nonempty, has no ASCII uppercase letters or whitespace, and at most 128 UTF-8 bytes. The policy permits at most 256 registered engines. Invalid versions, malformed values, duplicate or unsorted engines are rejected before parameter publication. Node configuration rejects admission fields.
 - `[sccp]`: Node-local SCCP components (`specs/sccp.md` §4.13.4). Both tables are
   file-only (no environment aliases, unknown keys are rejected) and every default works without
   editing, so a validator with an empty file runs the keeper and its light-client duty.

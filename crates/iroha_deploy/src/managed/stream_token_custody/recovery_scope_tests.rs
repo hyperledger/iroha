@@ -1,7 +1,6 @@
 //! Genuine Configure/Enroll recovery sources and original active-owner admission equality.
 
 use super::*;
-use crate::managed::native_operation::test_support::UnavailablePeers;
 use crate::managed::stream_token_custody::renewal_tests::Fixture;
 use std::path::PathBuf;
 
@@ -73,7 +72,7 @@ fn retained_paths(
 fn configure_and_enroll_recovery_workspace_preserves_native_source_refusal_and_retry() {
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     for purpose in [CustodyPurpose::Configure, CustodyPurpose::InitialEnroll] {
         let expected = recover(&mut fixture, purpose, false, deadline)
@@ -156,7 +155,7 @@ fn warmed_recovery_workspace_keeps_exact_finite_and_refused_outer_charges() {
     }
     let _guard = crate::managed::native_test_guard();
     let mut fixture = Fixture::enrolled(4_000);
-    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let mut peers = fixture.unavailable_peers();
     let deadline = fixture.options.deadline;
     let ceiling = 256 * 1024 * 1024;
     for purpose in [CustodyPurpose::Configure, CustodyPurpose::InitialEnroll] {

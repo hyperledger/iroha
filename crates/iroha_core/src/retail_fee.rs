@@ -199,9 +199,8 @@ pub(crate) fn finish_rekey(
 /// Read authoritative retail enrollment; no metadata-supplied counters are consulted.
 ///
 /// # Errors
-///
-/// Returns the rejection or resource deferral from decoding protected
-/// retail enrollment state.
+/// Returns a decode error for malformed protected enrollment state, preserving
+/// original local decoder refusals. An absent record returns `Ok(None)`.
 pub fn account_state(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -266,9 +265,9 @@ fn registry(
 /// Get the authenticated first-release policy at a ledger time and height.
 ///
 /// # Errors
-///
-/// Returns a rejection for malformed registry identity or invalid policy
-/// state, and preserves resource deferrals from registry decoding.
+/// Returns an error if the protected policy registry has a mismatched identity,
+/// cannot be decoded, or fails registry validation. Local decoder refusals
+/// remain distinct from rejected policy data.
 pub fn policy_at(
     world: &impl WorldReadOnly,
     height: u64,
@@ -569,10 +568,9 @@ fn project(
 /// Logical retail balance used by reads and transfer prechecks before materialization.
 ///
 /// # Errors
-///
-/// Returns an error for malformed enrollment or policy state, an enrolled
-/// wallet without a policy, or failed period/fee projection. Decoder resource
-/// refusals remain deferrals.
+/// Returns an error if enrollment or policy state cannot be read, an enrolled
+/// wallet has no registry, or expired-period settlement lacks a policy or fails
+/// its time and balance arithmetic. Local decoder refusals remain distinct.
 pub fn projected_balance(
     world: &impl WorldReadOnly,
     id: &AssetId,
@@ -855,10 +853,9 @@ pub(crate) fn enroll(
 /// Return authoritative status, including logical deductions of all expired periods.
 ///
 /// # Errors
-///
-/// Returns an error for malformed enrollment or registry state, a missing
-/// or empty enrolled-wallet registry, or failed period/fee projection.
-/// Decoder resource refusals remain deferrals.
+/// Returns an error if enrollment or policy state cannot be read, the registry
+/// is missing or empty for an enrolled wallet, or expired-period settlement
+/// fails. Local decoder refusals remain distinct.
 pub fn status(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -885,10 +882,9 @@ pub fn status(
 /// Produce an exact quote from finalized ledger facts, including institutional sending accounts.
 ///
 /// # Errors
-///
-/// Returns an error for an unknown account, unavailable or mismatched fee
-/// policy, invalid payment legs, failed balance projection, invalid time or
-/// commitment data, or arithmetic overflow. Decoder refusals remain deferrals.
+/// Returns an error for a missing account or active policy, a different payment
+/// asset, invalid payment legs, unreadable retail state, or invalid time, fee,
+/// commitment, intent-hash or expiry arithmetic. Local read refusals are preserved.
 pub fn quote(
     world: &impl WorldReadOnly,
     height: u64,
@@ -1431,9 +1427,8 @@ fn receipt_prefix(account: &AccountId) -> String {
 /// Resolve the original canonical wallet identity through protected native recovery state.
 ///
 /// # Errors
-///
-/// Returns the rejection or resource deferral from decoding the protected
-/// wallet-recovery binding.
+/// Returns a decode error for malformed protected wallet-recovery state,
+/// preserving original local decoder refusals.
 pub fn receipt_wallet_id(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1451,9 +1446,8 @@ pub fn receipt_wallet_id(
 /// Read a wallet receipt head; absence means no head has yet been committed.
 ///
 /// # Errors
-///
-/// Returns an error if the wallet binding, derived state key, or receipt
-/// head is invalid; decoder resource refusals remain deferrals.
+/// Returns an error if wallet recovery, receipt-head key construction, or head
+/// decoding fails. Original local decoder refusals are preserved.
 pub fn receipt_head(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1561,10 +1555,9 @@ pub(crate) fn store_receipt(
 /// Read a contiguous bounded receipt sequence for one stable canonical wallet.
 ///
 /// # Errors
-///
-/// Returns an error for a limit outside `1..=100`, sequence overflow, a
-/// missing indexed receipt, or an identity mismatch. Decoding failures
-/// preserve rejection or resource-deferral classification.
+/// Returns an error for a limit outside 1..=100, sequence overflow, malformed
+/// index or receipt bytes, a dangling index, or a wallet/sequence identity
+/// mismatch. Original local decoder refusals are preserved.
 pub fn receipt_sequence(
     world: &impl WorldReadOnly,
     wallet: &AccountId,
@@ -1608,10 +1601,9 @@ pub fn receipt_sequence(
 /// Read a bounded, canonical page of immutable native receipts for an authenticated account.
 ///
 /// # Errors
-///
-/// Returns an error for a limit outside `1..=100`, invalid recovery lineage
-/// or state keys, or malformed receipt records. Decoder resource refusals
-/// remain deferrals.
+/// Returns an error for a limit outside 1..=100, malformed account lineage or
+/// receipt bytes, or an invalid receipt range key. Original local decoder
+/// refusals are preserved.
 pub fn receipts(
     world: &impl WorldReadOnly,
     account: &AccountId,
@@ -1721,10 +1713,9 @@ pub(crate) fn reopen_account(
 /// Read immutable receipts backwards from a previously authenticated wallet frontier.
 ///
 /// # Errors
-///
-/// Returns an error for a limit outside `1..=100`, missing indexed receipts,
-/// malformed records, or a page that fails the authenticated cursor checks.
-/// Decoder resource refusals remain deferrals.
+/// Returns an error for an invalid limit, missing or malformed indexed receipts,
+/// or a page that fails verification against the authenticated cursor. Original
+/// local decoder refusals are preserved.
 pub fn receipt_page(
     world: &impl WorldReadOnly,
     cursor: &iroha_data_model::fee_evidence::RetailFeeReceiptCursorV1,

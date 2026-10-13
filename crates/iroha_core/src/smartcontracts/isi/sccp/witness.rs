@@ -75,6 +75,7 @@ pub(crate) fn require_exact_delta(
                 Ok(())
             }
         }
+
         let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
         let mut exact = Exact(&write.value);
         norito::core::write_canonical_to_writer(&expected, &mut exact)?;

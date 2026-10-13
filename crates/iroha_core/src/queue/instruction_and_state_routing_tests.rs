@@ -546,7 +546,7 @@ fn reconfiguration_does_not_consult_replacement_router_for_pending_work() {
     let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
-    let hash = tx.as_ref().hash_as_entrypoint();
+    let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push");
     let expected_lane = LaneId::SINGLE;
     let expected_dataspace = DataSpaceId::UNIVERSAL;

@@ -96,6 +96,7 @@ pub(crate) fn allocations_during(f: impl FnOnce()) -> usize {
             TRACK_ALLOCATIONS.with(|tracking| tracking.set(false));
         }
     }
+
     assert!(
         !TRACK_ALLOCATIONS.with(Cell::get),
         "nested allocation census would invalidate the outer observation"
@@ -121,6 +122,7 @@ pub(crate) fn refuse_one_layout_during<T>(layout: Layout, f: impl FnOnce() -> T)
             REFUSAL_ACTIVE.with(|active| active.set(false));
         }
     }
+
     assert!(
         !REFUSAL_ACTIVE.with(Cell::get),
         "nested allocation refusal would replace its original owner"

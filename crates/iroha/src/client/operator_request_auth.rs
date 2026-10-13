@@ -93,7 +93,10 @@ impl Client {
         }
         builder
     }
-    fn request_without_operator_or_token_auth(
+    // Listener admission and operator/validator/auditor identity are distinct gates. Carry
+    // only the canonical listener credential from Config or the typed builder setter alongside fresh identity
+    // authentication; ambient token, Authorization and stale identity headers stay stripped.
+    fn request_for_identity_signature(
         &self,
         method: HttpMethod,
         url: Url,
@@ -114,6 +117,7 @@ impl Client {
             ]
             .iter()
             .any(|reserved| name.eq_ignore_ascii_case(reserved))
+                || (self.has_configured_api_token && name.as_str() == "x-api-token")
         });
         let mut builder = DefaultRequestBuilder::new(method, url)
             .with_transport(self.http_transport.clone())
@@ -184,7 +188,7 @@ impl Client {
         let timestamp = canonical_request_timestamp_header_value(timestamp_ms)?;
         let signature_b64 = canonical_request_signature_header_value(&signature)?;
         let builder = self
-            .request_without_operator_or_token_auth(method, url)
+            .request_for_identity_signature(method, url)
             .header(HEADER_OPERATOR_PUBLIC_KEY, &public_key)
             .header(HEADER_OPERATOR_TIMESTAMP_MS, &timestamp)
             .header(HEADER_OPERATOR_NONCE, &nonce)

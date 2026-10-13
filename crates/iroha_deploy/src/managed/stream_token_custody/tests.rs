@@ -1,6 +1,7 @@
 //! Managed custody intent persistence, role separation and immutable authorization regressions.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_data_model::{
     account::AccountId, sorafs::capacity::ProviderId, transaction::FeePaymentIntent,
@@ -74,8 +75,9 @@ fn original() -> Original {
 #[test]
 fn original_request_roundtrip_refuses_replacement_and_preserves_expired_terms() {
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("operation")).unwrap();
-    require_empty(&directory).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "operation").unwrap();
+    metadata::require_unselected(&directory).unwrap();
     assert!(journal::read_intent(&directory).unwrap().is_none());
     let original = original();
     let mut terms = Terms::new(now_ms().unwrap() + 60_000, &options()).unwrap();
@@ -92,7 +94,7 @@ fn original_request_roundtrip_refuses_replacement_and_preserves_expired_terms() 
     let mut replacement = original.clone();
     replacement.checkpoint.push(2);
     assert!(journal::publish_intent(&directory, &replacement).is_err());
-    assert!(require_empty(&directory).is_err());
+    assert!(metadata::require_unselected(&directory).is_err());
     let saved = directory.read("original.nrt", 256 * 1024).unwrap();
     let restored = journal::read_intent(&directory).unwrap().unwrap();
     assert_eq!(saved.as_slice(), encode(&restored, 256 * 1024).unwrap());
@@ -254,6 +256,8 @@ fn original_journal_rejects_trailing_and_oversized_policy_frames() {
     directory
         .write_atomic("original.nrt", &bytes, PublishMode::CreateNew)
         .unwrap();
+    // Bind these exact invalid bytes so the reader reaches the original codec refusal.
+    metadata::test_initialize(&directory, &bytes).unwrap();
     assert!(journal::read_intent(&directory).is_err());
     let Action::Configure(policy) = &mut original.action else {
         panic!("configure");
@@ -335,7 +339,16 @@ fn invalid_enrollment_interval_cannot_reserve_or_replace_original_journal() {
         }
     };
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("enroll")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    // Codec-only reservation bytes bind this image; they never enter native BodyHistory admission.
+    let reservation = b"codec-only reservation";
+    let image = metadata::reserved_body(reservation).unwrap();
+    let directory = parent
+        .publish_private_child(
+            "enroll",
+            &[("reserved.nrt", reservation), (metadata::FILE, &image)],
+        )
+        .unwrap();
     let excessive = make_original(45_000);
     assert!(journal::publish_body_intent(&directory, &excessive).is_err());
     assert!(journal::read_body_intent(&directory).unwrap().is_none());
@@ -509,7 +522,8 @@ fn generated_roles_and_original_genesis_are_required_before_coordinator_use() {
 #[test]
 fn original_custody_codec_preserves_checkpoint_larger_than_small_collection_limit() {
     let temporary = tempfile::tempdir().unwrap();
-    let directory = PrivateDirectory::open_or_create(temporary.path().join("operation")).unwrap();
+    let parent = PrivateDirectory::open_or_create(temporary.path().join("parent")).unwrap();
+    let directory = metadata::ensure_operation(&parent, "operation").unwrap();
     let mut original = original();
     // Codec-only bytes exercise Vec<u8> admission; they are never a certified checkpoint.
     original.checkpoint = vec![0x5a; 16 * 1024];

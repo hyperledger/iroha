@@ -164,8 +164,8 @@ jobs:
         run: |
           python -c 'import ssl, sys; assert sys.version_info >= (3, 10)'
           openssl version
-      - name: Test native filesystem, wallet and environment owners
-        run: cargo test --locked --release -p iroha_fs -p iroha_wallet -p iroha_deploy --lib -- --test-threads=1
+      - name: Test native filesystem, wallet, environment and contract deployment owners
+        run: cargo test --locked --release -p iroha_fs -p iroha_wallet -p iroha_deploy -p iroha_contract_deploy --lib -- --test-threads=1
       - name: Test native Musubi publication, recovery and workspace execution
         run: cargo test --locked --release -p musubi --lib -- --test-threads=1
       - name: Test shared desktop services and GUI actions

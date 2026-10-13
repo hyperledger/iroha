@@ -2336,9 +2336,24 @@ pub(crate) mod tests {
         }
         let mut config = TestChainConfig::new(world, 1000);
         if let Some(units) = query_stored_min_gas_units {
-            config.pipeline.query_stored_min_gas_units = units;
+            let policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1 {
+                query_stored_min_gas_units: units,
+                ..crate::pipeline_validity_policy::PipelineValidityPolicyV1::protocol_default()
+            };
+            config
+                .genesis_parameters
+                .push(iroha_data_model::parameter::Parameter::Custom(
+                    policy.into_custom_parameter(),
+                ));
         }
         let mut chain = CertifiedTestChain::start(config).unwrap();
+        if let Some(units) = query_stored_min_gas_units {
+            assert_eq!(
+                chain.state().view().pipeline().query_stored_min_gas_units,
+                units,
+                "the signed genesis owns the exact stored-query gas policy",
+            );
+        }
         for epoch in 1..=carriers {
             let transactions = (0..2)
                 .map(|index| {
@@ -2389,7 +2404,7 @@ pub(crate) mod tests {
     pub(crate) fn canonical_query_fixture() -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(None)
     }
-    /// The same original history with a finite query configuration fixed before execution.
+    /// The same original history with a finite query policy committed in signed genesis.
     pub(crate) fn canonical_query_fixture_with_query_gas(units: u64) -> CanonicalQueryFixture {
         canonical_query_fixture_with_optional_query_gas(Some(units))
     }

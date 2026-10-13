@@ -8,7 +8,7 @@ use std::borrow::Borrow;
 
 pub(super) const MAX_BODIES: u8 = 64;
 pub(super) const MAX_SELECTION_BYTES: usize = 128 * 1024;
-pub(super) const MAX_BODY_BYTES: usize = journal::MAX_ORIGINAL_BYTES + 128 * 1024;
+pub(in crate::managed) const MAX_BODY_BYTES: usize = journal::MAX_ORIGINAL_BYTES + 128 * 1024;
 pub(super) const MAX_ALL_BODY_BYTES: usize = 128 * 1024 * 1024;
 
 /// Stable native purpose and predecessor. No dispatch UTC or active body is authority here.

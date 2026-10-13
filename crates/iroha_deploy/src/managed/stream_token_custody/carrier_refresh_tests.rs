@@ -2,6 +2,7 @@
 //! This exercises the shared decision and native proof owners, not coordinator HTTP integration.
 
 use super::*;
+use crate::managed::native_operation::attempts::metadata;
 use crate::{
     managed::native_operation::{CarrierTarget, MAX_CHECKPOINT_BYTES},
     verify::finality::{FinalityAttestation, FinalitySource},
@@ -50,7 +51,10 @@ pub(super) fn retain_after_applied(
     expected: ManagedTransactionFinality,
 ) {
     let directory = original.directory();
-    let authorization = directory.read("authorization.nrt", 64 * 1024).unwrap();
+    let authorization =
+        metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+            .unwrap()
+            .expect("retained authorization frame");
     let wire = signed.encode_wire_v1().unwrap();
     assert_eq!(before.checkpoint().height(), 2);
     assert_eq!(native.chain.height(), 3);
@@ -561,7 +565,9 @@ pub(super) fn retain_after_applied(
         Some(expected)
     );
     assert_eq!(
-        directory.read("authorization.nrt", 64 * 1024).unwrap(),
+        metadata::test_read_attempt_component(original.attempt(), "authorization.nrt")
+            .unwrap()
+            .expect("retained authorization frame"),
         authorization
     );
     assert_eq!(signed.encode_wire_v1().unwrap(), wire);

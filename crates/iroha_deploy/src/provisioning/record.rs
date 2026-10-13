@@ -78,6 +78,7 @@ impl Binding {
             || config.account_chain_discriminant != self.parent_profile
             || config.account != self.owner
             || config.torii_api_url.as_str() != self.parent_torii_root
+            || config.http_transport_policy != iroha::config::HttpTransportPolicy::Ordinary
             || config.api_token.is_some()
             || config.basic_auth.is_some()
         {

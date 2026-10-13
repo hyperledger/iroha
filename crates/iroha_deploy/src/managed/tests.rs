@@ -11,6 +11,8 @@ use std::{
 mod attachment_installed;
 #[path = "installed_tests.rs"]
 mod installed;
+#[path = "installed_renewal_tests.rs"]
+mod installed_renewal;
 
 #[test]
 fn global_and_private_requests_select_only_their_original_scope_prerequisites() {
@@ -465,7 +467,7 @@ fn ordinary_and_default_startup_still_select_the_ready_environment() {
 }
 
 #[test]
-fn create_only_rejects_retained_global_and_private_names_under_theoperation_lock() {
+fn create_only_rejects_retained_global_and_private_names_under_the_operation_lock() {
     let _resources = super::native_test_guard();
     for private_root in [false, true] {
         let temporary = tempfile::tempdir().unwrap();

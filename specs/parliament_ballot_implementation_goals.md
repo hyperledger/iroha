@@ -90,6 +90,11 @@ failure; fresh builds, 122 observations and full/broken-output controls pass.
 Its [fresh stack analysis](../docs/validation/parliament_ballot_fatal_stack_eon/README.md)
 adds tested `STLUR`/`EON` decoding and has zero frame-analysis errors in either
 image; native, indirect, exceptional and recursive costs remain open.
+The [adapter-only argument](../docs/validation/parliament_ballot_adapter_bound/README.md)
+now bounds its own ordinary compiled region under named premises, with 20
+checker tests; native and full-verifier work/stack remain opaque.
+Later concurrent lockfile/allocator edits cause a retained current-source refusal;
+the captured adapter result is not repinned to those sources.
 The [normal-return analysis](../docs/validation/parliament_ballot_noreturn_frontiers/README.md)
 justifies conditional ordinary-flow cuts while retaining native unwind and every
 original unconditional resource obligation. Next local B6.4 work includes universal target-specific

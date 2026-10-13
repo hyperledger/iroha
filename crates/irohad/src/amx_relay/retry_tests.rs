@@ -19,6 +19,9 @@ struct RetrySource {
     sent: Arc<AtomicUsize>,
 }
 impl Source for RetrySource {
+    fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
+        Box::pin(async { Ok(self.proofs.keys().next_back().copied().unwrap_or(0)) })
+    }
     fn locate(&self, hash: HashOf<SignedTransaction>) -> WorkflowFuture<'_, Result<Location>> {
         Box::pin(async move {
             Ok(self
@@ -195,6 +198,8 @@ async fn replacement_case(rejections: &[bool]) {
         authority: account.transactions[0].authority().clone(),
         fee_payment: account.transactions[0].fee_payment_intent().clone(),
         instruction: Mutex::new(None),
+        approval: Mutex::new(None),
+        handoff_scan: Mutex::new(HandoffScan::default()),
         max_reads: 8,
         reads: AtomicUsize::new(0),
     });
@@ -226,7 +231,7 @@ async fn replacement_case(rejections: &[bool]) {
         retry_rejected_step: true,
     };
     for (index, rejected) in rejections.iter().enumerate() {
-        ledger.begin_observation(digest).unwrap();
+        ledger.begin_observation(digest, None).unwrap();
         let driver = ReauthenticatedDriver {
             payload: Mutex::new(Some(
                 norito::encode_canonical(account.transactions[index].payload()).unwrap(),

@@ -25,6 +25,7 @@ struct Source {
     locator: PaymentLocator,
     visible: AtomicBool,
     carrier_height: Option<u64>,
+    exact_absence: AtomicBool,
     fail_read: AtomicBool,
     proof_reads: AtomicUsize,
     submitted: AtomicBool,
@@ -40,7 +41,13 @@ impl PaymentSource for Source {
         &self,
         _: HashOf<SignedTransaction>,
     ) -> WorkflowFuture<'_, Result<CarrierLocation, NativePaymentObservationError>> {
-        Box::pin(async { Ok(CarrierLocation::Observed(self.carrier_height)) })
+        Box::pin(async {
+            Ok(if self.exact_absence.load(Ordering::Relaxed) {
+                CarrierLocation::Absent
+            } else {
+                CarrierLocation::Observed(self.carrier_height)
+            })
+        })
     }
     fn proof(
         &self,
@@ -108,6 +115,11 @@ impl WorkflowLedger for Account {
         expected: &'a TransactionIdentityV1,
     ) -> WorkflowFuture<'a, DispatchOutcome> {
         Box::pin(async move {
+            assert_eq!(
+                bytes,
+                self.transaction.encode_wire_v1().unwrap(),
+                "dispatch must retain the exact original signed carrier bytes"
+            );
             assert_eq!(self.identify(bytes).unwrap(), *expected);
             self.dispatches.fetch_add(1, Ordering::Relaxed);
             self.source.submitted.store(true, Ordering::Relaxed);
@@ -169,6 +181,7 @@ fn fixture(
         },
         visible: AtomicBool::new(false),
         carrier_height: Some(2),
+        exact_absence: AtomicBool::new(false),
         fail_read: AtomicBool::new(false),
         proof_reads: AtomicUsize::new(0),
         submitted: AtomicBool::new(false),
@@ -337,7 +350,7 @@ fn native_payment_canonical_journal_substitution_never_reaches_the_signer() {
             None,
         );
         assert!(
-            matches!(rt.block_on(operation.run(&options())), Err(NativePaymentError::Workflow(error))
+            matches!(rt.block_on(operation.submit(&options())), Err(NativePaymentError::Workflow(error))
             if error.code == WorkflowErrorCode::BindingMismatch),
             "{mutation}"
         );
@@ -386,7 +399,7 @@ fn native_payment_canonical_signed_substitution_never_reaches_transport() {
         Some(&substituted),
     );
     assert!(
-        matches!(rt.block_on(operation.run(&options())), Err(NativePaymentError::Workflow(error))
+        matches!(rt.block_on(operation.resume(&options())), Err(NativePaymentError::Workflow(error))
         if error.code == WorkflowErrorCode::StorageCorrupted)
     );
     assert!(matches!(
@@ -496,7 +509,7 @@ async fn native_payment_final_tip_receipt_survives_restart_without_dispatch() {
         &native,
         storage.clone(),
     );
-    let result = operation.run(&options()).await.unwrap();
+    let result = operation.submit(&options()).await.unwrap();
     assert_eq!(result.receipt.transaction_hash(), transaction.hash());
     assert_eq!(result.carrier.status, WorkflowStatusV1::Completed);
     assert_eq!(account.signs.load(Ordering::Relaxed), 1);
@@ -540,8 +553,8 @@ async fn native_payment_rejected_inclusion_and_status_only_expiry_never_complete
         &native,
         Arc::new(FileWorkflowStorage::open_or_create(root.path().join("payment")).unwrap()),
     );
-    assert!(operation.run(&options()).await.is_err());
-    let journal = operation.handle.native_payment_journal().unwrap().unwrap();
+    assert!(operation.submit(&options()).await.is_err());
+    let journal = operation.handle.journal_snapshot().unwrap().unwrap();
     assert_eq!(journal.status, WorkflowStatusV1::Failed);
     assert!(journal.native_payment_completion.is_none());
 
@@ -557,7 +570,7 @@ async fn native_payment_rejected_inclusion_and_status_only_expiry_never_complete
         &native,
         Arc::new(FileWorkflowStorage::open_or_create(root.path().join("payment")).unwrap()),
     );
-    assert!(operation.run(&options()).await.is_err());
+    assert!(operation.submit(&options()).await.is_err());
     assert!(
         operation
             .recover(&options())
@@ -570,12 +583,7 @@ async fn native_payment_rejected_inclusion_and_status_only_expiry_never_complete
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
     assert_eq!(source.proof_reads.load(Ordering::Relaxed), 0);
     assert!(
-        operation
-            .handle
-            .native_payment_journal()
-            .unwrap()
-            .unwrap()
-            .steps[0]
+        operation.handle.journal_snapshot().unwrap().unwrap().steps[0]
             .transaction
             .as_ref()
             .unwrap()
@@ -598,7 +606,7 @@ async fn native_payment_preserves_resource_error_and_resumes_exact_carrier() {
         &native,
         storage.clone(),
     );
-    let error = operation.run(&options()).await.unwrap_err();
+    let error = operation.submit(&options()).await.unwrap_err();
     assert!(matches!(
         error,
         NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::Encoding(norito::Error::AllocationFailed { .. }))
@@ -632,7 +640,7 @@ async fn native_payment_original_recovery_binds_intent_fees_and_stored_completio
         &native,
         storage.clone(),
     );
-    let recovered = operation.run(&options()).await.unwrap();
+    let recovered = operation.resume(&options()).await.unwrap();
     assert_eq!(recovered.receipt.transaction_hash(), transaction.hash());
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
     assert_eq!(
@@ -648,7 +656,7 @@ async fn native_payment_original_recovery_binds_intent_fees_and_stored_completio
             .is_err(),
         "generic engine must refuse dispatch after completion marker"
     );
-    let journal = operation.handle.native_payment_journal().unwrap().unwrap();
+    let journal = operation.handle.journal_snapshot().unwrap().unwrap();
     let stored = storage.load(&operation.id()).unwrap().unwrap();
     let mut altered = journal;
     altered
@@ -683,7 +691,7 @@ async fn native_payment_original_recovery_binds_intent_fees_and_stored_completio
         Arc::new(FileWorkflowStorage::open_or_create(root.path().join("payment")).unwrap()),
     );
     assert!(matches!(
-        operation.run(&options()).await.unwrap_err(),
+        operation.resume(&options()).await.unwrap_err(),
         NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::FeeAuthorizationMismatch)
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
@@ -741,7 +749,7 @@ async fn native_payment_recovers_uncertain_completion_write_without_second_dispa
         storage.clone(),
     );
     assert!(matches!(
-        handle.run(&options()).await.unwrap_err(),
+        handle.submit(&options()).await.unwrap_err(),
         NativePaymentError::Workflow(WorkflowError {
             code: WorkflowErrorCode::LocalResourceUnavailable,
             ..
@@ -750,7 +758,7 @@ async fn native_payment_recovers_uncertain_completion_write_without_second_dispa
     assert!(
         handle
             .handle
-            .native_payment_journal()
+            .journal_snapshot()
             .unwrap()
             .unwrap()
             .native_payment_completion
@@ -814,10 +822,10 @@ async fn native_payment_rejected_retry_recovers_original_without_relabeling_carr
         ..options()
     };
     assert!(matches!(
-        handle.run(&limited).await.unwrap_err(),
+        handle.submit(&limited).await.unwrap_err(),
         NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::ReadBudgetExhausted)
     ));
-    let settled = handle.run(&options()).await.unwrap();
+    let settled = handle.resume(&options()).await.unwrap();
     assert_eq!(settled.receipt.transaction_hash(), original.hash());
     assert_eq!(
         settled.carrier.status,
@@ -855,12 +863,258 @@ async fn native_payment_changed_terms_never_dispatch() {
         Arc::new(FileWorkflowStorage::open_or_create(root.path().join("payment")).unwrap()),
     );
     assert!(matches!(
-        handle.run(&options()).await.unwrap_err(),
+        handle.submit(&options()).await.unwrap_err(),
         NativePaymentError::Observation { cause, .. } if matches!(cause.as_ref(), NativePaymentObservationError::Receipt(
                 super::super::PaymentReceiptVerificationError::IntentMismatch
             ))
     ));
     assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn native_payment_fresh_gateway_unknown_resume_requires_submission_authorization() {
+    assert_fresh_gateway_requires_submission_authorization(false).await;
+}
+
+#[tokio::test]
+async fn native_payment_fresh_gateway_rejected_resume_requires_submission_authorization() {
+    assert_fresh_gateway_requires_submission_authorization(true).await;
+}
+
+async fn assert_fresh_gateway_requires_submission_authorization(rejected: bool) {
+    let (native, request, transaction, source) = fixture(rejected);
+    let source = if rejected {
+        source
+    } else {
+        let mut source = Arc::try_unwrap(source).ok().unwrap();
+        source.carrier_height = None;
+        Arc::new(source)
+    };
+    let root = tempfile::tempdir().unwrap();
+    let storage =
+        Arc::new(FileWorkflowStorage::open_or_create(root.path().join("fresh_gateway")).unwrap());
+    let (fresh, account) = operation(request, transaction, source, &native, storage);
+    let mut resume_options = options();
+    resume_options.workflow.retry_rejected_step = true;
+    resume_options.workflow.retransmit_identical_bytes = true;
+    let result = fresh.resume(&resume_options).await;
+    assert!(matches!(
+        result,
+        Err(NativePaymentError::NewAttemptAuthorizationRequired { progress: None })
+    ));
+    assert_eq!(
+        account.signs.load(Ordering::Relaxed),
+        0,
+        "fresh-gateway resume cannot sign another paid carrier without new submission authorization"
+    );
+    assert_eq!(
+        account.dispatches.load(Ordering::Relaxed),
+        0,
+        "fresh-gateway resume cannot dispatch another potentially paid carrier"
+    );
+    assert!(
+        fresh.handle.journal_snapshot().unwrap().is_none(),
+        "absence of business success does not authorize creation of a new carrier journal"
+    );
+}
+
+#[tokio::test]
+async fn native_payment_unsigned_resume_preserves_journal_without_signing_or_building() {
+    let (native, request, transaction, source) = fixture(false);
+    let root = tempfile::tempdir().unwrap();
+    let storage =
+        Arc::new(FileWorkflowStorage::open_or_create(root.path().join("unsigned")).unwrap());
+    let (payment, account) = operation(
+        request.clone(),
+        transaction.clone(),
+        source,
+        &native,
+        storage.clone(),
+    );
+    store_carrier_journal(
+        storage.as_ref(),
+        &payment,
+        &account,
+        &request,
+        norito::encode_canonical(transaction.payload()).unwrap(),
+        None,
+    );
+    let original = storage.load(&payment.id()).unwrap().unwrap();
+    let mut resume_options = options();
+    resume_options.workflow.retry_rejected_step = true;
+    assert!(matches!(
+        payment.resume(&resume_options).await,
+        Err(NativePaymentError::NewAttemptAuthorizationRequired { progress: Some(_) })
+    ));
+    assert_eq!(storage.load(&payment.id()).unwrap().unwrap(), original);
+    assert_eq!(account.signs.load(Ordering::Relaxed), 0);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
+    // Both resume capabilities refuse construction, even if a future engine path asks.
+    assert!(matches!(payment.resume_handle.progress().unwrap(), Some(_)));
+    let journal = payment.handle.journal_snapshot().unwrap().unwrap();
+    let plan = request.plan().unwrap();
+    let context = StepContext {
+        workflow_id: payment.id(),
+        step_index: 0,
+        descriptor: &plan.steps[0],
+        identity_ordinal: 1,
+        journal: &journal,
+    };
+    assert_eq!(
+        payment
+            .resume_driver
+            .build_transaction(context)
+            .await
+            .unwrap_err()
+            .code,
+        WorkflowErrorCode::UnsupportedOperation
+    );
+    let resume_account = carrier::ResumePaymentAccount::new(account.binding(), request);
+    assert_eq!(
+        resume_account
+            .sign(&norito::encode_canonical(transaction.payload()).unwrap())
+            .await
+            .unwrap_err()
+            .code,
+        WorkflowErrorCode::UnsupportedOperation
+    );
+}
+
+#[tokio::test]
+async fn native_payment_signed_resume_dispatches_only_original_bytes_without_signing() {
+    let (native, request, transaction, source) = fixture(false);
+    let root = tempfile::tempdir().unwrap();
+    let storage =
+        Arc::new(FileWorkflowStorage::open_or_create(root.path().join("signed")).unwrap());
+    let (payment, account) = operation(
+        request.clone(),
+        transaction.clone(),
+        source,
+        &native,
+        storage.clone(),
+    );
+    store_carrier_journal(
+        storage.as_ref(),
+        &payment,
+        &account,
+        &request,
+        norito::encode_canonical(transaction.payload()).unwrap(),
+        Some(&transaction),
+    );
+    let settled = payment.resume(&options()).await.unwrap();
+    assert_eq!(settled.receipt.transaction_hash(), transaction.hash());
+    assert_eq!(account.signs.load(Ordering::Relaxed), 0);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
+    let journal = payment.handle.journal_snapshot().unwrap().unwrap();
+    let attempts = &journal.steps[0].transaction.as_ref().unwrap().attempts;
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].identity.as_ref(), Some(&identity(&transaction)));
+}
+
+#[tokio::test]
+async fn native_payment_unknown_resume_reconciles_before_exact_byte_retransmission() {
+    let (native, request, transaction, source) = fixture(false);
+    let mut source = Arc::try_unwrap(source).ok().unwrap();
+    source.carrier_height = None;
+    let source = Arc::new(source);
+    let root = tempfile::tempdir().unwrap();
+    let storage =
+        Arc::new(FileWorkflowStorage::open_or_create(root.path().join("unknown")).unwrap());
+    let (payment, account) = operation(
+        request.clone(),
+        transaction.clone(),
+        source.clone(),
+        &native,
+        storage.clone(),
+    );
+    assert!(payment.submit(&options()).await.is_err());
+    assert_eq!(account.signs.load(Ordering::Relaxed), 1);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
+    let original = payment.handle.journal_snapshot().unwrap().unwrap();
+    let original_transaction = original.steps[0].transaction.as_ref().unwrap();
+    let original_bytes = original_transaction.signed_transaction.clone();
+    assert_eq!(original_transaction.attempts.len(), 1);
+    drop(payment);
+    let (resumed, account) = operation(
+        request,
+        transaction.clone(),
+        source.clone(),
+        &native,
+        storage,
+    );
+    let mut resume_options = options();
+    resume_options.workflow.retry_rejected_step = true;
+    resume_options.workflow.retransmit_identical_bytes = true;
+    assert!(resumed.resume(&resume_options).await.is_err());
+    assert_eq!(account.signs.load(Ordering::Relaxed), 0);
+    assert_eq!(
+        account.dispatches.load(Ordering::Relaxed),
+        0,
+        "unknown status is not exact absence and cannot authorize even identical retransmission"
+    );
+    source.exact_absence.store(true, Ordering::Relaxed);
+    assert!(resumed.resume(&resume_options).await.is_err());
+    assert_eq!(account.signs.load(Ordering::Relaxed), 0);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
+    let journal = resumed.handle.journal_snapshot().unwrap().unwrap();
+    let retained = journal.steps[0].transaction.as_ref().unwrap();
+    assert_eq!(retained.attempts.len(), 1);
+    assert_eq!(retained.signed_transaction, original_bytes);
+    assert_eq!(
+        retained.attempts[0].identity.as_ref(),
+        Some(&identity(&transaction))
+    );
+    assert_eq!(retained.attempts[0].dispatch_ordinal, 2);
+}
+
+#[tokio::test]
+async fn native_payment_rejected_resume_ignores_new_identity_authorization_options() {
+    let (native, request, transaction, source) = fixture(true);
+    let root = tempfile::tempdir().unwrap();
+    let storage =
+        Arc::new(FileWorkflowStorage::open_or_create(root.path().join("rejected")).unwrap());
+    let (payment, account) = operation(
+        request.clone(),
+        transaction.clone(),
+        source.clone(),
+        &native,
+        storage.clone(),
+    );
+    assert!(matches!(
+        payment.submit(&options()).await,
+        Err(NativePaymentError::Workflow(WorkflowError {
+            code: WorkflowErrorCode::Rejected,
+            ..
+        }))
+    ));
+    assert_eq!(account.signs.load(Ordering::Relaxed), 1);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 1);
+    let original = storage.load(&payment.id()).unwrap().unwrap();
+    drop(payment);
+    let (resumed, account) = operation(
+        request,
+        transaction.clone(),
+        source,
+        &native,
+        storage.clone(),
+    );
+    let mut resume_options = options();
+    resume_options.workflow.retry_rejected_step = true;
+    resume_options.workflow.retransmit_identical_bytes = true;
+    assert!(matches!(
+        resumed.resume(&resume_options).await,
+        Err(NativePaymentError::Workflow(WorkflowError {
+            code: WorkflowErrorCode::Rejected,
+            ..
+        }))
+    ));
+    assert_eq!(storage.load(&resumed.id()).unwrap().unwrap(), original);
+    assert_eq!(account.signs.load(Ordering::Relaxed), 0);
+    assert_eq!(account.dispatches.load(Ordering::Relaxed), 0);
+    let journal = resumed.handle.journal_snapshot().unwrap().unwrap();
+    let attempts = &journal.steps[0].transaction.as_ref().unwrap().attempts;
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].identity.as_ref(), Some(&identity(&transaction)));
 }
 
 #[test]

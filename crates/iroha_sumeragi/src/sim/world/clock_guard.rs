@@ -4,8 +4,9 @@
 //! committed block exceeds every honest wall clock by at most `2·max_clock_drift_ms`, and
 //! every due-work block is fresh at its first genuine honest Prepare.
 //!
-//! The guard is application-level (the node driver's executor, `iroha_core`); the sans-IO core
-//! only emits the `certified` flag of `Action::Execute`. It is modelled here so that the
+//! The guard is application-level (the node driver's executor, `iroha_core`). The sans-IO
+//! core carries the original admission to its first-signing boundary and supplies genuine
+//! certified context. The shared event-owner clock is modelled here so that the
 //! deterministic simulator can show liveness under skewed honest clocks and the certified-time
 //! bounds, and so that its mutations (MS51, MS52, MS65, MS66, MS68–MS70) are killed by named simulator
 //! tests (§13.4).
@@ -21,6 +22,56 @@
 //! These toy application records do not change the sans-IO protocol or clock-disabled worlds.
 
 use super::*;
+use crate::{
+    crypto::SigningError,
+    prepare_admission::{ExecutionAdmission, PrepareAdmission, PrepareSigningRequest},
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicI64, Ordering},
+};
+
+/// Original execution source with the simulator event owner's live clock, never a snapshot.
+#[derive(Debug)]
+struct SimPrepareAdmission {
+    instance: Hash32,
+    epoch: crate::types::EpochId,
+    height: u64,
+    block_hash: Hash32,
+    result: Hash32,
+    block_time_ms: u64,
+    max_lag_ms: u64,
+    sensitive: bool,
+    wall: Arc<AtomicI64>,
+}
+impl PrepareAdmission for SimPrepareAdmission {
+    fn result(&self) -> Hash32 {
+        self.result
+    }
+    fn check(&self, request: &PrepareSigningRequest) -> Result<(), SigningError> {
+        if request.instance() != self.instance
+            || request.epoch() != self.epoch
+            || request.height() != self.height
+            || request.block_hash() != self.block_hash
+            || request.result() != self.result
+        {
+            return Err(SigningError::InvalidInput);
+        }
+        if request.certified() || !self.sensitive || cfg!(sumeragi_mutation = "MS65") {
+            return Ok(());
+        }
+        let observed_ms = u64::try_from(self.wall.load(Ordering::Relaxed).max(0)).unwrap();
+        if observed_ms.saturating_sub(self.block_time_ms) > self.max_lag_ms {
+            return Err(SigningError::StaleExecution {
+                block_time_ms: self.block_time_ms,
+                observed_ms,
+                max_lag_ms: self.max_lag_ms,
+            });
+        }
+        Ok(())
+    }
+}
+
 use crate::sim::{
     driver::{TIME_RECORD, block_time, encode_time, payload_due},
     scenario::ClockGuard,
@@ -87,12 +138,14 @@ pub struct CertifiedTime {
 pub struct GuardState {
     /// `max_clock_drift_ms` (CT1, CT4).
     pub max_clock_drift_ms: Millis,
-    /// `gov.due_work_max_lag_ms` (CT5).
+    /// `sumeragi.due_work_max_lag_ms` (CT5).
     pub due_work_max_lag_ms: Millis,
     /// Current wall offset of every machine, relative to its monotonic clock.
     pub wall_offsets: Vec<i64>,
     /// Builder leads of every machine (cycled per build).
     leads: Vec<Vec<i64>>,
+    /// Shared only with admissions issued by this event owner.
+    signing_walls: Vec<Arc<AtomicI64>>,
     /// Payloads built so far per machine.
     builds: Vec<usize>,
     /// Every guard decision of an honest executor, in order.
@@ -120,6 +173,7 @@ impl GuardState {
                 .map(|m| config.wall_offsets.get(m).copied().unwrap_or(0))
                 .collect(),
             leads,
+            signing_walls: (0..machines).map(|_| Arc::new(AtomicI64::new(0))).collect(),
             builds: vec![0; machines],
             events: Vec::new(),
             certified: Vec::new(),
@@ -158,6 +212,69 @@ impl GuardState {
 }
 
 impl World {
+    /// Publish the actual event time to retained admission owners before any host work.
+    pub(super) fn refresh_signing_walls(&self) {
+        if let Some(guard) = &self.clock_guard {
+            for (machine, wall) in guard.signing_walls.iter().enumerate() {
+                wall.store(self.wall_ms(machine), Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Bind the actual successful application result and its exact time-sensitive effects.
+    pub(super) fn retain_signing_admission(
+        &self,
+        r: usize,
+        block: &AvailableBody,
+        bh: Hash32,
+        outcome: ExecOutcome,
+    ) -> ExecOutcome {
+        let Some(guard) = &self.clock_guard else {
+            return outcome;
+        };
+        let ExecOutcome::Valid { result, .. } = outcome else {
+            return outcome;
+        };
+        let machine = self.replicas[r].machine;
+        let inst = self.replicas[r].inst;
+        let stamped = block_time(block.payload().as_slice());
+        let sensitive = self.amx.as_ref().map_or_else(
+            || payload_due(block.payload().as_slice()),
+            |amx| {
+                inst == 0
+                    && amx.exec_of(inst, &result).is_some_and(|execution| {
+                        execution.records.iter().any(|record| {
+                            matches!(
+                                record,
+                                crate::sim::amx::Record::Begin { .. }
+                                    | crate::sim::amx::Record::Decision { .. }
+                            )
+                        })
+                    })
+            },
+        );
+        let owner = iroha_allocation::shared::Shared::new(
+            SimPrepareAdmission {
+                instance: block.header().instance,
+                epoch: block.header().epoch,
+                height: block.header().height,
+                block_hash: bh,
+                result,
+                block_time_ms: stamped.unwrap_or(0),
+                max_lag_ms: guard.due_work_max_lag_ms,
+                sensitive: sensitive && stamped.is_some() && !self.machines[machine].byz,
+                wall: Arc::clone(&guard.signing_walls[machine]),
+            },
+            (),
+        );
+        ExecOutcome::Valid {
+            result,
+            admission: ExecutionAdmission::from_owner(
+                owner.project::<dyn PrepareAdmission>(|value| value),
+            ),
+        }
+    }
+
     /// Original local certified parent and transaction floors, without consulting a wall clock.
     pub(super) fn builder_clock_floor(&self, r: usize, height: u64, payload: &[u8]) -> Option<u64> {
         if self.clock_guard.is_none() || payload.is_empty() {
@@ -483,6 +600,7 @@ impl World {
             .and_then(|guard| guard.wall_offsets.get_mut(m))
         {
             *slot = offset;
+            self.refresh_signing_walls();
             self.trace(m, format!("wall clock offset {offset} ms"));
             for r in 0..self.replicas.len() {
                 if self.replicas[r].machine == m
@@ -541,7 +659,7 @@ impl World {
     /// honest executor that refuses an uncertified execution. A certified execution skips both
     /// rules (recorded as exempt). Byzantine executors, blocks without a block time and worlds
     /// without a clock guard are never refused.
-    pub(super) fn clock_guard_refusal(
+    pub(in crate::sim) fn clock_guard_refusal(
         &mut self,
         r: usize,
         block: &AvailableBody,

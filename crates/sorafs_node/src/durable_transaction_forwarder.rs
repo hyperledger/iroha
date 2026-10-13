@@ -460,52 +460,97 @@ pub(crate) struct CheckpointWriterGuard {
 }
 impl CheckpointWriterGuard {
     pub(crate) fn acquire(path: &Path) -> Result<Self, CheckpointStoreError> {
-        let process_guard = CheckpointProcessGuard::acquire(path)?;
-        let before_open = match fs::symlink_metadata(path) {
-            Ok(metadata) => {
-                validate_regular_file_metadata(&metadata, u64::MAX, true)?;
-                Some(metadata)
+        // Preserve the fail-closed error categories while retaining enough local diagnostics
+        // to distinguish an OS failure from a metadata race during process restart. Never log
+        // checkpoint paths or contents here: every stage label is a static protocol operation.
+        let mut stage = "acquire process registry";
+        let mut os_error = None;
+        let result = (|| {
+            let process_guard = CheckpointProcessGuard::acquire(path)?;
+            stage = "inspect lock before open";
+            let before_open = match fs::symlink_metadata(path) {
+                Ok(metadata) => {
+                    validate_lock_file_metadata(&metadata)?;
+                    Some(metadata)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    os_error = error.raw_os_error();
+                    return Err(CheckpointStoreError::Io);
+                }
+            };
+            stage = "configure direct lock open";
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create(true);
+            #[cfg(unix)]
+            options.mode(0o600);
+            configure_direct_file_open(&mut options)?;
+            stage = "open lock";
+            let file = options.open(path).map_err(|error| {
+                os_error = error.raw_os_error();
+                CheckpointStoreError::Io
+            })?;
+            stage = "inspect opened lock";
+            let opened = file.metadata().map_err(|error| {
+                os_error = error.raw_os_error();
+                CheckpointStoreError::Io
+            })?;
+            validate_lock_file_metadata(&opened)?;
+            stage = "compare lock before and after open";
+            if before_open
+                .as_ref()
+                .is_some_and(|before| !lock_metadata_unchanged(before, &opened))
+            {
+                return Err(CheckpointStoreError::Io);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => return Err(CheckpointStoreError::Io),
-        };
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        configure_direct_file_open(&mut options)?;
-        let file = options.open(path).map_err(|_| CheckpointStoreError::Io)?;
-        let opened = file.metadata().map_err(|_| CheckpointStoreError::Io)?;
-        validate_regular_file_metadata(&opened, u64::MAX, true)?;
-        if before_open
-            .as_ref()
-            .is_some_and(|before| !file_metadata_unchanged(before, &opened))
-        {
-            return Err(CheckpointStoreError::Io);
+            stage = "inspect linked lock";
+            let linked = fs::symlink_metadata(path).map_err(|error| {
+                os_error = error.raw_os_error();
+                CheckpointStoreError::Io
+            })?;
+            validate_lock_file_metadata(&linked)?;
+            stage = "compare opened and linked lock";
+            if !lock_metadata_unchanged(&opened, &linked) {
+                return Err(CheckpointStoreError::Io);
+            }
+            stage = "acquire operating-system lock";
+            match file.try_lock() {
+                Ok(()) => {}
+                Err(fs::TryLockError::WouldBlock) => return Err(CheckpointStoreError::Busy),
+                Err(fs::TryLockError::Error(error)) => {
+                    os_error = error.raw_os_error();
+                    return Err(CheckpointStoreError::Io);
+                }
+            }
+            stage = "inspect acquired lock handle";
+            let locked_file = file.metadata().map_err(|error| {
+                os_error = error.raw_os_error();
+                CheckpointStoreError::Io
+            })?;
+            stage = "inspect acquired lock path";
+            let locked_path = fs::symlink_metadata(path).map_err(|error| {
+                os_error = error.raw_os_error();
+                CheckpointStoreError::Io
+            })?;
+            stage = "validate acquired lock handle";
+            validate_lock_file_metadata(&locked_file)?;
+            stage = "validate acquired lock path";
+            validate_lock_file_metadata(&locked_path)?;
+            stage = "compare lock identity after acquisition";
+            if !lock_metadata_unchanged(&opened, &locked_file)
+                || !lock_metadata_unchanged(&opened, &locked_path)
+            {
+                return Err(CheckpointStoreError::Io);
+            }
+            Ok(Self {
+                _process_guard: process_guard,
+                _file: file,
+            })
+        })();
+        if matches!(&result, Err(CheckpointStoreError::Io)) {
+            iroha_logger::warn!(stage, ?os_error, "checkpoint writer acquisition failed");
         }
-        let linked = fs::symlink_metadata(path).map_err(|_| CheckpointStoreError::Io)?;
-        validate_regular_file_metadata(&linked, u64::MAX, true)?;
-        if !file_metadata_unchanged(&opened, &linked) {
-            return Err(CheckpointStoreError::Io);
-        }
-        match file.try_lock() {
-            Ok(()) => {}
-            Err(fs::TryLockError::WouldBlock) => return Err(CheckpointStoreError::Busy),
-            Err(fs::TryLockError::Error(_)) => return Err(CheckpointStoreError::Io),
-        }
-        let locked_file = file.metadata().map_err(|_| CheckpointStoreError::Io)?;
-        let locked_path = fs::symlink_metadata(path).map_err(|_| CheckpointStoreError::Io)?;
-        validate_regular_file_metadata(&locked_file, u64::MAX, true)?;
-        validate_regular_file_metadata(&locked_path, u64::MAX, true)?;
-        if !file_metadata_unchanged(&opened, &locked_file)
-            || !file_metadata_unchanged(&opened, &locked_path)
-        {
-            return Err(CheckpointStoreError::Io);
-        }
-        Ok(Self {
-            _process_guard: process_guard,
-            _file: file,
-        })
+        result
     }
 }
 struct CheckpointProcessGuard {
@@ -844,6 +889,37 @@ fn same_file_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
 fn same_file_identity(_left: &fs::Metadata, _right: &fs::Metadata) -> bool {
     false
 }
+// A lock sentinel carries no checkpoint content. Its authority is the exclusive
+// OS lock on one direct, private, empty, singly linked inode. Metadata-only host
+// bookkeeping (including Darwin provenance xattrs) must not replace that identity
+// with the immutable checkpoint-content timestamp predicate below.
+fn validate_lock_file_metadata(metadata: &fs::Metadata) -> Result<(), CheckpointStoreError> {
+    validate_regular_file_metadata(metadata, u64::MAX, true)?;
+    if metadata.len() != 0 {
+        return Err(CheckpointStoreError::Io);
+    }
+    Ok(())
+}
+fn lock_metadata_unchanged(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    if validate_lock_file_metadata(left).is_err()
+        || validate_lock_file_metadata(right).is_err()
+        || !same_file_identity(left, right)
+    {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        left.uid() == right.uid() && left.gid() == right.gid() && left.mode() == right.mode()
+    }
+    #[cfg(windows)]
+    {
+        left.file_attributes() == right.file_attributes()
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        false
+    }
+}
 #[cfg(unix)]
 fn file_metadata_unchanged(left: &fs::Metadata, right: &fs::Metadata) -> bool {
     same_file_identity(left, right)
@@ -894,6 +970,101 @@ mod tests {
     fn private_directory(path: &Path) {
         ensure_private_state_directory(path).expect("create private state directory");
     }
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_lock_same_inode_metadata_change_preserves_writer_authority() {
+        let directory = TempDir::new().expect("temporary directory");
+        private_directory(directory.path());
+        let path = directory.path().join("checkpoint.lock");
+        drop(CheckpointWriterGuard::acquire(&path).expect("create original sentinel"));
+        let before = fs::symlink_metadata(&path).expect("original pre-open inspection");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        // A metadata-only change is deterministic even on coarse timestamp filesystems.
+        // No checkpoint bytes are stored in this sentinel. The chosen mtime differs from
+        // creation, while inode, length, ownership, link count and permissions stay exact.
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1))
+            .expect("change sentinel metadata only between inspection and open");
+        drop(file);
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).mode(0o600);
+        configure_direct_file_open(&mut options).unwrap();
+        let opened = options.open(&path).expect("same original sentinel");
+        let after = opened.metadata().unwrap();
+        assert!(same_file_identity(&before, &after));
+        assert!(
+            !file_metadata_unchanged(&before, &after),
+            "immutable checkpoint byte readers must still reject changed timestamps"
+        );
+        assert!(
+            lock_metadata_unchanged(&before, &after),
+            "metadata-only changes must not strand the same safe empty sentinel"
+        );
+        let held = CheckpointWriterGuard::acquire(&path).expect("unchanged writer authority");
+        assert!(
+            matches!(opened.try_lock(), Err(fs::TryLockError::WouldBlock)),
+            "writer exclusion still belongs to the original inode's operating-system lock"
+        );
+        drop(held);
+        opened
+            .try_lock()
+            .expect("same inode becomes available only after owner drop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_lock_metadata_predicate_rejects_replacement_and_unsafe_sentinels() {
+        let directory = TempDir::new().expect("temporary directory");
+        private_directory(directory.path());
+        let path = directory.path().join("checkpoint.lock");
+        drop(CheckpointWriterGuard::acquire(&path).unwrap());
+        let original = fs::symlink_metadata(&path).unwrap();
+        let displaced = directory.path().join("displaced.lock");
+        fs::rename(&path, &displaced).unwrap();
+        drop(CheckpointWriterGuard::acquire(&path).unwrap());
+        let replacement = fs::symlink_metadata(&path).unwrap();
+        assert!(!lock_metadata_unchanged(&original, &replacement));
+        for contents in [b"x".as_slice(), b"unexpected checkpoint content".as_slice()] {
+            fs::write(&path, contents).unwrap();
+            assert!(
+                matches!(
+                    CheckpointWriterGuard::acquire(&path),
+                    Err(CheckpointStoreError::Io)
+                ),
+                "a lock sentinel never carries checkpoint data"
+            );
+        }
+        fs::write(&path, []).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            CheckpointWriterGuard::acquire(&path),
+            Err(CheckpointStoreError::Io)
+        ));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = directory.path().join("alias.lock");
+        fs::hard_link(&path, &alias).unwrap();
+        assert!(matches!(
+            CheckpointWriterGuard::acquire(&path),
+            Err(CheckpointStoreError::Io)
+        ));
+        fs::remove_file(&alias).unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&displaced, &path).unwrap();
+        assert!(matches!(
+            CheckpointWriterGuard::acquire(&path),
+            Err(CheckpointStoreError::Io)
+        ));
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(matches!(
+            CheckpointWriterGuard::acquire(&path),
+            Err(CheckpointStoreError::Io)
+        ));
+    }
+
     fn assert_distinct_directory_identities() {
         let outer = TempDir::new().expect("temporary directory");
         let first = outer.path().join("first");
@@ -1016,6 +1187,90 @@ mod tests {
         drop(CheckpointWriterGuard::acquire(&alias).expect("released alias is reusable"));
         drop(CheckpointWriterGuard::acquire(&first_path).expect("released path is reusable"));
     }
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn checkpoint_writer_reopens_and_preserves_custody_across_processes() {
+        let directory = TempDir::new().expect("temporary directory");
+        private_directory(directory.path());
+        let lock_path = directory.path().join("checkpoint.lock");
+        let executable = std::env::current_exe().expect("test executable");
+        let run_probe = |mode: &str| {
+            let output = std::process::Command::new(&executable)
+                .args([
+                    "durable_transaction_forwarder::tests::checkpoint_writer_process_probe",
+                    "--exact",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("SORAFS_CHECKPOINT_TEST_ROOT", directory.path())
+                .env("SORAFS_CHECKPOINT_TEST_MODE", mode)
+                .output()
+                .expect("run independent checkpoint process");
+            assert!(
+                output.status.success(),
+                "checkpoint process {mode}: stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "the independent checkpoint probe must actually execute"
+            );
+        };
+        let held = CheckpointWriterGuard::acquire(&lock_path).expect("hold lock in parent");
+        run_probe("busy");
+        drop(held);
+        run_probe("create");
+        let identity = fs::symlink_metadata(&lock_path).expect("original lock identity");
+        for _ in 0..2 {
+            run_probe("resume");
+            assert!(lock_metadata_unchanged(
+                &identity,
+                &fs::symlink_metadata(&lock_path).expect("retained lock identity")
+            ));
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    #[ignore = "child process probe launched by checkpoint_writer_reopens_and_preserves_custody_across_processes"]
+    fn checkpoint_writer_process_probe() {
+        let root = PathBuf::from(
+            std::env::var_os("SORAFS_CHECKPOINT_TEST_ROOT").expect("parent supplies state root"),
+        );
+        let mode =
+            std::env::var("SORAFS_CHECKPOINT_TEST_MODE").expect("parent supplies probe mode");
+        if mode == "busy" {
+            assert!(matches!(
+                CheckpointWriterGuard::acquire(&root.join("checkpoint.lock")),
+                Err(CheckpointStoreError::Busy)
+            ));
+            return;
+        }
+        assert!(matches!(mode.as_str(), "create" | "resume"));
+        let store = AtomicCheckpointStore::new(&root, "checkpoint.to", "checkpoint.lock", 1024)
+            .expect("reopen checkpoint store in an independent process");
+        let (bytes, fingerprint) = store.load_bytes().expect("load retained checkpoint");
+        if mode == "create" {
+            assert_eq!(bytes, None);
+        } else {
+            assert_eq!(bytes.as_deref(), Some(&b"retained custody"[..]));
+        }
+        store
+            .commit_bytes(b"retained custody", fingerprint)
+            .expect("persist custody without replacing the writer lock");
+        for _ in 0..16 {
+            assert_eq!(
+                store
+                    .load_bytes()
+                    .expect("repeated cold lock acquisition")
+                    .0
+                    .as_deref(),
+                Some(&b"retained custody"[..])
+            );
+        }
+    }
+
     #[cfg(any(unix, windows))]
     #[test]
     fn checkpoint_store_replaces_existing_destination() {

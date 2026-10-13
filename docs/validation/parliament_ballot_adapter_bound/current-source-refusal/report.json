@@ -1,0 +1,14 @@
+{
+  "complete_workspace_certificate": false,
+  "failure": "ValueError: inherited source/tool input changed: /Users/mtakemiya/dev/iroha/Cargo.lock",
+  "input_changes": {},
+  "input_sha256": {
+    "/Users/mtakemiya/dev/iroha/scripts/parliament_ballot_adapter_bound.py": "b63967416926cbd4f52bed855c7e749cf11d572416006d7b8bd9a899eb5ca138",
+    "/Users/mtakemiya/dev/iroha/scripts/tests/parliament_ballot_adapter_bound_test.py": "fd50dc20a211e17bc1cc3361a3129b1e11b36e354e17b088a6af128c18047cdd"
+  },
+  "modes": {},
+  "physical_cost_calibrated": false,
+  "profile_qualified": false,
+  "schema": "parliament-adapter-bound-v1",
+  "verdict": "UNKNOWN"
+}

@@ -36,8 +36,9 @@
 //! **O-AMX** walks every instance's committed reference chain (the first honest commit of each
 //! height, [`super::oracle::Oracle::refs`]) and checks: at most one `Begin`, one `Decision` and,
 //! per participant, one `Prepared` and one settlement per transaction; `G` records `Commit`
-//! only at a height `≤ d` with a committed `Yes` from every participant, `Abort` before `d + 1`
-//! only on a committed `No`, and decides every transaction by `d + 1`; a dataspace applies a
+//! only at a height `≤ d` and before the signed time expiry with a committed `Yes` from every
+//! participant. An Abort requires a committed `No` or a due height/time; the height fallback
+//! still decides every transaction by `d + 1`. A dataspace applies a
 //! `Yes` escrow only on `G`'s `Commit` and releases it only on `G`'s `Abort` (an escrow leaves
 //! only through a settlement with a verified decision proof); every dataspace ledger moves only
 //! by its escrows and settlements; and every transaction `G` decided at least
@@ -54,7 +55,7 @@ use std::{
 
 use super::{
     crypto::SimCrypto,
-    driver::{Clock, block_exec, block_time, decode_txs, encode_tx_with_due},
+    driver::{block_exec, block_time, decode_txs, encode_tx_with_due},
     world::{Inst, World},
 };
 use crate::{
@@ -1220,7 +1221,7 @@ impl AmxWorld {
         block: &AvailableBody,
         base: ExecOutcome,
     ) -> ExecOutcome {
-        let ExecOutcome::Valid(base) = base else {
+        let ExecOutcome::Valid { result: base, .. } = base else {
             return base;
         };
         let Some(parent) = self.exec_of(inst, parent) else {
@@ -1251,7 +1252,7 @@ impl AmxWorld {
                     records,
                 })
             });
-        ExecOutcome::Valid(result)
+        crate::testing::valid_execution(result)
     }
 
     /// The application's state transition of one block: the block's inputs in payload order,
@@ -1426,7 +1427,11 @@ impl World {
             .amx
             .as_ref()
             .and_then(|amx| amx.inputs.get(&id))
-            .is_some_and(|(_, input)| matches!(input, Input::Expire(_)));
+            .is_some_and(|(_, input)| {
+                matches!(input, Input::Expire(_))
+                    || (!cfg!(sumeragi_mutation = "MX15")
+                        && matches!(input, Input::Begin(_) | Input::Vote(_)))
+            });
         let tx = encode_tx_with_due(id, false, due, INPUT_PAD);
         for r in 0..self.replicas.len() {
             let machine = self.replicas[r].machine;
@@ -1442,6 +1447,9 @@ impl World {
     /// The client: a new transaction on `G` with a short or long deadline.
     fn amx_client(&mut self) {
         let now = self.now;
+        // The toy client uses machine 0's wall clock, not the event scheduler's
+        // elapsed coordinate. Only the certified block stamp decides validity.
+        let authored_at_ms = u64::try_from(self.wall_ms(0)).unwrap_or(0);
         let dataspaces = self.instances.len().saturating_sub(1);
         let g_height = self.oracle.refs[GLOBAL]
             .last_key_value()
@@ -1483,11 +1491,7 @@ impl World {
         let tx = AmxTx {
             legs,
             deadline,
-            // The external client uses the wall-time epoch of certified block timestamps;
-            // `now` alone is only the simulator's zero-based scheduling time.
-            expires_at_ms: Clock::default()
-                .local(now)
-                .saturating_add(config.expires_after_ms),
+            expires_at_ms: authored_at_ms.saturating_add(config.expires_after_ms),
             nonce: amx.nonce,
         };
         amx.next_client = now + rng.range(config.every.0, config.every.1);

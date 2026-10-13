@@ -1,6 +1,8 @@
 //! Actual owned, borrowed and nested private instruction boundaries.
 
+mod amx_approvals;
 mod amx_roles;
+mod role_removal;
 
 use super::*;
 use crate::{
@@ -448,6 +450,12 @@ fn original_private_instruction_routing_refusal_latches_before_scope_verdict() {
         LiveQueryStore::start_test(),
     );
     let ds = crate::sns::dataspace_id_for_sns_alias("alpha").unwrap();
+    let scope = SumeragiRootScope::Dataspace {
+        parent_network_id: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
+            b"parent",
+        ))),
+        dataspace_id: ds,
+    };
     let instruction: InstructionBox = Register::domain(Domain::new(
         iroha_model_base::domain::DomainId::try_new("bank", "alpha").unwrap(),
     ))
@@ -456,11 +464,11 @@ fn original_private_instruction_routing_refusal_latches_before_scope_verdict() {
     {
         let mut tx = block.transaction();
         bind_scope(&mut tx, ds);
-        assert!(ensure_private_instruction(&instruction, &mut tx, ds, 0).is_ok());
+        assert!(ensure_private_instruction(&instruction, &mut tx, scope, ds, 0).is_ok());
         assert!(!tx.is_execution_deferred());
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
-            || assert!(ensure_private_instruction(&instruction, &mut tx, ds, 0).is_err()),
+            || assert!(ensure_private_instruction(&instruction, &mut tx, scope, ds, 0).is_err()),
         );
         assert_eq!(
             tx.borrow_execution_deferral().unwrap().reason(),
@@ -470,6 +478,6 @@ fn original_private_instruction_routing_refusal_latches_before_scope_verdict() {
     }
     let mut retry = block.transaction();
     bind_scope(&mut retry, ds);
-    assert!(ensure_private_instruction(&instruction, &mut retry, ds, 0).is_ok());
+    assert!(ensure_private_instruction(&instruction, &mut retry, scope, ds, 0).is_ok());
     assert!(!retry.is_execution_deferred());
 }

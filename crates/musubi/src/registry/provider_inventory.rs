@@ -55,6 +55,7 @@ impl RegistrySigningClientV1 {
             key_pair: original.key_pair,
             basic_auth: None,
             api_token: None,
+            http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
             torii_api_url: endpoint.clone(),
             torii_request_timeout: remaining,
             transaction_ttl: original.transaction_ttl.unwrap_or(Duration::from_secs(60)),

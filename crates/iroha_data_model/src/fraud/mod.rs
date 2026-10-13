@@ -1,8 +1,9 @@
-//! Fraud detection and risk-scoring data model.
+//! Fraud detection, assessment envelopes and committed admission policy.
 //!
-//! The types in this module capture the ledger-facing view of the PSP (payment service provider)
-//! fraud pipeline. They are intentionally lean to keep Norito compatibility and to unblock SDK
-//! scaffolding across languages. Further fields can be added once the services mature; any breaking
-//! changes must be accompanied by migrations and documented in `norito.md`.
+//! These first-release V1 types carry exact ledger-facing assessment evidence.
+//! The committed admission policy is distinct from external scoring and local
+//! transport; neither a decoded assessment nor a service response grants authority.
+pub mod admission_policy;
+pub use admission_policy::*;
 pub mod types;
 pub use types::*;

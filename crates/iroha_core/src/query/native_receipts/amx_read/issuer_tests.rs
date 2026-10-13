@@ -65,6 +65,7 @@ fn committed_source_with_npos(
         })
         .collect();
     let authority = config.genesis_key.clone();
+    let original_cadence_ms = config.genesis_block_cadence_ms.get();
     let mut chain = CertifiedTestChain::start(config).unwrap();
     let transaction = AmxTransactionV1 {
         legs: [21, 22]
@@ -75,6 +76,12 @@ fn committed_source_with_npos(
             })
             .collect(),
         deadline: 3,
+        expires_at_ms: 2_000_u64
+            .checked_add(
+                iroha_data_model::sumeragi_amx::amx_max_time_window_ms(original_cadence_ms)
+                    .unwrap(),
+            )
+            .unwrap(),
         nonce: [7; 32],
     };
     let tx = transaction.id().unwrap();

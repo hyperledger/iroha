@@ -828,6 +828,9 @@ pub(crate) fn is_permission_account_associated(
     {
         return account_subject_matches(&permission.account, account_id);
     }
+    if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+        return account_subject_matches(permission.approval.debited_asset.account(), account_id);
+    }
     if let Ok(permission) =
         iroha_executor_data_model::permission::settlement::CanExecuteSettlement::try_from(
             permission,
@@ -999,6 +1002,9 @@ fn is_permission_asset_definition_associated(
         iroha_executor_data_model::permission::asset::CanSetAssetHoldingLimit::try_from(permission)
     {
         return &permission.asset_definition == asset_definition_id;
+    }
+    if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+        return permission.approval.debited_asset.definition() == asset_definition_id;
     }
     if let Ok(permission) =
         iroha_executor_data_model::permission::settlement::CanExecuteSettlement::try_from(
@@ -3436,5 +3442,49 @@ fn is_bls_algorithm(algo: Algorithm) -> bool {
     {
         let _ = algo;
         false
+    }
+}
+
+/// AMX consent cleanup follows the exact debited account and asset definition.
+#[cfg(test)]
+mod amx_permission_association_tests {
+    use super::*;
+    use iroha_crypto::{Hash, HashOf};
+    use iroha_data_model::{NetworkId, asset::AssetBalanceScope, sumeragi_amx::AmxDebitApprovalV1};
+    use iroha_test_samples::{ALICE_ID, BOB_ID};
+
+    fn approval_permission() -> (Permission, AssetDefinitionId) {
+        let definition = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("bank", "universal").unwrap(),
+            "cash".parse().unwrap(),
+        );
+        let dataspace = DataSpaceId::new(7);
+        let approval = AmxDebitApprovalV1 {
+            global_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"global"))),
+            participant_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"bank"))),
+            participant_instance: [1; 32],
+            dataspace,
+            transaction_id: [2; 32],
+            debited_asset: AssetId::with_scope(definition.clone(), ALICE_ID.clone(), AssetBalanceScope::Dataspace(dataspace)),
+        };
+        (approval.permission().unwrap(), definition)
+    }
+
+    #[test]
+    fn amx_permission_is_associated_only_with_its_debited_account() {
+        let (permission, _) = approval_permission();
+        assert!(is_permission_account_associated(&permission, &ALICE_ID));
+        assert!(!is_permission_account_associated(&permission, &BOB_ID));
+    }
+
+    #[test]
+    fn amx_permission_is_associated_only_with_its_debited_definition() {
+        let (permission, definition) = approval_permission();
+        let other = AssetDefinitionId::derive_from_components(
+            DomainId::try_new("bank", "universal").unwrap(),
+            "other".parse().unwrap(),
+        );
+        assert!(is_permission_asset_definition_associated(&permission, &definition));
+        assert!(!is_permission_asset_definition_associated(&permission, &other));
     }
 }

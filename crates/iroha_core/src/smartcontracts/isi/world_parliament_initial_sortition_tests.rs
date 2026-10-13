@@ -403,6 +403,10 @@ fn parliament_initial_sortition_pulse_overflow_cannot_mutate_the_attempt() {
 /// identifier other than the one stored for the slot.
 #[test]
 fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after_rotation() {
+    const UNKNOWN: &str = "unknown finalized beacon pulse";
+    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
+    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
+
     use crate::governance::parliament::ParliamentPlanWorldV1 as _;
     use iroha_data_model::{
         consensus::{FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconChainAnchorV1},
@@ -412,9 +416,6 @@ fn parliament_sortition_consumes_the_slot_pulse_under_its_retained_session_after
     const ROTATION_HEIGHT: u64 = 10;
     const EXECUTION_HEIGHT: u64 = 12;
 
-    const UNKNOWN: &str = "unknown finalized beacon pulse";
-    const MISMATCH: &str = "does not match the persisted finalized beacon pulse";
-    const UNVERIFIED: &str = "failed public DKG or final-signature verification";
     let state = blank_test_state();
     let block =
         new_dummy_block_at_height(NonZeroU64::new(EXECUTION_HEIGHT).expect("nonzero height"));

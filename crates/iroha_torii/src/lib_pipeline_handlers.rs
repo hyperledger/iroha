@@ -1131,6 +1131,12 @@ fn read_pipeline_transaction_carrier(
     app: &SharedAppState,
     anchor: CanonicalTransactionAnchor,
 ) -> Result<AuthenticatedPipelineCarrier, Error> {
+    read_pipeline_execution_carrier(app, anchor.height)
+}
+fn read_pipeline_execution_carrier(
+    app: &SharedAppState,
+    height: NonZeroUsize,
+) -> Result<AuthenticatedPipelineCarrier, Error> {
     let owner = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
     let work = routing::app_query_limits().max_fetch_size;
     let carrier = owner.scope(|| {
@@ -1138,16 +1144,12 @@ fn read_pipeline_transaction_carrier(
         let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
         // G1 still requires its actual certified H2. Only successors use the original
         // State/checkpoint ancestry. Refusal never selects another reader or pool.
-        if anchor.height == NonZeroUsize::MIN {
-            app.state.read_finalized_execution_carrier_with_read_budget(
-                anchor.height,
-                work,
-                bytes,
-                &budget,
-            )
+        if height == NonZeroUsize::MIN {
+            app.state
+                .read_finalized_execution_carrier_with_read_budget(height, work, bytes, &budget)
         } else {
             app.state
-                .read_executed_carrier_from_checkpoints(anchor.height, work, bytes, &budget)
+                .read_executed_carrier_from_checkpoints(height, work, bytes, &budget)
         }
         .map_err(crate::canonical_history::query_attempt_error)
     })?;

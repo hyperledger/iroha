@@ -6,7 +6,7 @@ use super::{
     PreparedLocalnet, Result,
     native_operation::{
         MAX_CHECKPOINT_BYTES, ManagedTransactionFinality, Terms, checkpoint_bytes, encode, invalid,
-        now_ms, read_optional, require_deadline, require_empty,
+        now_ms, read_optional, require_deadline,
     },
     provider_economics,
     service_authority::{CheckpointImportScope, ProviderPurpose, ServiceAuthority},
@@ -194,7 +194,7 @@ impl ManagedProviderCapacity {
     ) -> Result<ManagedProviderCapacityProgress> {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         let original = self.select_intent(&directory, policy, funding, options.deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open capacity wallet"))?;
@@ -209,6 +209,20 @@ impl ManagedProviderCapacity {
         funding: Option<FundingSelection<'_>>,
         deadline: Instant,
     ) -> Result<Original> {
+        journal::recover_intent(directory, |original| {
+            self.validate_original(original)?;
+            original.matches_intent(policy)?;
+            if let Some(funding) = &funding {
+                let verifier = self.authority.decode_checkpoint(&original.checkpoint)?;
+                funding.validate(
+                    &original.partition,
+                    &original.credit,
+                    original.previous_capacity.is_some(),
+                    verifier.checkpoint().height(),
+                )?;
+            }
+            Ok(())
+        })?;
         if let Some(original) = journal::read_intent(directory)? {
             self.validate_original(&original)?;
             original.matches_intent(policy)?;
@@ -223,7 +237,7 @@ impl ManagedProviderCapacity {
             }
             return Ok(original);
         }
-        require_empty(directory)?;
+        attempts::metadata::require_unselected(directory)?;
         let (verifier, current) = self.observe(policy, deadline)?;
         self.retain_observed_original(policy, &current, &verifier, funding)
     }
@@ -251,7 +265,7 @@ impl ManagedProviderCapacity {
             credit,
             minimum_height,
         };
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         let original = self.select_intent(&directory, policy, Some(funding), deadline)?;
         let account = AccountService::new(self.authority.issuer_operator_config()?)
             .map_err(|_| invalid("cannot open capacity wallet"))?;
@@ -367,7 +381,7 @@ impl ManagedProviderCapacity {
             checkpoint: checkpoint_bytes(verifier)?,
         };
         self.validate_original(&original)?;
-        let directory = self.authority.directory.ensure_child("declare")?;
+        let directory = attempts::metadata::ensure_operation(&self.authority.directory, "declare")?;
         journal::publish_intent(&directory, &original)?;
         Ok(original)
     }
@@ -443,7 +457,7 @@ impl ManagedProviderCapacity {
             return Ok(None);
         };
         let Some(original) = journal::read_intent(&directory)? else {
-            require_empty(&directory)?;
+            attempts::metadata::require_unselected(&directory)?;
             return Ok(None);
         };
         self.validate_original(&original)?;

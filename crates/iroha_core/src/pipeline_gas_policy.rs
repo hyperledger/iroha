@@ -1,4 +1,4 @@
-//! One MV owner for canonical parameters and validated pipeline fee/limit projections.
+//! One MV owner for canonical parameters and validated fee, limit and fraud projections.
 //!
 //! Views and block construction read this projection from committed parameters.
 //! A block freezes its predecessor's projection; execution never refreshes it
@@ -8,7 +8,6 @@
 use std::{collections::BTreeSet, str::FromStr as _};
 
 use iroha_config::parameters::actual::{Gas, GasLiquidity, GasRate, GasVolatility};
-use iroha_data_model::pipeline_validity_policy::PipelineValidityPolicyV1;
 use iroha_data_model::{
     account::{
         AccountId,
@@ -17,9 +16,12 @@ use iroha_data_model::{
     asset::AssetDefinitionId,
     parameter::{CustomParameter, CustomParameterId, Parameters},
 };
+use iroha_data_model::{
+    fraud::FraudAdmissionPolicyV1, pipeline_validity_policy::PipelineValidityPolicyV1,
+};
 use iroha_primitives::{json::Json, numeric::Numeric};
 
-/// One MV value owning canonical parameters and validated pipeline fees and limits.
+/// One MV value owning canonical parameters and validated execution projections.
 ///
 /// Only `parameters` is serialized or committed. The derived fields are rebuilt
 /// on restore and changed atomically with their source; readers never decode.
@@ -28,6 +30,7 @@ pub struct StateParameters {
     parameters: Parameters,
     gas: Gas,
     pipeline: PipelineValidityPolicyV1,
+    fraud: FraudAdmissionPolicyV1,
 }
 
 impl Default for StateParameters {
@@ -36,6 +39,7 @@ impl Default for StateParameters {
             parameters: Parameters::default(),
             gas: Gas::default(),
             pipeline: PipelineValidityPolicyV1::protocol_default(),
+            fraud: FraudAdmissionPolicyV1::protocol_default(),
         }
     }
 }
@@ -57,10 +61,17 @@ impl TryFrom<Parameters> for StateParameters {
             .map(|custom| pipeline_policy(custom.payload()))
             .transpose()?
             .unwrap_or_else(PipelineValidityPolicyV1::protocol_default);
+        let fraud = parameters
+            .custom()
+            .get(&FraudAdmissionPolicyV1::parameter_id())
+            .map(|custom| fraud_policy(custom.payload()))
+            .transpose()?
+            .unwrap_or_else(FraudAdmissionPolicyV1::protocol_default);
         Ok(Self {
             parameters,
             gas,
             pipeline,
+            fraud,
         })
     }
 }
@@ -76,14 +87,20 @@ impl StateParameters {
         &self.pipeline
     }
 
+    /// Borrow assessment admission from this same validated parameters version.
+    pub fn fraud_policy(&self) -> &FraudAdmissionPolicyV1 {
+        &self.fraud
+    }
+
     /// Validate and atomically update one original parameter and its derived policies.
     ///
     /// Errors preserve the original decoder refusal and leave both values unchanged.
     ///
     /// # Errors
-    ///
-    /// Returns the decoding or validation error for a malformed custom gas or
-    /// pipeline policy parameter. The original parameters and policies remain unchanged.
+    /// Returns a Norito decode or validation error for malformed custom gas or
+    /// pipeline policy, including noncanonical or duplicate asset addresses,
+    /// invalid receiver identities, rates or execution limits. Both stored values
+    /// remain unchanged, and original decoder refusals are preserved.
     pub fn set_parameter(
         &mut self,
         parameter: iroha_data_model::parameter::Parameter,
@@ -104,6 +121,12 @@ impl StateParameters {
             let pipeline = pipeline_policy(custom.payload())?;
             self.parameters.set_parameter(parameter);
             self.pipeline = pipeline;
+        } else if let iroha_data_model::parameter::Parameter::Custom(custom) = &parameter
+            && custom.id().name().as_ref() == FraudAdmissionPolicyV1::PARAMETER_ID_STR
+        {
+            let fraud = fraud_policy(custom.payload())?;
+            self.parameters.set_parameter(parameter);
+            self.fraud = fraud;
         } else {
             // Other parameters cannot change these projections and need no decoding.
             self.parameters.set_parameter(parameter);
@@ -127,6 +150,9 @@ impl StateParameters {
             PipelineValidityPolicyV1::PARAMETER_ID_STR => {
                 self.pipeline = PipelineValidityPolicyV1::protocol_default();
             }
+            FraudAdmissionPolicyV1::PARAMETER_ID_STR => {
+                self.fraud = FraudAdmissionPolicyV1::protocol_default();
+            }
             _ => {}
         }
         previous
@@ -135,9 +161,9 @@ impl StateParameters {
     /// Replace the canonical input only after its entire projection validates.
     ///
     /// # Errors
-    ///
-    /// Returns the decoding or validation error for malformed gas or pipeline
-    /// policies in the replacement parameters, leaving this value unchanged.
+    /// Returns the original Norito decode or validation error if any supplied gas
+    /// or pipeline policy cannot form a valid projection. The existing owner
+    /// remains unchanged.
     pub fn replace(&mut self, parameters: Parameters) -> Result<(), norito::Error> {
         *self = Self::try_from(parameters)?;
         Ok(())
@@ -177,6 +203,14 @@ impl norito::json::JsonDeserialize for StateParameters {
     }
 }
 
+fn fraud_policy(payload: &Json) -> Result<FraudAdmissionPolicyV1, norito::Error> {
+    let policy = payload.try_into_any_norito::<FraudAdmissionPolicyV1>()?;
+    policy
+        .validate()
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
+    Ok(policy)
+}
+
 fn pipeline_policy(payload: &Json) -> Result<PipelineValidityPolicyV1, norito::Error> {
     let policy = payload.try_into_any_norito::<PipelineValidityPolicyV1>()?;
     policy
@@ -196,7 +230,10 @@ pub(crate) fn parameter_ids() -> [CustomParameterId; 3] {
 }
 
 #[derive(crate::json_macros::JsonDeserialize)]
-#[cfg_attr(test, derive(crate::json_macros::JsonSerialize))]
+#[cfg_attr(
+    any(test, feature = "iroha-core-tests"),
+    derive(crate::json_macros::JsonSerialize)
+)]
 #[norito(deny_unknown_fields)]
 struct CommittedGasRate {
     asset: String,
@@ -342,7 +379,7 @@ pub(crate) fn from_parameters(parameters: &Parameters) -> Result<Gas, norito::Er
 /// Explicit committed fields for a test's genesis or prepared fixture World.
 ///
 /// This helper authors parameters; it is never a runtime configuration fallback.
-#[cfg(test)]
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) fn parameters_for_testing(gas: Gas) -> [iroha_data_model::parameter::Parameter; 3] {
     use iroha_data_model::parameter::Parameter;
     let rates = gas
@@ -378,7 +415,8 @@ pub(crate) fn parameters_for_testing(gas: Gas) -> [iroha_data_model::parameter::
     let mut payloads = payloads.into_iter();
     parameter_ids().map(|id| {
         let parameter = CustomParameter::new(id, payloads.next().expect("three fee fields"));
-        validate_parameter(&parameter).expect("valid explicitly authored fixture fee policy");
+        apply_parameter(&mut Gas::default(), &parameter)
+            .expect("valid explicitly authored fixture fee policy");
         Parameter::Custom(parameter)
     })
 }

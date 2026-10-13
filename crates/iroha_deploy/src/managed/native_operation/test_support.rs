@@ -23,20 +23,53 @@ pub struct UnavailablePeers {
     stop: Arc<AtomicBool>,
     pub(crate) requests: Arc<Mutex<Vec<Request>>>,
     workers: Vec<JoinHandle<io::Result<()>>>,
+    loans: Vec<owned_listeners::ListenerLoan>,
 }
 
 impl UnavailablePeers {
     pub(crate) fn start(prepared: &PreparedLocalnet) -> Self {
-        // Bind every endpoint before starting workers so a refused bind cannot strand a thread.
-        let mut listeners = Vec::with_capacity(prepared.peers.len());
-        for peer in &prepared.peers {
-            let url: url::Url = peer.torii_url.parse().unwrap();
-            assert_eq!(url.host_str(), Some("127.0.0.1"));
-            assert_eq!(url.scheme(), "http");
-            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, url.port().unwrap()))
-                .expect("bind exactly the generated peer endpoint");
+        let listeners: Vec<_> = prepared
+            .peers
+            .iter()
+            .map(|peer| {
+                let url: url::Url = peer.torii_url.parse().unwrap();
+                assert_eq!(url.host_str(), Some("127.0.0.1"));
+                assert_eq!(url.scheme(), "http");
+                let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, url.port().unwrap()))
+                    .expect("bind exactly the generated peer endpoint");
+                listener.set_nonblocking(true).unwrap();
+                listener
+            })
+            .collect();
+        Self::from_listeners(listeners, Vec::new())
+    }
+
+    pub(in crate::managed) fn start_owned(
+        prepared: &PreparedLocalnet,
+        owner: &owned_listeners::ReservedHttpListeners,
+    ) -> Self {
+        let endpoints: Vec<url::Url> = prepared
+            .peers
+            .iter()
+            .map(|peer| peer.torii_url.parse().unwrap())
+            .collect();
+        // Acquire and validate every exclusive loan before starting any worker.
+        let loans = owner.loan_all(&endpoints).unwrap();
+        let listeners = loans
+            .iter()
+            .map(|loan| loan.clone_listener().unwrap())
+            .collect();
+        Self::from_listeners(listeners, loans)
+    }
+
+    fn from_listeners(
+        listeners: Vec<TcpListener>,
+        loans: Vec<owned_listeners::ListenerLoan>,
+    ) -> Self {
+        // All listeners, including peers not used in native preparation, must be
+        // nonblocking before the first worker can run or require a natural join.
+        for listener in &listeners {
             listener.set_nonblocking(true).unwrap();
-            listeners.push(listener);
         }
         let capabilities = norito::json::to_vec(&norito::json!({
             "data_model_version": (iroha_data_model::DATA_MODEL_VERSION),
@@ -46,14 +79,17 @@ impl UnavailablePeers {
         .unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let workers = listeners
-            .into_iter()
-            .enumerate()
-            .map(|(peer, listener)| {
-                let stop = Arc::clone(&stop);
-                let requests = Arc::clone(&requests);
-                let capabilities = capabilities.clone();
-                thread::spawn(move || {
+        let mut server = Self {
+            stop,
+            requests,
+            workers: Vec::new(),
+            loans,
+        };
+        for (peer, listener) in listeners.into_iter().enumerate() {
+            let stop = Arc::clone(&server.stop);
+            let requests = Arc::clone(&server.requests);
+            let capabilities = capabilities.clone();
+            let worker = thread::Builder::new().spawn(move || {
                     while !stop.load(Ordering::SeqCst) {
                         match listener.accept() {
                             Ok((mut socket, _)) => {
@@ -87,23 +123,19 @@ impl UnavailablePeers {
                         }
                     }
                     Ok(())
-                })
-            })
-            .collect();
-        Self {
-            stop,
-            requests,
-            workers,
+                }).expect("spawn owned HTTP fixture worker");
+            server.workers.push(worker);
         }
+        server
     }
 
     pub(crate) fn finish(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        for worker in self.workers.drain(..) {
-            worker
-                .join()
-                .expect("HTTP fixture worker panicked")
-                .unwrap();
+        // Join the entire set even if one worker fails, before releasing any loan.
+        let results: Vec<_> = self.workers.drain(..).map(JoinHandle::join).collect();
+        self.loans.clear();
+        for result in results {
+            result.expect("HTTP fixture worker panicked").unwrap();
         }
     }
 }
@@ -114,8 +146,12 @@ impl Drop for UnavailablePeers {
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
+        self.loans.clear();
     }
 }
+
+#[path = "test_support/owned_listeners.rs"]
+pub(in crate::managed) mod owned_listeners;
 
 fn request_line(socket: &mut TcpStream) -> io::Result<(String, String)> {
     socket.set_read_timeout(Some(Duration::from_secs(2)))?;

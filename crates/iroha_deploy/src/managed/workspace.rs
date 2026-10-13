@@ -221,7 +221,8 @@ impl ManagedContext {
     /// not print parsing diagnostics that might contain a private key.
     ///
     /// # Errors
-    /// Rejects unsafe file custody, invalid configuration, or a changed signer/network/endpoint.
+    /// Rejects unsafe file custody, invalid configuration, or a changed signer, network, endpoint
+    /// or transport policy.
     pub fn load_client_config(&self) -> Result<Config> {
         let bytes = iroha_fs::read_private(&self.client_config, MAX_METADATA)?;
         let (config, _) =
@@ -238,9 +239,10 @@ impl ManagedContext {
             || config.network_id.to_string() != self.network_id
             || config.account.to_string() != self.account_id
             || config.torii_api_url.as_str() != self.torii_url
+            || config.http_transport_policy != iroha::config::HttpTransportPolicy::DirectLoopback
         {
             return Err(Error::Invalid(
-                "managed client identity or endpoint differs from its retained context".into(),
+                "managed client identity, endpoint, or transport policy differs from its retained context".into(),
             ));
         }
         Ok(())
@@ -505,6 +507,7 @@ mod tests {
 chain = "00000000-0000-0000-0000-000000000000"
 network_id = "hash:32C903E5B3497E34C2B844EBFE8A39C19E6CF8F95D44C1FFB8BA9DCB42F91149#A2F0"
 torii_url = "http://127.0.0.1:9/"
+http_transport_policy = "direct_loopback"
 [account]
 chain_discriminant = 753
 public_key = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03"
@@ -536,6 +539,21 @@ private_key = "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9
                 _ => changed.torii_url.push('x'),
             }
             assert!(changed.load_client_config().is_err(), "{field}");
+        }
+        for replacement in [
+            "http_transport_policy = \"ordinary\"",
+            "",
+            "http_transport_policy = \"unknown\"",
+        ] {
+            let changed = zeroize::Zeroizing::new(
+                std::str::from_utf8(source)
+                    .unwrap()
+                    .replace("http_transport_policy = \"direct_loopback\"", replacement),
+            );
+            private
+                .write_atomic("client.toml", changed.as_bytes(), PublishMode::Replace)
+                .unwrap();
+            assert!(context.load_client_config().is_err());
         }
         private
             .write_atomic(

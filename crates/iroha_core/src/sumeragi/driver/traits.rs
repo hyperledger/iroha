@@ -227,6 +227,18 @@ impl Clock for SystemClock {
 /// Original local resource owner retained with an unfinished publication.
 #[derive(Debug, thiserror::Error)]
 pub enum PublicationDeferral {
+    /// A completed provisional time-sensitive execution is too old for first Prepare.
+    #[error(
+        "stale due work: block {block_time_ms}ms, wall {observed_ms}ms, allowance {max_lag_ms}ms"
+    )]
+    StaleDueWork {
+        /// Exact original authenticated block timestamp.
+        block_time_ms: u64,
+        /// Fresh injected wall-clock observation.
+        observed_ms: u64,
+        /// Original committed parent allowance.
+        max_lag_ms: u64,
+    },
     /// The exact prepaid shared-control construction failed without a release-bearing owner.
     #[error(transparent)]
     SharedControl(iroha_allocation::PrepaidSharedError),
@@ -305,7 +317,7 @@ impl PublicationDeferral {
     /// Original pre-probe release observation which can permit this exact attempt to retry.
     pub fn release_wait(&self) -> Option<&iroha_allocation::release::ReleaseWait> {
         match self {
-            Self::SharedControl(_) => None,
+            Self::SharedControl(_) | Self::StaleDueWork { .. } => None,
             Self::Execution(original) => match original.allocation_refusal() {
                 Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) => {
                     Some(release)

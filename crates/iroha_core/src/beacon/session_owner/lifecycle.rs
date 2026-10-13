@@ -29,9 +29,8 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Every fallible graph/control operation completes before callers install the row.
     ///
     /// # Errors
-    ///
-    /// Returns an error for an invalid session transcript, binding, or lifecycle,
-    /// or if the original pool cannot admit or allocate its retained graph.
+    /// Rejects invalid session proofs or lifecycle ordering; preserves original graph and control
+    /// admission and allocation refusals.
     pub fn admit(
         source: &FinalizedGlobalThresholdBeaconKeySessionRecordV1,
         budget: &AllocationBudget,
@@ -55,9 +54,7 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Recheck only mutable lifecycle ordering; immutable transcript authenticity is sealed.
     ///
     /// # Errors
-    ///
-    /// Returns an error if activation precedes DKG finalization, retirement lacks
-    /// activation, or retirement is not strictly after activation.
+    /// Rejects activation before finalization, retirement without activation or nonincreasing retirement.
     pub fn validate(&self) -> Result<(), GlobalThresholdBeaconError> {
         validate_lifecycle(
             self.session.adaptive_dkg.finalized_at_height,
@@ -68,9 +65,8 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Activate at the exact committed height without cloning or revalidating public proofs.
     ///
     /// # Errors
-    ///
-    /// Returns an error for an invalid existing lifecycle, a retired key, a
-    /// height before finalization, or a conflicting prior activation height.
+    /// Rejects invalid lifecycle ordering, a retired session, activation before finalization or
+    /// a different previously committed activation height.
     pub fn activate(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         if self.retired_at_height.is_some()
@@ -92,9 +88,8 @@ impl RetainedFinalizedGlobalThresholdBeaconSessionV1 {
     /// Retire at a strictly later committed height while retaining the identical graph owner.
     ///
     /// # Errors
-    ///
-    /// Returns an error for an invalid or inactive lifecycle, a retirement at or
-    /// before activation, or a conflicting prior retirement height.
+    /// Rejects invalid lifecycle ordering, missing activation, nonincreasing retirement or
+    /// a different previously committed retirement height.
     pub fn retire(&mut self, height: u64) -> Result<(), GlobalThresholdBeaconError> {
         self.validate()?;
         let activated = self

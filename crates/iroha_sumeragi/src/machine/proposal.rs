@@ -273,7 +273,7 @@ impl Core {
         }
         match self.exec.get(&bh) {
             None => self.request_exec(bh, 0),
-            Some(ExecState::Valid(_) | ExecState::Invalid) => self.on_outcome(bh),
+            Some(ExecState::Valid { .. } | ExecState::Invalid) => self.on_outcome(bh),
             Some(ExecState::Pending { .. } | ExecState::RetryAt { .. }) => {}
         }
     }
@@ -347,13 +347,13 @@ impl Core {
         if bh == self.tip.block_hash && self.tip.exec_req == Some(req) {
             self.tip.exec_req = None;
             match outcome {
-                ExecOutcome::Valid(result) if *result == self.tip.result => {
+                ExecOutcome::Valid { result, .. } if *result == self.tip.result => {
                     self.tip.exec_ok = true;
                     if !self.awaiting && self.halted.is_none() {
                         self.maybe_execute();
                     }
                 }
-                ExecOutcome::Valid(_) | ExecOutcome::Invalid => {
+                ExecOutcome::Valid { .. } | ExecOutcome::Invalid => {
                     let view = self.tip.commit_qc.as_ref().map_or(0, |qc| qc.view);
                     self.local_fault(LocalFault::ExecutionMismatch {
                         height: self.tip.height,
@@ -369,7 +369,7 @@ impl Core {
             since,
             req: expected,
             attempt,
-        }) = self.exec.get(&bh).copied()
+        }) = self.exec.get(&bh).cloned()
         else {
             return;
         };
@@ -378,7 +378,18 @@ impl Core {
         }
         self.pm.record_exec(self.now.saturating_sub(since));
         let state = match outcome {
-            ExecOutcome::Valid(result) => ExecState::Valid(*result),
+            ExecOutcome::Valid { result, admission } if *result == admission.result() => {
+                ExecState::Valid {
+                    admission: admission.clone(),
+                }
+            }
+            ExecOutcome::Valid { .. } => {
+                self.local_fault(LocalFault::ExecutorFailed {
+                    height: self.height,
+                });
+                self.exec.remove(&bh);
+                return;
+            }
             ExecOutcome::Invalid => ExecState::Invalid,
             #[cfg(sumeragi_mutation = "MS36b")]
             ExecOutcome::Failed(_) => ExecState::Invalid,
@@ -404,7 +415,7 @@ impl Core {
     }
 
     /// Results a held `PrepareQC` certifies for `bh` (a re-proposal's `Q`, or the lock).
-    fn certified_results(&self, bh: Hash32) -> Vec<Hash32> {
+    pub(super) fn certified_results(&self, bh: Hash32) -> Vec<Hash32> {
         let mut out = Vec::new();
         if let Some(held) = self.proposal.as_ref().filter(|held| held.bh == bh) {
             out.extend(held.expected);
@@ -434,15 +445,19 @@ impl Core {
             #[cfg(sumeragi_mutation = "MS36a")]
             Some(ExecState::Invalid) => self.reject_payload(bh),
             #[cfg(sumeragi_mutation = "MS36a")]
-            Some(ExecState::Valid(r)) if certified.iter().any(|e| e != r) => {
+            Some(ExecState::Valid { admission })
+                if certified.iter().any(|e| *e != admission.result()) =>
+            {
                 self.reject_payload(bh)
             }
             // A certified block the local executor disagrees with: local only (SR36).
             Some(ExecState::Invalid) => self.local_fault(fault),
-            Some(ExecState::Valid(r)) if certified.iter().any(|e| e != r) => {
+            Some(ExecState::Valid { admission })
+                if certified.iter().any(|e| *e != admission.result()) =>
+            {
                 self.local_fault(fault);
             }
-            Some(ExecState::Valid(_)) => {
+            Some(ExecState::Valid { .. }) => {
                 self.try_prepare();
             }
             _ => {}
@@ -490,9 +505,10 @@ impl Core {
         if !self.blocks.contains_key(&bh) {
             return;
         }
-        let Some(ExecState::Valid(result)) = self.exec.get(&bh).copied() else {
+        let Some(ExecState::Valid { admission }) = self.exec.get(&bh).cloned() else {
             return;
         };
+        let result = admission.result();
         // A failed attempt keeps its durable sign-once reservation. Retry only that value.
         if self
             .safety
@@ -519,6 +535,9 @@ impl Core {
         }
         #[cfg(not(sumeragi_mutation = "MS27"))]
         if let Some(record) = self.safety.as_mut() {
+            if record.prepare.is_none_or(|previous| previous.view != view) {
+                record.prepare_signature = None;
+            }
             record.prepare = Some(RecordedVote {
                 view,
                 block_hash: bh,

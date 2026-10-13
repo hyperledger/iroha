@@ -946,6 +946,7 @@ impl VerifiedStreamTokenGatewayCheckV1 {
                     .map_err(|_| Error::Authority)?;
                 if !needs_terminal_check {
                     use mv::storage::StorageReadOnly;
+
                     let permission: iroha_data_model::permission::Permission =
                     iroha_executor_data_model::permission::sorafs::CanRecordSorafsReputationJournal
                         .into();

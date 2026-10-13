@@ -122,6 +122,7 @@ fn copy_snapshot(snapshot: &Snapshot) -> Snapshot {
                 directory: Arc::clone(&names.directory),
                 maximum: names.maximum,
                 names: names.names.clone(),
+                reserved: names.reserved,
             })
             .collect(),
         root: snapshot.root.as_ref().map(Arc::clone),

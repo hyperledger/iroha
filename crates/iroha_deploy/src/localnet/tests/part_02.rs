@@ -1103,11 +1103,13 @@ fn client_config_selects_the_generated_identity_file_only() {
         DEFAULT_CHAIN_ID,
         None,
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");
     let contents = fs::read_to_string(root.join("client.toml")).expect("read client config");
     assert!(contents.contains("private_key = \"802620"));
+    assert!(contents.contains("http_transport_policy = \"ordinary\""));
     let value: toml::Value = toml::from_str(&contents).expect("parse client config");
     assert_eq!(
         value.get("network_id_file").and_then(toml::Value::as_str),
@@ -1160,6 +1162,7 @@ fn client_config_records_chain_discriminant_when_known() {
         DEFAULT_CHAIN_ID,
         Some(369),
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");
@@ -1190,6 +1193,7 @@ fn client_config_preserves_publication_with_explicit_network_context() {
             DEFAULT_CHAIN_ID,
             configured,
             &client,
+            HttpTransportPolicy::DirectLoopback,
             Some(&publication),
         )
         .expect("render client config");
@@ -1199,6 +1203,10 @@ fn client_config_preserves_publication_with_explicit_network_context() {
         assert_eq!(
             value["account"]["chain_discriminant"].as_integer(),
             Some(i64::from(expected))
+        );
+        assert_eq!(
+            value["http_transport_policy"].as_str(),
+            Some("direct_loopback")
         );
         assert_eq!(
             value["musubi"]["publication"].as_table(),
@@ -1877,6 +1885,7 @@ fn client_config_renders_ipv6_torii_url() {
         DEFAULT_CHAIN_ID,
         None,
         &localnet_client_identity(None, false).expect("default client"),
+        HttpTransportPolicy::Ordinary,
         None,
     )
     .expect("write client config");

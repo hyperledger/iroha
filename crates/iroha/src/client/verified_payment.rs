@@ -4,18 +4,18 @@ use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     NetworkId,
     block::consensus::{NexusFeeReceipt, SumeragiRootScope},
-    isi::{
-        AtomicSettlementDetails, SettleAtomic, SettlementDetails, SettlementId,
-        SettlementInstructionBox, SettlementReceipt,
-    },
+    isi::{SettleAtomic, SettlementId, SettlementReceipt},
     query::CommittedTransaction,
     sumeragi_finality::{FinalityError, VerifiedSumeragiBlock},
-    transaction::{Executable, FeeChargeKind, SignedTransaction, TransactionEntrypoint},
+    transaction::{SignedTransaction, TransactionEntrypoint},
 };
 
 /// Why a native payment cannot be admitted as an independently verified receipt.
 #[derive(Debug, thiserror::Error)]
 pub enum PaymentReceiptVerificationError {
+    /// The selected original execution did not succeed.
+    #[error("payment execution did not succeed")]
+    RejectedExecution,
     /// The caller's network differs from the signed settlement intent.
     #[error("payment intent differs from the independently selected network")]
     NetworkMismatch,
@@ -131,6 +131,7 @@ impl VerifiedPaymentReceipt {
         evidence: CommittedTransaction,
     ) -> Result<Self, PaymentReceiptVerificationError> {
         use PaymentReceiptVerificationError as Error;
+        use iroha_data_model::isi::AtomicPaymentProjectionError as ProjectionError;
 
         if expected_intent.network_id != expected_network
             || block.commitment().schedule.current.network_id != expected_network
@@ -149,52 +150,27 @@ impl VerifiedPaymentReceipt {
         if expected_transaction.is_some_and(|expected| transaction_hash != expected) {
             return Err(Error::TransactionMismatch);
         }
-        let Executable::Instructions(instructions) = transaction.instructions() else {
-            return Err(Error::UnsupportedCarrier);
-        };
-        let [instruction] = instructions.as_ref() else {
-            return Err(Error::UnsupportedCarrier);
-        };
-        let instruction = instruction.as_any();
-        let intent = if let Some(intent) = instruction.downcast_ref::<SettleAtomic>() {
-            intent
-        } else if let Some(SettlementInstructionBox::Atomic(intent)) =
-            instruction.downcast_ref::<SettlementInstructionBox>()
-        {
-            intent
-        } else {
-            return Err(Error::UnsupportedCarrier);
-        };
-        if intent != expected_intent {
-            return Err(Error::IntentMismatch);
-        }
-        if transaction
-            .fee_payment_intent()
-            .charge_limits()
-            .iter()
-            .any(|limit| limit.kind == FeeChargeKind::PipelineGas)
-        {
-            return Err(Error::UnsupportedFeeOutcome);
-        }
-        if let Some(fee) = evidence.result().nexus_fee_receipt() {
-            fee.validate_for_network_input(evidence.entrypoint(), block.height())
-                .map_err(Error::InvalidFeeOutcome)?;
-        }
-        let receipt = SettlementReceipt {
-            authority: transaction.authority().clone(),
-            metadata: intent.metadata.clone(),
-            block_height: block.height(),
-            block_hash: block.header().hash(),
-            executed_at_ms: block.header().creation_time_ms,
-            details: SettlementDetails::Atomic(AtomicSettlementDetails {
-                movements: intent.movements.resolve().map_err(Error::InvalidIntent)?,
-                intent_hash: intent.intent_hash()?,
-            }),
-        };
+        let receipt = iroha_data_model::isi::project_atomic_payment_receipt_unverified(
+            expected_network,
+            expected_intent,
+            &block.header(),
+            evidence.entrypoint(),
+            evidence.result(),
+        )
+        .map_err(|error| match error {
+            ProjectionError::NetworkMismatch => Error::NetworkMismatch,
+            ProjectionError::RejectedExecution => Error::RejectedExecution,
+            ProjectionError::UnsupportedCarrier => Error::UnsupportedCarrier,
+            ProjectionError::IntentMismatch => Error::IntentMismatch,
+            ProjectionError::InvalidIntent(reason) => Error::InvalidIntent(reason),
+            ProjectionError::UnsupportedFeeOutcome => Error::UnsupportedFeeOutcome,
+            ProjectionError::InvalidFeeOutcome(reason) => Error::InvalidFeeOutcome(reason),
+            ProjectionError::IntentEncoding(error) => Error::IntentEncoding(error),
+        })?;
         Ok(Self {
             network: expected_network,
             transaction_hash,
-            settlement_id: intent.settlement_id.clone(),
+            settlement_id: expected_intent.settlement_id.clone(),
             context_id: block.context_id(),
             receipt,
             evidence,

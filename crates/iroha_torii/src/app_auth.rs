@@ -1153,7 +1153,24 @@ fn parse_account_header_value(
     })
 }
 
-pub fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
+/// Classify only credential or replay refusal as failed authentication.
+/// Local capacity and State integrity failures retain their existing typed status and
+/// redaction path. This classifier does not grant visibility or alter replay state.
+/// The pre-authentication State-view capacity refusal leaves nonce admission untouched;
+/// this helper alone makes no claim about nonce state for other errors.
+pub(crate) fn canonical_authentication_error(error: crate::Error) -> crate::Error {
+    match error {
+        crate::Error::Query(ValidationFail::NotPermitted(message)) => {
+            crate::Error::AppUnauthorized {
+                code: "canonical_authentication_invalid",
+                message,
+            }
+        }
+        error => error,
+    }
+}
+
+pub(crate) fn authorization_view_error(error: iroha_core::state::StateViewError) -> crate::Error {
     match error {
         iroha_core::state::StateViewError::Busy(_) => canonical_request_capacity_error(),
         error => crate::Error::Query(ValidationFail::InternalError(error.to_string())),
@@ -2074,6 +2091,24 @@ pub fn verify_fee_quote_canonical_request(
 }
 #[cfg(all(test, feature = "app_api"))]
 mod tests {
+    #[test]
+    fn canonical_authentication_mapping_preserves_capacity_and_internal_errors() {
+        let capacity = canonical_authentication_error(canonical_request_capacity_error());
+        assert!(matches!(
+            capacity,
+            crate::Error::Query(ValidationFail::QueryFailed(
+                QueryExecutionFail::CapacityLimit
+            ))
+        ));
+        let internal = canonical_authentication_error(crate::Error::Query(
+            ValidationFail::InternalError("protected catalog is invalid".to_owned()),
+        ));
+        assert!(
+            matches!(internal, crate::Error::Query(ValidationFail::InternalError(message))
+            if message == "protected catalog is invalid")
+        );
+    }
+
     fn standalone_auth_context() -> norito::core::DecodeBudgetContext {
         norito::core::DecodeBudgetContext::new(norito::canonical_decode_limits(48 * 1024 * 1024))
     }

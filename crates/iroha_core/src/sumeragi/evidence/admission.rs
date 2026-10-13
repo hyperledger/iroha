@@ -123,14 +123,13 @@ impl ReplayFence {
         attribution: &EvidenceAttribution,
         signers: &[OriginalSigner],
     ) -> Result<bool, EvidenceAdmissionError> {
+        // `context` retains the complete attribution context identity.
+        let retained_context_id = self.context;
         if !self.retained
-            || (self.instance, self.epoch, self.context, self.generation)
-                != (
-                    attribution.instance,
-                    attribution.epoch,
-                    attribution.context_id,
-                    attribution.authority_generation,
-                )
+            || self.instance != attribution.instance
+            || self.epoch != attribution.epoch
+            || retained_context_id != attribution.context_id
+            || self.generation != attribution.authority_generation
         {
             return Ok(false);
         }

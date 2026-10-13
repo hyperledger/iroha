@@ -3199,3 +3199,36 @@ fn contract_target_read_route_refuses_present_but_inactive_lane() {
         }
     ));
 }
+
+#[cfg(feature = "app_api")]
+#[tokio::test]
+async fn canonical_visibility_busy_source_is_capacity_and_preserves_request_nonce() {
+    let key_pair = routed_read_ed25519_test_keypair(0x97);
+    let authority = AccountId::new(key_pair.public_key().clone());
+    let app = mk_app_state_for_tests_with_world(world_with_account(&authority));
+    let method = Method::POST;
+    let uri: Uri = "/v1/accounts/query".parse().expect("query URI");
+    let body = b"{}";
+    let headers = crate::tests_runtime_handlers::signed_app_headers(
+        &authority, &key_pair, &method, &uri, body,
+    );
+    let authenticate = || torii_visibility_account_from_headers(
+        &app, &headers, &method, &uri, body, "v1/accounts/query",
+    );
+    let refused = app.state.with_held_header_for_reader_test(|_| {
+        authenticate().expect_err("held original State source cannot authenticate")
+    });
+    assert!(matches!(
+        &refused,
+        Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit
+        ))
+    ), "physical reader contention is not invalid credentials: {refused:?}");
+    assert_eq!(refused.into_response().status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(matches!(authenticate().expect("same original request succeeds after release"),
+        ToriiAccountReadVisibility::Signed(account) if account == authority));
+    let replay = authenticate().expect_err("a consumed request remains replay-protected");
+    assert!(matches!(&replay, Error::AppUnauthorized { code, message }
+        if *code == "canonical_authentication_invalid" && message == "request nonce already used"));
+    assert_eq!(replay.into_response().status(), StatusCode::UNAUTHORIZED);
+}

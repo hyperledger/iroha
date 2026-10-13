@@ -50,6 +50,7 @@ fn chain_with_begins(count: usize) -> (CertifiedTestChain, [u8; 32]) {
     assert!((1..=iroha_data_model::sumeragi_amx::MAX_AMX_PENDING).contains(&count));
     let config = config();
     let authority = config.genesis_key.clone();
+    let original_cadence_ms = config.genesis_block_cadence_ms.get();
     let mut chain = CertifiedTestChain::start(config).unwrap();
     let transaction = AmxTransactionV1 {
         legs: [21, 22]
@@ -60,6 +61,12 @@ fn chain_with_begins(count: usize) -> (CertifiedTestChain, [u8; 32]) {
             })
             .collect(),
         deadline: 3,
+        expires_at_ms: 2_000_u64
+            .checked_add(
+                iroha_data_model::sumeragi_amx::amx_max_time_window_ms(original_cadence_ms)
+                    .unwrap(),
+            )
+            .unwrap(),
         nonce: [7; 32],
     };
     let tx = transaction.id().unwrap();

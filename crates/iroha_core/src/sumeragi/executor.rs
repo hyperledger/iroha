@@ -10,8 +10,9 @@
 //! - `execute` runs only on the applied tip (the core requests an execution once its parent's
 //!   `CommitBlock` was emitted, and the driver applies in order); otherwise it answers `None`
 //!   and the driver parks the request (never `Failed` for that).
-//! - A local condition (storage, admission, a panic) is `Failed` and retried; everything else
-//!   the validator rejects is `Invalid` — a deterministic verdict every honest node reaches.
+//! - Local storage and admission refusals retain their typed source for retry. Consuming
+//!   panics require recovery; completed semantic rejection is `Invalid`, a deterministic
+//!   verdict every honest node reaches.
 //! - `prepare` pins the original matching overlay, capture and one certified staged frame until
 //!   publication. A missing speculative overlay may execute again only before preparation.
 //! - `commit` retains that owner on reversible durable-authorization refusal. Once the one-shot
@@ -409,7 +410,6 @@ fn require_body_admission(
 pub struct StateExecutor {
     /// The same pool as the worker, checked before retaining a queued certificate.
     execution_budget: iroha_allocation::AllocationBudget,
-    prepare_clock: super::crypto::prepare_clock::PrepareClock,
     requests: Option<mpsc::SyncSender<Request>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -475,17 +475,11 @@ impl StateExecutor {
         // already owns bounded control ingress and the original publication retry.
         let (requests, rx) = mpsc::sync_channel(1);
         let execution_budget = context.state.ivm_execution_budget();
-        let prepare_clock = super::crypto::prepare_clock::PrepareClock::new(
-            &execution_budget,
-            context.time_source.clone(),
-        )
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::WouldBlock, error))?;
-        let worker_prepare_clock = prepare_clock.clone();
         #[cfg(test)]
         let exit_hook = shutdown_tests::take_exit_hook();
         let thread =
             super::threads::sumeragi_thread_builder("sumeragi-state-exec").spawn(move || {
-                run(&context, &rx, worker_prepare_clock);
+                run(&context, &rx);
                 #[cfg(test)]
                 if let Some(exit_hook) = exit_hook {
                     exit_hook();
@@ -494,7 +488,6 @@ impl StateExecutor {
             })?;
         Ok(Self {
             execution_budget,
-            prepare_clock,
             requests: Some(requests),
             thread: Some(thread),
         })
@@ -554,11 +547,6 @@ impl StateExecutor {
 }
 
 impl StateExecutor {
-    /// The signer receives only the fixed clock observations of this exact worker.
-    pub(crate) fn prepare_clock(&self) -> super::crypto::prepare_clock::PrepareClock {
-        self.prepare_clock.clone()
-    }
-
     /// Attach the transaction queue: the builder reads it and applied blocks clean it.
     pub fn attach_queue(&self, queue: Arc<Queue>) {
         if let Some(requests) = &self.requests {
@@ -780,6 +768,10 @@ struct Finishing<'s> {
     availability: AvailabilityFrame,
     source: iroha_sumeragi::availability::AvailabilitySource,
     valid: ValidBlock,
+    signature_decode: SignatureDecodeAttempt,
+    due_work_max_lag_ms: u64,
+    encoded_preimage: Option<iroha_allocation::ChargedBuffer<u8>>,
+    admission: Option<iroha_allocation::ChargedShared<prepare_admission::NativePrepareAdmission>>,
     overlay: Box<StateBlock<'s>>,
     witness: crate::state::CapturedExecWitness,
     phase: FinishingPhase,
@@ -794,7 +786,8 @@ struct Finishing<'s> {
 
 /// The executed overlay of one block.
 struct Live<'s> {
-    progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
+    signature_decode: SignatureDecodeAttempt,
+    admission: iroha_allocation::ChargedShared<prepare_admission::NativePrepareAdmission>,
     telemetry_origin: Option<CommitTelemetryOrigin>,
     native_contexts: Option<PreparedNativeContext>,
     block_hash: Hash32,
@@ -867,6 +860,10 @@ enum PublicationPhase {
 #[path = "executor_control.rs"]
 mod control;
 mod preparation;
+mod prepare_admission;
+#[cfg(test)]
+#[path = "executor/prepare_admission_tests.rs"]
+mod prepare_admission_tests;
 mod publication;
 mod replay;
 
@@ -1073,7 +1070,6 @@ fn check_progress_clock(
 }
 
 struct Worker<'s> {
-    prepare_clock: super::crypto::prepare_clock::PrepareClock,
     payload_build: Option<GlobalPayloadBuild>,
     assembly_parent_service: Option<(
         OriginalPayloadScope,
@@ -1108,14 +1104,9 @@ struct Worker<'s> {
     completed_replay: Option<replay::CompletedReplay>,
 }
 
-fn run(
-    context: &ExecutorContext,
-    requests: &mpsc::Receiver<Request>,
-    prepare_clock: super::crypto::prepare_clock::PrepareClock,
-) {
+fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
     let state = Arc::clone(&context.state);
     let mut worker = Worker {
-        prepare_clock,
         payload_build: None,
         assembly_parent_service: None,
         signature_decode: None,
@@ -1402,18 +1393,19 @@ impl<'s> Worker<'s> {
                         &"execution retry changes its original header",
                     )));
                 }
-                check_progress_clock(
-                    live.progress_clock.as_ref(),
-                    self.context.time_source.now(),
-                    certified,
-                )?;
-                self.prepare_clock.record(
-                    &live.header,
-                    live.block_hash,
-                    live.result,
-                    live.progress_clock,
-                );
-                return Ok(Some(ExecOutcome::Valid(live.result)));
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC335")))]
+                if let Err(refusal) = live.admission.check_freshness(certified) {
+                    if matches!(refusal, PublicationError::Retryable(_)) {
+                        return Err(refusal);
+                    }
+                    let failure = self.rollback_stale_live().err().unwrap_or(refusal);
+                    return Err(failure);
+                }
+                let live = self.live.as_ref().expect("same admitted original");
+                return Ok(Some(ExecOutcome::Valid {
+                    result: live.result,
+                    admission: prepare_admission::erased(&live.admission),
+                }));
             }
         }
         if let Some((source, outcome)) = self.results.get(&block_hash) {
@@ -1439,11 +1431,24 @@ impl<'s> Worker<'s> {
             );
             return Ok(None);
         }
-        let outcome = match self.run_execution(block, block_hash, certified)? {
-            Some(result) => ExecOutcome::Valid(result),
+        let executed = self.run_execution(block, block_hash, certified)?;
+        let admission = self
+            .live
+            .as_ref()
+            .filter(|live| live.block_hash == block_hash)
+            .map(|live| prepare_admission::erased(&live.admission));
+        let outcome = match executed {
+            Some(result) => ExecOutcome::Valid {
+                result,
+                admission: admission.ok_or_else(|| {
+                    PublicationError::RecoveryRequired(
+                        "completed execution lost its original first-Prepare admission".into(),
+                    )
+                })?,
+            },
             None => ExecOutcome::Invalid,
         };
-        if !matches!(outcome, ExecOutcome::Valid(_) | ExecOutcome::Failed(_)) {
+        if !matches!(outcome, ExecOutcome::Valid { .. } | ExecOutcome::Failed(_)) {
             self.remember(block.source().clone(), block_hash, outcome.clone());
         }
         Ok(Some(outcome))
@@ -1735,6 +1740,11 @@ impl<'s> Worker<'s> {
             }
             prepared.map_err(parent_service_preparation_error)?;
         }
+        let due_work_max_lag_ms = original_view
+            .world()
+            .parameters()
+            .sumeragi()
+            .due_work_max_lag_ms();
         drop(original_view);
         let iroha_block = self
             .signature_decode
@@ -1754,7 +1764,10 @@ impl<'s> Worker<'s> {
                 return Err(PublicationError::Retryable(error.to_string()));
             }
             Err(lanes::merge::MergeError::StateView(error)) => return Err(error.into()),
-            Err(lanes::merge::MergeError::RoutingDeferred(reason)) => {
+            Err(
+                lanes::merge::MergeError::RoutingDeferred(reason)
+                | lanes::merge::MergeError::ResourceDeferred(reason),
+            ) => {
                 return Err(PublicationError::Deferred(reason.into()));
             }
             Err(lanes::merge::MergeError::Pending(reason)) => {
@@ -1885,6 +1898,7 @@ impl<'s> Worker<'s> {
                 overlay,
                 committee,
                 events,
+                due_work_max_lag_ms,
                 progress_clock,
             )?
             .is_none()
@@ -1905,6 +1919,7 @@ impl<'s> Worker<'s> {
         mut overlay: Box<StateBlock<'s>>,
         committee: Vec<PeerId>,
         events: Vec<EventBox>,
+        due_work_max_lag_ms: u64,
         progress_clock: Option<crate::smartcontracts::isi::sccp::keepalive::ProgressClock>,
     ) -> Result<Option<()>, PublicationError> {
         let height = block.header().height;
@@ -1938,9 +1953,12 @@ impl<'s> Worker<'s> {
                 .clone();
             return Err(PublicationError::RecoveryRequired(reason));
         };
-        // The original valid block now retains the same immutable signature owner.
-        // Retire only its preparation controls/source; later phases move this exact block.
-        self.signature_decode = None;
+        // Retain original decoder custody until publication or a CT5 rollback. A local
+        // freshness refusal must return the actual graph without decoding another copy.
+        let signature_decode = self
+            .signature_decode
+            .take()
+            .expect("original validation custody");
         self.finishing = Some(Finishing {
             progress_clock,
             block_hash,
@@ -1949,6 +1967,10 @@ impl<'s> Worker<'s> {
             availability: block.availability().clone(),
             source: block.source().clone(),
             valid,
+            signature_decode,
+            due_work_max_lag_ms,
+            encoded_preimage: None,
+            admission: None,
             overlay,
             witness,
             phase: FinishingPhase::ContextProof {
@@ -2140,48 +2162,36 @@ impl<'s> Worker<'s> {
             super::commitment::ResultPreimageError,
         >,
     ) -> Result<Option<Hash32>, PublicationError> {
-        check_progress_clock(
-            self.finishing
-                .as_ref()
-                .expect("original completed execution")
-                .progress_clock
-                .as_ref(),
-            self.context.time_source.now(),
-            certified,
-        )?;
         self.prepare_original_result()?;
         self.prepare_original_context_archive()?;
-        let original = self
-            .finishing
-            .as_ref()
-            .expect("original completed execution");
         let budget = self.state.ivm_execution_budget();
-        let preimage = match encode(
-            original.phase.ready().expect("original prepared result"),
-            &budget,
-        ) {
-            Ok(preimage) => preimage,
-            Err(error) => {
-                // TODO: driver retry dispatch must wait on this retained original
-                // capacity observation; diagnostic text is not a release source.
-                let failure = if error.is_local_refusal() {
-                    preparation::encoding_failure(&error)
-                } else {
-                    let reason = format!(
-                        "original result encoding invariant failed; recovery required: {error}"
-                    );
-                    self.recovery = Some(reason.clone());
-                    PublicationError::RecoveryRequired(reason)
-                };
-                self.finishing.as_mut().unwrap().encoding_refusal = Some(error);
-                return Err(failure);
+        if self.finishing.as_ref().unwrap().encoded_preimage.is_none() {
+            let original = self.finishing.as_ref().unwrap();
+            match encode(
+                original.phase.ready().expect("original prepared result"),
+                &budget,
+            ) {
+                Ok(preimage) => self.finishing.as_mut().unwrap().encoded_preimage = Some(preimage),
+                Err(error) => {
+                    let failure = if error.is_local_refusal() {
+                        preparation::encoding_failure(&error)
+                    } else {
+                        let reason = format!(
+                            "original result encoding invariant failed; recovery required: {error}"
+                        );
+                        self.recovery = Some(reason.clone());
+                        PublicationError::RecoveryRequired(reason)
+                    };
+                    self.finishing.as_mut().unwrap().encoding_refusal = Some(error);
+                    return Err(failure);
+                }
             }
-        };
-        let result = result_of_preimage(preimage.as_slice()).ok_or_else(|| {
-            let reason = "original encoded result is malformed".to_owned();
-            self.recovery = Some(reason.clone());
-            PublicationError::RecoveryRequired(reason)
-        })?;
+        }
+        let original = self.finishing.as_ref().unwrap();
+        let result = result_of_preimage(original.encoded_preimage.as_ref().unwrap().as_slice())
+            .ok_or_else(|| {
+                PublicationError::RecoveryRequired("original encoded result is malformed".into())
+            })?;
         // SC1 faults ordinary voting after the original genesis has been installed.
         #[cfg(all(test, sumeragi_core_mutation = "HC308"))]
         let result = if original.height > 1 {
@@ -2189,26 +2199,49 @@ impl<'s> Worker<'s> {
             use sha2::{Digest as _, Sha256};
             let mut omitted = Sha256::new();
             omitted.update(super::commitment::RESULT_TAG);
-            omitted.update(body_digest(&preimage.as_slice()[X_LEN..]));
+            omitted.update(body_digest(
+                &original.encoded_preimage.as_ref().unwrap().as_slice()[X_LEN..],
+            ));
             Hash32(omitted.finalize().into())
         } else {
             result
         };
-        // Context proof and encoding can cross the lag boundary. Refuse locally before
-        // returning Valid, retaining the original overlay and result for a certified retry.
-        if !cfg!(all(test, sumeragi_core_mutation = "HC291")) {
-            check_progress_clock(
-                original.progress_clock.as_ref(),
-                self.context.time_source.now(),
-                certified,
+        if original.admission.is_none() {
+            let admission = prepare_admission::NativePrepareAdmission::capture(
+                original,
+                result,
+                &self.context.time_source,
+                self.context.root_scope,
             )?;
+            self.finishing.as_mut().unwrap().admission = Some(admission);
+        }
+        // This final check follows every proof/encoding/allocation wait. It never changes R.
+        #[cfg(all(test, sumeragi_core_mutation = "HC334"))]
+        let _ = certified;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC334")))]
+        if let Err(refusal) = self
+            .finishing
+            .as_ref()
+            .unwrap()
+            .admission
+            .as_ref()
+            .unwrap()
+            .check_freshness(certified)
+        {
+            if !matches!(refusal, PublicationError::Retryable(_)) {
+                self.rollback_stale_finishing()?;
+            }
+            return Err(refusal);
         }
         let original = self.finishing.take().unwrap();
         let FinishingPhase::Ready(commitment) = original.phase else {
             unreachable!("encoded original result")
         };
         self.live = Some(Live {
-            progress_clock: original.progress_clock,
+            signature_decode: original.signature_decode,
+            admission: original
+                .admission
+                .expect("original first-Prepare admission"),
             telemetry_origin: None,
             native_contexts: Some(
                 original
@@ -2222,7 +2255,7 @@ impl<'s> Worker<'s> {
             source: original.source,
             phase: PublicationPhase::Executed {
                 valid: original.valid,
-                preimage,
+                preimage: original.encoded_preimage.expect("original encoded result"),
             },
             overlay: Some(original.overlay),
             witness: Some(original.witness),
@@ -2232,14 +2265,40 @@ impl<'s> Worker<'s> {
             committee: original.committee,
             events: original.events,
         });
-        let live = self.live.as_ref().expect("original completed execution");
-        self.prepare_clock.record(
-            &live.header,
-            live.block_hash,
-            live.result,
-            live.progress_clock,
-        );
         Ok(Some(result))
+    }
+
+    /// Discard all provisional effects while restoring the same original signed graph.
+    fn rollback_stale_finishing(&mut self) -> Result<(), PublicationError> {
+        let original = self.finishing.take().expect("stale completed original");
+        let mut decoder = original.signature_decode;
+        let returned = decoder
+            .retain_validation_return(original.valid.into(), &self.state.ivm_execution_budget());
+        self.signature_decode = Some(decoder);
+        // The original overlay, events, context projections and witness drop here. No fee,
+        // escrow transition or receipt becomes committed and no Invalid cache is populated.
+        returned
+    }
+
+    fn rollback_stale_live(&mut self) -> Result<(), PublicationError> {
+        if !self
+            .live
+            .as_ref()
+            .is_some_and(|live| matches!(live.phase, PublicationPhase::Executed { .. }))
+        {
+            return Err(PublicationError::RecoveryRequired(
+                "cannot roll back a publication already carrying a certificate".into(),
+            ));
+        }
+        let original = self.live.take().expect("stale live original");
+        let PublicationPhase::Executed { valid, .. } = original.phase else {
+            unreachable!()
+        };
+        let mut decoder = original.signature_decode;
+        let returned =
+            decoder.retain_validation_return(valid.into(), &self.state.ivm_execution_budget());
+        self.signature_decode = Some(decoder);
+        returned
     }
 
     /// Admit the keys of the committee scheduled for `height` into the driver's cryptography.
@@ -3193,12 +3252,15 @@ impl<'s> Worker<'s> {
         let max_bytes = usize::try_from(max_bytes).unwrap_or(usize::MAX);
         let selection: Option<crate::queue::PendingPayloadSelection> =
             queue.begin_pending_payload_selection(self.state, original_generation);
+        // One reading governs FIFO filtering, final SCCP recheck and payload assembly.
+        // Retries of a retained original never replace its already authenticated time.
+        let proposed_time = self.context.time_source.now();
         let mut selected = match payload::select(
             &current_view,
             queue,
             max_bytes.saturating_sub(PAYLOAD_OVERHEAD),
             &merges,
-            self.context.time_source.now(),
+            proposed_time,
         ) {
             Ok(selected) => selected,
             Err(payload::PayloadError::RoutingDeferred(reason)) => {
@@ -3245,6 +3307,11 @@ impl<'s> Worker<'s> {
             parent: &parent,
             view,
             cadence: Duration::from_millis(scheduled.params.block_time_ms),
+            proposed_time: if cfg!(all(test, sumeragi_core_mutation = "HC328")) {
+                Duration::ZERO
+            } else {
+                proposed_time
+            },
         };
         while !selected.is_empty() || !merges.merges.is_empty() {
             if let Err(error) = payload::recheck_progress_for_proposal(

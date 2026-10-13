@@ -443,15 +443,16 @@ fn minimal_actual_config(connect_enabled: bool) -> iroha_config::parameters::act
     cfg.tiered_state.max_snapshots = 0;
     cfg.settlement = A::Settlement::default();
     cfg.fraud_monitoring = A::FraudMonitoring {
-        enabled: defaults::fraud_monitoring::ENABLED,
+        policy: iroha_data_model::fraud::FraudAdmissionPolicyV1 {
+            enabled: false,
+            missing_assessment_permitted: false,
+            required_minimum_band: None,
+            attesters: Vec::new(),
+            ..iroha_data_model::fraud::FraudAdmissionPolicyV1::protocol_default()
+        },
         service_endpoints: Vec::new(),
         connect_timeout: defaults::fraud_monitoring::CONNECT_TIMEOUT,
         request_timeout: defaults::fraud_monitoring::REQUEST_TIMEOUT,
-        missing_assessment_grace: core::time::Duration::from_secs(
-            defaults::fraud_monitoring::MISSING_ASSESSMENT_GRACE_SECS,
-        ),
-        required_minimum_band: None,
-        attesters: Vec::new(),
     };
     cfg.gov.conviction_step_blocks = 1;
     cfg.gov.max_conviction = 1;

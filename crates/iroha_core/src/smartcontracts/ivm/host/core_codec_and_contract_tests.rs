@@ -210,6 +210,7 @@ fn build_authenticated_test_contract_program_with_states(
         encoding::wide,
         instruction::wide::{arithmetic, control, memory},
     };
+
     assert!(code.len().is_multiple_of(4));
     assert!(
         code.chunks_exact(4)

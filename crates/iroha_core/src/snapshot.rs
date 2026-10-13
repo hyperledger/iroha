@@ -1119,7 +1119,7 @@ fn stream_snapshot_file_digest(
     reader.seek(std::io::SeekFrom::Start(0))?;
     let mut digest = Sha256::new();
     let mut total = 0_u64;
-    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
+    let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = reader.read(&mut buffer)?;
         if read == 0 {
@@ -1268,7 +1268,7 @@ fn read_bound_snapshot_payload(
         .map_err(|error| TryReadError::IO(error, binding.path.clone()))?;
     let mut digest = Sha256::new();
     let mut remaining = capacity;
-    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
+    let mut buffer = [0_u8; 8 * 1024];
     while remaining != 0 {
         let requested = remaining.min(buffer.len());
         let read = reader
@@ -3093,10 +3093,11 @@ pub fn try_read_snapshot(
 #[allow(clippy::needless_pass_by_value)]
 ///
 /// # Errors
-///
-/// Returns an error for snapshot I/O, signature or chain/network mismatch,
-/// invalid canonical state, exceeded restore resources, inconsistent replay
-/// evidence, or failure to initialize the restored execution and ZK state.
+/// Returns a typed error for missing or unreadable artifacts, changed file
+/// bindings, invalid canonical payload/signature/Merkle or chain identity,
+/// inconsistent State/Kura history, or failed State/ZK initialization. Positive
+/// height requires original execution replay; local allocation and execution
+/// refusals retain their original categories.
 pub fn try_read_snapshot_with_limits(
     execution_budget: &AllocationBudget,
     store_dir: impl AsRef<Path>,

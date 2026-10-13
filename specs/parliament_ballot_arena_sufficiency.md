@@ -178,6 +178,14 @@ remove the unsupported `STLUR`/`EON` decoder stops, with 62 regressions and zero
 frame-analysis errors in either image. Their local worker/fatal frames are
 176/16 bytes. Resolved-region bounds still exclude native/indirect/exceptional
 costs and a positive-weight recursive component; no full stack certificate follows.
+The [adapter-only bound](../docs/validation/parliament_ballot_adapter_bound/README.md)
+now separates a conditional 336-byte stack contribution, 5,298 issued
+instructions and at most one 524,288-byte input block in both current images.
+The input block occupies the existing heap reservation. Opaque verifier and
+native routine costs, return invariants and exceptional paths are not discharged
+by that local bound; its checker passes 20 focused tests.
+Subsequent lockfile/allocator edits are recorded separately and make current-source
+reproduction refuse. The retained bound applies to the captured source interval.
 
 TODO: establish complete target-specific allocation correspondence and
 ordinary/exceptional path conditions; discharge the provider-target premises

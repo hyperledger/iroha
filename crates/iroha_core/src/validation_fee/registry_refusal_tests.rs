@@ -59,6 +59,7 @@ fn signed_runtime(
 fn signed_fee_subject_read_keeps_scope_refusal_distinct_from_inactive_treasury() {
     signed_runtime(|stx, binding, _, _| {
         const CEILING: usize = 8 * 1024 * 1024;
+
         let run = || {
             validate_treasury_payout_binding_contract_subject(
                 binding,

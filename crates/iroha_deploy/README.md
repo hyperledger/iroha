@@ -67,6 +67,11 @@ What exists so far:
   Within worker admission, the current executable reuses the retained launcher's content hash
   only after a fresh native open rejoins its exact path, identity and unchanged snapshot.
   Both opened files are revalidated; different paths still receive full content admission.
+  Generated managed global and private client configurations explicitly select the SDK
+  `direct_loopback` HTTP policy. Managed reopening checks that policy with the retained
+  client identity. Local requests use proxy-free cleartext pools without loading system
+  certificate roots. Exported configurations and remote parent clients retain `ordinary`
+  transport; importing a private child signer does not copy its local transport policy.
   Readiness submission reuses peer zero's transport after checking its endpoint against the
   selected client configuration. The rebuilt submission context performs fresh compatibility
   checks and retains the original deadline, signer, fee limits and four-validator proof checks.

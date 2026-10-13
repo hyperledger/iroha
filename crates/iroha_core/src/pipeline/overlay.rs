@@ -4279,7 +4279,8 @@ mod tests_overlay_manifest {
     }
     #[test]
     fn lifecycle_overlay_compare_and_consume_rejects_a_stale_second_apply_before_effects() {
-        let (authority, _) = gen_account_in("wonderland");
+        let (authority, keypair) = gen_account_in("wonderland");
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let domain = iroha_data_model::domain::Domain::new(
             DomainId::try_new("wonderland", "universal").expect("domain id"),
         )
@@ -4300,7 +4301,17 @@ mod tests_overlay_manifest {
             DataSpaceId::UNIVERSAL,
         )
         .expect("contract address");
-        let code_hash = Hash::new(b"lifecycle-overlay-code");
+        let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest("seiyaku LifecycleOverlay { hajimari() {} }")
+            .expect("compile current lifecycle declaration");
+        let code_hash = manifest.code_hash.expect("verified lifecycle code hash");
+        let manifest = manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &keypair,
+            )
+            .expect("sign bounded lifecycle fixture manifest");
         let pending = code::PendingContractLifecycle::Hajimari {
             transition_id: Hash::new(b"lifecycle-overlay-transition"),
             code_hash,
@@ -4310,6 +4321,25 @@ mod tests_overlay_manifest {
         let mut block = state.block(header);
         {
             let mut seed = block.transaction();
+            seed.world.accounts.insert(
+                contract_address.subject_id(),
+                iroha_data_model::account::AccountValue::new(
+                    iroha_data_model::account::AccountDetails::default(),
+                ),
+            );
+            let artifact_id = ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash);
+            seed.world.contract_code.insert(artifact_id, artifact);
+            seed.world.contract_manifests.insert(artifact_id, manifest);
+            let mut permissions = iroha_data_model::permission::Permissions::new();
+            assert!(permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                    contract: contract_address.clone(),
+                    entrypoint: "hajimari".to_owned(),
+                }.into(),
+            ));
+            seed.world
+                .account_permissions
+                .insert(authority.clone(), permissions);
             seed.world
                 .contract_instances
                 .insert(contract_address.clone(), code_hash);
@@ -5036,6 +5066,7 @@ seiyaku RawRebuildArguments { permission CanInspectRawRebuild;
     }
     fn parameterized_quarantine_fixture() -> (State, SignedTransaction, SignedTransaction) {
         use iroha_data_model::transaction::executable::ContractArgumentRecord;
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let program = kotodama_lang::compiler::Compiler::new()
             .compile_source(
                 r"
@@ -5083,7 +5114,14 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
         );
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, verified.code_hash),
-            verified.manifest,
+            verified
+                .manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &keypair,
+                )
+                .expect("sign bounded quarantine fixture manifest"),
         );
         seed_active_contract(
             &mut world,
@@ -5093,10 +5131,15 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
         );
         let mut permissions = iroha_data_model::permission::Permissions::new();
         assert!(
-            permissions.insert(iroha_data_model::permission::Permission::new(
-                "CanInspectQuarantine".to_owned(),
-                Json::new(()),
-            ))
+            permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanInspectQuarantine"
+                        .parse()
+                        .expect("declared instance permission"),
+                }
+                .into()
+            )
         );
         world
             .account_permissions_mut_for_testing()
@@ -5217,6 +5260,33 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
             None,
         )
         .expect("prepare an ordinary raw-IVM overlay before the hold");
+        let after_release = build_prepared_overlay_for_transaction_with_accounts_zk(
+            &raw_ivm,
+            Arc::clone(&accounts),
+            &block,
+            false,
+            &header,
+            StreamingOverlayMetadata::default(),
+            &mut cache,
+            false,
+            None,
+        )
+        .expect("retain a second authentic preparation for the hold-release check");
+        let captured_revision = outdated
+            .overlay
+            .entrypoint_authorization
+            .as_ref()
+            .expect("real preparation retains exact authorization")
+            .lifecycle_revision;
+        assert_eq!(
+            after_release
+                .overlay
+                .entrypoint_authorization
+                .as_ref()
+                .expect("the second preparation retains exact authorization")
+                .lifecycle_revision,
+            captured_revision,
+        );
         {
             let mut seed = block.transaction();
             let binding = seed
@@ -5291,11 +5361,45 @@ seiyaku QuarantineArguments { permission CanInspectQuarantine;
             .overlay
             .apply(&mut apply_tx, raw_ivm.authority())
             .expect_err("a hold imposed after preparation must invalidate the ordinary overlay");
+        let stale_revision_error = format!(
+            "contract instance `{contract_address}` changed lifecycle revision while its call was prepared"
+        );
         assert!(
             matches!(error, ValidationFail::NotPermitted(ref message)
-                if message.contains("held by Parliament")),
-            "unexpected stale ordinary raw-IVM overlay error: {error}"
+                if message == &stale_revision_error),
+            "the original overlay must reject its changed authorization before applying: {error}"
         );
+        assert_eq!(ivm::argument_record_decode_count(), 0);
+        drop(apply_tx);
+        {
+            let mut release = block.transaction();
+            let binding = release
+                .world
+                .contract_subject_bindings
+                .get_mut(&contract_address)
+                .expect("the original binding remains");
+            assert_eq!(binding.lifecycle.revision, captured_revision + 1);
+            assert!(binding.lifecycle.emergency_hold.take().is_some());
+            binding.lifecycle.revision = binding
+                .lifecycle
+                .revision
+                .checked_add(1)
+                .expect("releasing a hold advances the original lifecycle");
+            release.apply();
+        }
+        code::ensure_contract_execution_allowed(&block.world, &contract_address, 1)
+            .expect("the hold itself has been released");
+        let mut apply_tx = block.transaction();
+        let error = after_release
+            .overlay
+            .apply(&mut apply_tx, raw_ivm.authority())
+            .expect_err("releasing the hold cannot revive an old authorization snapshot");
+        assert!(
+            matches!(error, ValidationFail::NotPermitted(ref message)
+                if message == &stale_revision_error),
+            "the original preparation remains stale after hold release: {error}"
+        );
+        assert_eq!(ivm::argument_record_decode_count(), 0);
     }
     #[test]
     fn state_free_raw_builder_rejects_protected_entrypoint_before_argument_decode() {
@@ -5489,6 +5593,7 @@ seiyaku ProtectedParameterizedOverlay { permission CanWriteParameterizedOverlay;
         };
         const REQUIRED_PERMISSION: &str = "CanInvokeContractEntrypoint";
         let (authority, keypair) = gen_account_in("wonderland");
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (artifact, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r"
@@ -5500,6 +5605,13 @@ seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
 ",
             )
             .expect("compile parameterized guarded overlay contract");
+        let manifest = manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &keypair,
+            )
+            .expect("sign bounded protected fixture manifest");
         let prepared = ivm::prepare_contract(Arc::from(artifact.clone()))
             .expect("prepare parameterized guarded overlay contract");
         let schema = prepared
@@ -5532,9 +5644,11 @@ seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
                 ContractAddress::derive(&state.network_id, &authority, 92, DataSpaceId::UNIVERSAL)
                     .expect("derive guarded contract address from its signed network");
             let entrypoint_authorization = Permission::from(
-                iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                     contract: contract_address.clone(),
-                    entrypoint: "main".to_owned(),
+                    permission: REQUIRED_PERMISSION
+                        .parse()
+                        .expect("declared instance permission"),
                 },
             );
             let world = &mut state.world;
@@ -5576,9 +5690,11 @@ seiyaku GuardedOverlay { permission CanInvokeContractEntrypoint;
         };
         let (unauthorized_state, contract_address) = make_state(false);
         let entrypoint_authorization = Permission::from(
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: contract_address.clone(),
-                entrypoint: "main".to_owned(),
+                permission: REQUIRED_PERMISSION
+                    .parse()
+                    .expect("declared instance permission"),
             },
         );
         let metadata = iroha_model_base::metadata::Metadata::default();
@@ -5626,7 +5742,13 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
         );
         rebound_state.world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, rebound_code_hash),
-            rebound_manifest,
+            rebound_manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &keypair,
+                )
+                .expect("sign bounded rebound fixture manifest"),
         );
         seed_active_contract(
             &mut rebound_state.world,
@@ -6122,7 +6244,8 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
         use iroha_data_model::permission::{Permission, Permissions};
         const ROOT_PERMISSION: &str = "CanInvokeRoot";
         const CHILD_PERMISSION: &str = "CanInvokeContractEntrypoint";
-        let (authority, _) = gen_account_in("wonderland");
+        let (authority, keypair) = gen_account_in("wonderland");
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let root_alias = iroha_data_model::smart_contract::ContractAlias::from_components(
             "root",
             Some("wonderland"),
@@ -6135,8 +6258,30 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
             "universal",
         )
         .expect("child alias");
-        let root_code_hash = Hash::new(b"root-authorization-code");
-        let child_code_hash = Hash::new(b"child-authorization-code");
+        let (root_artifact, root_manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(
+                "seiyaku RootOverlay { permission CanInvokeRoot; kotoage fn root() authorize(CanInvokeRoot) {} }",
+            ).expect("compile root authorization declaration");
+        let (child_artifact, child_manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(
+                "seiyaku ChildOverlay { permission CanInvokeContractEntrypoint; kotoage fn child() authorize(CanInvokeContractEntrypoint) {} }",
+            ).expect("compile child authorization declaration");
+        let root_code_hash = root_manifest.code_hash.expect("verified root code hash");
+        let child_code_hash = child_manifest.code_hash.expect("verified child code hash");
+        let root_manifest = root_manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &keypair,
+            )
+            .expect("sign bounded root fixture manifest");
+        let child_manifest = child_manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &keypair,
+            )
+            .expect("sign bounded child fixture manifest");
         let make_state = |grant_root: bool, grant_child: bool, child_active: bool| {
             let domain = iroha_data_model::domain::Domain::new(
                 DomainId::try_new("wonderland", "universal").expect("domain id"),
@@ -6154,12 +6299,24 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
             let root_contract_subject = root_address.subject_id();
             let child_contract_subject = child_address.subject_id();
             let child_entrypoint_authorization = Permission::from(
-                iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                     contract: child_address.clone(),
-                    entrypoint: "child".to_owned(),
+                    permission: CHILD_PERMISSION
+                        .parse()
+                        .expect("declared instance permission"),
                 },
             );
             let world = &mut state.world;
+            for (code_hash, artifact, manifest) in [
+                (root_code_hash, &root_artifact, &root_manifest),
+                (child_code_hash, &child_artifact, &child_manifest),
+            ] {
+                let artifact_id = ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash);
+                world.contract_code.insert(artifact_id, artifact.clone());
+                world
+                    .contract_manifests
+                    .insert(artifact_id, manifest.clone());
+            }
             for subject in [&root_contract_subject, &child_contract_subject] {
                 let (id, account) = build_wonderland_account(subject).into_key_value();
                 world.accounts.insert(id, account);
@@ -6195,7 +6352,10 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
             if grant_root {
                 assert!(
                     root_permissions
-                        .insert(Permission::new(ROOT_PERMISSION.to_owned(), Json::new(()),))
+                        .insert(iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: root_address.clone(),
+                    permission: ROOT_PERMISSION.parse().expect("declared instance permission"),
+                }.into())
                 );
             }
             let mut root_contract_permissions = Permissions::new();
@@ -6229,9 +6389,11 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
         let root_contract_subject = root_address.subject_id();
         let child_contract_subject = child_address.subject_id();
         let child_entrypoint_authorization = Permission::from(
-            iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
                 contract: child_address.clone(),
-                entrypoint: "child".to_owned(),
+                permission: CHILD_PERMISSION
+                    .parse()
+                    .expect("declared instance permission"),
             },
         );
         let root_authorization = ContractEntrypointAuthorizationSnapshot::new(
@@ -6599,13 +6761,36 @@ seiyaku GuardedOverlayRebound { permission CanInvokeContractEntrypoint;
     }
 
     #[test]
-    fn policyless_transaction_entrypoint_artifact_is_rejected() {
+    fn explicit_anyone_artifact_is_valid_but_policyless_descriptor_is_rejected() {
         let artifact = minimal_contract_artifact_bytes(1, None);
-        let error = ivm::verify_contract_artifact(&artifact)
-            .expect_err("ABI V1 must reject a kotoage entrypoint without caller authorization");
+        let verified = ivm::verify_contract_artifact(&artifact)
+            .expect("explicit Anyone is an authenticated first-release authorization");
+        let entrypoint = &verified
+            .manifest
+            .entrypoints
+            .as_ref()
+            .expect("artifact entrypoints")[0];
+        assert_eq!(
+            entrypoint.authorization,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone
+        );
+        // Remove the policy itself from this genuine artifact's canonical manifest descriptor.
+        // Anyone is a declared policy, so using it cannot exercise missing-field rejection.
+        let mut descriptor =
+            norito::json::to_value(entrypoint).expect("serialize current descriptor");
         assert!(
-            error.to_string().contains("missing caller authorization"),
-            "unexpected policyless-artifact error: {error}"
+            descriptor
+                .as_object_mut()
+                .expect("descriptor object")
+                .remove("authorization")
+                .is_some()
+        );
+        let error = norito::json::from_value::<
+            iroha_data_model::smart_contract::manifest::EntrypointDescriptor,
+        >(descriptor)
+        .expect_err("ABI V1 must reject a kotoage entrypoint without caller authorization");
+        assert!(
+            matches!(error, norito::json::Error::MissingField { field } if field == "authorization")
         );
     }
     #[test]
@@ -7603,6 +7788,7 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
         let meta = parsed.metadata;
         let (code_hash, abi_hash) = super::compute_program_hashes(&meta, header_len, &program);
         let bytecode = IvmBytecode::from_compiled(program);
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let kp = checked_keypair();
         let authority = AccountId::new(kp.public_key().clone());
         let contract_address = ContractAddress::derive(
@@ -7631,17 +7817,28 @@ seiyaku AliasBoundArguments { permission CanInvokeOverlayFixture;
         assert_eq!(manifest.abi_hash, Some(abi_hash));
         world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
-            manifest,
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &kp,
+                )
+                .expect("sign bounded alias fixture manifest"),
         );
         world
             .bind_contract_alias(&contract_address, active_alias.clone(), None, None, 0)
             .expect("bind canonical alias");
         let mut permissions = iroha_data_model::permission::Permissions::new();
         assert!(
-            permissions.insert(iroha_data_model::permission::Permission::new(
-                "CanInvokeOverlayFixture".to_owned(),
-                Json::new(()),
-            ))
+            permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanInvokeOverlayFixture"
+                        .parse()
+                        .expect("declared instance permission"),
+                }
+                .into()
+            )
         );
         world
             .account_permissions_mut_for_testing()

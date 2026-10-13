@@ -585,6 +585,7 @@ fn signed_reserve_account_sdk_loopback_verifies_native_absence_then_registration
         key_pair: f.manager_key.clone(),
         basic_auth: None,
         api_token: None,
+        http_transport_policy: iroha::config::HttpTransportPolicy::Ordinary,
         torii_api_url: format!("http://{}/", server.address).parse().unwrap(),
         torii_request_timeout: Duration::from_secs(10),
         transaction_ttl: Duration::from_secs(30),

@@ -303,6 +303,7 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::private_dataspace::RegisterPrivateDataspace> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::private_dataspace::AnchorPrivateDataspace> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::BeginAmxV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
+    dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::ExpireAmxV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_original_amx::<iroha_data_model::isi::sumeragi_amx::RelayAmxPreparedV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RelayAmxHandoffV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sumeragi_amx::RegisterAmxParticipantV1> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
@@ -1852,6 +1853,7 @@ mod tests {
         use iroha_data_model::{
             isi::smart_contract_code, permission, prelude as dm, query::smart_contract::prelude,
         };
+
         let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let state = authenticated_state_with_test_domains()?;
         let mut state_block = state.block(ordinary_instruction_header(&state));
@@ -1961,6 +1963,7 @@ mod tests {
     async fn register_contract_manifest_rejects_wrong_signer() -> Result<()> {
         use iroha_crypto::Hash;
         use iroha_data_model::{isi::smart_contract_code, permission, prelude as dm};
+
         let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let kura = Kura::blank_kura_for_testing();
         let state = state_with_test_domains(&kura)?;
