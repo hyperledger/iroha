@@ -3,7 +3,8 @@
 //! The original opaque execution tip authenticates Global/NetworkId/I. Retained generations
 //! authenticate the pin and every reachable successor; a valid shape alone never does.
 //! P0 still depends on qualified Parliament and reconciliation. EVM P4 consumes the
-//! embedded artifact lock; P5 reads the native offence publication's retained maximum.
+//! embedded artifact lock; TON P3 requires the compiled minter/wallet/bucket references;
+//! P5 reads the native offence publication's retained maximum.
 
 use super::{Error, SccpRegisterRouteActionV1, refuse, store};
 use crate::{
@@ -19,7 +20,7 @@ use iroha_data_model::{
 };
 use iroha_sccp::v1::{
     evm_abi::ConstructorArgsV1,
-    ton_cell::{TonMinterInitV1, minter_account_id},
+    ton_cell::{TonMinterInitV1, locked_code_refs, minter_account_id},
 };
 
 // Fixed §3.1 constant, not a node-local setting or caller-supplied grace period.
@@ -192,6 +193,13 @@ fn deployment(
 ) -> Result<(), Error> {
     match register.deployment {
         SccpDeploymentV1::Ton(ton) => {
+            if !cfg!(all(test, sumeragi_core_mutation = "HC326"))
+                && [ton.minter_code, ton.wallet_code, ton.bucket_code] != locked_code_refs()
+            {
+                return Err(refuse(
+                    "TON code references differ from the locked artifacts",
+                ));
+            }
             let pin = register.initial_committee;
             let init = TonMinterInitV1 {
                 taira_network_id: identity.network,

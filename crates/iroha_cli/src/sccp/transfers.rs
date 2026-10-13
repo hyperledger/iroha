@@ -280,6 +280,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
         let query_id = u64::from_be_bytes(flow.id().id[..8].try_into()?);
         flows::ton(
             context,
+            &original, 
             &flow,
             Action::Burn,
             destination.lite(),
@@ -325,7 +326,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
         Some(args.revision),
         &args.rpc_url,
     )?;
-    if flows::recover_evm(context, &flow, Action::Burn, &destination)? {
+    if flows::recover_evm(context, &original, &flow, Action::Burn, &destination)? {
         return Ok(());
     }
     let mut evidence =
@@ -341,6 +342,7 @@ pub(super) fn burn(context: &mut impl RunContext, args: BurnArgs) -> Result<()> 
     )?;
     flows::evm(
         context,
+        &original, 
         &flow,
         Action::Burn,
         network,
@@ -409,6 +411,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::ton(
             context,
+            &original, 
             &flow,
             Action::Void,
             destination.lite(),
@@ -445,7 +448,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
             Some(record.revision),
             &args_transfer.rpc_url,
         )?;
-        if flows::recover_evm(context, &flow, Action::Void, &destination)? {
+        if flows::recover_evm(context, &original, &flow, Action::Void, &destination)? {
             return Ok(());
         }
         let bundle = if args.frozen {
@@ -470,6 +473,7 @@ pub(super) fn void(context: &mut impl RunContext, args: VoidArgs) -> Result<()> 
         }
         flows::evm(
             context,
+            &original, 
             &flow,
             Action::Void,
             record.network,

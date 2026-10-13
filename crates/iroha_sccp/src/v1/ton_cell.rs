@@ -7,7 +7,7 @@
 //!
 //! A cell's representation hash depends on its children only through their hashes and depths,
 //! so contract code is referenced by `(hash, depth)` alone ([`CellRef::opaque`]) and Taira can
-//! recompute a deployment address from the registered code references (§4.14.3).
+//! recompute a deployment address from the locked code references (§4.14.3).
 //!
 //! [`Cell::to_boc`] serializes a complete cell tree as a single-root bag of cells (message
 //! bodies, `StateInit`s and external messages) and [`cell_from_boc`] reads one back (contract
@@ -38,6 +38,40 @@ pub const MAX_CELL_REFS: usize = 4;
 pub const COINS_BOUND: u128 = 1 << 120;
 /// `sccp_burn_to_taira` custom-payload opcode (§5.3.2).
 pub const TON_BURN_TO_TAIRA_OP: u32 = 0x5343_4254;
+
+/// Code-cell hashes and depths of the locked first-release TON minter, wallet and bucket.
+///
+/// The order is `[minter, wallet, bucket]`. These fixed references are shared by native
+/// registration and deployment tooling; a parity test binds all six coordinates to
+/// `fixtures/sccp/ton_stateinit_v1.json`, whose build gate checks the actual contract code.
+pub const fn locked_code_refs() -> [SccpTonCodeRefV1; 3] {
+    [
+        SccpTonCodeRefV1 {
+            hash: [
+                0x88, 0xd0, 0xc0, 0xb1, 0x33, 0xb7, 0xe6, 0xbd, 0xac, 0x95, 0xe3, 0xc2, 0x23, 0x2a,
+                0xe7, 0x9d, 0xd3, 0xd9, 0x95, 0x9f, 0x8d, 0xf6, 0x33, 0x76, 0x00, 0x5e, 0xe4, 0x9b,
+                0xbe, 0x5e, 0xb2, 0x72,
+            ],
+            depth: 14,
+        },
+        SccpTonCodeRefV1 {
+            hash: [
+                0x49, 0x7b, 0x86, 0xd4, 0x37, 0x82, 0xbe, 0xc7, 0xc0, 0x4c, 0xef, 0x6d, 0xe1, 0xa5,
+                0xe3, 0x12, 0xf9, 0x6b, 0x58, 0xef, 0x8b, 0x69, 0xd6, 0x54, 0x35, 0xf1, 0x2f, 0xc2,
+                0x49, 0xe4, 0x50, 0xfd,
+            ],
+            depth: 9,
+        },
+        SccpTonCodeRefV1 {
+            hash: [
+                0x70, 0x54, 0x55, 0x73, 0x68, 0x0b, 0xac, 0xd0, 0x69, 0x63, 0xff, 0x18, 0x33, 0x3a,
+                0x2f, 0xa5, 0xac, 0xe6, 0x88, 0x32, 0x0d, 0x26, 0x93, 0xfa, 0xce, 0xad, 0xa2, 0x30,
+                0xf9, 0x8d, 0xf6, 0x2d,
+            ],
+            depth: 8,
+        },
+    ]
+}
 
 unit_error! {
     /// TON cell construction and parsing errors.
@@ -1178,6 +1212,20 @@ mod tests {
             "../../../../fixtures/sccp/ton_stateinit_v1.json"
         ))
         .expect("current native TON fixture")
+    }
+
+    #[test]
+    fn locked_code_references_match_the_contract_artifact_lock() {
+        let fixture = fixture();
+        assert_eq!(
+            locked_code_refs(),
+            [
+                fixture_code(&fixture, "minter"),
+                fixture_code(&fixture, "wallet"),
+                fixture_code(&fixture, "bucket"),
+            ],
+            "native registration and tooling must use the actual locked TON code references"
+        );
     }
 
     fn fixture_init(

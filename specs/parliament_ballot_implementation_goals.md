@@ -75,10 +75,16 @@ The separately instrumented verifier now matches 132 selected allocation streams
 against the source grammar, with 14 controls; this is finite correspondence only.
 The [activation analysis](../docs/validation/parliament_ballot_allocator_activation/README.md)
 conditionally excludes four explicit System allocation arms per frozen image;
-noninterference and the ten remaining frees are still obligations, not inferred
-from finite traces. Next local B6.4 work includes complete target-specific
-allocation correspondence, discharge of target/noninterference premises, and
-justified ownership, endpoint and path bounds. Native endpoint observations now pass their
+noninterference remains an obligation, not inferred from finite traces. The
+[source ownership audit](../docs/validation/parliament_ballot_ownership/README.md)
+and [compiled free predicates](../docs/validation/parliament_ballot_free_predicates/README.md)
+establish conditional source origin and local routing facts while retaining
+all ten unconditional free frontiers. The
+[I/O tag guard](../docs/validation/parliament_ballot_io_error_guard/README.md)
+checks a local return path and charged-read source lemma; whole-worker variant
+flow remains unproved. Next local B6.4 work includes universal target-specific
+allocation/provenance correspondence, discharge of target/noninterference
+premises, and justified native and exceptional path bounds. Native endpoint observations now pass their
 14 controls and 120 proof cases, with no named endpoint calls in the 82 charged
 intervals; hidden paths and a complete native-byte bound remain unresolved.
 Finite replay and resolved stack regions do not close runtime coverage or

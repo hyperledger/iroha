@@ -1702,11 +1702,20 @@ def test_token_issuance_finalized_policy_worker_accepts_nonsemantic_growth() -> 
     assert module._token_issuance_worker_policy_failures(reformatted) == []
 
 
-def test_current_public_recovery_helpers_retain_audited_markers() -> None:
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "crates/iroha_torii/src/panic_recovery.rs",
+        "crates/irohad/src/panic_recovery.rs",
+    ),
+)
+def test_current_public_recovery_helpers_retain_audited_markers(relative: str) -> None:
     root = Path(__file__).resolve().parents[2]
     module = load_guard_module()
-    relative = "crates/iroha_torii/src/panic_recovery.rs"
     source = (root / relative).read_text(encoding="utf-8")
+    if relative == "crates/irohad/src/panic_recovery.rs":
+        launcher = (root / "crates/irohad/src/main.rs").read_text(encoding="utf-8")
+        assert "\nmod panic_recovery;\n" in launcher
     assert module._required_recovery_marker_failures(relative, source) == []
     for marker in module.REQUIRED_SNIPPETS[relative]:
         assert marker in source

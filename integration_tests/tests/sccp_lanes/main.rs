@@ -200,7 +200,7 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
             ),
         )?;
         let proposal = client.account_client().sign_transaction(proposal)?;
-        client
+        let _ = client
             .submit_transaction_and_wait(&proposal)
             .expect_err("a proposer permission cannot supply the qualified Parliament ballot");
         let details = client

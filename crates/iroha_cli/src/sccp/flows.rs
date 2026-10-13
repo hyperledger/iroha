@@ -441,6 +441,7 @@ pub(super) fn print_outcome(
 /// Retain a verified EVM call before signing/broadcasting and recover its exact receipt.
 pub(super) fn evm<C: RunContext>(
     context: &mut C,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     network: SccpNetworkV1,
@@ -451,6 +452,7 @@ pub(super) fn evm<C: RunContext>(
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     evm_call(
         context,
+        original,
         flow,
         action,
         network,
@@ -464,6 +466,7 @@ pub(super) fn evm<C: RunContext>(
 /// Journal one verified call target, including the fixed deterministic deployment proxy.
 pub(super) fn evm_call<C: RunContext>(
     context: &mut C,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     network: SccpNetworkV1,
@@ -497,21 +500,23 @@ pub(super) fn evm_call<C: RunContext>(
         "the retained call belongs to another network"
     );
     destination.retained_hash(&step.record().submission, &calldata)?;
-    run_evm_step(context, flow, &step, destination)
+    run_evm_step(context, original, flow, &step, destination)
 }
 
 /// Reconcile retained bytes before requesting a fresh bundle that may now be stale.
 pub(super) fn recover_evm(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     destination: &super::evm::EvmDestination,
 ) -> Result<bool> {
-    recover_evm_call(context, flow, action, &destination.transport())
+    recover_evm_call(context, original, flow, action, &destination.transport())
 }
 
 pub(super) fn recover_evm_call(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     destination: &super::evm::EvmTransport<'_>,
@@ -519,7 +524,7 @@ pub(super) fn recover_evm_call(
     let Some(step) = flow.latest(action)? else {
         return Ok(false);
     };
-    let outcome = run_evm_step(context, flow, &step, destination)?;
+    let outcome = run_evm_step(context, original, flow, &step, destination)?;
     if outcome.is_some()
         && (action == SccpFlowActionV1::Checkpoint || retry_allowed(flow, action, &step)?)
     {
@@ -530,6 +535,7 @@ pub(super) fn recover_evm_call(
 
 fn run_evm_step(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     step: &SccpJournalStep,
     destination: &super::evm::EvmTransport<'_>,
@@ -543,7 +549,7 @@ fn run_evm_step(
         step,
         flow.rebroadcast,
         |_| {
-            let Some(receipt) = destination.receipt(&hash)? else {
+            let Some((receipt, mut proof_items)) = destination.receipt(&blocking(context)?, original, &step.record().submission)? else {
                 return Ok(None);
             };
             ensure!(
@@ -565,19 +571,22 @@ fn run_evm_step(
                     .find(|item| item.label == "taira.verified_message_bundle")
                     .ok_or_else(|| eyre!("original finalize lacks its retained message proof"))?;
                 let bundle = norito::json::from_slice(&original.bytes)?;
-                destination.confirm_finalized(&receipt, &bundle)?;
+                proof_items.extend(destination.confirm_finalized(&receipt, &bundle)?);
             }
             let locator = norito::json!({"transaction_hash": (hex::encode(hash)), "block_hash": (hex::encode(receipt.block_hash)), "block_number": (receipt.block_number), "transaction_index": (receipt.transaction_index)});
             Ok(Some(SccpJournalOutcomeV1 {
                 outcome: kind,
                 transaction: hash.to_vec(),
-                evidence: vec![
+                evidence: {
+                    proof_items.extend([
                     SccpEvidenceItemV1 {
                         label: "evm.receipt.rlp".to_owned(),
                         bytes: iroha_sccp_rpc::builders::ethereum::receipt_rlp(&receipt),
                     },
                     evidence("evm.receipt.locator", &locator)?,
-                ],
+                    ]);
+                    proof_items
+                },
             }))
         },
         |raw| {
@@ -595,6 +604,7 @@ fn run_evm_step(
 /// Prepare one TON wallet envelope only after retaining its verified source evidence.
 pub(super) fn ton(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     lite: &iroha_sccp_rpc::ton::LiteClient,
@@ -604,6 +614,7 @@ pub(super) fn ton(
 ) -> Result<Option<SccpJournalOutcomeV1>> {
     ton_observed(
         context,
+        original,
         flow,
         action,
         lite,
@@ -617,10 +628,11 @@ pub(super) fn ton(
 /// Maintenance progress can supersede the need to retry; it does not prove mint/burn completion.
 pub(super) fn ton_observed(
     context: &mut impl RunContext,
+    original: &origin::AuthenticatedOrigin,
     flow: &Flow,
     action: SccpFlowActionV1,
     lite: &iroha_sccp_rpc::ton::LiteClient,
-    mut items: Vec<SccpEvidenceItemV1>,
+    items: Vec<SccpEvidenceItemV1>,
     prepare: impl FnOnce(&mut Vec<SccpEvidenceItemV1>) -> Result<Vec<u8>>,
     mut observe: impl FnMut(&SccpJournalStep) -> Result<Option<Vec<SccpEvidenceItemV1>>>,
     kind: SccpStepOutcomeKindV1,
@@ -642,13 +654,7 @@ pub(super) fn ton_observed(
     let step = if let Some(step) = previous {
         step
     } else {
-        ensure!(
-            flow.pending()?.is_none(),
-            "recover the original pending step first"
-        );
-        let submission = prepare(&mut items)?;
-        bind_flow(flow, &mut items);
-        flow.prepare(action, SccpNetworkV1::TonMainnet, submission, items)?
+        prepare_ton_original(flow, action, items, prepare)?
     };
     check_flow(flow, &step)?;
     ensure!(
@@ -662,24 +668,9 @@ pub(super) fn ton_observed(
         &step,
         flow.rebroadcast,
         |_| {
-            let Some(mut evidence) = observe(&step)? else {
-                return Ok(None);
-            };
-            // Another relayer may have produced the effect. Do not free this action while
-            // its original envelope could still consume the wallet nonce of the next one.
-            let retirement = super::ton::wallet_retirement(lite, &step.record().submission)?;
-            if !retirement.retired() {
-                return Ok(None);
-            }
-            evidence.push(self::evidence(
-                "ton.original_wallet_retirement",
-                &retirement,
-            )?);
-            Ok(Some(SccpJournalOutcomeV1 {
-                outcome: kind,
-                transaction: hash.to_vec(),
-                evidence,
-            }))
+            retired_ton_outcome(observe(&step)?, kind, hash, || {
+                super::ton::wallet_retirement(lite, &step.record().submission)
+            })
         },
         |bytes| {
             ensure!(
@@ -699,9 +690,118 @@ pub(super) fn ton_observed(
     Ok(outcome)
 }
 
+fn prepare_ton_original(
+    flow: &Flow,
+    action: SccpFlowActionV1,
+    mut items: Vec<SccpEvidenceItemV1>,
+    prepare: impl FnOnce(&mut Vec<SccpEvidenceItemV1>) -> Result<Vec<u8>>,
+) -> Result<SccpJournalStep> {
+    ensure!(
+        flow.pending()?.is_none(),
+        "recover the original pending step first"
+    );
+    let submission = prepare(&mut items)?;
+    bind_flow(flow, &mut items);
+    Ok(flow.prepare(action, SccpNetworkV1::TonMainnet, submission, items)?)
+}
+
+/// Another relayer's effect cannot free an original envelope that still owns its wallet nonce.
+pub(super) fn retired_ton_outcome(
+    observed: Option<Vec<SccpEvidenceItemV1>>,
+    kind: SccpStepOutcomeKindV1,
+    hash: [u8; 32],
+    observe_retirement: impl FnOnce() -> Result<super::ton::WalletRetirement>,
+) -> Result<Option<SccpJournalOutcomeV1>> {
+    let Some(mut evidence) = observed else {
+        return Ok(None);
+    };
+    let retirement = observe_retirement()?;
+    if !retirement.retired() {
+        return Ok(None);
+    }
+    evidence.push(self::evidence(
+        "ton.original_wallet_retirement",
+        &retirement,
+    )?);
+    Ok(Some(SccpJournalOutcomeV1 {
+        outcome: kind,
+        transaction: hash.to_vec(),
+        evidence,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ton_preparation_retains_burn_preflight_before_any_dispatch_and_recovery() {
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sccp-continuation");
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("ton-preflight-")
+            .tempdir_in(base)
+            .unwrap();
+        let network = iroha_data_model::NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([12; 32])),
+        );
+        let flow = Flow {
+            journal: SccpFlowV1::open(
+                SccpJournalRoot::open(&dir.path().join("journal"))
+                    .unwrap()
+                    .network(&network)
+                    .unwrap()
+                    .flow(&SccpFlowIdV1 {
+                        kind: SccpFlowKindV1::Inbound,
+                        id: [11; 32],
+                    })
+                    .unwrap(),
+                *network.as_bytes(),
+            )
+            .unwrap(),
+            rebroadcast: false,
+            retry: false,
+            intent: [11; 32],
+        };
+        let preflight = evidence(
+            "taira.original_burn_preflight",
+            &norito::json!({"generation": 7}),
+        )
+        .unwrap();
+        assert!(
+            prepare_ton_original(&flow, SccpFlowActionV1::Burn, Vec::new(), |_| {
+                Err(eyre!("stale original light client"))
+            })
+            .is_err()
+        );
+        assert!(flow.latest(SccpFlowActionV1::Burn).unwrap().is_none());
+        let step = prepare_ton_original(
+            &flow,
+            SccpFlowActionV1::Burn,
+            vec![evidence("verified.burn_intent", &norito::json!({"amount": "15"})).unwrap()],
+            |items| {
+                items.push(preflight.clone());
+                Ok(vec![1, 2, 3])
+            },
+        )
+        .unwrap();
+        let original = step.record().clone();
+        assert!(original.evidence.contains(&preflight));
+        assert!(!step.submission_recorded().unwrap());
+        check_flow(&flow, &step).unwrap();
+        step.begin_submission().unwrap();
+        drop(step);
+        assert!(
+            prepare_ton_original(&flow, SccpFlowActionV1::Burn, Vec::new(), |_| {
+                panic!("recovery cannot refresh preflight or sign replacement bytes")
+            })
+            .is_err()
+        );
+        let retained = flow.latest(SccpFlowActionV1::Burn).unwrap().unwrap();
+        assert_eq!(retained.record(), &original);
+        assert!(!retained.begin_submission().unwrap());
+    }
     #[test]
     fn flow_intent_is_domain_separated_and_exact() {
         use sha2::{Digest as _, Sha256};

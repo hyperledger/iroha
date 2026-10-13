@@ -272,6 +272,14 @@ each image. With explicit noninterference, source/compiler and ABI premises,
 System frontiers narrow from 14 to 10; all ten frees remain. Unconditional
 activation and arbitrary alias/callback behavior remain unknown. This is
 another conditional boundary, not a full allocation or stack certificate.
+The [source ownership audit](../docs/validation/parliament_ballot_ownership/README.md)
+and [compiled free predicates](../docs/validation/parliament_ballot_free_predicates/README.md)
+now separate source-owned allocations from the exact null/range and
+same-pointer checks. All ten unconditional free sites still need machine
+provenance/noninterference evidence. The
+[I/O error guard](../docs/validation/parliament_ballot_io_error_guard/README.md)
+similarly establishes a local non-Custom return condition and charged-read
+source lemma, while leaving whole-worker variant flow and its frontier open.
 The full service needs qualified worst-case calibration before resource and
 governance owners derive committed budgets, stamps and `1,000 * K` casting
 capacity. Neither the abstract unit nor the finite Mac runs supply those costs.

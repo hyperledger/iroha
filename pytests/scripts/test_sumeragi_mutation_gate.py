@@ -3079,10 +3079,19 @@ def test_completed_native_amx_proof_has_original_graph_retry_mutation():
     assert not gate.has_switch("HC159", model=True)
     assert not gate.has_switch("HC159", daemon=True)
     implementation = (ROOT / "crates/iroha_core/src/query/native_receipts/amx_read.rs").read_text()
-    assert "portable: Option<Option<AllocatedAmxRecordProofV1>>" in implementation
+    assert "portable: PortableProof" in implementation
+    representation = implementation.split("enum PortableProof {", 1)[1].split("}", 1)[0]
+    assert "Unbuilt," in representation
+    assert "Completed(Option<AllocatedAmxRecordProofV1>)" in representation
     assert 'all(test, sumeragi_core_mutation = "HC159")' in implementation
     assert "if namespace.is_err()" in implementation
-    assert implementation.index("namespace?;") < implementation.index('.take()\n            .ok_or(Error::Source("completed portable proof is not retained"))')
+    compact = re.sub(r"\s+", "", implementation)
+    delivery = "std::mem::replace(&mutself.portable,PortableProof::Unbuilt)"
+    assert compact.index("namespace?;") < compact.index(delivery)
+    assert "letPortableProof::Completed(proof)=" + delivery in compact
+    assert 'Error::Source("completed portable proof is not retained")' in implementation
+    mutation = implementation.split('sumeragi_core_mutation = "HC159"', 1)[1].split("namespace?;", 1)[0]
+    assert "self.portable = PortableProof::Unbuilt;" in mutation
     control = (ROOT / "crates/iroha_core/src/sumeragi/amx/proof_tests.rs").read_text()
     assert "fn " + name + "(" in control
     assert "NativeContextArchiveError::Io" in control
@@ -4205,7 +4214,8 @@ def test_prepared_intent_capture_uses_original_witness_and_authenticated_source(
     assert 'frame = "iroha_core::amx::AmxIntentCoordinatesV1"' in owner
     assert "borrowed_intent_coordinates_declare_exact_owned_frame_without_erasing_nominal_lifetime" in owner
     source_binding = (source / "state/fastpq_quantity_capture/commitment_journal/finalized_source/witness.rs").read_text()
-    assert "self.native == Some((executed.hash(), execution))" in source_binding
+    native_match = source_binding.split("pub(crate) fn matches_original_native_execution(", 1)[1].split("\n    }", 1)[0]
+    assert "self.native.as_ref().is_some_and(|(block,original)|*block==executed.hash()&&original==execution)" in re.sub(r"\s+", "", native_match)
     assert "std::ptr::eq(self.wire(), self.wire.get())" in source_binding
 
 
@@ -6533,14 +6543,14 @@ def test_native_cursor_pending_retention_has_one_shared_kernel_and_causal_contro
     assert kernel.count("write_canonical_to_writer(") == 1
     assert kernel.count("try_clone_from_charge(") == 1
     assert "original.complete(block, members, budget, deadline)?" in kernel
-    for obligation in ("members_address != members.as_ptr() as usize", "!original.owned._charges.belongs_to(budget)",
+    for obligation in ("members_address != members.as_ptr() as usize", "!original.owned.charges.belongs_to(budget)",
                        "std::ptr::eq(original.block.as_ref(), block.as_ref())", "if pop.is_none()",
                        "pop.take().expect", "wire_complete", 'sumeragi_core_mutation = "HC213"'):
         assert obligation in kernel
     construction = kernel.split("struct Construction {", 1)[1].split("impl ProofPreparation", 1)[0]
     assert construction.index("pop:") < construction.index("owned:")
     owned = kernel.split("pub(super) struct OwnedProof {", 1)[1].split("impl OwnedProof", 1)[0]
-    assert owned.index("proof:") < owned.index("_charges:")
+    assert owned.index("proof:") < owned.index("charges:")
     for body in (source.split("#[cfg(test)]\nmod tests", 1)[0], kernel.split("#[cfg(test)]\nmod tests", 1)[0]):
         assert "AllocationBudget::new" not in body and "mem::forget" not in body
     control = re.sub(r"\s+", "", source.split("fn native_cursor_pending_refusal(", 1)[1])
@@ -6646,7 +6656,8 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     spec = (ROOT / "specs/sumeragi.md").read_text()
     rows = re.findall(rf"^\| {mid} \|.*$", spec, re.M)
     assert len(rows) == 1 and name in rows[0]
-    assert "| SC5 (full State: HC257) | CT1 disabled |" in spec and "| SC6 | CT3 builder pacing disabled |" in spec
+    assert "| SC5 (HC257) | CT1 disabled |" in spec
+    assert "| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled |" in spec
     # The existing pending-proof custody rule remains an independent live rule.
     assert len(gate.index_mutations(gate.CORE_MUTATIONS)["HC236"].tests) == 3
 

@@ -92,6 +92,7 @@ pub(super) fn run(context: &mut impl RunContext, args: Args) -> Result<()> {
     };
     flows::ton_observed(
         context,
+        &original, 
         &flow,
         Action::RetryRecovery,
         destination.lite(),

@@ -13,9 +13,10 @@ use iroha::{
         sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier},
     },
 };
+use iroha_executor_data_model::permission::trigger::CanRegisterGlobalDataTrigger;
 use iroha_model_base::domain::DomainId;
 use iroha_test_network::*;
-use iroha_test_samples::{ALICE_ID, BOB_ID};
+use iroha_test_samples::{ALICE_ID, BOB_ID, SAMPLE_GENESIS_ACCOUNT_KEYPAIR};
 use nonzero_ext::nonzero;
 use std::{num::NonZeroU64, time::Instant};
 use tokio::{task::spawn_blocking, time::timeout};
@@ -37,8 +38,18 @@ async fn client_verifies_transaction_entrypoint_and_output_proofs() -> Result<()
     let user_instruction = Transfer::asset_quantity(alice_rose.clone(), 5u32, BOB_ID.clone());
     let data_trigger_instruction =
         Transfer::asset_quantity(bob_rose.clone(), 3u32, ALICE_ID.clone());
+    let genesis_key_pair = SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone();
+    let genesis_authority = AccountId::new(genesis_key_pair.public_key().clone());
     // Initialize a network with a registered data-trigger at genesis.
     let builder = NetworkBuilder::new()
+        .with_genesis_keypair(genesis_key_pair)
+        // The genesis submitter explicitly authorizes Alice's trigger to observe Bob's asset.
+        .with_genesis_instruction(Grant::account_permission(
+            CanRegisterGlobalDataTrigger {
+                authority: ALICE_ID.clone(),
+            },
+            genesis_authority,
+        ))
         .with_genesis_instruction(SetParameter::new(Parameter::SmartContract(
             iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(1),
         )))

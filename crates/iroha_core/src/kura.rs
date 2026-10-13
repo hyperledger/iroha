@@ -2152,6 +2152,7 @@ impl Kura {
                     Some(current.saturating_sub(delta))
                 });
     }
+    #[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
     fn invalidate_pending_budget_cache(&self) {
         self.pending_budget_bytes_valid
             .store(false, Ordering::Relaxed);
@@ -9415,6 +9416,7 @@ impl BlockStore {
             }
         }
     }
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     fn schedule_fsync_after_write(&mut self) -> Result<()> {
         self.mark_fsync_pending();
         self.flush_pending_fsync(false)

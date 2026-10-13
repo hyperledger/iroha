@@ -260,6 +260,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
             .collect();
         flows::ton(
             context,
+            &original, 
             &flow,
             Action::Finalize,
             destination.lite(),
@@ -305,6 +306,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
     )?;
     if flows::recover_evm(
         context,
+        &original, 
         &flow,
         iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
         &destination,
@@ -337,6 +339,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<
     )?;
     flows::evm(
         context,
+        &original, 
         &flow,
         iroha_sccp_wallet::flow::SccpFlowActionV1::Finalize,
         record.network,
@@ -417,7 +420,7 @@ pub(super) fn evm_ready(
     use iroha_sccp_wallet::flow::SccpFlowActionV1 as Action;
     let pending = flow.pending()?.map(|step| step.record().action);
     if let Some(action @ (Action::Checkpoint | Action::Control)) = pending {
-        flows::recover_evm(context, flow, action, destination)?;
+        flows::recover_evm(context, &original, flow, action, destination)?;
         return Ok(false);
     }
     for _ in 0..3 {
@@ -441,6 +444,7 @@ pub(super) fn evm_ready(
                 )? {
                     if !flows::confirmed(&flows::evm(
                         context,
+                        &original, 
                         flow,
                         Action::Checkpoint,
                         route.0,
@@ -467,6 +471,7 @@ pub(super) fn evm_ready(
                     destination.control_call(&bundle, original.network, original.instance)?;
                 if !flows::confirmed(&flows::evm(
                     context,
+                    &original, 
                     flow,
                     Action::Control,
                     route.0,
@@ -523,6 +528,7 @@ pub(super) fn ton_ready(
     if let Some((action, target)) = pending {
         flows::ton(
             context,
+            &original, 
             flow,
             action,
             destination.lite(),
@@ -554,6 +560,7 @@ pub(super) fn ton_ready(
                     .rotations(from, iroha_sccp::v1::destination::MAX_CERTIFICATES_PER_CALL)?;
                 flows::ton(
                     context,
+                    &original, 
                     flow,
                     Action::Checkpoint,
                     destination.lite(),
@@ -589,6 +596,7 @@ pub(super) fn ton_ready(
                 )?;
                 flows::ton(
                     context,
+                    &original, 
                     flow,
                     Action::Control,
                     destination.lite(),

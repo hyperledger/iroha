@@ -18,7 +18,7 @@ use crate::{
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        deployment::{SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1},
+        deployment::{SccpEvmDeploymentV1, SccpTonDeploymentV1},
         registry::SccpRouteRevisionV1,
     },
 };
@@ -286,10 +286,7 @@ fn ton_action(
     identity: &OriginalIdentity,
 ) -> SccpRegisterRouteActionV1 {
     let pin = sample_pin(record);
-    let code = SccpTonCodeRefV1 {
-        hash: [5; 32],
-        depth: 0,
-    };
+    let [minter_code, wallet_code, bucket_code] = locked_code_refs();
     let init = TonMinterInitV1 {
         taira_network_id: identity.network,
         consensus_instance: identity.instance,
@@ -297,8 +294,8 @@ fn ton_action(
         max_supply: 100,
         pin,
         keys: record.keys.clone(),
-        wallet_code: code,
-        bucket_code: code,
+        wallet_code,
+        bucket_code,
     };
     SccpRegisterRouteActionV1 {
         network: SccpNetworkV1::TonMainnet,
@@ -306,10 +303,10 @@ fn ton_action(
         initial_committee: pin,
         max_wrapped_supply: 100,
         deployment: SccpDeploymentV1::Ton(SccpTonDeploymentV1 {
-            master_account: minter_account_id(&init, code).unwrap(),
-            minter_code: code,
-            wallet_code: code,
-            bucket_code: code,
+            master_account: minter_account_id(&init, minter_code).unwrap(),
+            minter_code,
+            wallet_code,
+            bucket_code,
         }),
     }
 }
@@ -357,6 +354,58 @@ fn ton_address_binds_original_identity_pin_revision_cap_and_all_code_references(
             )
             .is_err(),
             "variant {variant}"
+        );
+    }
+}
+
+#[test]
+fn ton_deployment_refuses_substituted_code_at_its_matching_state_init_address() {
+    let record = resolved(1, 1);
+    let retained = retained_generation_fixture(&record);
+    let identity = OriginalIdentity {
+        network: [1; 32],
+        instance: [2; 32],
+        parent_height: 3,
+    };
+    let original = ton_action(&record, &identity);
+    assert!(deployment(&original, &retained, &identity).is_ok());
+    for coordinate in 0..6 {
+        let mut changed = original.clone();
+        let SccpDeploymentV1::Ton(ton) = &mut changed.deployment else {
+            unreachable!()
+        };
+        let code = match coordinate / 2 {
+            0 => &mut ton.minter_code,
+            1 => &mut ton.wallet_code,
+            2 => &mut ton.bucket_code,
+            _ => unreachable!(),
+        };
+        if coordinate % 2 == 0 {
+            code.hash[0] ^= 1;
+        } else {
+            code.depth += 1;
+        }
+        let init = TonMinterInitV1 {
+            taira_network_id: identity.network,
+            consensus_instance: identity.instance,
+            route_revision: changed.revision,
+            max_supply: changed.max_wrapped_supply,
+            pin: changed.initial_committee,
+            keys: record.keys.clone(),
+            wallet_code: ton.wallet_code,
+            bucket_code: ton.bucket_code,
+        };
+        // Recompute the matching malicious address: address consistency alone must not
+        // authorize another minter, wallet or consumption-bucket program.
+        ton.master_account = minter_account_id(&init, ton.minter_code).unwrap();
+        let result = deployment(&changed, &retained, &identity);
+        assert!(
+            result.is_err(),
+            "SCCP TON deployment must refuse substituted code even at its matching StateInit address"
+        );
+        assert!(
+            result.unwrap_err().to_string().contains("locked artifacts"),
+            "coordinate {coordinate}"
         );
     }
 }

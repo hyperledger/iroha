@@ -319,6 +319,14 @@ MUTATIONS = [
       ["sim::world::clock_guard::tests::clock_guard_committed_parent_wait_retains_work_until_clock_recovery"],
       causes=(ExpectedFailure("CT3 must retain original work without publishing before the parent and creation floors",
           "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)),
+    m("MS69", "CT3 simulator builder: skip completed-payload clock recheck",
+      ["sim::world::clock_guard::tests::clock_guard_completed_payload_waits_after_build_latency_backstep"],
+      causes=(ExpectedFailure("CT3 must retain the original completed payload after a build-latency clock backstep",
+          "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)),
+    m("MS70", "CT3 simulator builder: sign a fresh proposal after its authored-queue clock backstep",
+      ["sim::world::clock_guard::tests::clock_guard_fresh_proposal_waits_after_authored_queue_backstep"],
+      causes=(ExpectedFailure("CT3 must not sign or publish a fresh proposal after an authored-queue clock backstep",
+          "crates/iroha_sumeragi/src/sim/world/clock_guard/tests.rs"),)),
     # ---- liveness rules
     m("ML1", "level returns start(h)", ["det_l1_levels_grow"], ["f15"]),
     m("ML2", "on_tick rebroadcast 1 deleted", ["det_l2_lost_timeout_resent"], ["f09"]),
@@ -1319,6 +1327,11 @@ CORE_MUTATIONS = [
       ["smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary"],
       causes=(ExpectedFailure("SC2 boundary header must retain the outgoing committee root",
           "crates/iroha_core/src/smartcontracts/isi/sccp/generations/tests.rs"),)),
+
+    m("HC326", "SCCP TON registration: accept caller-substituted contract code at its matching address",
+      ["smartcontracts::isi::sccp::governance::registration::tests::ton_deployment_refuses_substituted_code_at_its_matching_state_init_address"],
+      causes=(ExpectedFailure("SCCP TON deployment must refuse substituted code even at its matching StateInit address",
+          "crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration/tests.rs"),)),
 
     m("HC305", "SCCP genesis: permit a committee signer without an original global staking binding",
       ["smartcontracts::isi::sccp::init::tests::sccp_genesis_requires_every_original_signer_to_have_one_staking_binding"],

@@ -187,9 +187,11 @@ pub(crate) struct CapturedStateSnapshot {
 }
 impl CapturedStateSnapshot {
     /// Capture once; a concurrent publication returns a typed retryable refusal.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn capture(state: &State) -> Result<Self, SnapshotCaptureError> {
         Self::capture_with_observer(state, || {})
     }
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     fn capture_with_observer(
         state: &State,
         after_serialization: impl FnOnce(),
@@ -259,6 +261,7 @@ impl CapturedStateSnapshot {
         self.identity.height
     }
     /// Exact captured JSON, suitable for an isolated typed restart decoder.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn as_json(&self) -> &str {
         &self.json
     }

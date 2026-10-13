@@ -149,6 +149,15 @@ charged read errors and invalid recorder/terminal controls. The recorder adds
 stream membership does not establish complete compiler correspondence, native
 coverage, all-input completion or a whole-process 64 MiB bound.
 
+The [ownership audit](../docs/validation/parliament_ballot_ownership/README.md)
+and [compiled free predicates](../docs/validation/parliament_ballot_free_predicates/README.md)
+support conditional arena-origin reasoning without proving universal pointer
+provenance or excluding any of the ten unconditional free sites. The separate
+[I/O error guard](../docs/validation/parliament_ballot_io_error_guard/README.md)
+checks a non-Custom destructor return path; its charged-read source argument
+does not cover all worker errors or bound native read/retry behavior. These
+refinements leave the full service's workspace and time requirements open.
+
 ## Remaining selection and policy obligations
 
 TODO: complete the runtime/System/TLS coverage audit and establish that every

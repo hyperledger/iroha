@@ -4,12 +4,14 @@ use super::*;
 
 /// Original replacement-rewind notifications retained by the executing owner.
 /// Physical hydration guards remain short; their notices outlive every MV writer.
+#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
 pub(super) struct DaRewindReleases<'state> {
     indexes: LaneLifecycleReleases<'state>,
     write_fence: crate::publication_lock::DeferredPublicationFence<'state, ()>,
     refunds: iroha_allocation::AllocationRefundBatch,
 }
 
+#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
 impl<'state> DaRewindReleases<'state> {
     pub(super) fn new(state: &'state State) -> Self {
         Self {
@@ -233,6 +235,7 @@ impl State {
     }
 
     /// Use the caller's exact notification owner while replacement MV writers remain held.
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     pub(super) fn rewind_da_indexes_to_height_with_releases(
         &self,
         target_height: u64,

@@ -177,6 +177,7 @@ impl State {
                 native_execution_tip,
                 projection,
                 block_hashes,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 da_rewind_releases,
             } = original
                 .take()
@@ -191,6 +192,7 @@ impl State {
                     .deferred_refund_batch(),
                 state_ref: self,
                 _read_releases: StateViewReleases::new(self),
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 _da_rewind_releases: da_rewind_releases,
                 canonical_runtime: block_field::BlockField::new(canonical_runtime),
                 native_execution_tip: block_field::BlockField::new(native_execution_tip),
@@ -302,6 +304,7 @@ impl State {
                 sumeragi_lanes_step: crate::sumeragi::lanes::step::LaneStep::Off,
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
+                #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
                 state_write_lock: &self.state_write_lock,
                 da_commitments: &self.da_commitments,
                 da_receipt_cursors: &self.da_receipt_cursors,

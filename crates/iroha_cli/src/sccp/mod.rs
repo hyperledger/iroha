@@ -1269,30 +1269,24 @@ const LOCATE_ATTEMPTS: usize = 10;
 /// `first_nonce` (the revision's next nonce before submission), lowest nonce first.
 fn locate_sent(
     client: &BlockingClient,
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
     network: SccpNetworkV1,
     revision: u32,
     first_nonce: u64,
     sent: &SentTransfer,
 ) -> Result<iroha_sccp::api::SccpOutboundMessageViewV1> {
     for attempt in 0..LOCATE_ATTEMPTS {
-        let mut from_nonce = first_nonce;
-        for _ in 0..16 {
-            let page = client.sccp().outbound(
-                network,
-                revision,
-                from_nonce,
-                iroha_sccp::api::MAX_OUTBOUND_PAGE,
-            )?;
-            if let Some(view) = page.records.iter().find(|view| sent.matches(&view.record)) {
-                return Ok(view.clone());
-            }
-            match page.next_from_nonce {
-                Some(next) => {
-                    eyre::ensure!(next > from_nonce, "outbound discovery cursor does not advance");
-                    from_nonce = next;
-                }
-                None => break,
-            }
+        if let Some(view) =
+            record::locate_sent_scan(step, network, revision, first_nonce, sent, |from_nonce| {
+                Ok(client.sccp().outbound(
+                    network,
+                    revision,
+                    from_nonce,
+                    iroha_sccp::api::MAX_OUTBOUND_PAGE,
+                )?)
+            })?
+        {
+            return Ok(view);
         }
         if attempt + 1 < LOCATE_ATTEMPTS {
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -1300,7 +1294,7 @@ fn locate_sent(
     }
     Err(eyre!(
         "the transaction committed but no {} revision {revision} record from nonce {first_nonce} \
-         matches it; look it up with `iroha sccp recent`",
+         matches it; rerun the same flow to resume retained discovery",
         network.profile_key()
     ))
 }
@@ -1708,6 +1702,11 @@ mod tests {
                 &hash,
             ]);
             Cli::try_parse_from(&args).expect("complete independent origin flags");
+            if command == "deployment" {
+                args[1] = "control";
+                args[2] = "status";
+                Cli::try_parse_from(&args).expect("control status is read-only and needs no key");
+            }
         }
         Cli::try_parse_from(["sccp", "governance", "show", "00"]).expect("proposal show");
         for retired in ["roster", "roster-sync", "key", "bridge-key", "bridge-keys"] {

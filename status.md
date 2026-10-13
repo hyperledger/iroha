@@ -34,13 +34,15 @@ SCCP uses native finality, original committee/staking custody and the 199-byte
 control leaf. Shared Keepalive and bounded due work, the native Prepare clock
 guard, fast-pause lifecycle consumers, retained pruning and reconciliation
 accounting are implemented. The latest genesis profile enforces original G1
-staking bindings and non-reusable reset identities; its validation is pending.
+staking bindings and non-reusable reset identities; focused profile and signing validation passes.
 Original-pool native light-client admission and self-claim integration, the
 coalition-floor projection and combined node/CLI/SDK qualification remain open.
 The actual Parliament eligibility, draw, positioned shared pass, casting-open
 anchor and qualified ballot remain unavailable, so both launch gates stay closed.
-Component contract and Core results do not establish corridor or deployment
-readiness; the current four-validator and local EVM rehearsal is still required.
+Component contract and Core results do not establish deployment readiness.
+The current four-validator candidate publishes native finality and refuses unqualified
+route governance; its authentic certificate passes local EVM checkpoint replay.
+Monetary transfer and live deployment qualification remain gated.
 
 The Nexus proposal/status repairs and original invocation binding are preserved.
 The paid Nexus workload exposed an AMX retry defect: a completed State visibility
@@ -453,7 +455,9 @@ passes.
   the full bound unknown. Failure-entry separation narrows 31 indirect sites
   to explicit unknown-cost failure obligations; an activation check excludes
   four explicit System allocation arms only under unproved noninterference
-  premises. An instrumented verifier
+  premises. Separate source-ownership and compiled free-routing checks retain
+  all ten unconditional free frontiers; the worker I/O tag guard leaves
+  whole-worker variant flow open. An instrumented verifier
   matches 132 finite allocation streams and passes 14 controls; universal
   correspondence remains open. A separate native endpoint observer passes its
   controls and finite proof campaign with no named native calls in the charged

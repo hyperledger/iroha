@@ -3,6 +3,31 @@
 use super::*;
 use iroha_sccp_wallet::{flow::SccpFlowActionV1 as Action, journal::SccpFlowKindV1 as Kind};
 
+mod verification;
+pub use verification::VerifyArgs;
+pub(super) use verification::verify;
+
+fn locked_ton_code(name: &str) -> Result<iroha::data_model::sccp::deployment::SccpTonCodeRefV1> {
+    let index = match name {
+        "SccpTairaXorMinter" => 0,
+        "SccpTairaXorWallet" => 1,
+        "SccpConsumedBucket" => 2,
+        _ => return Err(eyre!("unknown locked TON contract")),
+    };
+    Ok(iroha_sccp::v1::ton_cell::locked_code_refs()[index])
+}
+
+fn require_locked_ton_code(
+    name: &str,
+    code: iroha::data_model::sccp::deployment::SccpTonCodeRefV1,
+) -> Result<()> {
+    eyre::ensure!(
+        code == locked_ton_code(name)?,
+        "{name} differs from the locked TON artifact"
+    );
+    Ok(())
+}
+
 #[derive(norito::derive::JsonSerialize)]
 struct Intent {
     network: SccpNetworkV1,
@@ -75,10 +100,14 @@ fn wait_for_code(
 fn ton_code(build_dir: &std::path::Path, name: &str) -> Result<iroha_sccp::v1::ton_cell::Cell> {
     use base64::Engine as _;
     let path = build_dir.join(format!("{name}.json"));
-    let text =
-        std::fs::read_to_string(&path).wrap_err_with(|| format!("read {}", path.display()))?;
+    use std::io::Read as _;
+    let mut text = Vec::new();
+    std::fs::File::open(&path)?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut text)?;
+    eyre::ensure!(text.len() <= 4 * 1024 * 1024, "TON artifact exceeds 4 MiB");
     let artifact: norito::json::Value =
-        norito::json::from_str(&text).map_err(|error| eyre!("{}: {error}", path.display()))?;
+        norito::json::from_slice(&text).map_err(|error| eyre!("{}: {error}", path.display()))?;
     let encoded = artifact
         .get("code_boc64")
         .and_then(norito::json::Value::as_str)
@@ -86,8 +115,16 @@ fn ton_code(build_dir: &std::path::Path, name: &str) -> Result<iroha_sccp::v1::t
     let boc = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .map_err(|error| eyre!("{}: code_boc64: {error}", path.display()))?;
-    iroha_sccp_wallet::pure::ton::code_cell(&boc)
-        .map_err(|error| eyre!("{}: {error}", path.display()))
+    let cell = iroha_sccp_wallet::pure::ton::code_cell(&boc)
+        .map_err(|error| eyre!("{}: {error}", path.display()))?;
+    require_locked_ton_code(
+        name,
+        iroha::data_model::sccp::deployment::SccpTonCodeRefV1 {
+            hash: *cell.hash(),
+            depth: cell.depth(),
+        },
+    )?;
+    Ok(cell)
 }
 
 /// `iroha sccp deploy --network ton-mainnet`: deploy the minter pinned to a Taira generation
@@ -140,6 +177,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     )?;
     let retained = retained_pin(&flow)?;
     let client = blocking(context)?;
+    let authenticated_origin = origin::authenticate_origin(context, &client, &args.origin)?;
     let original = origin::authenticate(
         context,
         &client,
@@ -195,6 +233,7 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     )?;
     let outcome = flows::ton(
         context,
+        &authenticated_origin,
         &flow,
         Action::Deploy,
         &lite,
@@ -280,6 +319,7 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
     )?;
     let retained = retained_pin(&flow)?;
     let client = blocking(context)?;
+    let authenticated_origin = origin::authenticate_origin(context, &client, &args.origin)?;
     let original = origin::authenticate(
         context,
         &client,
@@ -302,9 +342,16 @@ pub(super) fn run<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()
     let deployment = evm::deployment(&context.sccp_config()?, &args.rpc_url, network, data)?;
     let address = deployment.address;
     let transport = deployment.transport();
-    if !flows::recover_evm_call(context, &flow, Action::Deploy, &transport)? {
+    if !flows::recover_evm_call(
+        context,
+        &authenticated_origin,
+        &flow,
+        Action::Deploy,
+        &transport,
+    )? {
         let outcome = flows::evm_call(
             context,
+            &authenticated_origin,
             &flow,
             Action::Deploy,
             network,

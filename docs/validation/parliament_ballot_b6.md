@@ -348,6 +348,24 @@ narrow from 14 to 10 per mode; ten frees remain. The resolved reference catalog
 does not prove absence of arbitrary alias writes or callbacks. Unconditional
 activation remains unknown, and no complete stack or workspace bound changes.
 
+The separate [ownership audit](parliament_ballot_ownership/README.md) checks
+81 source identities and 65 excerpts: no setup heap owner crosses reservation
+entry, and its owned containers are constructed below that entry. The
+[compiled free predicates](parliament_ballot_free_predicates/README.md) check
+the ten remaining sites per image, including alternative capacity guards and
+same-pointer forwarding. An observed non-null arena routes a pointer away from
+System only when `P >= heap && P - heap < bytes`. These facts support a
+conditional ownership argument; they do not establish universal machine
+provenance, intact state or noninterference. All ten unconditional free
+frontiers remain open.
+
+The [I/O error guard](parliament_ballot_io_error_guard/README.md) separately
+checks the worker destructor's fourteen-instruction non-Custom return path in
+both images. Seven pinned Rust sources support OS/static-EOF error construction
+for ordinary charged File reads. Whole-worker variant flow is unproved, so its
+indirect frontier also remains open. Native, exceptional and full resource
+requirements are unchanged; no old binary or graph was rewritten.
+
 The dev-only native dependency addition and later unrelated lock changes have
 explicit before/after provenance. The [new historical reconstruction](parliament_ballot_resource_contract/dependency-change/reconstruction-receipt.json)
 reproduces the original 223/225/92 source scopes with archived substitutions,
@@ -400,6 +418,14 @@ The complete workspace suite was not run for this standalone work; unrelated
 concurrent changes and repository signing/staging state were preserved.
 
 ## Current-tree checks and concurrent failure
+
+The [ownership/guard checks](parliament_ballot_b6/ownership-guards-checks.json)
+pass 60 focused Python tests. Separate peer reviews found and repaired
+pointer-origin and frozen-identity gaps before the new reports were finalized.
+The ownership audit rechecks 81 source hashes and 65 excerpts. These checks
+retain all ten unconditional free frontiers per mode and the worker I/O
+frontier. The Core source-contract ordering failure remains; the production
+gate is false and qualified attempt latency is still `None`.
 
 The [allocation/frontier/prover checks](parliament_ballot_b6/allocation-frontier-prover-checks.json)
 pass 120 Python tests and 182 subtests. Both allocation-trace builds separately

@@ -87,7 +87,7 @@ pub(super) fn block_time_ms(lite: &LiteClient, block: BlockIdExt) -> Result<u64>
 }
 
 /// Run a current result stack at one explicitly selected masterchain block.
-fn run_stack_at(
+pub(super) fn run_stack_at(
     lite: &LiteClient,
     at: BlockIdExt,
     account: &TonAccountV1,
@@ -550,6 +550,23 @@ impl TonDestination {
         Ok(())
     }
 
+    /// Read complete applied control fields at one selected masterchain block.
+    pub(super) fn control_observation(
+        &self,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<(
+        iroha_sccp_wallet::pure::control::DestinationControlStateV1,
+        u64,
+    )> {
+        let observed = self.observe()?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and the selected minter have different identities"
+        );
+        Ok((observed.control, observed.now_ms))
+    }
+
     /// Verify a genuine checkpoint chain and send its current TON checkpoint messages in order.
     pub(super) fn prepare_rotation(
         &self,
@@ -777,6 +794,65 @@ fn parse_observation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sccp::flows;
+
+    #[test]
+    fn terminal_and_maintenance_evidence_both_require_original_wallet_retirement() {
+        use iroha_sccp_wallet::journal::{SccpEvidenceItemV1, SccpStepOutcomeKindV1};
+        let effect = || {
+            vec![SccpEvidenceItemV1 {
+                label: "verified.original_terminal_or_upkeep".to_owned(),
+                bytes: vec![1, 2, 3],
+            }]
+        };
+        let retirement = |observed_seqno| WalletRetirement {
+            wallet: hex::encode([9; 32]),
+            original_seqno: 7,
+            observed_seqno,
+            masterchain_root: hex::encode([8; 32]),
+            masterchain_seqno: 100,
+        };
+        for kind in [
+            SccpStepOutcomeKindV1::Confirmed,
+            SccpStepOutcomeKindV1::Superseded,
+        ] {
+            for seqno in [6, 7] {
+                assert!(
+                    flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || {
+                        Ok(retirement(seqno))
+                    })
+                    .unwrap()
+                    .is_none(),
+                    "even an exact terminal effect must leave a live wallet envelope pending"
+                );
+            }
+            assert!(
+                flows::retired_ton_outcome(None, kind, [3; 32], || {
+                    panic!("retired wallet nonce alone cannot prove the intended effect")
+                })
+                .unwrap()
+                .is_none()
+            );
+            assert!(
+                flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || {
+                    Err(eyre!("original wallet observation unavailable"))
+                })
+                .is_err()
+            );
+            let outcome =
+                flows::retired_ton_outcome(Some(effect()), kind, [3; 32], || Ok(retirement(8)))
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(outcome.outcome, kind);
+            assert_eq!(outcome.transaction, vec![3; 32]);
+            assert_eq!(outcome.evidence[0], effect()[0]);
+            assert_eq!(outcome.evidence[1].label, "ton.original_wallet_retirement");
+            let retained: norito::json::Value =
+                norito::json::from_slice(&outcome.evidence[1].bytes).unwrap();
+            assert_eq!(retained["original_seqno"].as_u64(), Some(7));
+            assert_eq!(retained["observed_seqno"].as_u64(), Some(8));
+        }
+    }
 
     #[test]
     fn unrelated_upkeep_does_not_release_a_live_original_wallet_seqno() {

@@ -947,6 +947,7 @@ mod block {
 
     impl TransactionsBlock<'_> {
         /// Return whether a canonical block membership update was staged.
+        #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
         pub(crate) fn has_staged_block(&self) -> bool {
             self._guard.identity();
             self.current_block.is_some()

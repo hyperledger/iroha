@@ -2623,7 +2623,10 @@ time `T`):
     pin, the live `NetworkId`, `I`, the revision, the cap and the wallet and
     bucket code refs, using `iroha_sccp::v1::ton_cell` (`minter_account_id`
     over `state_init`, code cells as `CellRef::opaque`; only code hashes and
-    depths are needed).
+    depths are needed). All three code references MUST equal
+    `ton_cell::locked_code_refs()`, the compiled minter, wallet and bucket
+    hashes and depths pinned by `fixtures/sccp/ton_stateinit_v1.json`; a
+    matching address for substituted code is refused.
   - **P4 (EVM).** `address` equals `keccak256(0xff ‖ SCCP_EVM_DEPLOYER ‖ 0^32 ‖
     keccak256(SCCP_EVM_CREATION_CODE ‖ abi.encode(ctor)))[12..32]` with `ctor =
     (TAIRA_NETWORK_ID, I, networkTag(network), revision, max_wrapped_supply,
@@ -5029,7 +5032,12 @@ deadline.
    the status. Read `message_id` and `deadline_ms` from the
    `SccpMessageRecorded` event, or find the record (sender, amount, recipient)
    in `GET /v1/sccp/outbound/{network}/{r}?from_nonce=<next_outbound_nonce read
-   before submitting>` as `iroha sccp send` does, and show the deadline.
+   before submitting>` as `iroha sccp send` does, and show the deadline. Discovery
+   scans at most sixteen pages per poll and retains its next-page cursor under
+   the original signed step, so competing records cannot force every restart
+   back to the first page. The retained route and original nonce floor are
+   checked on every page; a missing, foreign or corrupt hint restarts discovery
+   without changing the signed submission or its outcome.
 4. The message is provable as soon as its block commits (`GET
    /v1/sccp/messages/{id}` reports `provable`).
 5. If the destination's generation is behind Taira's current one, `GET
@@ -5073,6 +5081,10 @@ the control step of step 5.
    /v1/sccp/light-clients/{network}`). The recipient literal decodes (checksum
    verified) to `AccountAddress` bytes of at most 1024 bytes whose controller
    account admission allows. The account need not exist. Refuse otherwise.
+   Retain the original route, light-client and controller-admission observations
+   with the signed burn before dispatch. Recovery reuses that original envelope
+   and its evidence; it does not replace a still-unknown burn after rechecking
+   newer state.
 2. **Burn.** EVM: read `transferNonces(sender)`, then call
    `transferToTaira(recipient, amount, expectedNonce)` with canonical ABI
    encoding. TON: jetton `burn` with `sccp_burn_to_taira`.
@@ -5138,7 +5150,7 @@ the control step of step 5.
 
 ### 7.4 Destination upkeep, deployment and registration
 
-- **Committee sync.** Anyone runs `iroha sccp committee sync --target
+- **Committee sync.** Anyone runs `iroha sccp committee-sync --network
   <profile>`, which reads `committeeState()`, walks
   `/v1/sccp/committees/rotations`, submits one `submitCheckpoints` and applies
   the newest pending control. It must run at least once per
@@ -5149,7 +5161,7 @@ the control step of step 5.
   they hold no external-chain funds.
 - **Control relay.** After the Parliament enacts `SetDestinationPaused`, or the
   fast pause track enacts a pause, anyone (normally the proposer or a panel
-  member) runs `iroha sccp control apply --target <profile>`, which fetches
+  member) runs `iroha sccp control apply --network <profile>`, which fetches
   `/v1/sccp/controls/{network}/{revision}/{nonce}/proof` for the newest control
   and submits `applyControl*` (`sccp_apply_control*` on TON). `iroha sccp
   control status` compares Taira's newest control with the destination's
@@ -5177,7 +5189,7 @@ the control step of step 5.
   Anyone may also run `iroha sccp light-client advance --network <p>`.
 - **Fast pause.** Panel members run `iroha sccp fast-pause
   panel|accept|endorse|status` (§4.14.7).
-- **Deployment.** `iroha sccp deployment deploy <evm|ton>` deploys from locked
+- **Deployment.** `iroha sccp deploy --network <profile>` deploys from locked
   artifacts with the deployer's key: EVM only through `SCCP_EVM_DEPLOYER`
   (§5.2.1), TON with its canonical initial data followed by `sccp_init`. It
   pins a retained generation that satisfies P2 at the expected enactment time,
@@ -5299,9 +5311,9 @@ the control step of step 5.
   no environment variables), and the start-up refusal of a staking policy that
   fails L1 while SCCP exists (§4.8).
 - **CLI** `iroha sccp {info, routes, recent, send, status, proof, finalize,
-  committee show|rotations|sync, control status|apply, burn, claim, settle,
+  committee, rotations, committee-sync, control status|apply, burn, claim, settle,
   void, refund, light-client status|advance|backfill|bootstrap build|bootstrap
-  verify, lc-profile, deployment deploy|verify, governance propose|show|drive,
+  verify, lc-profile, deploy, deployment verify, governance propose|show|drive,
   evidence build|submit|status|anchor, fast-pause panel|accept|endorse|status,
   monitor, ton-retry, reconcile prove-mint|status}`.
   - `reconcile status [--network <profile> --revision <n>] [--limit <1..64>]
@@ -6255,7 +6267,7 @@ resource and process failures are errors, never killed mutations.
 | SC1: `R` binds `X` (§3.6) | HC308 omits `X` from ordinary result publication; MS17 binds the vote to `R` | Current-candidate causal qualification required |
 | SC2/SC3: outgoing boundary identity and `ROTATION` (§4.2.2) | HC226 changes the outgoing generation; HC325 substitutes the successor committee root; HC309 omits a pre-heartbeat key-change rotation | Current-candidate causal qualification required |
 | SC4: dedicated consensus signing API (§3.8) | SC4, with actual single/aggregate cross-suite refusal controls | None for the registered suite fault |
-| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait; DM36 bounds committed drift | Run the controls under their respective owners |
+| SC5/SC6: CT1 and CT3 (§4.3) | HC257, HC259, HC260, HC264, HC268, HC269; MS52 and MS66 cover the clock allowance, MS68 removes the simulator's retained-work canonical-floor wait, MS69 removes its completed-payload clock recheck, MS70 removes the final fresh-proposal clock recheck; DM36 bounds committed drift | Run the controls under their respective owners |
 | SC12/SC17: CT5, certified exemption and first-Prepare boundary | HC258, HC281, HC282, HC291, HC294; MS51, MS65, MS67 | Run the production and simulator controls independently |
 | SC7/SC8/SC22: heartbeat/governance due predicate and degraded run | HC278 bounds degraded heartbeat retries; HC302 preserves the original parent pause-due set; HC312 omits the heartbeat deadline; HC313 omits the pause-due leg | Current consumer controls require qualification; full cross-owner Parliament scheduling still needs its authoritative producer |
 | SC9/SC16: K1 and K2 (§4.7.4) | HC277 rejects a second carrier; HC279 and HC280 cover canonical shape and stale-carrier selection; HC314 admits without established due work | Current-candidate causal qualification required |
@@ -6272,7 +6284,9 @@ permanent quarantine and forged-mint payload binding, reconciliation reservation
 and refused-credit accounting, fast-pause seat/quorum/expiry/lift/suspension,
 signed instruction custody, bounded control enactment, original-parent due work,
 clock budget feasibility, bundled advance expectations and local verifier
-refusal. These are source-owned hooks, not aliases for every open SC row.
+refusal. HC326 rejects substituted TON minter, wallet or bucket code even
+after the caller recomputes its matching StateInit address. These are
+source-owned hooks, not aliases for every open SC row.
 
 Format pins owned by `iroha_data_model` and `iroha_crypto` are enforced by the
 §11 golden tests in normal CI. Present clock liveness controls include
@@ -6307,13 +6321,13 @@ qualification work is stated separately from external Parliament authority.
 | Light-client keeper task | Node-generated keeper key, independent light-client advance, Keepalive, bounded destination-watch and L5 duties are implemented. Watch queues retain verified evidence through publication or expiry, and endpoint rotation/health telemetry expose unavailable duties. Current daemon and network qualification remains open. |
 | Parliament SCCP payload, subjects, attempts, `OnlyGenesis` grant and CLI (§4.14.3, §4.14.5) | Native actions, per-subject heads, monotone deployment progress, permanent quarantine, reconciliation opening and bounded pause suspension are implemented. Retired bridge-key fault clearing is removed. Proposer permission does not bypass the ballot launch gate. The actual binding certificate and casting-open provenance must come from the Parliament owner. |
 | Torii read routes and Rust SDK (§6) | Native finality, committee DATA, message/control/history, anchor, forgery-hold, fast-pause and reconciliation views are implemented with request admission and retained response custody. The current-generation coalition slashable-floor projection reads the original staking, incarnation and offence records and is implemented. Current CLI/SDK/daemon qualification remains open. |
-| EVM contract (§5.1–§5.2) | Native EIP-2537 verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment are implemented. Locked Prague/Osaka suites exercise authenticated deployment and native certificate/control artifacts. Genuine four-validator export and local EVM replay, independent audit and live deployment/value qualification remain open. |
+| EVM contract (§5.1–§5.2) | Native EIP-2537 verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment are implemented. Locked Prague/Osaka suites exercise authenticated deployment and native certificate/control artifacts. A genuine four-validator native certificate passes local chain-id-1 checkpoint replay on both forks, with signature, network, replay and expired-committee refusals. Monetary routes remain launch-gated; independent audit and live deployment/value qualification remain open. |
 | TON contracts (§5.3) | Minter, wallet and consumed buckets implement bounded 512-entry recovery with authenticated acknowledgements and exact finalized-event behavior. The minter storage allowance is 2,380 cells/790,000 bits; worst-case retained recovery and measured gas have native emulator coverage. Tolk/Python/Rust StateInit and message fixtures are updated. Independent audit and live deployment/value qualification remain open. |
 | Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component qualification passes; the updated certified-clock simulator and whole-node qualification remain required. |
 | Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; whole-node/network qualification remains open. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
 | `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Native finality, committee, control and destination models and generators are implemented. SCCP CI runs independent Python drift checks, Rust/BLS fixtures, native EVM and native TON suites. Current combined-candidate qualification remains required. |
 | Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and the actual native Prepare signing guard are implemented; certified execution does not inherit a local-clock refusal. The simulator now retains work through committed-parent and creation-floor pacing and models the same deterministic floors. Updated clock baselines and causal mutations, full simulator, Core and whole-node qualification remain open. |
-| Genesis and Kagami SCCP staking profile (§4.8 L1) | Candidate implementation sets matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. New profile/signing regressions and generated-network qualification remain pending. |
+| Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented with matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. Current profile, signing-order and reset-history regressions pass; the real four-validator SCCP candidate also starts and publishes native finality while refusing unqualified route governance. |
 | Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Updated clock and Core controls and the full current frozen-surface suite still require qualification with passing baselines and causal named-test kills. Compiler failures never count as mutation kills. |
 | Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Native forgery evidence, permanent offence ownership, closed penalty records, retained liability release checks and configuration refusal are implemented. Current node/network qualification remains open. |
 | Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Original-pool SCCP records and current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed `X` publication are implemented. Bounded pruning reads the actual pending-forgery owner. Current combined candidate qualification remains open. |

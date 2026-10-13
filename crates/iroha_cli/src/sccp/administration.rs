@@ -13,13 +13,15 @@ use iroha::data_model::{
 pub enum ControlCommand {
     /// Verify and apply a complete control; defaults to the newest observed control.
     Apply(ControlArgs),
+    /// Compare the original native control with the destination's applied pause state.
+    Status(DeploymentArgs),
 }
 
 /// Destination inspection operations.
 #[derive(clap::Subcommand, Debug)]
 pub enum DeploymentCommand {
     /// Recompute the registered address and inspect the destination's identity and code.
-    Verify(DeploymentArgs),
+    Verify(super::deployment::VerifyArgs),
 }
 
 /// Independently authenticated destination selection.
@@ -115,7 +117,10 @@ pub(super) fn require_latest_control(applied: u64, required: u64) -> Result<()> 
 
 impl Run for ControlCommand {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
-        let Self::Apply(args) = self;
+        let args = match self {
+            Self::Status(args) => return control_status(context, args),
+            Self::Apply(args) => args,
+        };
         let client = blocking(context)?;
         let original = origin::authenticate_origin(context, &client, &args.destination.origin)?;
         let network = super::parse_network(&args.destination.network)?;
@@ -196,6 +201,7 @@ impl Run for ControlCommand {
                 .collect();
             super::flows::ton(
                 context,
+                &original, 
                 &flow,
                 Action::Control,
                 destination.lite(),
@@ -228,7 +234,7 @@ impl Run for ControlCommand {
                 Some(revision),
                 &args.destination.rpc_url,
             )?;
-            if super::flows::recover_evm(context, &flow, Action::Control, &destination)? {
+            if super::flows::recover_evm(context, &original, &flow, Action::Control, &destination)? {
                 return Ok(());
             }
             let bundle = client.sccp().control_proof(
@@ -240,6 +246,7 @@ impl Run for ControlCommand {
             let call = destination.control_call(&bundle, original.network, original.instance)?;
             super::flows::evm(
                 context,
+                &original, 
                 &flow,
                 Action::Control,
                 network,
@@ -253,80 +260,190 @@ impl Run for ControlCommand {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, norito::derive::JsonSerialize)]
+struct ControlStatus {
+    network: SccpNetworkV1,
+    revision: u32,
+    destination_time_ms: u64,
+    native_control_nonce: u64,
+    native_parliament_paused: bool,
+    native_fast_pause_until_ms: u64,
+    destination_control_nonce: u64,
+    destination_parliament_paused: bool,
+    destination_fast_pause_until_ms: u64,
+    destination_paused: bool,
+    newest_paused: bool,
+    apply_control_required: bool,
+    refresh_native_origin_required: bool,
+}
+
+fn control_comparison(
+    network: SccpNetworkV1,
+    revision: u32,
+    applied: iroha_sccp_wallet::pure::control::DestinationControlStateV1,
+    native: iroha_sccp_wallet::pure::control::TairaControlV1,
+    now_ms: u64,
+) -> ControlStatus {
+    let newest = iroha_sccp_wallet::pure::control::newest_control(&applied, Some(&native), now_ms);
+    ControlStatus {
+        network,
+        revision,
+        destination_time_ms: now_ms,
+        native_control_nonce: native.control_nonce,
+        native_parliament_paused: native.parliament_paused,
+        native_fast_pause_until_ms: native.fast_pause_until_ms,
+        destination_control_nonce: applied.control_nonce,
+        destination_parliament_paused: applied.parliament_paused,
+        destination_fast_pause_until_ms: applied.fast_pause_until_ms,
+        destination_paused: applied.paused_at(now_ms),
+        newest_paused: newest.paused,
+        apply_control_required: native.control_nonce > applied.control_nonce,
+        refresh_native_origin_required: applied.control_nonce > native.control_nonce,
+    }
+}
+
+fn control_status(context: &mut impl RunContext, args: DeploymentArgs) -> Result<()> {
+    use iroha_sccp_wallet::pure::control::TairaControlV1;
+    let client = blocking(context)?;
+    let original = origin::authenticate_origin(context, &client, &args.origin)?;
+    let network = super::parse_network(&args.network)?;
+    let revision = selected_revision(&client, &original, network, args.revision)?;
+    let nonce = revision
+        .next_control_nonce
+        .checked_sub(1)
+        .ok_or_else(|| eyre!("original revision has an invalid next control nonce"))?;
+    let native = if nonce == 0 {
+        ensure!(
+            !revision.destination_paused,
+            "original route lacks its pause control"
+        );
+        TairaControlV1 {
+            control_nonce: 0,
+            parliament_paused: false,
+            fast_pause_until_ms: 0,
+        }
+    } else {
+        let page = client
+            .sccp()
+            .controls(network, args.revision, nonce - 1, 1)?;
+        ensure!(
+            page.network == network
+                && page.revision == args.revision
+                && page.controls.len() == 1
+                && page.controls[0].control_nonce == nonce,
+            "control page omits the original native control"
+        );
+        let control = &page.controls[0].record;
+        original.verify_record_control(network, &revision, nonce, control)?;
+        TairaControlV1 {
+            control_nonce: nonce,
+            parliament_paused: control.parliament_paused,
+            fast_pause_until_ms: control.fast_pause_until_ms,
+        }
+    };
+    let (applied, now_ms) = match revision.deployment {
+        SccpDeploymentV1::Evm(_) => super::evm_destination(
+            &context.sccp_config()?,
+            &client,
+            &original,
+            network,
+            Some(args.revision),
+            &args.rpc_url,
+        )?
+        .control_observation(original.network, original.instance)?,
+        SccpDeploymentV1::Ton(deployment) => {
+            let destination = iroha_sccp::v1::proof::DestinationV1 {
+                network,
+                route_revision: args.revision,
+                destination_word: revision.destination_word,
+            };
+            super::ton::TonDestination::connect(
+                &context.sccp_config()?,
+                &args.rpc_url,
+                deployment.master_account,
+                destination,
+            )?
+            .control_observation(original.network, original.instance)?
+        }
+    };
+    context.print_data(&control_comparison(
+        network,
+        args.revision,
+        applied,
+        native,
+        now_ms,
+    ))
+}
+
 impl Run for DeploymentCommand {
     fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
         let Self::Verify(args) = self;
-        let client = blocking(context)?;
-        let original = origin::authenticate_origin(context, &client, &args.origin)?;
-        let network = super::parse_network(&args.network)?;
-        let revision = selected_revision(&client, &original, network, args.revision)?;
-        match revision.deployment {
-            SccpDeploymentV1::Evm(deployment) => {
-                let constructor = iroha_sccp::v1::evm_abi::ConstructorArgsV1 {
-                    taira_network_id: original.network,
-                    consensus_instance: original.instance,
-                    network,
-                    route_revision: revision.revision,
-                    max_wrapped_supply: revision.max_wrapped_supply,
-                    pin: revision.initial_committee,
-                };
-                ensure!(
-                    constructor.address() == deployment.address,
-                    "registered EVM address differs from the locked CREATE2 deployment"
-                );
-                super::evm_destination(
-                    &context.sccp_config()?,
-                    &client,
-                    &original,
-                    network,
-                    Some(args.revision),
-                    &args.rpc_url,
-                )?
-                .verify_identity(original.network, original.instance)?;
-            }
-            SccpDeploymentV1::Ton(deployment) => {
-                let generation = client
-                    .sccp()
-                    .committee(revision.initial_committee.generation)?;
-                let keys =
-                    original.verify_pin_generation(generation, &revision.initial_committee)?;
-                let init = iroha_sccp::v1::ton_cell::TonMinterInitV1 {
-                    taira_network_id: original.network,
-                    consensus_instance: original.instance,
-                    route_revision: revision.revision,
-                    max_supply: revision.max_wrapped_supply,
-                    pin: revision.initial_committee,
-                    keys,
-                    wallet_code: deployment.wallet_code,
-                    bucket_code: deployment.bucket_code,
-                };
-                let account =
-                    iroha_sccp::v1::ton_cell::minter_account_id(&init, deployment.minter_code)?;
-                ensure!(
-                    account == deployment.master_account,
-                    "registered TON address differs from its canonical StateInit"
-                );
-                let destination = iroha_sccp::v1::proof::DestinationV1 {
-                    network,
-                    route_revision: revision.revision,
-                    destination_word: revision.destination_word,
-                };
-                super::ton::TonDestination::connect(
-                    &context.sccp_config()?,
-                    &args.rpc_url,
-                    account,
-                    destination,
-                )?
-                .verify_identity(original.network, original.instance)?;
-            }
-        }
-        context.println("Authenticated route and deterministic deployment address match; destination observation matches the selected native identity.")
+        super::deployment::verify(context, args)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_status_preserves_unapplied_resume_pause_expiry_and_newer_destination() {
+        use iroha_sccp_wallet::pure::control::{DestinationControlStateV1, TairaControlV1};
+        let applied = DestinationControlStateV1 {
+            control_nonce: 4,
+            parliament_paused: true,
+            fast_pause_until_ms: 1000,
+        };
+        let native = TairaControlV1 {
+            control_nonce: 5,
+            parliament_paused: false,
+            fast_pause_until_ms: 0,
+        };
+        let compare = |applied, native, now| {
+            control_comparison(SccpNetworkV1::EthereumMainnet, 2, applied, native, now)
+        };
+        let resume = compare(applied, native, 500);
+        assert!(resume.apply_control_required && resume.destination_paused);
+        assert!(!resume.newest_paused && !resume.refresh_native_origin_required);
+        let json = norito::json::to_value(&resume).unwrap();
+        assert_eq!(json["native_control_nonce"].as_u64(), Some(5));
+        assert_eq!(json["destination_control_nonce"].as_u64(), Some(4));
+        assert_eq!(json["apply_control_required"].as_bool(), Some(true));
+        let pause = compare(
+            DestinationControlStateV1 {
+                parliament_paused: false,
+                fast_pause_until_ms: 0,
+                ..applied
+            },
+            TairaControlV1 {
+                parliament_paused: true,
+                ..native
+            },
+            500,
+        );
+        assert!(pause.apply_control_required && pause.newest_paused && !pause.destination_paused);
+        let newer = compare(
+            DestinationControlStateV1 {
+                control_nonce: 6,
+                parliament_paused: false,
+                ..applied
+            },
+            native,
+            999,
+        );
+        assert!(newer.refresh_native_origin_required && newer.newest_paused);
+        assert!(!newer.apply_control_required);
+        let expired = compare(
+            DestinationControlStateV1 {
+                control_nonce: 6,
+                parliament_paused: false,
+                ..applied
+            },
+            native,
+            1000,
+        );
+        assert!(!expired.newest_paused && !expired.destination_paused);
+    }
 
     #[test]
     fn finalize_requires_newest_control_including_an_unapplied_resume() {

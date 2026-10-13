@@ -75,9 +75,10 @@ REQUIRED_SNIPPETS = {
         "blocking_worker_reuse_does_not_retain_suppression",
     ),
     "crates/irohad/src/panic_recovery.rs": (
-        "pub(crate) fn spawn_blocking_recoverable",
-        "pub(crate) fn recover_joined",
-        "pub(crate) fn spawn_thread_recoverable",
+        # The daemon's private root module confines these public items to the crate.
+        "pub fn spawn_blocking_recoverable",
+        "pub fn recover_joined",
+        "pub fn spawn_thread_recoverable",
         "raw_join_failure_remains_an_unsuppressed_invariant",
     ),
     "crates/iroha_torii/src/panic_recovery.rs": (

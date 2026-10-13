@@ -197,6 +197,27 @@ impl EvmDestination {
         Ok(())
     }
 
+    /// Read complete applied control fields at one code-bound destination block.
+    pub(super) fn control_observation(
+        &self,
+        network: [u8; 32],
+        instance: [u8; 32],
+    ) -> Result<(DestinationControlStateV1, u64)> {
+        let observed = self.observe([])?;
+        ensure!(
+            observed.network == network && observed.instance == instance,
+            "Taira and the selected deployment have different identities"
+        );
+        Ok((
+            DestinationControlStateV1 {
+                control_nonce: observed.pause.control_nonce,
+                parliament_paused: observed.pause.parliament_paused,
+                fast_pause_until_ms: observed.pause.fast_pause_until_ms,
+            },
+            observed.now_ms,
+        ))
+    }
+
     /// Verify a bounded current rotation page and return its checkpoint calldata.
     /// The next invocation re-observes the destination; a page is never authority by itself.
     pub(super) fn rotation_calls(

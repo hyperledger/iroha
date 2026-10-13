@@ -4,6 +4,29 @@ use super::*;
 use iroha::data_model::sccp::{control::SccpControlRecordV1, registry::SccpRouteRevisionV1};
 
 impl AuthenticatedOrigin {
+    pub(crate) fn verify_light_client(
+        &self,
+        network: SccpNetworkV1,
+        client: &iroha::data_model::sccp::light_client::SccpLightClientV1,
+    ) -> Result<()> {
+        ensure!(client.params.network == network, "light client names a different network");
+        self.world.verify_table_value("world.sccp_light_clients", &network, client)?;
+        Ok(())
+    }
+
+    pub(crate) fn verify_light_client_checkpoint(
+        &self,
+        network: SccpNetworkV1,
+        checkpoint: &iroha::data_model::sccp::light_client::SccpLcCheckpointV1,
+    ) -> Result<()> {
+        self.world.verify_table_value(
+            "world.sccp_light_client_checkpoints",
+            &(network, checkpoint.data.source_height),
+            checkpoint,
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn verify_burn_light_client(
         &self,
         network: SccpNetworkV1,
@@ -98,7 +121,7 @@ mod tests {
             superseded_at_source_ms: None,
             set_bytes: vec![1, 2, 3],
         };
-        let snapshot = WorldStateSnapshotV1 {
+        let mut snapshot = WorldStateSnapshotV1 {
             schema_hash: Hash::new(b"burn original sources"),
             entries: vec![
                 WorldStateSnapshotEntryV1 {
@@ -115,6 +138,9 @@ mod tests {
                 },
             ],
         };
+        snapshot
+            .entries
+            .sort_by(|left, right| left.field_id.cmp(&right.field_id));
         let mut fixture = NativeFinalityFixture::new();
         let block = fixture.block_with_submitted_work(fixture.next_header());
         let proof = fixture.certify_with_world_root(block, snapshot.root().unwrap());

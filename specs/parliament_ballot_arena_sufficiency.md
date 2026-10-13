@@ -145,6 +145,17 @@ worker-established ordinary reservation path. Ten System free sites remain.
 Unconditional activation is unknown; unresolved aliases, callbacks, native and
 exceptional behavior retain their prior obligations and unknown costs.
 
+The separate [source ownership audit](../docs/validation/parliament_ballot_ownership/README.md)
+finds no setup-owned container at reservation entry. The
+[compiled free-predicate analysis](../docs/validation/parliament_ballot_free_predicates/README.md)
+checks all ten sites per image for the observed arena's null/range predicate,
+capacity guards and same-pointer forwarding. Combining these facts still
+requires universal source-to-machine provenance and intact arena/provider
+state; no unconditional free frontier is removed. The separate
+[I/O tag guard](../docs/validation/parliament_ballot_io_error_guard/README.md)
+checks a non-Custom return path and the ordinary charged-read source lemma,
+without proving whole-worker variant flow or closing its indirect frontier.
+
 TODO: establish complete target-specific allocation correspondence and
 ordinary/exceptional path conditions; discharge the provider-target premises
 and resolve remaining indirect stack sites and the runtime recursive component

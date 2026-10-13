@@ -248,7 +248,14 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
             amount: units,
             recipient,
         };
-        let view = locate_sent(&blocking(context)?, network, revision, from_nonce, &sent)?;
+        let view = locate_sent(
+            &blocking(context)?,
+            &step,
+            network,
+            revision,
+            from_nonce,
+            &sent,
+        )?;
         return context.print_data(&view);
     }
     let client = blocking(context)?;
@@ -377,14 +384,92 @@ pub(super) fn send<C: RunContext>(context: &mut C, args: SendArgs) -> Result<()>
         amount: units,
         recipient,
     };
+    let step = flow
+        .latest(Action::Record)?
+        .ok_or_else(|| eyre!("original record custody disappeared"))?;
     let view = locate_sent(
         &client,
+        &step,
         network,
         revision.revision,
         revision.next_outbound_nonce,
         &sent,
     )?;
     context.print_data(&view)
+}
+
+/// A bounded discovery hint, never authority for a transaction or its outcome.
+#[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
+#[norito(deny_unknown_fields)]
+struct RecordDiscovery {
+    network: SccpNetworkV1,
+    revision: u32,
+    first_nonce: u64,
+    next_nonce: u64,
+}
+
+/// Scan at most sixteen pages, preserving forward progress across polls and restarts.
+pub(super) fn locate_sent_scan(
+    step: &iroha_sccp_wallet::journal::SccpJournalStep,
+    network: SccpNetworkV1,
+    revision: u32,
+    first_nonce: u64,
+    sent: &SentTransfer,
+    mut fetch: impl FnMut(u64) -> Result<iroha_sccp::api::SccpOutboundPageV1>,
+) -> Result<Option<iroha_sccp::api::SccpOutboundMessageViewV1>> {
+    let mut from_nonce = step
+        .discovery::<RecordDiscovery>()?
+        .filter(|hint| {
+            hint.network == network
+                && hint.revision == revision
+                && hint.first_nonce == first_nonce
+                && hint.next_nonce >= first_nonce
+        })
+        .map_or(first_nonce, |hint| hint.next_nonce);
+    for _ in 0..16 {
+        let page = fetch(from_nonce)?;
+        ensure!(
+            page.network == network && page.revision == revision,
+            "outbound discovery page names another route"
+        );
+        ensure!(
+            page.records.len() <= iroha_sccp::api::MAX_OUTBOUND_PAGE
+                && page.records.iter().all(|view| {
+                    view.record.network == network
+                        && view.record.revision == revision
+                        && view.record.nonce >= from_nonce
+                        && view.record.nonce < page.next_outbound_nonce
+                })
+                && page
+                    .records
+                    .windows(2)
+                    .all(|pair| pair[0].record.nonce < pair[1].record.nonce),
+            "outbound discovery records violate the original route or nonce interval"
+        );
+        if let Some(view) = page.records.iter().find(|view| sent.matches(&view.record)) {
+            return Ok(Some(view.clone()));
+        }
+        let Some(next) = page.next_from_nonce else {
+            return Ok(None);
+        };
+        ensure!(
+            next > from_nonce
+                && next < page.next_outbound_nonce
+                && page
+                    .records
+                    .last()
+                    .is_some_and(|view| view.record.nonce < next),
+            "outbound discovery cursor does not advance past its records"
+        );
+        step.save_discovery(&RecordDiscovery {
+            network,
+            revision,
+            first_nonce,
+            next_nonce: next,
+        })?;
+        from_nonce = next;
+    }
+    Ok(None)
 }
 
 fn retained_locator(
@@ -408,6 +493,197 @@ mod tests {
         deployment::{SccpCommitteePinV1, SccpEvmDeploymentV1},
         generation::SccpGenerationCauseV1,
     };
+
+    #[test]
+    fn send_discovery_resumes_after_sixteen_pages_without_changing_original_custody() {
+        use iroha_data_model::{
+            NetworkId,
+            sccp::outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1},
+        };
+        use iroha_sccp::api::{
+            SccpOutboundMessageViewV1, SccpOutboundPageV1, SccpOutboundStateV1, SccpRecordedStateV1,
+        };
+        use iroha_sccp_wallet::{
+            flow::SccpFlowV1,
+            journal::{SccpFlowIdV1, SccpJournalRoot},
+        };
+        let base =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sccp-continuation");
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("send-cursor-")
+            .tempdir_in(base)
+            .unwrap();
+        let network_id = NetworkId::from_genesis_hash(
+            iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::prehashed([8; 32])),
+        );
+        let flow = SccpFlowV1::open(
+            SccpJournalRoot::open(&dir.path().join("journal"))
+                .unwrap()
+                .network(&network_id)
+                .unwrap()
+                .flow(&SccpFlowIdV1 {
+                    kind: SccpFlowKindV1::Outbound,
+                    id: [9; 32],
+                })
+                .unwrap(),
+            *network_id.as_bytes(),
+        )
+        .unwrap();
+        let network = SccpNetworkV1::EthereumMainnet;
+        let step = flow
+            .prepare(
+                Action::Record,
+                SccpNetworkV1::SoraTaira,
+                vec![1, 2, 3],
+                vec![SccpEvidenceItemV1 {
+                    label: "original.record_intent".to_owned(),
+                    bytes: vec![4],
+                }],
+            )
+            .unwrap();
+        let original = step.record().clone();
+        step.begin_submission().unwrap();
+        let sent = SentTransfer {
+            sender: iroha_test_samples::ALICE_ID.clone(),
+            amount: 15,
+            recipient: vec![0x11; 20],
+        };
+        let page = |nonce, matching| {
+            let amount = if matching { 15 } else { 16 };
+            let payload = iroha_sccp::v1::payload::SccpTransferPayloadV1::outbound(
+                network,
+                nonce,
+                1,
+                900,
+                amount,
+                vec![1; 32],
+                sent.recipient.clone(),
+            )
+            .unwrap()
+            .encode()
+            .unwrap();
+            SccpOutboundPageV1 {
+                network,
+                revision: 1,
+                next_outbound_nonce: 100,
+                records: vec![SccpOutboundMessageViewV1 {
+                    message_id: [nonce as u8; 32],
+                    record: SccpOutboundMessageRecordV1 {
+                        network,
+                        revision: 1,
+                        nonce,
+                        height: 8,
+                        commitment_index: 0,
+                        deadline_ms: 900,
+                        sender: sent.sender.clone(),
+                        amount,
+                        payload,
+                        leaf: [0; 32],
+                        status: SccpOutboundStatusV1::Recorded,
+                    },
+                    state: SccpOutboundStateV1::Recorded(SccpRecordedStateV1 {
+                        deadline_ms: 900,
+                        provable: true,
+                    }),
+                }],
+                next_from_nonce: Some(nonce + 1),
+            }
+        };
+        let mut fetched = Vec::new();
+        assert!(
+            locate_sent_scan(&step, network, 1, 50, &sent, |nonce| {
+                fetched.push(nonce);
+                Ok(page(nonce, false))
+            })
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(fetched, (50..66).collect::<Vec<_>>());
+        assert_eq!(
+            step.discovery::<RecordDiscovery>()
+                .unwrap()
+                .unwrap()
+                .next_nonce,
+            66
+        );
+        drop(step);
+        let step = flow.latest(Action::Record).unwrap().unwrap();
+        fetched.clear();
+        let found = locate_sent_scan(&step, network, 1, 50, &sent, |nonce| {
+            fetched.push(nonce);
+            Ok(page(nonce, nonce == 67))
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(fetched, [66, 67]);
+        assert_eq!(found.record.nonce, 67);
+        assert_eq!(step.record(), &original);
+        assert!(step.outcome().unwrap().is_none());
+        assert!(
+            !step.begin_submission().unwrap(),
+            "discovery must never resubmit original bytes"
+        );
+
+        for hint in [
+            RecordDiscovery {
+                network,
+                revision: 2,
+                first_nonce: 50,
+                next_nonce: 90,
+            },
+            RecordDiscovery {
+                network: SccpNetworkV1::TonMainnet,
+                revision: 1,
+                first_nonce: 50,
+                next_nonce: 90,
+            },
+            RecordDiscovery {
+                network,
+                revision: 1,
+                first_nonce: 49,
+                next_nonce: 90,
+            },
+            RecordDiscovery {
+                network,
+                revision: 1,
+                first_nonce: 50,
+                next_nonce: 49,
+            },
+        ] {
+            step.save_discovery(&hint).unwrap();
+            let found = locate_sent_scan(&step, network, 1, 50, &sent, |nonce| {
+                assert_eq!(
+                    nonce, 50,
+                    "invalid hint must restart at the retained original nonce"
+                );
+                Ok(page(nonce, true))
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(found.record.nonce, 50);
+        }
+        step.save_discovery(&0_u64).unwrap();
+        assert!(
+            locate_sent_scan(&step, network, 1, 50, &sent, |nonce| {
+                let mut wrong = page(nonce, true);
+                wrong.records[0].record.nonce = 49;
+                Ok(wrong)
+            })
+            .is_err(),
+            "matching payload before the original nonce must be refused"
+        );
+        assert!(
+            locate_sent_scan(&step, network, 1, 50, &sent, |nonce| {
+                let mut wrong = page(nonce, true);
+                wrong.network = SccpNetworkV1::TonMainnet;
+                Ok(wrong)
+            })
+            .is_err(),
+            "matching payload on another route must be refused"
+        );
+        assert_eq!(step.record(), &original);
+    }
 
     fn revision() -> SccpRouteRevisionV1 {
         let mut row = SccpRouteRevisionV1::staged(

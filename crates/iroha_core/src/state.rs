@@ -2121,6 +2121,7 @@ impl<'a> BlockHashesBlock<'a> {
     }
 }
 impl BlockHashesBlock<'_> {
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     fn has_pending(&self) -> bool {
         self.len() != self.visible_len
     }
@@ -2158,6 +2159,7 @@ impl BlockHashesBlock<'_> {
     pub fn push_for_tests(&mut self, hash: HashOf<BlockHeader>) {
         self.push(hash);
     }
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     pub(crate) fn detach(self) -> DetachedBlockHashes {
         DetachedBlockHashes {
             work: self.work,
@@ -2184,7 +2186,21 @@ impl BlockHashesBlock<'_> {
 /// Move-only original successor, including its real tree family and predecessor.
 pub(crate) struct DetachedBlockHashes {
     work: BlockHashWork,
+    #[cfg_attr(
+        not(any(test, feature = "iroha-core-tests", feature = "bench")),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained aggregate hash preparation; preserve the original block mode until its exact successor is published"
+        )
+    )]
     mode: mv::BlockMode,
+    #[cfg_attr(
+        not(any(test, feature = "iroha-core-tests", feature = "bench")),
+        expect(
+            dead_code,
+            reason = "TODO: connect retained aggregate hash preparation; preserve the original visible prefix through refusal and retry"
+        )
+    )]
     visible_len: usize,
     reserved_tip: Option<usize>,
 }
@@ -12706,6 +12722,7 @@ pub struct StateBlockFields<'state> {
     >,
     state_ref: &'state State,
     /// Original replacement-rewind notices, dropped only after joint writer retirement.
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     _da_rewind_releases: Option<da_hydration::DaRewindReleases<'state>>,
     /// The world. Contains `domains`, `triggers`, `roles` and other data representing the current state of the blockchain.
     pub world: WorldBlock<'state>,
@@ -12862,6 +12879,7 @@ pub struct StateBlockFields<'state> {
     #[cfg(feature = "telemetry")]
     pub telemetry: &'state StateTelemetry,
     /// Lock serializing multi-component writer commit phases.
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     state_write_lock: &'state PublicationMutex,
     /// Ledger-derived DA commitments indexed while applying the block.
     pub(crate) da_commitments:
@@ -29670,6 +29688,7 @@ impl State {
         clippy::large_types_passed_by_value,
         reason = "the replacement block owns the supplied header independently of its caller"
     )]
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     fn block_and_revert_with_pristine_carrier_stage_inner<E: std::fmt::Debug>(
         &self,
         curr_block: BlockHeader,
@@ -38307,6 +38326,7 @@ impl<'state> StateBlock<'state> {
             accounts_snapshot_cache: OnceCell::new(),
         })
     }
+    #[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
     pub(crate) fn stage_canonical_carrier_membership(
         &mut self,
         mut ordinary_entrypoints: Vec<HashOf<TransactionEntrypoint>>,

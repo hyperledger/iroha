@@ -7,12 +7,16 @@
 //! The guard is application-level (the node driver's executor, `iroha_core`); the sans-IO core
 //! only emits the `certified` flag of `Action::Execute`. It is modelled here so that the
 //! deterministic simulator can show liveness under skewed honest clocks and the certified-time
-//! bounds, and so that its mutations (MS51, MS52, MS65, MS66) are killed by named simulator
+//! bounds, and so that its mutations (MS51, MS52, MS65, MS66, MS68–MS70) are killed by named simulator
 //! tests (§13.4).
 //!
 //! Clock-enabled worlds retain the original parent cadence and queued creation-time floors.
 //! Honest builders answer `EMPTY` while that floor is ahead, retain their queued work and wake
-//! the same request when their wall clock catches up. The stamp models the builder's additional
+//! the same request when their wall clock catches up. A completed payload is retained unchanged
+//! if the wall regresses during build latency. Creation times travel in immutable toy transaction
+//! bytes. The final fresh `PayloadAuthored` admission resamples the wall immediately before Core
+//! signs, preserving certified re-proposal exemptions. Custom/AMX inputs without creation metadata
+//! explicitly have no creation floor. The stamp models the builder's additional
 //! transaction-time floor; Byzantine leads may violate either deterministic floors or CT1/CT5.
 //! These toy application records do not change the sans-IO protocol or clock-disabled worlds.
 
@@ -154,21 +158,6 @@ impl GuardState {
 }
 
 impl World {
-    fn queued_creation_floor(&self, inst: usize, payload: &[u8]) -> u64 {
-        decode_txs(payload)
-            .into_iter()
-            .filter_map(|(id, _)| {
-                self.txs[inst].get(&id).map(|(created, _, _)| {
-                    u64::try_from(crate::sim::driver::CLOCK_BASE)
-                        .unwrap()
-                        .saturating_add(*created)
-                        .saturating_add(1)
-                })
-            })
-            .max()
-            .unwrap_or(0)
-    }
-
     /// Original local certified parent and transaction floors, without consulting a wall clock.
     pub(super) fn builder_clock_floor(&self, r: usize, height: u64, payload: &[u8]) -> Option<u64> {
         if self.clock_guard.is_none() || payload.is_empty() {
@@ -188,7 +177,7 @@ impl World {
         Some(
             parent_time
                 .saturating_add(self.instances[replica.inst].params.block_time)
-                .max(self.queued_creation_floor(replica.inst, payload)),
+                .max(crate::sim::driver::payload_creation_floor(payload)?),
         )
     }
 
@@ -229,10 +218,169 @@ impl World {
             };
             parent_time
         };
+        let Some(creation_floor) =
+            crate::sim::driver::payload_creation_floor(block.payload().as_slice())
+        else {
+            return Some(ExecOutcome::Invalid);
+        };
         let floor = parent_time
             .saturating_add(self.instances[inst].params.block_time)
-            .max(self.queued_creation_floor(inst, block.payload().as_slice()));
+            .max(creation_floor);
         (time < floor).then_some(ExecOutcome::Invalid)
+    }
+
+    /// Complete only the original build, retaining its exact bytes through a wall backstep.
+    pub(super) fn complete_payload_build(
+        &mut self,
+        r: usize,
+        req: u64,
+        payload: Option<crate::availability::PayloadBytes>,
+    ) {
+        if self.replicas[r].build_request != Some(req) {
+            return;
+        }
+        let m = self.replicas[r].machine;
+        if let Some(payload) = payload {
+            if self.clock_guard.is_some()
+                && !self.machines[m].byz
+                && !cfg!(sumeragi_mutation = "MS69")
+                && block_time(payload.as_slice())
+                    .is_some_and(|time| self.wall_ms(m) < i64::try_from(time).unwrap_or(i64::MAX))
+            {
+                self.replicas[r].completed_build = Some((req, payload));
+                self.schedule_completed_clock_ready(r, req);
+                return;
+            }
+            self.publish_built_payload(r, req, Some(payload));
+        } else {
+            self.publish_built_payload(r, req, None);
+        }
+    }
+
+    fn publish_built_payload(
+        &mut self,
+        r: usize,
+        req: u64,
+        payload: Option<crate::availability::PayloadBytes>,
+    ) {
+        let rep = &mut self.replicas[r];
+        rep.build_request = None;
+        rep.completed_build = None;
+        let hash = crate::preimage::payload_hash(
+            &self.hasher,
+            payload.as_ref().map_or(&[], |payload| payload.as_slice()),
+        );
+        self.oracle.built.insert((rep.inst, rep.machine, hash));
+        rep.host.deliver(Event::PayloadBuilt { req, payload });
+        self.poll_host(r, self.now);
+        self.refresh(r);
+    }
+
+    fn schedule_completed_clock_ready(&mut self, r: usize, req: u64) {
+        let Some((owner, payload)) = self.replicas[r].completed_build.as_ref() else {
+            return;
+        };
+        if *owner != req {
+            return;
+        }
+        let floor =
+            block_time(payload.as_slice()).expect("a completed guarded payload has a stamp");
+        let when = self
+            .clock_floor_global_time(r, floor)
+            .max(self.now.saturating_add(1));
+        self.schedule(
+            when,
+            Ev::CompletedClockReady {
+                r,
+                epoch: self.epoch_of(r),
+                req,
+            },
+        );
+    }
+
+    pub(super) fn completed_clock_ready(&mut self, r: usize, req: u64) {
+        let Some((_, payload)) = self.replicas[r]
+            .completed_build
+            .take_if(|(owner, _)| *owner == req)
+        else {
+            return;
+        };
+        self.complete_payload_build(r, req, Some(payload));
+    }
+
+    fn clock_floor_global_time(&self, r: usize, floor: u64) -> Millis {
+        let m = self.replicas[r].machine;
+        let offset = self
+            .clock_guard
+            .as_ref()
+            .map_or(0, |guard| guard.wall_offsets[m]);
+        let local =
+            u64::try_from((i128::from(floor) - i128::from(offset)).clamp(0, i128::from(u64::MAX)))
+                .expect("clamped clock floor fits u64");
+        self.machines[m].clock.global_at(local)
+    }
+
+    /// Recheck fresh authored custody at the final synchronous proposal-signing boundary.
+    /// Certified re-proposals do not pass through `PayloadAuthored` and stay exempt.
+    pub(super) fn gate_authored_clock(&mut self, r: usize, event: Event) -> Option<Event> {
+        if let Event::PayloadAuthored { req, body } = event {
+            let m = self.replicas[r].machine;
+            let current = self.replicas[r].host.core().is_some_and(|core| {
+                let status = core.status();
+                status.height == body.header().height && status.view == body.header().origin_view
+            });
+            if current
+                && self.clock_guard.is_some()
+                && !self.machines[m].byz
+                && !cfg!(sumeragi_mutation = "MS70")
+                && block_time(body.payload().as_slice())
+                    .is_some_and(|time| self.wall_ms(m) < i64::try_from(time).unwrap_or(i64::MAX))
+            {
+                self.replicas[r].authored_clock = Some((req, body));
+                self.schedule_authored_clock_ready(r, req);
+                None
+            } else {
+                Some(Event::PayloadAuthored { req, body })
+            }
+        } else {
+            Some(event)
+        }
+    }
+
+    fn schedule_authored_clock_ready(&mut self, r: usize, req: u64) {
+        let Some((owner, body)) = self.replicas[r].authored_clock.as_ref() else {
+            return;
+        };
+        if *owner != req {
+            return;
+        }
+        let floor = block_time(body.payload().as_slice())
+            .expect("guarded original authored body has a stamp");
+        let when = self
+            .clock_floor_global_time(r, floor)
+            .max(self.now.saturating_add(1));
+        self.schedule(
+            when,
+            Ev::AuthoredClockReady {
+                r,
+                epoch: self.epoch_of(r),
+                req,
+            },
+        );
+    }
+
+    pub(super) fn authored_clock_ready(&mut self, r: usize, req: u64) {
+        let Some((_, body)) = self.replicas[r]
+            .authored_clock
+            .take_if(|(owner, _)| *owner == req)
+        else {
+            return;
+        };
+        self.replicas[r]
+            .host
+            .deliver(Event::PayloadAuthored { req, body });
+        self.poll_host(r, self.now);
+        self.refresh(r);
     }
 
     pub(super) fn schedule_clock_payload_ready(
@@ -242,24 +390,15 @@ impl World {
         floor: u64,
         earliest: Millis,
     ) {
-        let m = self.replicas[r].machine;
-        let offset = self
-            .clock_guard
-            .as_ref()
-            .map_or(0, |guard| guard.wall_offsets[m]);
-        let local =
-            u64::try_from((i128::from(floor) - i128::from(offset)).clamp(0, i128::from(u64::MAX)))
-                .expect("clamped clock floor fits u64");
-        let when = self.machines[m]
-            .clock
-            .global_at(local)
+        let when = self
+            .clock_floor_global_time(r, floor)
             .max(earliest)
             .max(self.now.saturating_add(1));
         self.schedule(
             when,
             Ev::ClockReady {
                 r,
-                epoch: self.machines[m].epoch,
+                epoch: self.epoch_of(r),
                 req,
                 floor,
             },
@@ -346,6 +485,16 @@ impl World {
             *slot = offset;
             self.trace(m, format!("wall clock offset {offset} ms"));
             for r in 0..self.replicas.len() {
+                if self.replicas[r].machine == m
+                    && let Some((req, _)) = self.replicas[r].authored_clock.as_ref()
+                {
+                    self.schedule_authored_clock_ready(r, *req);
+                }
+                if self.replicas[r].machine == m
+                    && let Some((req, _)) = self.replicas[r].completed_build.as_ref()
+                {
+                    self.schedule_completed_clock_ready(r, *req);
+                }
                 if self.replicas[r].machine == m
                     && let Some((req, floor)) = self.replicas[r].clock_ready
                 {

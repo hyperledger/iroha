@@ -954,6 +954,17 @@ floors and funded publication. The simulator's tests are:
   parent and separately the original queued creation time survive a clock regression; no
   payload is published until its floor is reached, duplicate wakeups do not consume a current
   request, and the original work commits after natural catch-up or clock correction (MS68).
+- `clock_guard_parent_and_creation_floors_hold_independently_at_equality` places the wall
+  between the two floors in both orders and tests exact equality. Creation metadata travels
+  in the immutable toy transaction, so registering or deleting a workload ID cannot change
+  replay validity. Custom and AMX toy inputs without creation metadata impose no creation floor.
+- `clock_guard_completed_payload_waits_after_build_latency_backstep` regresses the wall
+  between construction and completion, retains the exact original completed bytes and publishes
+  them only at clock recovery; stale callbacks cannot consume them (MS69).
+- `clock_guard_fresh_proposal_waits_after_authored_queue_backstep` moves the wall back after
+  successful construction, while the original authored body is queued. The final admission
+  check withholds that exact body before Core can sign a fresh proposal and resumes after
+  recovery; certified re-proposals remain exempt (MS70).
 - `clock_guard_accepts_exact_drift_allowance`: a slow honest voter accepts a block stamped by
   an honest leader exactly `max_clock_drift_ms` ahead. It kills MS66, which removes the allowance.
 - F39 (§13.3) is the randomized scenario of MS51, MS52, MS65 and MS66.
@@ -3371,7 +3382,11 @@ consensus metadata counts alone are not evidence of those costs or of live settl
   step without moving the core's monotonic `now`. Builders stamp each non-empty payload with a
   leading block-time record. Honest builders wait until their wall reaches the original
   committed-parent cadence and queued-transaction creation floors, retaining the original
-  queue and request across clock backsteps and stale wakeups (CT3); Byzantine builders may
+  queue and request across clock backsteps and stale wakeups (CT3). A completed original
+  payload is checked again after build latency and retained unchanged if its stamp is ahead.
+  Fresh authored bodies are checked again when their queued event reaches Core, immediately
+  before synchronous proposal signing; this does not gate certified re-proposals.
+  Creation metadata is bound into immutable transaction bytes; Byzantine builders may
   post-date or back-date with `wall + lead`. Execution rejects stamps below the exact
   parent or original creation floors without consulting a local clock, including on
   certified replay (§4.5 "Verification"). A transaction flag marks due work. Honest
@@ -4148,6 +4163,8 @@ candidate results are recorded by `scripts/sumeragi_mutation_gate.py`.
 |---|---|---|---|
 | MS67 | A durable Prepare reservation grants a certified clock exemption | `machine::tests::signing::det_prepare_context_restart_reservation_alone_is_uncertified` | Only original certified protocol state may grant the exemption after restart |
 | MS68 | An honest clock-enabled builder publishes before its canonical time floor | `sim::world::clock_guard::tests::clock_guard_committed_parent_wait_retains_work_until_clock_recovery` | Original work remains queued until both the committed parent cadence and transaction creation floors are admissible |
+| MS69 | An honest clock-enabled builder skips the completed-payload clock recheck | `sim::world::clock_guard::tests::clock_guard_completed_payload_waits_after_build_latency_backstep` | The original completed payload remains retained after a build-latency clock backstep until its canonical time is admissible |
+| MS70 | An honest clock-enabled builder skips the final fresh-proposal clock recheck | `sim::world::clock_guard::tests::clock_guard_fresh_proposal_waits_after_authored_queue_backstep` | The original authored proposal waits after a queue-time clock backstep before Core may sign or publish it |
 | HC276 | EVM registration omits the locked CREATE2 address binding | `evm_address_binds_original_identity_network_pin_revision_and_cap` | The destination binds the original identity, network, pin, revision and cap |
 | HC277 | A block accepts a second Keepalive carrier | `keepalive_k1_counts_carriers_independently_of_outcomes` | K1 counts every carrier independently of its execution outcome |
 | HC278 | Heartbeat continues after two degraded parent heights | `keepalive_k2_uses_parent_heartbeat_and_degraded_run` | K2 reads the original parent and stops repeated degradation |
@@ -4199,6 +4216,7 @@ candidate results are recorded by `scripts/sumeragi_mutation_gate.py`.
 | HC323 | SC25 SCCP holds: ignore the retained maximum forgery generation | `smartcontracts::isi::sccp::hold::forgery_tests::forgery_floor_is_inclusive_and_u64_max_is_not_a_release_sentinel` | Exact original-source assertion; current strict baseline and named causal kill required |
 | HC324 | SC23 SCCP generation: disable missed-boundary resynchronization | `smartcontracts::isi::sccp::generations::tests::resync_uses_real_native_parent_time_then_boundary_rotates_again` | Exact original-source assertion; current strict baseline and named causal kill required |
 | HC325 | SC2 SCCP rotation: substitute the successor for the outgoing committee root | `smartcontracts::isi::sccp::generations::tests::key_change_before_heartbeat_requires_rotation_at_the_original_boundary` | Exact original-source assertion; current strict baseline and named causal kill required |
+| HC326 | SCCP TON registration accepts caller-substituted contract code | `smartcontracts::isi::sccp::governance::registration::tests::ton_deployment_refuses_substituted_code_at_its_matching_state_init_address` | All minter, wallet and bucket code hashes and depths must match the compiled artifact lock even when the supplied address matches the substituted StateInit |
 
 These consumer and source-binding controls do not qualify missing Parliament
 eligibility, draw, shared-pass or Policy Jury opening producers. No component

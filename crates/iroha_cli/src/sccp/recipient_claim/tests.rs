@@ -195,10 +195,13 @@ fn recipient_bundle_verifies_dependent_proof_without_changing_original_state() {
     let instructions =
         instructions(&authority, true, NETWORK, 1, payload.clone(), evidence).unwrap();
     assert_eq!(instructions.len(), 3);
-    let register = instructions[0]
+    let iroha_data_model::isi::RegisterBox::Account(register) = instructions[0]
         .as_any()
-        .downcast_ref::<Register<Account>>()
-        .unwrap();
+        .downcast_ref::<iroha_data_model::isi::RegisterBox>()
+        .unwrap()
+    else {
+        panic!("the first instruction must register only the original recipient");
+    };
     assert_eq!(register.object, Account::new(authority.clone()));
     let advance = instructions[1]
         .as_any()
