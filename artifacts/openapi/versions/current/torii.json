@@ -37522,6 +37522,10 @@
       "RepoGovernance": {
         "additionalProperties": false,
         "properties": {
+          "allow_early_repayment": {
+            "description": "Whether the initiator may repay before maturity, paying interest accrued to the committed block time.",
+            "type": "boolean"
+          },
           "haircut_bps": {
             "description": "Haircut applied to the collateral leg in basis points.",
             "format": "uint16",
@@ -37531,10 +37535,6 @@
             "description": "Cadence between required margin checks in seconds.",
             "format": "uint64",
             "type": "integer"
-          },
-          "allow_early_repayment": {
-            "description": "Whether the initiator may repay before maturity, paying interest accrued to the committed block time.",
-            "type": "boolean"
           }
         },
         "required": [
@@ -64082,6 +64082,88 @@
         },
         "x-iroha-tool-effect": "read",
         "x-iroha-websocket-subprotocol": "iroha-norito-v1"
+      }
+    },
+    "/v1/bonds": {
+      "get": {
+        "description": "List every registered native bond record (terms, lifecycle, effective schedule, record-date snapshots and cash-flow accounting) as Norito JSON. See specs/finance/bond_ops.md.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "List native bonds.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_get"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
+    "/v1/bonds/{bond_id}": {
+      "get": {
+        "description": "Fetch the authoritative native bond record of one bond asset definition as Norito JSON. See specs/finance/bond_ops.md.",
+        "parameters": [
+          {
+            "description": "Canonical address literal of the bond asset definition.",
+            "in": "path",
+            "name": "bond_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "404": {
+            "description": "The asset definition has no registered bond record."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Fetch a native bond.",
+        "tags": [
+          "Settlement"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "application.bonds_by_bond_id_get"
+        },
+        "x-iroha-tool-effect": "read"
       }
     },
     "/v1/bridge/finality/attestation/latest": {

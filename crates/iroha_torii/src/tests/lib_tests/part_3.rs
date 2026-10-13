@@ -1941,6 +1941,111 @@ async fn identifier_receipt_lookup_returns_not_found_without_an_admitted_claim()
 }
 #[cfg(feature = "app_api")]
 #[tokio::test]
+async fn bond_routes_serve_registered_records_and_report_unknown_bonds() {
+    use iroha_data_model::bond::{
+        BondCashflowKind, BondCashflowTerms, BondDayCount, BondIdentifiers, BondRecord, BondTerms,
+    };
+    let issuer = checked_torii_test_account_id(0xb1, "derive bond route issuer fixture key");
+    let agent = checked_torii_test_account_id(0xb2, "derive bond route agent fixture key");
+    let domain = DomainId::try_new("bonds", "universal").expect("domain id");
+    let bond = AssetDefinitionId::derive_from_components(
+        domain.clone(),
+        Name::from_str("slo_bond").expect("asset name"),
+    );
+    let terms = BondTerms {
+        issuer: issuer.clone(),
+        paying_agent: agent,
+        payment_asset: AssetDefinitionId::derive_from_components(
+            domain,
+            Name::from_str("eur").expect("asset name"),
+        ),
+        denomination: Quantity::from(50_u32),
+        coupon_rate_bps: 0,
+        coupon_frequency: 0,
+        day_count: BondDayCount::Act365Fixed,
+        issue_date_ms: 1_000,
+        maturity_date_ms: 2_000,
+        redemption_price_bps: 10_000,
+        call: None,
+        cashflows: vec![BondCashflowTerms {
+            index: 0,
+            kind: BondCashflowKind::Redemption,
+            record_date_ms: 1_900,
+            payment_date_ms: 2_000,
+            amount_per_unit: Quantity::from(50_u32),
+        }],
+        identifiers: BondIdentifiers {
+            isin: None,
+            cfi: None,
+            issuer_lei: None,
+            bdt_version: "bdt-1.0".to_owned(),
+            bdt_document_sha256: None,
+        },
+        terms_sha256: [3; 32],
+    };
+    terms.validate().expect("valid zero-coupon terms");
+    let record = BondRecord::registered(bond.clone(), terms, Quantity::from(100_u32));
+    let mut world = World::default();
+    world.insert_bond_record_for_testing(record.clone());
+    let app = mk_app_state_for_tests_with_world(world);
+    let response = handler_bond_get(
+        State(app.clone()),
+        HeaderMap::new(),
+        crate::loopback_connect_info(),
+        AxPath(bond.to_string()),
+    )
+    .await
+    .expect("registered bond")
+    .into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .expect("collect bond record")
+        .to_bytes();
+    let fetched: BondRecord = norito::json::from_slice(&body).expect("decode bond record");
+    assert_eq!(fetched, record);
+    let response = handler_bonds(
+        State(app.clone()),
+        HeaderMap::new(),
+        crate::loopback_connect_info(),
+    )
+    .await
+    .expect("bond list")
+    .into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = http_body_util::BodyExt::collect(response.into_body())
+        .await
+        .expect("collect bond list")
+        .to_bytes();
+    let listed: Vec<BondRecord> = norito::json::from_slice(&body).expect("decode bond list");
+    assert_eq!(listed, [record]);
+    let unknown = AssetDefinitionId::derive_from_components(
+        DomainId::try_new("bonds", "universal").expect("domain id"),
+        Name::from_str("unknown").expect("asset name"),
+    );
+    let response = handler_bond_get(
+        State(app.clone()),
+        HeaderMap::new(),
+        crate::loopback_connect_info(),
+        AxPath(unknown.to_string()),
+    )
+    .await
+    .expect("unknown bond lookup")
+    .into_response();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(
+        handler_bond_get(
+            State(app),
+            HeaderMap::new(),
+            crate::loopback_connect_info(),
+            AxPath("not-a-bond".to_owned()),
+        )
+        .await
+        .is_err()
+    );
+}
+#[cfg(feature = "app_api")]
+#[tokio::test]
 async fn identifier_claim_receipt_enforces_token_policy() {
     let mut app = mk_app_state_for_tests();
     {

@@ -4084,6 +4084,8 @@ pub mod application_api {
         IDENTIFIERS_RESOLVE_POST => account_compute_post("application.identifiers_resolve_post", "/v1/identifiers/resolve");
         REPO_AGREEMENTS_GET => app_get("application.repo_agreements_get", "/v1/repo/agreements");
         REPO_AGREEMENTS_QUERY_POST => account_read_post("application.repo_agreements_query_post", "/v1/repo/agreements/query");
+        BONDS_GET => app_get("application.bonds_get", "/v1/bonds");
+        BONDS_BY_BOND_ID_GET => app_get("application.bonds_by_bond_id_get", "/v1/bonds/{bond_id}");
         NOTIFY_DEVICES_POST => push_post("application.notify_devices_post", "/v1/notify/devices");
         NOTIFY_DEVICES_DELETE => push_delete("application.notify_devices_delete", "/v1/notify/devices");
         SNS_NAMES_BY_NAMESPACE_BY_LITERAL_GET => app_get("application.sns_names_by_namespace_by_literal_get", "/v1/sns/names/{namespace}/{literal}");

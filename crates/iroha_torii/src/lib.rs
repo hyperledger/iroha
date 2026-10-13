@@ -33796,6 +33796,44 @@ async fn handler_identifier_receipt_lookup(
     };
     json_ok(identifier_claim_lookup_response(&claim))
 }
+/// Parse a bond path parameter as the canonical address literal of its asset definition.
+#[cfg(feature = "app_api")]
+fn parse_bond_id(raw: &str) -> Result<iroha_data_model::bond::BondId, Error> {
+    iroha_data_model::asset::AssetDefinitionId::parse_address_literal(raw.trim())
+        .map_err(|err| identifier_conversion_error(format!("invalid bond identifier: {err}")))
+}
+/// List every native bond record (`specs/finance/bond_ops.md`).
+#[cfg(feature = "app_api")]
+async fn handler_bonds(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Result<AxResponse, Error> {
+    check_access(&app, &headers, Some(remote.ip()), "v1/bonds").await?;
+    let world = app.state.world_view();
+    let records: Vec<iroha_data_model::bond::BondRecord> = world
+        .bonds()
+        .iter()
+        .map(|(_, record)| record.clone())
+        .collect();
+    json_ok(records)
+}
+/// Return the authoritative record of one native bond, or 404 when it is not registered.
+#[cfg(feature = "app_api")]
+async fn handler_bond_get(
+    State(app): State<SharedAppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    AxPath(bond_literal): AxPath<String>,
+) -> Result<AxResponse, Error> {
+    check_access(&app, &headers, Some(remote.ip()), "v1/bonds/{bond_id}").await?;
+    let bond = parse_bond_id(&bond_literal)?;
+    let world = app.state.world_view();
+    let Some(record) = world.bonds().get(&bond).cloned() else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    };
+    json_ok(record)
+}
 #[cfg(test)]
 fn normalise_alias(input: &str) -> String {
     input
@@ -38399,6 +38437,8 @@ impl Torii {
             IDENTIFIER_POLICIES_GET => public_get(handler_identifier_policies);
             IDENTIFIERS_RECEIPTS_BY_RECEIPT_HASH_GET => public_get(handler_identifier_receipt_lookup);
             REPO_AGREEMENTS_GET => public_get(handler_repo_agreements);
+            BONDS_GET => public_get(handler_bonds);
+            BONDS_BY_BOND_ID_GET => public_get(handler_bond_get);
         );
         mount_repo_agreements_query(builder, app_state.clone(), transaction_max_content_len);
         #[cfg(feature = "push")]
