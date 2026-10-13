@@ -311,11 +311,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             &self.config.enrollment_certificate,
         )
         .map_err(|_| Error::Original("pre-key retained permit"))?;
+        let dispatch_sha256: [u8; 32] =
+            Sha256::digest(dispatch.encode().map_err(Error::Original)?).into();
+        let permit_sha256: [u8; 32] = Sha256::digest(&accepted).into();
         if permit.body.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh
             || proof.body.request_id != id
-            || proof.body.dispatch_sha256
-                != Sha256::digest(dispatch.encode().map_err(Error::Original)?).into()
-            || proof.body.permit_sha256 != Sha256::digest(&accepted).into()
+            || proof.body.dispatch_sha256 != dispatch_sha256
+            || proof.body.permit_sha256 != permit_sha256
             || proof.body.attempt_id != permit.body.attempt_id
             || proof.body.challenge_digest != permit.body.challenge.challenge_digest()
             || proof.body.expires_at_ms != permit.body.expires_at_ms
