@@ -199,3 +199,24 @@ export function assertWellFormedUtf16(value, name) {
     }
   }
 }
+
+/**
+ * Validate one canonical Iroha `Name` (1-255 UTF-8 bytes, NFC, no whitespace,
+ * control or bidirectional-control characters, and none of `@`, `#`, `$`).
+ * @param {string} value
+ * @param {string} context
+ * @returns {string}
+ */
+export function assertCanonicalIrohaName(value, context) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${context} must be a non-empty canonical Iroha Name`);
+  }
+  if (
+    new TextEncoder().encode(value).length > 255 ||
+    value.normalize("NFC") !== value ||
+    /[\s@#$\p{Cc}\p{Cs}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value)
+  ) {
+    throw new TypeError(`${context} must be a canonical Iroha Name`);
+  }
+  return value;
+}

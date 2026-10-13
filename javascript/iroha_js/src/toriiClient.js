@@ -2298,6 +2298,47 @@ export class ToriiClient {
   }
 
   /**
+   * Plan declarative alias and SNS lease setup (`POST /v1/aliases/setup/plan`).
+   *
+   * The request is the native `AliasSetupPlanRequestV1` JSON
+   * (`{schema_version: 1, intents: [EnsureAlias, ...]}`). The canonical-auth
+   * signer is the plan authority and lease payer. The read-only response is the
+   * `AliasTransactionPlanV1` JSON (`{body, plan_hash}`) whose
+   * `body.instructions` hold exact `{wire_id, framed_payload}` Norito frames.
+   * @param {{schema_version: 1, intents: object[]}} request
+   * @param {{canonicalAuth: CanonicalRequestAuth, signal?: AbortSignal}} options
+   * @returns {Promise<{body: Record<string, unknown>, plan_hash: string}>}
+   */
+  async planAliasSetup(request, options = {}) {
+    const payload = ensureRecord(request, "planAliasSetup request");
+    if (
+      payload.schema_version !== 1 ||
+      !Array.isArray(payload.intents) ||
+      payload.intents.length === 0 ||
+      Object.keys(payload).length !== 2
+    ) {
+      rejectType("planAliasSetup request must be exactly {schema_version: 1, intents: [...]}");
+    }
+    const { signal, rest } = ToriiClient._normalizeOptionsWithSignal(options, "planAliasSetup");
+    assertSupportedOptionKeys(rest, ALIAS_CANONICAL_AUTH_OPTION_KEYS, "planAliasSetup options");
+    const canonicalAuth = ToriiClient._normalizeCanonicalAuth(rest.canonicalAuth);
+    if (canonicalAuth === null) {
+      rejectType("planAliasSetup requires canonicalAuth; the signer is the lease payer");
+    }
+    const response = await this._request("POST", "/v1/aliases/setup/plan", {
+      headers: JSON_REQUEST_HEADERS,
+      body: JSON.stringify(payload),
+      signal,
+      canonicalAuth,
+    });
+    await this._expectStatus(response, [200]);
+    const plan = ensureRecord(await this._maybeJson(response), "alias setup plan");
+    ensureRecord(plan.body, "alias setup plan.body");
+    requireNonEmptyString(plan.plan_hash, "alias setup plan.plan_hash");
+    return plan;
+  }
+
+  /**
    * Fetch and locally verify one bounded validation-fee consensus proof page.
    *
    * @param {object} binding exact immutable ledger binding
@@ -14479,6 +14520,16 @@ function normalizeVpnSessionOptions(
   return { signal, canonicalAuth };
 }
 
+/** Read one native tagged unit variant such as `{"status":"Active","detail":null}`. */
+function nativeUnitTag(value, tag, context) {
+  const record = ensureRecord(value, context);
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== "detail" || keys[1] !== tag || record.detail !== null) {
+    rejectType(`${context} must be a native {"${tag}": <variant>, "detail": null} value`);
+  }
+  return requireNonEmptyString(record[tag], `${context}.${tag}`);
+}
+
 function normalizeSnsSuffixPolicy(payload) {
   const record = ensureRecord(payload ?? {}, "sns suffix policy");
   const suffixId = ToriiClient._normalizeUnsignedInteger(record.suffix_id, "sns suffix policy.suffix_id", {
@@ -14486,7 +14537,7 @@ function normalizeSnsSuffixPolicy(payload) {
   });
   const suffix = requireNonEmptyString(record.suffix, "sns suffix policy.suffix").toLowerCase();
   const steward = ToriiClient._normalizeAccountId(record.steward, "sns suffix policy.steward");
-  const statusRaw = requireNonEmptyString(record.status, "sns suffix policy.status");
+  const statusRaw = nativeUnitTag(record.status, "status", "sns suffix policy.status");
   if (!SNS_SUFFIX_STATUS_VALUES.has(statusRaw)) {
     rejectType(`sns suffix policy.status must be one of ${Array.from(SNS_SUFFIX_STATUS_VALUES).join(", ")}`);
   }
@@ -14575,7 +14626,7 @@ function normalizeSnsPricingTier(payload, context) {
   const tierId = ToriiClient._normalizeUnsignedInteger(record.tier_id, `${context}.tier_id`, { allowZero: true });
   const regex = requireNonEmptyString(record.label_regex, `${context}.label_regex`);
   const basePrice = normalizeSnsTokenValue(record.base_price, `${context}.base_price`);
-  const auctionKindRaw = requireNonEmptyString(record.auction_kind, `${context}.auction_kind`);
+  const auctionKindRaw = nativeUnitTag(record.auction_kind, "kind", `${context}.auction_kind`);
   if (!SNS_AUCTION_KIND_VALUES.has(auctionKindRaw)) {
     rejectType(`${context}.auction_kind must be one of ${Array.from(SNS_AUCTION_KIND_VALUES).join(", ")}`);
   }

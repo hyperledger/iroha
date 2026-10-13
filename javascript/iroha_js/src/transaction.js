@@ -1123,6 +1123,164 @@ export async function quoteAndSignTransaction(client, input, options = {}) {
   return { ...signed, draft, quote };
 }
 
+/**
+ * Return the exact 32 bytes an external Ed25519 wallet signs for one payload.
+ *
+ * This is the native `HashOf<TransactionPayload>` of the canonical payload bytes
+ * (BLAKE2b-256 with the Iroha marker bit set); the wallet signs these 32 bytes
+ * as its plain Ed25519 message, with no prehash mode or prefix. The payload is
+ * decoded natively first, so noncanonical or trailing bytes are rejected.
+ * @param {ArrayBufferView | ArrayBuffer | Buffer} payloadBytes
+ * @returns {Buffer}
+ */
+export function transactionPayloadSigningHash(payloadBytes) {
+  const native = resolveNativeBinding(this);
+  if (!native || typeof native.transactionPayloadSigningHash !== "function") {
+    throw new Error("native binding 'transactionPayloadSigningHash' is unavailable");
+  }
+  return Buffer.from(
+    native.transactionPayloadSigningHash(toBuffer(payloadBytes, "payloadBytes")),
+  );
+}
+
+/**
+ * Attach an external Ed25519 signature to exact canonical payload bytes.
+ *
+ * The native finalizer checks the payload's network, that `publicKey` is the
+ * single signatory of `authority`, and the signature over
+ * {@link transactionPayloadSigningHash}; it returns the canonical signed wire
+ * and its pipeline hash (the same value as `hashSignedTransaction`).
+ * @param {{
+ *   networkId: import("./networkId.js").NetworkId,
+ *   payloadBytes: ArrayBufferView | ArrayBuffer | Buffer,
+ *   signature: ArrayBufferView | ArrayBuffer | Buffer,
+ *   publicKey: ArrayBufferView | ArrayBuffer | Buffer,
+ *   authority: string
+ * }} input
+ * @returns {{signedTransaction: Buffer, hash: Buffer}}
+ */
+export function finalizeSignedTransaction(input) {
+  const networkId = transactionNetworkIdBytes(input, "input");
+  const native = resolveNativeBinding(this);
+  if (!native || typeof native.finalizeSignedTransaction !== "function") {
+    throw new Error("native binding 'finalizeSignedTransaction' is unavailable");
+  }
+  const allowed = new Set(["networkId", "payloadBytes", "signature", "publicKey", "authority"]);
+  for (const key of Object.keys(input)) {
+    if (!allowed.has(key)) {
+      throw new TypeError(`input.${key} is not supported`);
+    }
+  }
+  const signature = toBuffer(input.signature, "input.signature");
+  if (signature.length !== 64) {
+    throw new TypeError("input.signature must contain exactly 64 Ed25519 signature bytes");
+  }
+  const publicKey = toBuffer(input.publicKey, "input.publicKey");
+  if (publicKey.length !== 32) {
+    throw new TypeError("input.publicKey must contain exactly 32 Ed25519 public-key bytes");
+  }
+  const result = native.finalizeSignedTransaction({
+    networkId,
+    payloadBytes: toBuffer(input.payloadBytes, "input.payloadBytes"),
+    signature,
+    publicKey,
+    authority: normalizeAuthority(input.authority),
+  });
+  const signed = result?.signedTransaction ?? null;
+  const hash = result?.hash ?? null;
+  if (!signed || !hash) {
+    throw new Error("native binding 'finalizeSignedTransaction' returned missing fields");
+  }
+  return { signedTransaction: Buffer.from(signed), hash: Buffer.from(hash) };
+}
+
+const FEE_LIMIT_MARGIN_BPS_DEFAULT = 20_000;
+
+/** Scale one canonical positive quantity by `marginBps / 10000`, rounding up. */
+function scaleFeeLimit(maxAmount, marginBps, context) {
+  const match = /^(0|[1-9]\d*)(?:\.(\d*[1-9]))?$/u.exec(String(maxAmount));
+  if (!match) {
+    throw new TypeError(`${context} must be a canonical positive quantity`);
+  }
+  const fraction = match[2] ?? "";
+  const mantissa = BigInt(match[1] + fraction);
+  const scaled = (mantissa * BigInt(marginBps) + 9_999n) / 10_000n;
+  const digits = scaled.toString().padStart(fraction.length + 1, "0");
+  const whole = digits.slice(0, digits.length - fraction.length);
+  const decimals = digits.slice(digits.length - fraction.length).replace(/0+$/u, "");
+  return decimals.length === 0 ? whole : `${whole}.${decimals}`;
+}
+
+/**
+ * Build an unsigned payload for an external wallet whose key the caller does not hold.
+ *
+ * Torii quotes only payloads whose authority signs the quote request, and
+ * admission only requires each computed fee charge to be covered by a signed
+ * limit of the same kind and asset whose maximum is at least the computed
+ * amount (only the computed amount is debited). This quotes an otherwise
+ * identical payload authored by `options.canonicalAuth.accountId`, keeps every
+ * quoted charge kind and asset, multiplies each maximum by
+ * `options.feeLimitMarginBps / 10000` (default 20000, i.e. 2x, rounded up) and
+ * builds the wallet-authored payload with those limits and the quoted gas
+ * bound. The wallet signs `signingHash`; pass its signature to
+ * {@link finalizeSignedTransaction}. The wallet account pays the fee.
+ *
+ * @param {ToriiClient} client
+ * @param {object} input {@link buildTransactionPayload} fields; `authority` is the wallet account
+ * @param {{canonicalAuth: {accountId: string, privateKey: ArrayBufferView | ArrayBuffer | Buffer}, feeLimitMarginBps?: number, signal?: AbortSignal}} options
+ * @returns {Promise<{payload: object, payloadJson: string, payloadBytes: Buffer, payloadHash: Buffer, signingHash: Buffer, feePayment: object, quote: object}>}
+ */
+export async function prepareExternalSignerTransactionPayload(client, input, options = {}) {
+  if (!client || typeof client.quoteFees !== "function") {
+    throw new TypeError("client must provide quoteFees(payload, options)");
+  }
+  const { canonicalAuth, feeLimitMarginBps = FEE_LIMIT_MARGIN_BPS_DEFAULT, signal } = options;
+  if (!canonicalAuth || typeof canonicalAuth !== "object") {
+    throw new TypeError("options.canonicalAuth is required to quote the service-authored twin");
+  }
+  if (!Number.isSafeInteger(feeLimitMarginBps) || feeLimitMarginBps < 10_000) {
+    throw new RangeError("options.feeLimitMarginBps must be a safe integer >= 10000");
+  }
+  if (input?.feePayment?.payer !== "authority") {
+    throw new TypeError("input.feePayment must use payer authority for an external signer");
+  }
+  const twin = buildTransactionPayload.call(this, {
+    ...input,
+    authority: canonicalAuth.accountId,
+  });
+  const quote = ToriiClient._validateFeeQuoteForDraft(
+    twin,
+    await client.quoteFees(twin, { canonicalAuth, signal }),
+    "prepareExternalSignerTransactionPayload fee quote",
+  );
+  const value = quote.intent?.value;
+  if (quote.intent?.payer !== "authority" || !Array.isArray(value?.charge_limits)) {
+    throw new Error("fee quote did not return an authority-paid intent");
+  }
+  const feePayment = {
+    payer: "authority",
+    chargeLimits: value.charge_limits.map((limit, index) => ({
+      kind: limit.kind?.kind === "pipeline_gas" ? "pipelineGas" : "nexus",
+      assetDefinitionId: limit.asset_definition_id,
+      maxAmount: scaleFeeLimit(
+        limit.max_amount,
+        feeLimitMarginBps,
+        `fee quote charge_limits[${index}].max_amount`,
+      ),
+    })),
+    ...(value.gas_limit === null || value.gas_limit === undefined
+      ? {}
+      : { gasLimit: value.gas_limit }),
+  };
+  const draft = buildTransactionPayload.call(this, { ...input, feePayment });
+  return {
+    ...draft,
+    signingHash: transactionPayloadSigningHash.call(this, draft.payloadBytes),
+    feePayment,
+    quote,
+  };
+}
+
 const SORAFS_PIN_REGISTER_MAX_MANIFEST_BYTES = 512 * 1024;
 const SORAFS_PIN_REGISTER_MAX_ALIAS_PROOF_BYTES = 1024 * 1024;
 
@@ -3622,6 +3780,9 @@ export function _createTransactionApi(nativeRuntime) {
     ),
     signQuotedTransactionPayload: bind(signQuotedTransactionPayload),
     quoteAndSignTransaction: bind(quoteAndSignTransaction),
+    transactionPayloadSigningHash: bind(transactionPayloadSigningHash),
+    finalizeSignedTransaction: bind(finalizeSignedTransaction),
+    prepareExternalSignerTransactionPayload: bind(prepareExternalSignerTransactionPayload),
     buildRegisterPinManifestInstruction: bind(
       buildRegisterPinManifestInstruction,
     ),

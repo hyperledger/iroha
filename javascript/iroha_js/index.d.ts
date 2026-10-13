@@ -10941,6 +10941,11 @@ export declare class ToriiClient {
     suffixId: number,
     options?: { signal?: AbortSignal },
   ): Promise<SnsSuffixPolicy>;
+  /** Read-only alias and SNS lease plan (`POST /v1/aliases/setup/plan`); the signer pays. */
+  planAliasSetup(
+    request: { schema_version: 1; intents: ReadonlyArray<Record<string, unknown>> },
+    options: { canonicalAuth: CanonicalRequestAuth; signal?: AbortSignal },
+  ): Promise<{ body: Record<string, unknown>; plan_hash: string }>;
   getSnsRegistration(
     selector: string,
     options?: { signal?: AbortSignal },
@@ -12034,6 +12039,46 @@ export function quoteAndSignTransaction(
 ): Promise<
   SignedTransactionResult & {
     draft: TransactionPayloadDraftResult;
+    quote: FeeQuoteResponse;
+  }
+>;
+
+/**
+ * Exact 32 bytes an external wallet Ed25519-signs for one canonical payload
+ * (`HashOf<TransactionPayload>`).
+ */
+export function transactionPayloadSigningHash(
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView,
+): Buffer;
+
+/** Attach an external Ed25519 signature to exact canonical payload bytes. */
+export function finalizeSignedTransaction(input: {
+  networkId: NetworkId;
+  payloadBytes: Buffer | ArrayBuffer | ArrayBufferView;
+  /** Raw 64-byte Ed25519 signature over {@link transactionPayloadSigningHash}. */
+  signature: Buffer | ArrayBuffer | ArrayBufferView;
+  /** Raw 32-byte Ed25519 public key controlling `authority`. */
+  publicKey: Buffer | ArrayBuffer | ArrayBufferView;
+  authority: string;
+}): SignedTransactionResult;
+
+/**
+ * Quote a service-authored twin payload and build the wallet-authored payload
+ * with the quoted charge kinds and assets and scaled maxima.
+ */
+export function prepareExternalSignerTransactionPayload(
+  client: ToriiClient,
+  input: TransactionPayloadDraftInput,
+  options: {
+    canonicalAuth: CanonicalRequestAuth;
+    /** Multiplier for quoted maxima in basis points; default 20000 (2x), minimum 10000. */
+    feeLimitMarginBps?: number;
+    signal?: AbortSignal;
+  },
+): Promise<
+  TransactionPayloadDraftResult & {
+    signingHash: Buffer;
+    feePayment: BrowserFeePayment;
     quote: FeeQuoteResponse;
   }
 >;
@@ -13152,6 +13197,310 @@ export function buildSubmitBallotInstruction(
 export function buildFinalizeElectionInstruction(
   input: FinalizeElectionInstructionInput,
 ): object;
+
+/** Tagged native `ConditionalEscrowValue` JSON. */
+export type ConditionalEscrowValueJson =
+  | { kind: "Bool"; value: boolean }
+  | { kind: "Text"; value: string }
+  | { kind: "Quantity"; value: string };
+
+/**
+ * Conditional-escrow value input: booleans map to `Bool`, strings to `Text`,
+ * bigint or `KotodamaQuantity` to `Quantity`; the object forms select a kind explicitly.
+ */
+export type ConditionalEscrowValueInput =
+  | boolean
+  | string
+  | bigint
+  | KotodamaQuantity
+  | { quantity: QuantityInput }
+  | { text: string }
+  | { bool: boolean };
+
+/**
+ * One ordered conditional-escrow condition. Oracle sequences default to 1..n in
+ * array order; either every oracle condition names `sequence` or none does.
+ */
+export type ConditionalEscrowConditionInput =
+  | { id: string; attestor: string; equals: ConditionalEscrowValueInput; sequence?: number }
+  | { id: string; attestor: string; quantityAtMost: QuantityInput; sequence?: number }
+  | { id: string; withinMs: NumericLike };
+
+/** Tagged native `ConditionalEscrowCondition` JSON. */
+export type ConditionalEscrowConditionJson =
+  | {
+      kind: "Oracle";
+      value: {
+        id: string;
+        attestor: string;
+        predicate:
+          | { kind: "Equals"; value: ConditionalEscrowValueJson }
+          | { kind: "QuantityAtMost"; value: string };
+        sequence: number;
+      };
+    }
+  | { kind: "Within"; value: { id: string; duration_ms: number } };
+
+/** `Grant::Permission(CanExecuteSettlement)` consent signed by the debited bucket owner. */
+export interface GrantSettlementConsentInstruction {
+  Grant: {
+    Permission: {
+      object: {
+        name: "CanExecuteSettlement";
+        payload: { debited_asset: string; settlement_id: string; intent_hash: string };
+      };
+      destination: string;
+    };
+  };
+}
+
+export function buildGrantSettlementConsentInstruction(options: {
+  /** Account that submits the settlement or repo instruction. */
+  grantee: string;
+  /** Exact debited bucket `<asset-definition>#<account>[#dataspace:<id>]`. */
+  debitedAssetHoldingId: string;
+  /** Settlement id; for repo consents the agreement id. */
+  settlementId: string;
+  /** Canonical `hash:<HEX>#<CRC>` intent hash. */
+  intentHash: string;
+}): GrantSettlementConsentInstruction;
+
+/** Domain-scoped `Grant::Permission(CanManageAssetDefinitionAlias)`. */
+export interface GrantAssetDefinitionAliasScopeInstruction {
+  Grant: {
+    Permission: {
+      object: {
+        name: "CanManageAssetDefinitionAlias";
+        payload: { scope: { scope: "domain"; value: string } };
+      };
+      destination: string;
+    };
+  };
+}
+
+export function buildGrantAssetDefinitionAliasScopeInstruction(options: {
+  grantee: string;
+  /** Fully qualified `domain.dataspace` id; labels are canonicalized. */
+  domainId: string;
+}): GrantAssetDefinitionAliasScopeInstruction;
+
+export function buildSetAssetDefinitionKeyValueInstruction(options: {
+  assetDefinitionId: string;
+  /** Canonical Iroha `Name` metadata key. */
+  key: string;
+  value: JsonValue;
+}): { SetKeyValue: { AssetDefinition: { object: string; key: string; value: JsonValue } } };
+
+export interface OpenConditionalEscrowInstruction {
+  OpenConditionalEscrow: {
+    escrow_id: string;
+    asset_definition: string;
+    beneficiary: string;
+    amount: string;
+    conditions: ConditionalEscrowConditionJson[];
+    expires_at_ms: number;
+    evidence_hashes: string[];
+  };
+}
+
+/** Lock the signer's global balance until every ordered condition passes or it expires. */
+export function buildOpenConditionalEscrowInstruction(options: {
+  escrowId: string;
+  assetDefinitionId: string;
+  beneficiary: string;
+  amount: QuantityInput;
+  conditions: ReadonlyArray<ConditionalEscrowConditionInput>;
+  expiresAtMs: NumericLike;
+  evidenceHashes?: ReadonlyArray<string> | null;
+}): OpenConditionalEscrowInstruction;
+
+export function buildAttestEscrowConditionInstruction(options: {
+  escrowId: string;
+  conditionId: string;
+  value: ConditionalEscrowValueInput;
+  evidenceHash?: string | null;
+}): {
+  AttestEscrowCondition: {
+    escrow_id: string;
+    condition_id: string;
+    value: ConditionalEscrowValueJson;
+    evidence_hash: string | null;
+  };
+};
+
+export function buildExpireConditionalEscrowInstruction(options: {
+  escrowId: string;
+}): { ExpireConditionalEscrow: { escrow_id: string } };
+
+export interface SettleAtomicMovementInput {
+  sourceAssetHoldingId: string;
+  recipient: string;
+  quantity: QuantityInput;
+}
+
+export interface SettleAtomicInstruction {
+  Settlement: {
+    Atomic: {
+      network_id: string;
+      settlement_id: string;
+      movements: Array<{ source: string; recipient: string; quantity: string }>;
+      expires_at_height: number;
+      metadata: Record<string, JsonValue>;
+    };
+  };
+}
+
+/** Build a `Settlement::Atomic` instruction with natively ordered movements. */
+export function buildSettleAtomicInstruction(options: {
+  networkId: NetworkId | string;
+  settlementId: string;
+  movements: ReadonlyArray<SettleAtomicMovementInput>;
+  expiresAtHeight: NumericLike;
+  metadata?: Record<string, JsonValue> | null;
+}): SettleAtomicInstruction;
+
+/** Exact `CanExecuteSettlement.intent_hash` literal of a canonical atomic settlement. */
+export function settleAtomicIntentHash(instruction: SettleAtomicInstruction): string;
+
+export interface RepoGovernanceInput {
+  haircutBps: number;
+  marginFrequencySecs: NumericLike;
+}
+
+export interface RepoInitiateInstruction {
+  Repo: {
+    Initiate: {
+      agreement_id: string;
+      initiator: string;
+      counterparty: string;
+      custodian: string | null;
+      cash_leg: { asset_definition_id: string; quantity: string };
+      collateral_leg: {
+        asset_definition_id: string;
+        quantity: string;
+        metadata: Record<string, JsonValue>;
+      };
+      rate_bps: number;
+      maturity_timestamp_ms: number;
+      governance: { haircut_bps: number; margin_frequency_secs: number };
+    };
+  };
+}
+
+export function buildRepoInitiateInstruction(options: {
+  agreementId: string;
+  initiator: string;
+  counterparty: string;
+  custodian?: string | null;
+  cashLeg: { assetDefinitionId: string; quantity: QuantityInput };
+  collateralLeg: {
+    assetDefinitionId: string;
+    quantity: QuantityInput;
+    metadata?: Record<string, JsonValue> | null;
+  };
+  rateBps: number;
+  maturityTimestampMs: NumericLike;
+  governance: RepoGovernanceInput;
+}): RepoInitiateInstruction;
+
+export function buildRepoReverseInstruction(options: {
+  agreementId: string;
+}): { Repo: { Reverse: { agreement_id: string } } };
+
+/** Exact initiation and maturity consent hash literals of one repo initiation. */
+export function repoIntentHashes(instruction: RepoInitiateInstruction): {
+  initiation: string;
+  maturity: string;
+};
+
+/** Random canonical asset-definition id (UUIDv4 Base58 address). */
+export function generateAssetDefinitionId(): string;
+
+/**
+ * Deterministic asset-definition id using the native
+ * `AssetDefinitionId::derive_from_components` rule; `{ domain, name }` equals the
+ * Rust derivation of those components.
+ */
+export function assetDefinitionIdFromSeed(
+  seed: string | Uint8Array | { domain: string; name: string },
+): string;
+
+/** Canonical `EscrowId` hash literal; a seed yields `EscrowId::new(Hash::new(seed))`. */
+export function newEscrowId(seed?: string | Uint8Array): string;
+
+/** Canonical `SettlementId` name `settlement-<32 hex>` (random, or derived from the seed). */
+export function newSettlementId(seed?: string | Uint8Array): string;
+
+/** Canonical `RepoAgreementId` name `repo-<32 hex>` (random, or derived from the seed). */
+export function newRepoAgreementId(seed?: string | Uint8Array): string;
+
+/** SNS suffix id of the domain namespace. */
+export const SNS_DOMAIN_SUFFIX_ID: 4098;
+
+/** Strict `EnsureAlias` domain-lease instruction JSON accepted by the native codec. */
+export interface EnsureAliasInstruction {
+  EnsureAlias: {
+    intent: {
+      kind: "domain";
+      intent: { domain: { canonical_name: string; dataspace_id: number }; owner: string };
+    };
+    acquisition: { term_years: number; pricing_class_hint: number | null };
+    quote_guard: {
+      expected_policy_version: number;
+      expected_payment_asset: string;
+      max_amount: string;
+      valid_until_ms: number;
+    };
+  };
+}
+
+export interface DomainLeasePlan {
+  /** Instructions to submit, signed by `authority` (the lease payer). */
+  instructions: EnsureAliasInstruction[];
+  /** Planner disposition: `create`, `repair` or `no_op`. */
+  disposition: string | undefined;
+  quote: Record<string, unknown> | null;
+  totalsByAsset: Array<{ payment_asset: string; amount: string }>;
+  authority: string;
+  /** Last time at which the plan may be used; bound the transaction TTL by it. */
+  validUntilMs: number;
+  planHash: string;
+  plan: { body: Record<string, unknown>; plan_hash: string };
+}
+
+/** Plan a paid SNS domain lease through `POST /v1/aliases/setup/plan`. */
+export function planDomainLease(
+  torii: ToriiClient,
+  request: {
+    owner: string;
+    /** Fully qualified `domain.dataspace` id. */
+    domain: string;
+    years: number;
+    /** Numeric data-space id; defaults to 0 for `<name>.universal`. */
+    dataspaceId?: number;
+    /** Explicit price cap; defaults to the matching tier base price times `years`. */
+    maxAmount?: string;
+    quoteValidityMs?: number;
+  },
+  options: { canonicalAuth: CanonicalRequestAuth; signal?: AbortSignal },
+): Promise<DomainLeasePlan>;
+
+/** Claim testnet funds through the V1 proof-of-work faucet (Node.js). */
+export function claimFaucet(
+  torii: ToriiClient,
+  request: { accountId: string; networkId: NetworkId | string },
+  options?: {
+    signal?: AbortSignal;
+    maxPuzzleAttempts?: number;
+    concurrency?: number;
+    /** Caller-owned 64-hex request identity; random by default. */
+    requestId?: string;
+    executionTtlMs?: number;
+    timeoutMs?: number;
+    /** Trusted faucet policy; defaults to the advertised policy of the selected network. */
+    policy?: { authority: string; assetDefinitionId: string; amount: string };
+  },
+): Promise<{ hash: string; blockHeight: number }>;
 
 export function buildRegisterSmartContractCodeInstruction(
   input: RegisterSmartContractCodeInstructionInput,

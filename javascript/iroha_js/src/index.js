@@ -365,6 +365,9 @@ export {
   buildTransactionPayload,
   signQuotedTransactionPayload,
   quoteAndSignTransaction,
+  transactionPayloadSigningHash,
+  finalizeSignedTransaction,
+  prepareExternalSignerTransactionPayload,
   buildRegisterPinManifestInstruction,
   buildRegisterPinManifestTransaction,
   buildIvmProvedTransactionPayload,
@@ -532,11 +535,33 @@ export {
   buildCreateElectionInstruction,
   buildSubmitBallotInstruction,
   buildFinalizeElectionInstruction,
+  buildGrantSettlementConsentInstruction,
+  buildGrantAssetDefinitionAliasScopeInstruction,
+  buildSetAssetDefinitionKeyValueInstruction,
+  buildOpenConditionalEscrowInstruction,
+  buildAttestEscrowConditionInstruction,
+  buildExpireConditionalEscrowInstruction,
+  buildRepoInitiateInstruction,
+  buildRepoReverseInstruction,
   normalizeAccountId,
   normalizeAssetId,
   normalizeAssetHoldingId,
   normalizeRwaId,
 } from "./instructionBuilders.js";
+export {
+  generateAssetDefinitionId,
+  assetDefinitionIdFromSeed,
+  newEscrowId,
+  newSettlementId,
+  newRepoAgreementId,
+} from "./settlementIdentifiers.js";
+export {
+  buildSettleAtomicInstruction,
+  settleAtomicIntentHash,
+  repoIntentHashes,
+} from "./settlementIntents.js";
+export { planDomainLease, SNS_DOMAIN_SUFFIX_ID } from "./domainLease.js";
+export { claimFaucet } from "./accountFaucet.js";
 export {
   resolveToriiClientConfig,
   extractToriiFeatureConfig,

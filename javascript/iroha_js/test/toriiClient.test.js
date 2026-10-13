@@ -20412,7 +20412,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
         suffix_id: 2,
         suffix: "SORA",
         steward: SAMPLE_ACCOUNT_ID,
-        status: "Active",
+        status: { status: "Active", detail: null },
         min_term_years: 1,
         max_term_years: 5,
         grace_period_days: 30,
@@ -20425,7 +20425,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
             tier_id: 1,
             label_regex: ".*",
             base_price: { asset_id: FIXTURE_ASSET_ID_A, amount: "100" },
-            auction_kind: "DutchReopen",
+            auction_kind: { kind: "DutchReopen", detail: null },
             dutch_floor: { asset_id: FIXTURE_ASSET_ID_A, amount: "10" },
             min_duration_years: 1,
             max_duration_years: 5,
@@ -20443,6 +20443,7 @@ test("getSnsPolicy fetches and normalizes suffix policy", async () => {
   const policy = await client.getSnsPolicy(2);
   assert.equal(policy.suffixId, 2);
   assert.equal(policy.suffix, "sora");
+  assert.equal(policy.status, "Active");
   assert.equal(policy.pricing[0].auctionKind, "DutchReopen");
   assert.equal(policy.reservedLabels[0].normalizedLabel, "gov");
 });
