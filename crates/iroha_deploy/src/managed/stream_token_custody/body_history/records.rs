@@ -123,6 +123,8 @@ impl Selection {
         Ok(())
     }
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::SelectionDigest);
         attempts::semantic_digest(self, MAX_SELECTION_BYTES)
     }
 }
@@ -351,6 +353,8 @@ pub(super) struct Reservation {
 }
 impl Reservation {
     pub(super) fn digest(&self) -> Result<[u8; 32]> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::ReservationDigest);
         attempts::semantic_digest(self, MAX_BODY_BYTES)
     }
 }

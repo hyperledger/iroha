@@ -364,10 +364,8 @@ fn bench_transaction_entrypoint(c: &mut Criterion) {
 fn bench_signed_block(c: &mut Criterion) {
     let block = sample_block(4, 4);
     let bare = norito::codec::encode_adaptive(&block);
-    let versioned = block.encode_versioned();
     let wire = block.encode_wire().expect("encode signed block wire");
     report_size("signed_block/bare", &bare);
-    report_size("signed_block/versioned", &versioned);
     report_size("signed_block/wire", &wire);
     c.bench_function("chain_wire/signed_block/bare_encode", |b| {
         b.iter(|| black_box(norito::codec::encode_adaptive(black_box(&block))))
@@ -377,14 +375,6 @@ fn bench_signed_block(c: &mut Criterion) {
             black_box(
                 norito::codec::decode_exact_from_slice::<SignedBlock>(black_box(&bare))
                     .expect("decode signed block"),
-            )
-        })
-    });
-    c.bench_function("chain_wire/signed_block/versioned_decode", |b| {
-        b.iter(|| {
-            black_box(
-                SignedBlock::decode_all_versioned(black_box(&versioned))
-                    .expect("decode versioned signed block"),
             )
         })
     });
@@ -400,10 +390,8 @@ fn bench_signed_block(c: &mut Criterion) {
 fn bench_signed_block_mixed(c: &mut Criterion) {
     let block = sample_mixed_block();
     let bare = norito::codec::encode_adaptive(&block);
-    let versioned = block.encode_versioned();
     let wire = block.encode_wire().expect("encode signed block wire");
     report_size("signed_block_mixed/bare", &bare);
-    report_size("signed_block_mixed/versioned", &versioned);
     report_size("signed_block_mixed/wire", &wire);
     c.bench_function("chain_wire/signed_block_mixed/bare_encode", |b| {
         b.iter(|| black_box(norito::codec::encode_adaptive(black_box(&block))))
@@ -413,14 +401,6 @@ fn bench_signed_block_mixed(c: &mut Criterion) {
             black_box(
                 norito::codec::decode_exact_from_slice::<SignedBlock>(black_box(&bare))
                     .expect("decode signed block"),
-            )
-        })
-    });
-    c.bench_function("chain_wire/signed_block_mixed/versioned_decode", |b| {
-        b.iter(|| {
-            black_box(
-                SignedBlock::decode_all_versioned(black_box(&versioned))
-                    .expect("decode versioned signed block"),
             )
         })
     });

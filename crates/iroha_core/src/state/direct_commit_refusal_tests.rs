@@ -4,9 +4,8 @@
 //! fixture. This exercises public StateBlock::commit, not a test commit surrogate.
 
 use super::fixture;
-use crate::state::{State, storage_transactions};
+use crate::state::{State, StateParameters, storage_transactions};
 use iroha_allocation::release::DeferredRelease;
-use iroha_data_model::parameter::Parameters;
 use mv::{PublicationCleanup, PublicationPreparationError};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -35,7 +34,7 @@ struct PhysicalObservations {
 }
 
 struct OriginalProbe {
-    parameters: Option<mv::cell::Detached<Parameters, ()>>,
+    parameters: Option<mv::cell::Detached<StateParameters, ()>>,
     world_cleanup: Option<PublicationCleanup<()>>,
     fence_cleanup: [Option<DeferredRelease>; 2],
     observed: PhysicalObservations,

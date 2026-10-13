@@ -489,7 +489,8 @@ mod tests {
             tx.world
                 .parameters_mut_for_testing()
                 .get_mut()
-                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()));
+                .set_parameter(Parameter::Custom(invalid.into_custom_parameter()))
+                .expect("valid fixture parameters");
             let error = super::sumeragi_npos_diagnostics(&tx.world)
                 .expect_err("malformed original NPoS policy must remain terminal");
             assert!(

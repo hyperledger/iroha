@@ -840,6 +840,7 @@ def test_contextual_cuda_pins_both_exact_dependency_members() -> None:
 @pytest.mark.parametrize(
     ("package", "aggregates"),
     [
+        ("norito", ("default", "node-codec", "base-codec")),
         ("irohad_lib", ("default", "daemon")),
         ("iroha", ("default",)),
         ("iroha_data_model", ("default", "application-model")),

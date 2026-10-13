@@ -1025,6 +1025,61 @@ impl TransferToTairaLogV1 {
     }
 }
 
+/// Strict `SccpFinalized` event, with three indexed fields and one amount word.
+/// Every destination uses nine decimals, so `token_amount` is already in Taira units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FinalizedLogV1 {
+    /// Finalized outbound message identity.
+    pub message_id: [u8; 32],
+    /// Route outbound nonce.
+    pub nonce: u64,
+    /// Mint recipient.
+    pub recipient: [u8; 20],
+    /// Exact nonzero number of token and Taira units, below `2^128`.
+    pub token_amount: u128,
+}
+
+impl FinalizedLogV1 {
+    /// Encode the four topics and the single amount word.
+    #[must_use]
+    pub fn encode(&self) -> (Vec<[u8; 32]>, Vec<u8>) {
+        (
+            vec![
+                TOPIC_FINALIZED,
+                self.message_id,
+                word_u64(self.nonce),
+                word_address(&self.recipient),
+            ],
+            word_u128(self.token_amount).to_vec(),
+        )
+    }
+
+    /// Decode exact topic count, clean integer/address widths and a nonzero bounded amount.
+    /// # Errors
+    /// Rejects the first violated canonical ABI constraint.
+    pub fn decode(topics: &[[u8; 32]], data: &[u8]) -> Result<Self, AbiError> {
+        if topics.len() != 4 {
+            return Err(AbiError::WrongTopicCount);
+        }
+        if topics[0] != TOPIC_FINALIZED {
+            return Err(AbiError::WrongTopic);
+        }
+        if data.len() != WORD {
+            return Err(AbiError::BadLength);
+        }
+        let token_amount = read_u128(data, 0).map_err(|_| AbiError::BadAmount)?;
+        if token_amount == 0 {
+            return Err(AbiError::BadAmount);
+        }
+        Ok(Self {
+            message_id: topics[1],
+            nonce: read_u64(&topics[2], 0)?,
+            recipient: read_address(&topics[3], 0)?,
+            token_amount,
+        })
+    }
+}
+
 /// `SccpVoided(bytes32 indexed messageId, uint64 indexed nonce)`: `topics = [topic0,
 /// messageId, word(nonce)]`, empty data; `messageId = 0` for `voidFrozen`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

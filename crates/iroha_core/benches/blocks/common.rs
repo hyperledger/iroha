@@ -77,7 +77,11 @@ pub fn start_chain(
         // limits, so the initial World supplies them.
         let mut block = world.block();
         for parameter in world_parameters() {
-            block.parameters.get_mut().set_parameter(parameter);
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(parameter)
+                .expect("valid fixture parameters");
         }
         block.commit();
     }

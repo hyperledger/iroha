@@ -1,4 +1,4 @@
-//! What the two relations share on the way to the backend: the 80-byte proving
+//! What the two relations share on the way to the backend: the 112-byte proving
 //! tape, the errors, and the calls into the backend's prover and verifier
 //! (evaluation record sections 6.6 and 6.7).
 //!
@@ -6,13 +6,14 @@
 //! r      = tape[0..32]      // backend root seed
 //! iv_pre = tape[32..48]
 //! pad    = tape[48..80]     // witness positions [0, 256)
+//! salt   = tape[80..112]    // public transcript salt
 //! ```
 //!
 //! The tape is supplied by the caller, who owns the random-number generator: this
 //! crate draws no randomness and has no deterministic, secret-derived or
 //! zero-filled fallback. A tape is consumed by one proving call and erased on
 //! every path out of it. There is no `H3` call; the prover tries the counters
-//! `0 ..= 0xffff_ffff` in order and never wraps.
+//! `0 ..= 0x000f_ffff` in order and never wraps.
 
 use iroha_zkp_vole::{
     field::Gf256,
@@ -34,7 +35,7 @@ use crate::{
 };
 
 /// Bytes of a proving tape.
-pub const TAPE_BYTES: usize = 80;
+pub const TAPE_BYTES: usize = 112;
 /// Bytes of `mu`.
 pub const MU_BYTES: usize = 64;
 /// Bytes of the backend root seed `r`.
@@ -44,7 +45,7 @@ const IV_PRE_BYTES: usize = 16;
 /// Bytes of the pad.
 pub const PAD_BYTES: usize = 32;
 
-/// The 80 fresh random bytes of one proof invocation. **Secret.**
+/// The 112 fresh random bytes of one proof invocation. **Secret.**
 ///
 /// Held on the heap, erased on drop, not `Clone`: a tape proves once. A caller
 /// that retries after any error draws an entirely new tape.
@@ -65,7 +66,7 @@ impl Drop for ProvingTape {
 impl ZeroizeOnDrop for ProvingTape {}
 
 impl ProvingTape {
-    /// A tape whose 80 bytes `fill` writes in place from the caller's fallible
+    /// A tape whose 112 bytes `fill` writes in place from the caller's fallible
     /// cryptographic random-number generator.
     ///
     /// # Errors
@@ -90,14 +91,16 @@ impl ProvingTape {
     /// The pad, `tape[48..80]`: witness coordinate `j` is bit `j mod 8` of pad
     /// byte `j div 8`.
     pub(crate) fn pad(&self) -> &[u8] {
-        &self.0[ROOT_BYTES + IV_PRE_BYTES..]
+        &self.0[ROOT_BYTES + IV_PRE_BYTES..ROOT_BYTES + IV_PRE_BYTES + PAD_BYTES]
     }
 
-    /// The backend tape `(r, iv_pre)`; an erasing copy.
+    /// The backend tape `(r, iv_pre, salt)`; an erasing copy.
     fn backend(&self) -> Result<Tape, ProveError> {
-        let mut iv_pre = [0u8; IV_PRE_BYTES];
+        let mut iv_pre = Zeroizing::new([0u8; IV_PRE_BYTES]);
         iv_pre.copy_from_slice(&self.0[ROOT_BYTES..ROOT_BYTES + IV_PRE_BYTES]);
-        Tape::explicit(LEVEL, &self.0[..ROOT_BYTES], &iv_pre).map_err(|_| {
+        let mut salt = Zeroizing::new([0u8; 32]);
+        salt.copy_from_slice(&self.0[80..112]);
+        Tape::extended(LEVEL, &self.0[..ROOT_BYTES], &iv_pre, &salt).map_err(|_| {
             ProveError::Backend(ProofError::InvalidLength {
                 input: proof::Input::Root,
                 expected: LEVEL.bytes(),
@@ -150,10 +153,13 @@ pub enum ProveError {
     /// statement. Decided before the tape is used.
     #[error("the secret is not a witness of the statement")]
     WitnessRejected,
-    /// No counter in `0 ..= 0xffff_ffff` gave an acceptable third challenge. A
+    /// No counter in `0 ..= 0x000f_ffff` gave an acceptable third challenge. A
     /// later attempt needs an entirely fresh tape.
     #[error("no counter gave an acceptable challenge")]
-    GrindingExhausted,
+    GrindingExhausted {
+        /// Last attempted counter, always `0x000f_ffff`.
+        last: u32,
+    },
     /// The backend failed for a reason that is not the caller's input.
     #[error(transparent)]
     Backend(ProofError),
@@ -199,6 +205,16 @@ impl From<ProfileError> for VerifyError {
     }
 }
 
+impl From<ProofError> for ProveError {
+    fn from(error: ProofError) -> Self {
+        match error {
+            ProofError::WitnessRejected => Self::WitnessRejected,
+            ProofError::GrindingExhausted { last } => Self::GrindingExhausted { last },
+            error => Self::Backend(error),
+        }
+    }
+}
+
 /// Run the backend prover for `relation` in the role's context, consuming the
 /// tape.
 ///
@@ -219,12 +235,7 @@ pub(crate) fn prove_relation<R: Relation<Gf256> + ?Sized>(
     // The tape proves once: both copies are erased here, whatever the outcome.
     drop(backend_tape);
     drop(tape);
-    match result {
-        Ok(bytes) => Ok(bytes),
-        Err(ProofError::WitnessRejected) => Err(ProveError::WitnessRejected),
-        Err(ProofError::GrindingExhausted { .. }) => Err(ProveError::GrindingExhausted),
-        Err(error) => Err(ProveError::Backend(error)),
-    }
+    result.map_err(ProveError::from)
 }
 
 /// Run the backend verifier for `relation` in the role's context, after the
@@ -285,16 +296,16 @@ pub(crate) fn message_digest(
 }
 
 /// The extended witness common to both relations: the pad, the secret and the
-/// eleven committed states of the two permutations whose public initial-state
+/// eleven committed states of each permutation whose public initial-state
 /// parts are `blocks`. Bits beyond them (the selectors of a vote) are zero.
 ///
 /// `pad` is the 32 pad bytes; the buffer is allocated once at its final size and
 /// erased on drop.
-pub(crate) fn build_witness(
+pub(crate) fn build_witness<const N: usize>(
     witness_bits: usize,
     pad: &[u8],
     secret: &CredentialSecret,
-    blocks: [&[u8; STATE_BYTES]; 2],
+    blocks: [&[u8; STATE_BYTES]; N],
 ) -> Zeroizing<Vec<u8>> {
     let mut witness = Zeroizing::new(vec![0u8; witness_bits / 8]);
     for (slot, byte) in witness.iter_mut().zip(pad.iter().take(PAD_BYTES)) {
@@ -332,6 +343,12 @@ mod tests {
         let backend = tape.backend().expect("32-byte root");
         assert_eq!(backend.root(), &bytes[..32]);
         assert_eq!(backend.iv_pre()[..], bytes[32..48]);
+        assert_eq!(
+            backend.binding(),
+            iroha_zkp_vole::variant::Binding::Extended {
+                salt: bytes[80..112].try_into().expect("salt")
+            }
+        );
         assert_eq!(format!("{tape:?}"), "ProvingTape(<redacted>)");
     }
 
@@ -372,13 +389,19 @@ mod tests {
         let blocks = [
             public_block(*b"PCR1", &[1; 64]),
             public_block(*b"PNF1", &[2; 64]),
+            public_block(*b"PAV1", &[3; 64]),
         ];
         let pad = [0xd7u8; 32];
-        let witness = build_witness(VOTE_WITNESS_BITS, &pad, &secret, [&blocks[0], &blocks[1]]);
-        assert_eq!(witness.len(), 4488);
+        let witness = build_witness(
+            VOTE_WITNESS_BITS,
+            &pad,
+            &secret,
+            [&blocks[0], &blocks[1], &blocks[2]],
+        );
+        assert_eq!(witness.len(), 6688);
         assert_eq!(witness[..32], pad);
         assert_eq!(witness[32..80], [0x3c; 48]);
-        for (block, base) in blocks.iter().zip([80usize, 2280]) {
+        for (block, base) in blocks.iter().zip([80usize, 2280, 4480]) {
             let evaluation = evaluate(block, secret.expose_bytes());
             for group in 1..=11 {
                 let mut state = [0u8; 200];
@@ -387,7 +410,7 @@ mod tests {
                 assert_eq!(witness[start..start + 200], state);
             }
         }
-        assert_eq!(witness[4480..], [0u8; 8]);
+        assert_eq!(witness[6680..], [0u8; 8]);
         let shorter = build_witness(
             REGISTRATION_WITNESS_BITS,
             &pad,
@@ -412,9 +435,26 @@ mod tests {
             }
         }
         // The other row's length and the other relation's length are wrong lengths.
-        assert!(check_proof_length(Row::Candidate, Role::Vote, &vec![0u8; 159_588]).is_err());
+        assert!(check_proof_length(Row::Candidate, Role::Vote, &vec![0u8; 160_148]).is_err());
         assert!(
-            check_proof_length(Row::Candidate, Role::Registration, &vec![0u8; 109_114]).is_err()
+            check_proof_length(Row::Candidate, Role::Registration, &vec![0u8; 109_498]).is_err()
+        );
+    }
+
+    #[test]
+    fn backend_errors_keep_the_exhaustion_counter_and_error_class() {
+        let last = 0x000f_ffff;
+        assert_eq!(
+            ProveError::from(ProofError::GrindingExhausted { last }),
+            ProveError::GrindingExhausted { last }
+        );
+        assert_eq!(
+            ProveError::from(ProofError::WitnessRejected),
+            ProveError::WitnessRejected
+        );
+        assert_eq!(
+            ProveError::from(ProofError::ChallengeMismatch),
+            ProveError::Backend(ProofError::ChallengeMismatch)
         );
     }
 

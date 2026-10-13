@@ -34,10 +34,10 @@ use crate::{
 /// bytes. An identifier, not a security parameter; no `profile_id` is allocated.
 pub const P16: [u8; 16] = *b"PARL-SHAKE-V1\0\0\0";
 
-/// `SUITE`: the 72-byte name of the frozen relation, constraint order, encodings,
+/// `SUITE`: the 129-byte name of the frozen relation, constraint order, encodings,
 /// transcript and randomness rules. Not an options string.
-pub const SUITE: &[u8; 72] =
-    b"KECCAK-F1600/2R-FWD/SEL-32X32-PREFIX/PAD-256/TAPE-80/CTR-U32/NS-PREFIX77";
+pub const SUITE: &[u8; 129] =
+    b"KECCAK-F1600/2R-FWD/SEL-32X32-PREFIX/PAD-256/TAPE-112/CTR-U20-LE32/NS-PREFIX77/NF-1024/VAUTH-512/SALT-256/H5-SALT/LEAF-AFFINE-896";
 
 /// The backend label of the descriptor.
 pub const BACKEND_LABEL: &[u8; 9] = b"FAEST-3.0";
@@ -49,7 +49,7 @@ pub const PREFIX_LITERAL: &[u8; 13] = b"PARL/FAEST/v1";
 pub const PREFIX_BYTES: usize = PREFIX_LITERAL.len() + DIGEST_BYTES;
 
 /// Length of `DESC` in bytes, on both rows.
-pub const DESCRIPTOR_BYTES: usize = 229;
+pub const DESCRIPTOR_BYTES: usize = 286;
 
 /// The security level of both rows.
 pub const LEVEL: SecurityLevel = SecurityLevel::L256;
@@ -153,6 +153,8 @@ pub enum ProofField {
     Challenge,
     /// `iv_pre`.
     IvPre,
+    /// The public 32-byte salt.
+    Salt,
     /// `u32_le(ctr)`.
     Counter,
 }
@@ -184,15 +186,15 @@ impl Row {
     /// The exact length in bytes of every proof of `role` on this row.
     pub const fn proof_bytes(self, role: Role) -> usize {
         match (self, role) {
-            (Self::Candidate, Role::Registration) => 159_588,
-            (Self::Candidate, Role::Vote) => 159_852,
-            (Self::Comparator, Role::Registration) => 109_114,
-            (Self::Comparator, Role::Vote) => 109_290,
+            (Self::Candidate, Role::Registration) => 160_148,
+            (Self::Candidate, Role::Vote) => 233_012,
+            (Self::Comparator, Role::Registration) => 109_498,
+            (Self::Comparator, Role::Vote) => 158_074,
         }
     }
 
     /// The naked proof layout of `role` on this row (record section 6.6).
-    pub fn proof_layout(self, role: Role) -> [ProofSegment; 10] {
+    pub fn proof_layout(self, role: Role) -> [ProofSegment; 11] {
         let vole = self.vole();
         let lambda_bytes = vole.lambda().bytes();
         let witness_bytes = role.witness_bits() / 8;
@@ -207,11 +209,12 @@ impl Row {
             (ProofField::Coefficients, (D_ZK - 1) * lambda_bytes),
             (
                 ProofField::HiddenLeafCommitments,
-                vole.tau() * vole.leaf_commitment_bytes(),
+                vole.tau() * (vole.leaf_commitment_bytes() + 16),
             ),
             (ProofField::NodeSeeds, vole.t_open() * lambda_bytes),
             (ProofField::Challenge, lambda_bytes),
             (ProofField::IvPre, 16),
+            (ProofField::Salt, 32),
             (ProofField::Counter, 4),
         ];
         let mut offset = 0;
@@ -392,7 +395,10 @@ impl Profile {
     /// # Errors
     /// As [`Profile::namespace`].
     pub fn context(&self, role: Role) -> Result<ProofContext<'_>, ProfileError> {
-        Ok(ProofContext::new(self.namespace(role)?, self.row.vole())?)
+        Ok(ProofContext::extended(
+            self.namespace(role)?,
+            self.row.vole(),
+        )?)
     }
 
     /// The exact proof length of `role` on this row.
@@ -414,14 +420,14 @@ mod tests {
     /// The four digests printed in section 6.1 of the record.
     const T_CRT_FAST: &str = "a9c572a7c8f2cc735218123c6456e1e016e78b06aa2d03192ef801bf7fdb93ae014a9e16555e6bad81382c630467e45e76c9b1c3948f9dfea41a7a1435bcffea";
     const T_CRT_SMALL: &str = "792f81bf102cac84b7c559595342b6b23ad27dab9065651feb928dd0a649a3f4bd1da3d350fbd4c62f1707d441d46ef084430b5f00b53a1af7088281d6a7386e";
-    const D_FAST: &str = "44028deb664beb1a06a336cd6f622c223a5c15741dfafa72b55e19cbb42f287ba48979a0d6a8342c80034cc88b87fcb055f0db686fe97beffb2197bc7f85e910";
-    const D_SMALL: &str = "1f59fe5ae24c0d5dfb86611f1ed4439edd7995d6cbbf308f2954b4bb2c3fece8fe4c080dcef118bb4100d6cf5c4de012318e3a1227b78299e24d5a113cb31273";
+    const D_FAST: &str = "01ed9f564981a07ab383d513c4e816f5a76542c7220eaaa36742f8eb0c51341da089e154a815f92fcd18353077cde18f435dfaa0834b65fdf3a658b0accdda28";
+    const D_SMALL: &str = "4c38e45d70b5aa1295c107fe9035e82b179d8ec10ab7acf59b6955e0b22f9fdb09976788745a0fbb4ee1cabd840a12d9e746bf76b3998ab72c06e019bb889412";
 
     #[test]
     fn the_literals_are_the_frozen_ones() {
         assert_eq!(P16.to_vec(), hex("5041524c2d5348414b452d5631000000"));
-        assert_eq!(SUITE.len(), 72);
-        assert!(SUITE.ends_with(b"/NS-PREFIX77"));
+        assert_eq!(SUITE.len(), 129);
+        assert!(SUITE.ends_with(b"/LEAF-AFFINE-896"));
         assert_eq!(PREFIX_BYTES, 77);
         assert_eq!(Role::Registration.label(), b"REG");
         assert_eq!(Role::Vote.label(), b"VOTE");
@@ -434,7 +440,7 @@ mod tests {
         );
         assert_eq!(
             (Role::Vote.witness_bits(), Role::Vote.constraints()),
-            (35_904, 72_707)
+            (53_504, 108_931)
         );
         assert_eq!((Role::Registration.index(), Role::Vote.index()), (0, 1));
     }
@@ -506,7 +512,7 @@ mod tests {
             assert_eq!(profile.table_digest().as_bytes().to_vec(), hex(table));
             assert_eq!(profile.descriptor_digest().as_bytes().to_vec(), hex(digest));
             let descriptor = profile.descriptor();
-            assert_eq!(descriptor.len(), 229);
+            assert_eq!(descriptor.len(), 286);
             // Tag, field count, P16, the backend label.
             assert!(
                 descriptor
@@ -518,7 +524,7 @@ mod tests {
                 descriptor.to_vec()
             );
             assert_eq!(u16_le(704), [0xc0, 0x02]);
-            assert_eq!(u32_le(72_707), [0x03, 0x1c, 0x01, 0x00]);
+            assert_eq!(u32_le(108_931), [0x83, 0xa9, 0x01, 0x00]);
         }
     }
 
@@ -567,49 +573,49 @@ mod tests {
         // First bytes of the four namespaces as printed by the prototype.
         assert_eq!(
             fast.namespace_digest(Role::Registration).as_bytes()[..8],
-            hex("fc84f16dabf95f82")[..]
+            hex("fee2262f962d05a6")[..]
         );
         assert_eq!(
             fast.namespace_digest(Role::Vote).as_bytes()[..8],
-            hex("bf1f79771330460b")[..]
+            hex("c35e0a664654be33")[..]
         );
         assert_eq!(
             small.namespace_digest(Role::Registration).as_bytes()[..8],
-            hex("473e754e8ade3b85")[..]
+            hex("119502053f76d040")[..]
         );
         assert_eq!(
             small.namespace_digest(Role::Vote).as_bytes()[..8],
-            hex("05744f3a81c5217d")[..]
+            hex("d142d6ecdf7a6222")[..]
         );
     }
 
     #[test]
     fn the_proof_layout_is_the_ledger_of_the_record() {
         // Field lengths of section 6.6, in layout order.
-        let ledger: [(Row, Role, [usize; 10], usize); 4] = [
+        let ledger: [(Row, Role, [usize; 11], usize); 4] = [
             (
                 Row::Candidate,
                 Role::Registration,
-                [143_360, 880, 128, 4480, 192, 3168, 7328, 32, 16, 4],
-                159_588,
+                [143_360, 880, 128, 4480, 192, 3696, 7328, 32, 16, 32, 4],
+                160_148,
             ),
             (
                 Row::Candidate,
                 Role::Vote,
-                [143_616, 880, 128, 4488, 192, 3168, 7328, 32, 16, 4],
-                159_852,
+                [214_016, 880, 128, 6688, 192, 3696, 7328, 32, 16, 32, 4],
+                233_012,
             ),
             (
                 Row::Comparator,
                 Role::Registration,
-                [94_080, 870, 128, 4480, 192, 2112, 7200, 32, 16, 4],
-                109_114,
+                [94_080, 870, 128, 4480, 192, 2464, 7200, 32, 16, 32, 4],
+                109_498,
             ),
             (
                 Row::Comparator,
                 Role::Vote,
-                [94_248, 870, 128, 4488, 192, 2112, 7200, 32, 16, 4],
-                109_290,
+                [140_448, 870, 128, 6688, 192, 2464, 7200, 32, 16, 32, 4],
+                158_074,
             ),
         ];
         for (row, role, lengths, total) in ledger {
@@ -627,7 +633,7 @@ mod tests {
             assert_eq!(row.proof_bytes(role), total);
             assert_eq!(Profile::new(row).expect("tables").proof_bytes(role), total);
             assert_eq!(layout[0].field, ProofField::Corrections);
-            assert_eq!(layout[9].field, ProofField::Counter);
+            assert_eq!(layout[10].field, ProofField::Counter);
         }
     }
 }

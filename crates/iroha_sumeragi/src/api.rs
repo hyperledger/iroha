@@ -107,7 +107,7 @@ impl Default for LocalParams {
             fetch_retry: 250,
             sync_batch: 64,
             sync_retry: 1_000,
-            sync_max_bytes: 16 * 1024 * 1024,
+            sync_max_bytes: 16 * 1024 * 1024 + crate::pacemaker::FRAME_OVERHEAD,
             max_observers: 64,
         }
     }
@@ -145,7 +145,7 @@ pub enum ConfigError {
     PayloadRetryIntervalZero,
     /// `Init.demotion_window < 1` (`W` is a genesis constant, §9.4).
     DemotionWindowZero,
-    /// Chain parameters: `max_block_bytes` above the transport frame limit.
+    /// Chain parameters cannot fit both the payload and its complete sync framing.
     MaxBlockBytesAboveTransport,
     /// `Init` lacks the configuration of a required height.
     MissingConfig(u64),

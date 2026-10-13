@@ -1,0 +1,46 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "wrong_driver_is_a_binding_mismatch",
+  "category": "bounds_and_bindings",
+  "rules": [
+    "corruption_is_reported_not_repaired"
+  ],
+  "description": "A plan is bound to the identity and schema of its capability driver. Running it with another driver is refused before a journal is created.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "wrong-driver-is-a-binding-mismatch",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "driver": "wrong_identity",
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "plan",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "absent"
+      }
+    },
+    {
+      "op": "progress",
+      "expect": {
+        "result": "absent",
+        "effects": [],
+        "journal": "absent"
+      }
+    }
+  ]
+}

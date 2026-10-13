@@ -15,6 +15,8 @@ use super::{
 };
 use crate::types::Millis;
 
+mod amx_final_payment;
+
 fn default_seeds() -> u64 {
     if cfg!(debug_assertions) { 5 } else { 20 }
 }

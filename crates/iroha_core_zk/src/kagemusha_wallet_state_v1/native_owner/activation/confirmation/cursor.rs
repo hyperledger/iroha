@@ -1,5 +1,6 @@
 //! Activation-bound native verification: later global ledger activity cannot skip Activate.
 use super::*;
+use crate::kagemusha_wallet_state_v1::finality_read_error;
 use iroha_data_model::sumeragi_finality::{
     MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint,
 };
@@ -77,14 +78,21 @@ impl Cursor {
         &self,
         genesis: &SumeragiFinalityVerifier,
     ) -> Result<(SumeragiFinalityVerifier, SumeragiFinalityCheckpoint), Error> {
-        let checkpoint = SumeragiFinalityCheckpoint::decode_canonical(&self.checkpoint)
-            .map_err(|_| Error::WitnessLost("activation cursor checkpoint"))?;
+        let checkpoint =
+            SumeragiFinalityCheckpoint::decode_canonical(&self.checkpoint).map_err(|error| {
+                finality_read_error(error, Error::WitnessLost("activation cursor checkpoint"))
+            })?;
         let verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &genesis.initial_epoch().network_id,
             &genesis.chain_id(),
         )
-        .map_err(|_| Error::WitnessLost("activation cursor checkpoint root"))?;
+        .map_err(|error| {
+            finality_read_error(
+                error,
+                Error::WitnessLost("activation cursor checkpoint root"),
+            )
+        })?;
         if verifier.initial_epoch() != genesis.initial_epoch()
             || verifier.instance() != genesis.instance()
         {
@@ -408,7 +416,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             if candidate.height() == previous.height() {
                 verifier
                     .verify_retained_decision(&candidate)
-                    .map_err(|_| Error::Proof("activation cursor retry"))?;
+                    .map_err(|error| {
+                        finality_read_error(error, Error::Proof("activation cursor retry"))
+                    })?;
                 return Ok(ActivationFinalityProgressV1::Verifying(ledger::progress(
                     previous,
                 )));
@@ -420,14 +430,24 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             return Err(Error::Invalid("activation cursor starts at genesis"));
         }
         let verified = if previous.is_none() {
-            verifier
-                .verify_retained_decision(&candidate)
-                .or_else(|_| verifier.verify(&candidate))
-                .map_err(|_| Error::Proof("activation cursor genesis"))?
+            match verifier.verify_retained_decision(&candidate) {
+                Ok(verified) => verified,
+                Err(iroha_data_model::sumeragi_finality::FinalityReadError::Invalid(_)) => {
+                    verifier.verify(&candidate).map_err(|error| {
+                        finality_read_error(error, Error::Proof("activation cursor genesis"))
+                    })?
+                }
+                Err(original) => {
+                    return Err(finality_read_error(
+                        original,
+                        Error::Proof("activation cursor genesis"),
+                    ));
+                }
+            }
         } else {
-            verifier
-                .verify(&candidate)
-                .map_err(|_| Error::Proof("activation cursor continuity"))?
+            verifier.verify(&candidate).map_err(|error| {
+                finality_read_error(error, Error::Proof("activation cursor continuity"))
+            })?
         };
         let expected = TransactionEntrypoint::External(signed.clone());
         let included = verified
@@ -457,7 +477,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 checkpoint: self.archive.write_object(
                     &verifier
                         .export_checkpoint(&candidate)
-                        .map_err(|_| Error::Proof("activation confirmation checkpoint"))?
+                        .map_err(|error| {
+                            finality_read_error(
+                                error,
+                                Error::Proof("activation confirmation checkpoint"),
+                            )
+                        })?
                         .encode_canonical()
                         .map_err(|_| Error::Proof("activation confirmation checkpoint encoding"))?,
                     MAX_FINALITY_CHECKPOINT_BYTES,
@@ -466,9 +491,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             self.publish_activation_confirmation(root, manifest, &plan, &confirmation)?;
             return Ok(ActivationFinalityProgressV1::Confirmed(progress));
         }
-        let checkpoint = verifier
-            .export_checkpoint(&candidate)
-            .map_err(|_| Error::Proof("activation cursor checkpoint"))?;
+        let checkpoint = verifier.export_checkpoint(&candidate).map_err(|error| {
+            finality_read_error(error, Error::Proof("activation cursor checkpoint"))
+        })?;
         let cursor = Cursor {
             activation: plan
                 .output

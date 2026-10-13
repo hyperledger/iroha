@@ -502,7 +502,7 @@ fn affine_check(sd: &[u8], h1: &[u8], b1: &[u8], out: &mut [u8]) -> Result<(), B
     let mut key = Gf256::from_bytes(h1).map_err(invalid)?;
     let mut product = seed * key;
     let mut bytes = product.to_bytes();
-    for ((slot, low), mask) in out.iter_mut().zip(bytes).zip(b1) {
+    for ((slot, low), mask) in out.iter_mut().zip(bytes.iter()).zip(b1) {
         *slot = low ^ mask;
     }
     seed.zeroize();
@@ -1675,7 +1675,7 @@ mod tests {
         let prefixes: [&[u8]; 3] = [b"", &first, b"a second namespace"];
         for params in rows() {
             let seed = root(&params);
-            let mut outputs = Vec::new();
+            let mut observed_commitments = Vec::new();
             for prefix in prefixes {
                 let namespace = Namespace::new(prefix).expect("bounded");
                 let commitment = commit_in(namespace, &params, &seed, &IV).expect("valid call");
@@ -1722,11 +1722,11 @@ mod tests {
                         prefix.is_empty()
                     );
                 }
-                outputs.push(commitment.commitment().to_vec());
+                observed_commitments.push(commitment.commitment().to_vec());
             }
-            outputs.sort();
-            outputs.dedup();
-            assert_eq!(outputs.len(), prefixes.len());
+            observed_commitments.sort();
+            observed_commitments.dedup();
+            assert_eq!(observed_commitments.len(), prefixes.len());
         }
     }
 

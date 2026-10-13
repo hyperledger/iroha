@@ -12,6 +12,8 @@ import "sccp-errors"
 import "sccp-fees"
 import "sccp-messages"
 import "sccp-storage"
+import "sccp-recovery"
+import "sccp-recovery-wire"
 
 contract SccpTairaXorWallet {
     author: "Hyperledger Iroha"
@@ -22,12 +24,17 @@ contract SccpTairaXorWallet {
 }
 
 type WalletMessage = AskToTransfer | AskToBurn | InternalTransferStep | TopUpTons
+    | SccpRecoveryDispatch | SccpRecoveryConfirm | SccpRecoveryDrop
 
 type WalletBounce = InternalTransferStep | BurnNotificationForMinter
 
 fun onBouncedMessage(in: InMessageBounced) {
     in.bouncedBody.skipBouncedPrefix();
 
+    if (in.bouncedBody.preloadUint(32) == 0x53435234) {
+        // A bounced recovery ACK leaves both tokens and receipt intact.
+        return;
+    }
     val msg = lazy WalletBounce.fromSlice(in.bouncedBody);
     val restoreAmount = match (msg) {
         InternalTransferStep => msg.jettonAmount,
@@ -43,9 +50,49 @@ fun onInternalMessage(in: InMessage) {
     val msg = lazy WalletMessage.fromSlice(in.body);
 
     match (msg) {
+        SccpRecoveryDispatch => {
+            var storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            assert ((msg.stage == SCCP_RECOVERY_MINT) & (msg.operationId > 0))
+                throw SccpErrors.BadRecovery;
+            assert ((msg.amount > 0) & (msg.amount < SCCP_TON_AMOUNT_LIMIT))
+                throw SccpErrors.BadAmount;
+            var receipts = storage.recovery.load();
+            val existing = receipts.existing(msg.operationId, msg.stage, msg.attempt);
+            if (existing == null) {
+                assert (contract.getOriginalBalance() >= sccpWalletRecoveryFloor() +
+                    sccpGasFee(SCCP_GAS_WALLET_RECEIVE)) throw SccpErrors.NotEnoughValue;
+                receipts.record(msg.operationId, msg.stage, msg.attempt, SCCP_RECEIPT_APPLIED);
+                storage.jettonBalance += msg.amount;
+                storage.recovery = receipts.toCell();
+                storage.save();
+            }
+            sccpReserveFloor(sccpWalletRecoveryFloor(), in.valueCoins);
+            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt,
+                SCCP_RECEIPT_APPLIED);
+        }
+        SccpRecoveryConfirm => {
+            val storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            val result = storage.recovery.load().confirm(msg.operationId, msg.stage, msg.attempt);
+            sccpReservePriorBalance(in.valueCoins);
+            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt, result);
+        }
+        SccpRecoveryDrop => {
+            var storage = WalletStorage.load();
+            assert (in.senderAddress == storage.minterAddress) throw SccpErrors.NotMinter;
+            var receipts = storage.recovery.load();
+            receipts.drop(msg.operationId, msg.stage, msg.attempt);
+            storage.recovery = receipts.toCell();
+            storage.save();
+            sccpReservePriorBalance(in.valueCoins);
+            sccpSendRecoveryAck(storage.minterAddress, msg.operationId, msg.stage, msg.attempt,
+                SCCP_RECEIPT_DROPPED);
+        }
+
         InternalTransferStep => {
             var storage = lazy WalletStorage.load();
-            if (in.senderAddress != storage.minterAddress) {
+            {
                 assert (
                     in.senderAddress ==
                     sccpWalletAddress(

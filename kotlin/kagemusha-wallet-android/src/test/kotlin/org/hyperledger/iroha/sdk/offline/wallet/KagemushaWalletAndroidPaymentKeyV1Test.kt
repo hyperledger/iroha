@@ -34,9 +34,8 @@ class KagemushaWalletAndroidPaymentKeyV1Test {
     private fun alias(slot: ByteArray) = kagemushaWalletAndroidAliasV1(slot)
 
     /**
-     * The 32-byte Poseidon signing message `m = P_bytes(kgwrcpt1, transcript)` of the vectored
-     * Send receipt (`fixtures/kagemusha/wallet_v1_vectors.json`): what the Rust receipt signer
-     * hands to `key_sign`.
+     * Fixed 32-byte signing DATA for the platform message-signing contract.
+     * The exact bytes are preserved; this is not a current wallet receipt fixture.
      */
     private val message = "a5e8b32421e17595040cdcdeeaf46f06da85291d68cff8e05dab8bfc64a96a2d"
         .chunked(2).map { it.toInt(16).toByte() }.toByteArray()

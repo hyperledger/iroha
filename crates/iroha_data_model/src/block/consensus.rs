@@ -76,8 +76,8 @@ pub const MAX_EXECUTED_BLOCK_WIRE_BYTES: u64 = 256 * 1024 * 1024;
 /// Keeping the bytes here lets configuration-independent genesis builders emit
 /// a valid signed template without introducing a data-model/config cycle.
 pub const RECOMMENDED_NEXUS_AMX_CONTEXT_HASH: [u8; 32] = [
-    184, 201, 137, 127, 132, 160, 253, 49, 98, 200, 33, 224, 106, 253, 214, 89, 70, 108, 60, 163,
-    25, 61, 120, 83, 183, 110, 129, 158, 132, 13, 42, 75,
+    74, 51, 152, 173, 244, 125, 165, 95, 209, 37, 162, 171, 118, 190, 96, 81, 77, 208, 196, 105,
+    150, 82, 221, 249, 100, 224, 199, 91, 89, 239, 44, 131,
 ];
 /// Canonical V1 boot execution-policy identity emitted by the recommended genesis template.
 ///
@@ -578,7 +578,7 @@ pub struct LaneEvidenceScope {
     pub admission_parent_result: [u8; 32],
 }
 
-/// Clock and historical authority of an independently authenticated native report.
+/// Clock and historical authority of an independently admitted consensus or SCCP report.
 #[derive(
     Clone,
     Copy,
@@ -599,11 +599,20 @@ pub struct LaneEvidenceScope {
     deny_unknown_fields
 )]
 #[norito_schema(name = "iroha_data_model::block::consensus::EvidenceScope")]
+#[allow(
+    variant_size_differences,
+    reason = "keep fixed historical scope inline and Copy; boxing adds an unadmitted allocation"
+)]
 pub enum EvidenceScope {
     /// The executing State's root instance; its signed height uses the carrier clock.
     Root,
     /// A pinned native lane instance, authenticated beneath an original root execution cut.
     Lane(LaneEvidenceScope),
+    /// SCCP generation attribution uses the retained generation start height, never signed X.height.
+    SccpGeneration {
+        /// Retained native committee generation.
+        generation: u64,
+    },
 }
 
 /// Independently authenticated historical attribution retained with a committed report.
@@ -622,15 +631,17 @@ pub enum EvidenceScope {
 #[norito(deny_unknown_fields)]
 #[norito_schema(name = "iroha_data_model::block::consensus::EvidenceAttribution")]
 pub struct EvidenceAttribution {
-    /// Distinguishes the root carrier clock from native lane heights and original custody.
+    /// Distinguishes root, lane and SCCP generation liability clocks and original custody.
     pub scope: EvidenceScope,
     /// Exact native consensus instance.
     pub instance: [u8; 32],
-    /// Native height at which the original artifacts were signed.
+    /// Native offence height, or the immutable SCCP generation start height.
+    /// SCCP never substitutes the attacker-controlled signed X.height for this liability height.
     pub height: u64,
-    /// Scheduling epoch bound by the signatures.
+    /// Scheduling epoch bound by the signatures; SCCP retains this QC field as unverified DATA.
     pub epoch: u64,
-    /// Complete authenticated epoch context identity.
+    /// Native authenticated epoch context, or the unverified signed SCCP QC context field.
+    /// SCCP authority comes from the independently retained generation, never this field.
     pub context_id: [u8; 32],
     /// Historical signing generation, independently resolved from state.
     pub authority_generation: [u8; 32],
@@ -668,6 +679,42 @@ impl EvidencePenaltyStatus {
         !matches!(self, Self::Pending)
     }
 }
+/// Closed committed evidence material: native consensus reports or native SCCP forgery.
+///
+/// The outer [`EvidenceRecord`] retains admission-time attribution and penalty timing for both.
+/// There is no fallback from a bare native record and no synthetic conversion of SCCP forgery
+/// into another consensus fault kind.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(
+    tag = "kind",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+#[norito_schema(name = "iroha_data_model::block::consensus::RecordedEvidenceV1")]
+pub enum RecordedEvidenceV1 {
+    /// Original native consensus evidence, using its existing bounded representation.
+    #[codec(index = 0)]
+    Native(Evidence),
+    /// Original SCCP certificate with immutable admitted generation attribution.
+    ///
+    /// Box ownership keeps the native evidence stack shell small. The canonical v1
+    /// binary field includes Norito's owned-value length prefix; the closed JSON
+    /// `kind`/`value` representation contains the record directly.
+    #[codec(index = 1)]
+    SccpForgery(Box<crate::sccp::native::SccpForgeryRecordV1>),
+}
+
 /// Persisted evidence entry annotated with commit metadata.
 ///
 /// Every record has already been admitted by a committed block. Node-local
@@ -684,8 +731,8 @@ impl EvidencePenaltyStatus {
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::block::consensus::EvidenceRecord")]
 pub struct EvidenceRecord {
-    /// Slashing material captured for governance processing.
-    pub evidence: Evidence,
+    /// Closed admitted material retained for the mandatory consensus penalty pipeline.
+    pub evidence: RecordedEvidenceV1,
     /// Required attribution authenticated independently at original evidence admission.
     pub attribution: EvidenceAttribution,
     /// Block height at which this evidence record was appended to WSV.

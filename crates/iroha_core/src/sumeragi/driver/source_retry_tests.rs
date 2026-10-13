@@ -55,7 +55,7 @@ fn committed_head_waits_for_original_release_across_prepare_append_and_commit() 
                 CommitWaitPhase::Prepare => ExecDone::Prepared(Err(deferred)),
                 CommitWaitPhase::Append => ExecDone::Appended {
                     durable: false,
-                    deferred: Some(refusal.into()),
+                    deferred: Some(PublicationDeferral::Execution(refusal.into())),
                 },
                 CommitWaitPhase::Commit => ExecDone::Committed(Err(deferred)),
             },

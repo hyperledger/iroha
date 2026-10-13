@@ -139,7 +139,15 @@ fn production_event_sets_preserve_captured_frames() {
     let captured: Vec<Value> = json::from_str(include_str!("fixtures/event_set_frames.json"))
         .expect("immutable pre-declaration frames");
     assert_eq!(captured.len(), 25);
-    assert_eq!(rows, captured);
+    assert_eq!(rows.len(), captured.len());
+    for (observed, expected) in rows.iter().zip(&captured) {
+        assert_eq!(
+            observed,
+            expected,
+            "event set {:?}",
+            expected.get("nominal")
+        );
+    }
 }
 
 #[test]
@@ -274,5 +282,173 @@ fn repeated() {
     assert_eq!(
         TestEventSet::all() | TestEventSet::AnyNestedEvent,
         TestEventSet::all()
+    );
+}
+
+/// Every bit of the widest supported event set.
+#[derive(iroha_data_model_derive::EventSet)]
+#[event_set(schema_name = "derive_integration::event_set::WideEventSet")]
+pub enum WideEvent {
+    /// Event at bit 0.
+    Event0,
+    /// Event at bit 1.
+    Event1,
+    /// Event at bit 2.
+    Event2,
+    /// Event at bit 3.
+    Event3,
+    /// Event at bit 4.
+    Event4,
+    /// Event at bit 5.
+    Event5,
+    /// Event at bit 6.
+    Event6,
+    /// Event at bit 7.
+    Event7,
+    /// Event at bit 8.
+    Event8,
+    /// Event at bit 9.
+    Event9,
+    /// Event at bit 10.
+    Event10,
+    /// Event at bit 11.
+    Event11,
+    /// Event at bit 12.
+    Event12,
+    /// Event at bit 13.
+    Event13,
+    /// Event at bit 14.
+    Event14,
+    /// Event at bit 15.
+    Event15,
+    /// Event at bit 16.
+    Event16,
+    /// Event at bit 17.
+    Event17,
+    /// Event at bit 18.
+    Event18,
+    /// Event at bit 19.
+    Event19,
+    /// Event at bit 20.
+    Event20,
+    /// Event at bit 21.
+    Event21,
+    /// Event at bit 22.
+    Event22,
+    /// Event at bit 23.
+    Event23,
+    /// Event at bit 24.
+    Event24,
+    /// Event at bit 25.
+    Event25,
+    /// Event at bit 26.
+    Event26,
+    /// Event at bit 27.
+    Event27,
+    /// Event at bit 28.
+    Event28,
+    /// Event at bit 29.
+    Event29,
+    /// Event at bit 30.
+    Event30,
+    /// Event at bit 31.
+    Event31,
+    /// Event at bit 32.
+    Event32,
+    /// Event at bit 33.
+    Event33,
+    /// Event at bit 34.
+    Event34,
+    /// Event at bit 35.
+    Event35,
+    /// Event at bit 36.
+    Event36,
+    /// Event at bit 37.
+    Event37,
+    /// Event at bit 38.
+    Event38,
+    /// Event at bit 39.
+    Event39,
+    /// Event at bit 40.
+    Event40,
+    /// Event at bit 41.
+    Event41,
+    /// Event at bit 42.
+    Event42,
+    /// Event at bit 43.
+    Event43,
+    /// Event at bit 44.
+    Event44,
+    /// Event at bit 45.
+    Event45,
+    /// Event at bit 46.
+    Event46,
+    /// Event at bit 47.
+    Event47,
+    /// Event at bit 48.
+    Event48,
+    /// Event at bit 49.
+    Event49,
+    /// Event at bit 50.
+    Event50,
+    /// Event at bit 51.
+    Event51,
+    /// Event at bit 52.
+    Event52,
+    /// Event at bit 53.
+    Event53,
+    /// Event at bit 54.
+    Event54,
+    /// Event at bit 55.
+    Event55,
+    /// Event at bit 56.
+    Event56,
+    /// Event at bit 57.
+    Event57,
+    /// Event at bit 58.
+    Event58,
+    /// Event at bit 59.
+    Event59,
+    /// Event at bit 60.
+    Event60,
+    /// Event at bit 61.
+    Event61,
+    /// Event at bit 62.
+    Event62,
+    /// Event at bit 63.
+    Event63,
+}
+
+#[test]
+fn wide_set_preserves_high_bits_across_matching_binary_json_and_schema() {
+    let selected = WideEventSet::Event31 | WideEventSet::Event32 | WideEventSet::Event63;
+    assert!(selected.matches(&WideEvent::Event31));
+    assert!(selected.matches(&WideEvent::Event32));
+    assert!(selected.matches(&WideEvent::Event63));
+    assert!(!selected.matches(&WideEvent::Event0));
+    let bytes = norito::to_bytes(&selected).unwrap();
+    assert_eq!(
+        norito::decode_from_bytes::<WideEventSet>(&bytes).unwrap(),
+        selected
+    );
+    let value = json::to_value(&selected).unwrap();
+    assert_eq!(value, array(&["Event31", "Event32", "Event63"]));
+    assert_eq!(json::from_value::<WideEventSet>(value).unwrap(), selected);
+    let map = <WideEventSet as iroha_schema::IntoSchema>::schema();
+    let iroha_schema::Metadata::Bitmap(bitmap) = map.get::<WideEventSet>().unwrap() else {
+        panic!("event set schema must be a bitmap");
+    };
+    assert_eq!(bitmap.repr, core::any::TypeId::of::<u64>());
+    assert_eq!(bitmap.masks.last().unwrap().mask, 1_u64 << 63);
+    assert_eq!(bitmap.masks[32].mask, 1_u64 << 32);
+    assert_eq!(core::mem::size_of::<TestEventSet>(), 4);
+    assert_eq!(core::mem::size_of::<WideEventSet>(), 8);
+    assert_eq!(
+        json::to_value(&WideEventSet::all())
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        64
     );
 }

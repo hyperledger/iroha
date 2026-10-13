@@ -46,6 +46,7 @@ impl StatePublicationOutcome {
 /// All original detached effects and notices live beside, never inside a borrow of,
 /// the State fields. No physical guard borrows this struct across an attempt return.
 pub(super) struct StatePublication<'state> {
+    geometry_cleanup: crate::kura::KuraPublicationSlot<'state>,
     effect_cleanup: effect_publication::StateEffectLocks<'state>,
     lifecycle_index_releases: LaneLifecycleReleases<'state>,
     publication_notice: StateViewPublication<'state>,
@@ -93,6 +94,7 @@ pub(super) struct StatePublication<'state> {
 impl<'state> StatePublication<'state> {
     fn new(state: &'state State) -> Self {
         Self {
+            geometry_cleanup: crate::kura::KuraPublicationSlot::new(&state.kura),
             effect_cleanup: effect_publication::StateEffectLocks::new(state),
             lifecycle_index_releases: LaneLifecycleReleases::new(state),
             publication_notice: state.state_view_publication(),
@@ -231,6 +233,11 @@ impl<'state> StateBlock<'state> {
                 original.poisoned = true;
                 self.publication = Some(original);
                 mv::BlockRetirement::release_writers(self);
+                self.publication
+                    .as_mut()
+                    .expect("retained original publication")
+                    .geometry_cleanup
+                    .retire_notices();
                 resume_unwind(payload);
             }
         };
@@ -239,6 +246,13 @@ impl<'state> StateBlock<'state> {
         if terminal {
             mv::BlockRetirement::release_writers(self);
         }
+        // Every attempt scope has ended; reversible fields recovered above and
+        // terminal fields retired here before any original Kura release callback.
+        self.publication
+            .as_mut()
+            .expect("retained original publication")
+            .geometry_cleanup
+            .retire_notices();
         result
     }
 
@@ -249,6 +263,7 @@ impl<'state> StateBlock<'state> {
         self.require_storage_admission()
             .map_err(TransactionsBlockError::LocalStateStorage)?;
         let StatePublication {
+            geometry_cleanup,
             effect_cleanup,
             lifecycle_index_releases,
             publication_notice,
@@ -277,6 +292,7 @@ impl<'state> StateBlock<'state> {
             refunds: _,
         } = original;
         let this = self;
+        let mut geometry_lease = geometry_cleanup.physical_scope();
         let mut effect_locks = effect_cleanup.physical_scope();
         const STATE_VIEW_LOCK_THRESHOLD: Duration = Duration::from_millis(10);
         if world_effects.is_none() {
@@ -640,31 +656,42 @@ impl<'state> StateBlock<'state> {
             *irreversible = true;
             return Err(TransactionsBlockError::PublicationRecoveryRequired);
         }
-        let autoscale_storage_hold = if let Some(pending) = &pending_autoscale_lifecycle {
-            let autoscale_start = Instant::now();
-            {
-                *irreversible = true;
-            }
-            let geometry_result = {
-                state_ref.apply_committed_autoscale_lane_geometry(
+        // Policy and predecessor reads precede physical effect writers. The
+        // same commit/lifecycle fences protect this exact preflight until apply.
+        let prepared_geometry = pending_autoscale_lifecycle
+            .as_ref()
+            .map(|pending| {
+                state_ref.prepare_committed_autoscale_lane_geometry(
                     pending,
                     block_height,
                     block_header_hash,
                     lifecycle_index_releases,
                 )
-            };
-            if let Err(err) = geometry_result {
-                error!(
-                    block_height,
-                    ?err,
-                    "failed to validate staged autoscale lane storage during state commit"
-                );
-                return Err(TransactionsBlockError::from(err));
-            }
-            autoscale_start.elapsed()
-        } else {
-            Duration::ZERO
-        };
+            })
+            .transpose()
+            .map_err(|error| match error {
+                LaneLifecycleError::PublicationBusy { wait, .. } => {
+                    if cfg!(all(test, sumeragi_core_mutation = "HC273")) {
+                        // Restore losing the original reversible manifest refusal.
+                        TransactionsBlockError::SnapshotObservationChanged
+                    } else {
+                        TransactionsBlockError::PublicationBusy(wait)
+                    }
+                }
+                error => TransactionsBlockError::from(error),
+            })?;
+        if prepared_geometry.is_some() {
+            // Acquire the one original Kura boundary before State/effect writers.
+            // Partial acquisition notices remain in this publication's fixed slot.
+            geometry_lease.try_prepare().map_err(|error| match error {
+                crate::kura::KuraPublicationPreparationError::Busy { wait, .. } => {
+                    TransactionsBlockError::PublicationBusy(wait)
+                }
+                crate::kura::KuraPublicationPreparationError::Storage(error) => {
+                    TransactionsBlockError::from(LaneLifecycleError::GeometryStorage(error))
+                }
+            })?;
+        }
         {
             let state_write_lock_wait_start = Instant::now();
             let _state_write_lock = write_fence.lock();
@@ -714,10 +741,34 @@ impl<'state> StateBlock<'state> {
             committed_topology
                 .try_prepare_frozen_publication()
                 .map_err(original_preparation_error)?;
+            // Index contention is still reversible: return the actual blocker and
+            // recover every original sibling before waiting outside this attempt.
+            // No visibility begins until all effect indexes are acquired.
+            #[cfg(all(test, sumeragi_core_mutation = "HC272"))]
+            {
+                // Restore treating a pre-visibility index refusal as terminal.
+                *irreversible = true;
+            }
+            effect_locks
+                .try_prepare()
+                .map_err(|(_, wait)| TransactionsBlockError::PublicationBusy(wait))?;
             // Every source and original scalar cut is now retained under the State
             // writer. Consuming installation or visibility failure is terminal.
             *irreversible = true;
-            effect_locks.prepare_blocking();
+            let autoscale_storage_hold = if let Some(geometry) = prepared_geometry {
+                let autoscale_start = Instant::now();
+                if let Err(error) = geometry.apply(geometry_lease.lease()) {
+                    error!(
+                        block_height,
+                        ?error,
+                        "failed to apply original staged lane storage during state commit"
+                    );
+                    return Err(TransactionsBlockError::from(error));
+                }
+                autoscale_start.elapsed()
+            } else {
+                Duration::ZERO
+            };
             let _view_generation = publication_notice.begin();
             let state_write_lock_hold_start = Instant::now();
             let tx_commit_start = Instant::now();
@@ -869,6 +920,9 @@ impl<'state> StateBlock<'state> {
             );
         }
         effect_locks.release_writers();
+        // Post work may reacquire Kura; only physical custody ends here. The
+        // original notifications remain outside every State/lifecycle fence.
+        drop(geometry_lease);
         if let Some(post) = lifecycle_post_publication.take() {
             post.publish(state_ref);
         }

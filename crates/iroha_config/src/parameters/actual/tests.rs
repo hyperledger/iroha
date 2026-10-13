@@ -771,7 +771,7 @@ mod tests {
             sumeragi_nexus_amx_context_hash(&Nexus::default(), &Pipeline::default(), &[], &[]);
         assert_eq!(
             hex::encode(hash.as_ref()),
-            "b8c9897f84a0fd3162c821e06afdd659466c3ca3193d7853b76e819e840d2a4b",
+            "4a3398adf47da55fd125a2ab76be60514dd0c4699652ddf964e0c75b59ef2c83",
         );
         assert_eq!(
             <[u8; 32]>::from(hash),
@@ -1246,7 +1246,7 @@ mod tests {
             (
                 "default",
                 sumeragi_nexus_amx_context_hash(&Nexus::default(), &pipeline, &[], &[]),
-                "b8c9897f84a0fd3162c821e06afdd659466c3ca3193d7853b76e819e840d2a4b",
+                "4a3398adf47da55fd125a2ab76be60514dd0c4699652ddf964e0c75b59ef2c83",
             ),
             (
                 "sora",
@@ -1256,7 +1256,7 @@ mod tests {
                     &golden_validators(),
                     &golden_lineage()[..3],
                 ),
-                "526e7486a0a927e0776af575a5576d73adaf0cae23b0f6f0289a35816971ee99",
+                "57b8f2b87393691cecc900793b72cce178b1502f30b5a3e2605d3beff2b4f041",
             ),
             (
                 "taira",
@@ -1266,7 +1266,7 @@ mod tests {
                     &golden_validators(),
                     &golden_lineage(),
                 ),
-                "626765bc4d99624cbf703f4ef7fb00eec983cf111d8e65f77dda41a8898f446b",
+                "fd5c7855b2498aa229a3c7e91e9efddd4612b4b39479ec48252365fe6740ae5f",
             ),
         ];
         let mut failures = Vec::new();

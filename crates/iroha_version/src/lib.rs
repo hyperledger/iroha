@@ -1,12 +1,13 @@
 //! Structures, traits and impls related to versioning.
 //!
-//! Versioned containers (`SignedBlock`, `SignedTransaction`, `SignedQuery`,
+//! Versioned containers (`SignedTransaction`, `SignedQuery`,
 //! ...) implement [`Version`] and the [`codec`] traits by hand; the leading
-//! version byte is followed by the exact Norito payload.
+//! version byte is followed by the exact Norito payload. Blocks have their own
+//! canonical framed wire and do not implement these headerless codec traits.
 use core::ops::Range;
 /// Re-export Norito codec helpers required by consumers of versioned types.
 pub use norito::codec::{Decode, DecodeAll, Encode};
-use std::{format, string::String, vec::Vec};
+use std::{format, vec::Vec};
 /// Module which contains error and result for versioning
 /// Error types emitted while working with versioned containers.
 pub mod error {
@@ -19,23 +20,26 @@ pub mod error {
     pub enum Error {
         /// This is not a versioned object
         NotVersioned,
-        /// Norito (de)serialization issue
-        NoritoCodec(String),
-        /// Original Norito resource failure, retaining its exact fields for caller classification.
-        /// A global archive or inner format ceiling is not necessarily a local refusal.
-        NoritoResourceLimit(norito::core::DecodeResourceError),
+        /// Original codec error without an inferred local decode provenance.
+        NoritoCodec(norito::Error),
+        /// Original classified decoder refusal retained across scope retirement.
+        NoritoResourceLimit(#[skip_from] norito::core::DecodeAttemptError),
         /// Input version unsupported
         UnsupportedVersion(Box<UnsupportedVersion>),
         /// Buffer is not empty after decoding. Returned by `decode_all_versioned()`
         ExtraBytesLeft(u64),
     }
-    impl From<norito::Error> for Error {
-        fn from(x: norito::Error) -> Self {
-            use std::string::ToString as _;
-            if let Some(resource) = x.decode_resource_error() {
-                return Self::NoritoResourceLimit(resource);
+    impl From<norito::core::DecodeAttemptError> for Error {
+        fn from(error: norito::core::DecodeAttemptError) -> Self {
+            match error.kind() {
+                norito::core::DecodeAttemptErrorKind::Allocator
+                | norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+                    Self::NoritoResourceLimit(error)
+                }
+                norito::core::DecodeAttemptErrorKind::Invalid => {
+                    Self::NoritoCodec(error.into_error())
+                }
             }
-            Self::NoritoCodec(x.to_string())
         }
     }
     impl fmt::Display for Error {
@@ -58,7 +62,28 @@ pub mod error {
         /// Return whether decoding reported an original resource failure or format ceiling.
         #[must_use]
         pub const fn is_decode_resource_limit(&self) -> bool {
-            matches!(self, Self::NoritoResourceLimit(_))
+            match self {
+                Self::NoritoResourceLimit(_) => true,
+                Self::NoritoCodec(error) => error.is_decode_resource_limit(),
+                _ => false,
+            }
+        }
+
+        /// Whether the original operation failed locally and may be retried unchanged.
+        ///
+        /// Only a captured enclosing refusal or an actual allocator failure grants
+        /// this classification. Numeric resource fields and later scopes do not.
+        #[must_use]
+        pub const fn is_local_resource_refusal(&self) -> bool {
+            match self {
+                Self::NoritoResourceLimit(error) => matches!(
+                    error.kind(),
+                    norito::core::DecodeAttemptErrorKind::Allocator
+                        | norito::core::DecodeAttemptErrorKind::EnclosingLimit
+                ),
+                Self::NoritoCodec(norito::Error::AllocationFailed { .. }) => true,
+                _ => false,
+            }
         }
     }
     /// Result type for versioning
@@ -194,7 +219,8 @@ pub mod codec {
                 UnsupportedVersion::new(version, RawVersioned::NoritoBytes(raw_for_error.to_vec())),
             )));
         }
-        norito::codec::decode_exact_from_slice(payload).map_err(Error::from)
+        norito::core::classify_decode_attempt(|| norito::codec::decode_exact_from_slice(payload))
+            .map_err(Error::from)
     }
 }
 /// The prelude re-exports most commonly used traits, structs and macros from this crate.
@@ -298,28 +324,51 @@ mod tests {
         assert_eq!(version.raw, RawVersioned::NoritoBytes(b"raw".to_vec()));
     }
     #[test]
-    fn norito_resource_limit_survives_version_error_conversion() {
+    fn raw_numeric_resource_fields_do_not_create_local_provenance() {
         let error = crate::error::Error::from(norito::Error::TotalAllocationExceeded {
             attempted: 2,
             limit: 1,
         });
-        assert!(error.is_decode_resource_limit());
+        assert!(
+            error.is_decode_resource_limit(),
+            "the request-bound category survives"
+        );
+        assert!(!error.is_local_resource_refusal());
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 1, 64);
+        norito::with_decode_limits_scope(limits, || {
+            assert!(
+                !error.is_local_resource_refusal(),
+                "equal fields grant no origin"
+            );
+        });
         assert!(matches!(
             error,
-            crate::error::Error::NoritoResourceLimit(
-                norito::core::DecodeResourceError::TotalAllocationExceeded {
-                    attempted: 2,
-                    limit: 1
-                }
-            )
+            crate::error::Error::NoritoCodec(norito::Error::TotalAllocationExceeded {
+                attempted: 2,
+                limit: 1
+            })
         ));
+    }
+
+    #[test]
+    fn direct_writer_allocation_failure_keeps_original_without_decoder_provenance() {
+        let error = crate::error::Error::from(norito::Error::AllocationFailed { bytes: 17 });
+        assert!(error.is_local_resource_refusal());
+        assert!(
+            matches!(
+                error,
+                crate::error::Error::NoritoCodec(norito::Error::AllocationFailed { bytes: 17 })
+            ),
+            "a writer error is never relabelled as a captured decoder attempt"
+        );
     }
 }
 
 #[cfg(test)]
 mod resource_provenance_tests {
-    //! A genuine versioned text decode must retain the original budget error fields.
+    //! Genuine reads preserve the original attempt after its scope retires.
     use super::*;
+    use norito::core::{DecodeAttemptErrorKind, DecodeResourceError};
 
     #[derive(Debug, PartialEq, Eq, norito::Encode, norito::Decode)]
     #[norito(decode_from_slice)]
@@ -333,53 +382,116 @@ mod resource_provenance_tests {
         }
     }
 
-    #[test]
-    fn original_versioned_allocation_refusal_preserves_fields_and_retries() {
+    fn allocation_limit(bytes: usize) -> norito::DecodeLimits {
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64)
+    }
+
+    fn wire() -> (TextPayload, Vec<u8>) {
         let original = TextPayload("original canonical payload".into());
-        let payload = norito::codec::encode_adaptive(&original);
-        let mut wire = vec![1];
-        wire.extend_from_slice(&payload);
-        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
-        let raw = norito::with_decode_limits_scope(limits, || {
-            norito::codec::decode_exact_from_slice::<TextPayload>(&wire[1..]).unwrap_err()
-        });
-        assert!(matches!(
-            raw,
-            norito::Error::TotalAllocationExceeded { limit: 0, .. }
-        ));
-        let wrapped = norito::with_decode_limits_scope(limits, || {
-            codec::decode_exact_versioned::<TextPayload>(&wire).unwrap_err()
-        });
-        assert_eq!(
-            format!("{wrapped:?}"),
-            format!("NoritoResourceLimit({raw:?})")
-        );
-        let error::Error::NoritoResourceLimit(fields) = wrapped else {
-            panic!("typed original resource")
-        };
-        assert_eq!(Some(fields), raw.decode_resource_error());
-        norito::with_decode_limits_scope(limits, || {
-            assert!(norito::core::decode_error_matches_active_limits(
-                &fields.into()
+        let mut bytes = vec![1];
+        bytes.extend(norito::codec::encode_adaptive(&original));
+        (original, bytes)
+    }
+
+    #[test]
+    fn original_versioned_refusal_survives_retired_equal_foreign_scope_and_retry() {
+        let (original, wire) = wire();
+        let (measured, usage) =
+            norito::core::with_decode_limits_measured(allocation_limit(usize::MAX), || {
+                codec::decode_exact_versioned::<TextPayload>(&wire)
+            });
+        assert_eq!(measured.unwrap(), original);
+        assert!(usage.total_allocated_bytes() > 0);
+        for limit in [0, usage.total_allocated_bytes() - 1] {
+            let wrapped = norito::with_decode_limits_scope(allocation_limit(limit), || {
+                codec::decode_exact_versioned::<TextPayload>(&wire).unwrap_err()
+            });
+            assert!(wrapped.is_local_resource_refusal());
+            assert!(wrapped.is_decode_resource_limit());
+            let error::Error::NoritoResourceLimit(ref attempt) = wrapped else {
+                panic!("original classified attempt was lost: {wrapped:?}")
+            };
+            assert_eq!(attempt.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            assert!(matches!(attempt.error().decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded { attempted, limit: original_limit })
+                if original_limit == u64::try_from(limit).unwrap() && attempted > original_limit
             ));
-        });
-        let wider = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 4096, 64);
-        norito::with_decode_limits_scope(wider, || {
-            assert!(
-                !norito::core::decode_error_matches_active_limits(&fields.into()),
-                "a surviving wider caller cannot claim a dropped inner ceiling"
+            norito::with_decode_limits_scope(allocation_limit(limit), || {
+                assert!(wrapped.is_local_resource_refusal());
+                assert_eq!(attempt.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            });
+            assert_eq!(
+                codec::decode_exact_versioned::<TextPayload>(&wire).unwrap(),
+                original
             );
-        });
-        assert_eq!(
-            codec::decode_exact_versioned::<TextPayload>(&wire).unwrap(),
-            original
-        );
+        }
         let mut malformed = wire;
         malformed.push(0);
-        assert!(
-            !codec::decode_exact_versioned::<TextPayload>(&malformed)
-                .unwrap_err()
-                .is_decode_resource_limit()
-        );
+        let error = codec::decode_exact_versioned::<TextPayload>(&malformed).unwrap_err();
+        assert!(!error.is_local_resource_refusal());
+        assert!(!error.is_decode_resource_limit());
+    }
+
+    #[derive(Debug, norito::Encode, norito::Decode)]
+    struct IntrinsicallyBoundedText(String);
+    impl Version for IntrinsicallyBoundedText {
+        fn version(&self) -> u8 {
+            1
+        }
+        fn supported_versions() -> Range<u8> {
+            1..2
+        }
+    }
+    impl<'de> norito::core::DecodeFromSlice<'de> for IntrinsicallyBoundedText {
+        fn decode_from_slice(bytes: &'de [u8]) -> Result<(Self, usize), norito::Error> {
+            norito::with_decode_limits_scope(allocation_limit(0), || {
+                <TextPayload as norito::core::DecodeFromSlice>::decode_from_slice(bytes)
+                    .map(|(text, used)| (Self(text.0), used))
+            })
+        }
+    }
+
+    #[test]
+    fn production_version_reader_preserves_intrinsic_schema_bound_as_invalid() {
+        let (_, wire) = wire();
+        for limit in [0, 4096] {
+            let error = norito::with_decode_limits_scope(allocation_limit(limit), || {
+                codec::decode_exact_versioned::<IntrinsicallyBoundedText>(&wire).unwrap_err()
+            });
+            assert!(error.is_decode_resource_limit());
+            assert!(!error.is_local_resource_refusal());
+            let error::Error::NoritoCodec(original) = error else {
+                panic!("intrinsic schema failure must remain deterministic: {error:?}");
+            };
+            assert!(
+                matches!(
+                    original.decode_resource_error(),
+                    Some(DecodeResourceError::TotalAllocationExceeded { limit: 0, .. })
+                ),
+                "original scoped codec error retained: {original:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn actual_intrinsic_decoder_ceiling_cannot_become_a_local_refusal() {
+        let (_, wire) = wire();
+        // This is an intrinsic bound inside the observer, not its enclosing caller.
+        let attempt = norito::core::classify_decode_attempt(|| {
+            norito::codec::decode_exact_from_slice_with_limits::<TextPayload>(
+                &wire[1..],
+                allocation_limit(0),
+            )
+        })
+        .unwrap_err();
+        assert_eq!(attempt.kind(), DecodeAttemptErrorKind::Invalid);
+        let wrapped = error::Error::NoritoResourceLimit(attempt);
+        assert!(wrapped.is_decode_resource_limit());
+        assert!(!wrapped.is_local_resource_refusal());
+        for limit in [0, 4096] {
+            norito::with_decode_limits_scope(allocation_limit(limit), || {
+                assert!(!wrapped.is_local_resource_refusal());
+            });
+        }
     }
 }

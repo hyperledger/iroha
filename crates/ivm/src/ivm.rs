@@ -1872,7 +1872,7 @@ impl IVM {
     /// Returns the loader's exact metadata, artifact, instruction, syscall, or local
     /// preparation error. Allocation refusal is never converted into invalid bytecode.
     pub fn validate_program(program: &[u8]) -> Result<(), VMError> {
-        program_load::prepare(program, None).map(drop)
+        program_load::prepare(program, None)
     }
 
     /// Load a program (bytecode) into the VM's code memory.
@@ -1882,10 +1882,7 @@ impl IVM {
         {
             self.program_parse_attempts = self.program_parse_attempts.saturating_add(1);
         }
-        match program_load::prepare(program, self.memory.allocation_budget())? {
-            program_load::PreparedLoadImage::Contract(contract) => self.load_prepared(&contract),
-            program_load::PreparedLoadImage::Generic(image) => self.install_program(image),
-        }
+        program_load::prepare(program, Some(self))
     }
     /// Load an already validated and prepared contract without reparsing it.
     ///

@@ -2102,6 +2102,7 @@ fn native_ingress_with_registered_route_peers_and_chain_for_test(
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             1_002,
             iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -2212,6 +2213,7 @@ fn advance_registered_route_fixture_for_test(
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 draft.payload(),
                 created_ms,
                 iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -2340,6 +2342,7 @@ fn executed_history_test_fixture(
             view.world(),
             &nexus,
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             creation_time,
             iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

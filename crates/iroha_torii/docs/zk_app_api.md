@@ -56,7 +56,7 @@ Notes
 - IVM proof generation and preparation are unavailable until the complete
   native execution relation exists. Generic STARK and Halo2 verification
   remain separate from IVM execution admission.
-- STARK verification (`stark/fri` family) is supported when built with feature `zk-stark` and enabled via config (`zk.stark.enabled=true`).
+- STARK verification (`stark/fri` family) is supported when built with feature `zk-stark` and `stark.enabled` of the committed `zk_validity_policy_v1` parameter is true (the protocol default). It is not a node-configuration key.
 - For `halo2/*` and `stark/fri` backends, proof bytes are expected to be a Norito-encoded `OpenVerifyEnvelope`.
 - For STARK wrappers, `OpenVerifyEnvelope.public_inputs` carries schema-descriptor bytes; concrete public input values are carried in `StarkFriOpenProofV1.public_inputs`.
 - Confidential-tree reads dispatch exclusively through the tree profile persisted in `ZkAssetState`. The first release admits only `PoseidonPastaV1`; verifier-role bindings and node-local configuration do not select a tree hash or depth. Torii validates every retained root and frontier checkpoint before serving witnesses. A registered tree with no commitments returns the profile-defined depth-16 empty root as both `latest` and the sole root entry.

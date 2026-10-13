@@ -394,3 +394,59 @@ fn fee_transport_encoding_fits_existing_cap_at_large_original_boundaries() {
     assert!(bytes.len() > KAGEMUSHA_WALLET_FEE_CLAIM_MAX_BYTES_V1 - 128);
     assert!(bytes.len() <= KAGEMUSHA_WALLET_FEE_CLAIM_MAX_BYTES_V1);
 }
+
+#[test]
+fn fee_original_read_refusals_preserve_exact_pair_and_ledger_transport_retry() {
+    let claim: KagemushaWalletFeeClaimV1 =
+        super::super::tests::fixture("KagemushaWalletFeeClaimV1");
+    let scheme = claim.payment.request.body.scheme_id;
+    let retained = RetainedFeeClaim {
+        payment: claim.payment.to_canonical_bytes().unwrap(),
+        request: archive::encode(&retained_request_fixture()).unwrap(),
+    };
+    let beneficiary = archive::encode(&claim.beneficiary).unwrap();
+    let original = retained.to_canonical_bytes(&scheme).unwrap();
+    let ledger = retained.ledger_claim_bytes(&scheme, &beneficiary).unwrap();
+    let unchanged = retained.clone();
+    for limits in [
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64),
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+    ] {
+        for error in [
+            norito::with_decode_limits_scope(limits, || retained.to_canonical_bytes(&scheme))
+                .unwrap_err(),
+            norito::with_decode_limits_scope(limits, || {
+                RetainedFeeClaim::decode_canonical(&original, &scheme)
+            })
+            .unwrap_err(),
+            norito::with_decode_limits_scope(limits, || {
+                retained.ledger_claim_bytes(&scheme, &beneficiary)
+            })
+            .unwrap_err(),
+        ] {
+            assert!(matches!(error, Error::DecodeResource(ref cause)
+                if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+        }
+        assert_eq!(retained, unchanged);
+        assert_eq!(retained.to_canonical_bytes(&scheme).unwrap(), original);
+        assert_eq!(
+            RetainedFeeClaim::decode_canonical(&original, &scheme).unwrap(),
+            retained
+        );
+        assert_eq!(
+            retained.ledger_claim_bytes(&scheme, &beneficiary).unwrap(),
+            ledger
+        );
+    }
+    let mut malformed = retained;
+    malformed.payment = vec![0];
+    assert!(matches!(
+        malformed.to_canonical_bytes(&scheme),
+        Err(Error::Invalid("G1 validation"))
+    ));
+    let malformed = archive::encode(&malformed).unwrap();
+    assert!(matches!(
+        RetainedFeeClaim::decode_canonical(&malformed, &scheme),
+        Err(Error::Invalid("fee claim original bindings"))
+    ));
+}

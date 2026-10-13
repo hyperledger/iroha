@@ -9,25 +9,6 @@ use std::cell::Cell;
 const CHAIN: &str = "portable-finality-test";
 const TEST_ALLOCATION_CEILING: usize = 64 * 1024 * 1024;
 
-// Bounds checks retain only inline epoch snapshots. Select the refusal boundary from the
-// genuine signed-genesis decoder, so the test still reaches a late mandatory allocation.
-fn signed_genesis_refusal_cap(checkpoint: &SumeragiFinalityCheckpoint) -> usize {
-    let budget = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
-    budget
-        .with(|| {
-            checkpoint.validate_bounds().unwrap();
-            assert_eq!(budget.consumed_allocated_bytes(), 0);
-            norito::core::with_decode_limits_scope(
-                norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
-                || decode_framed_signed_block(&checkpoint.genesis_wire),
-            )
-        })
-        .unwrap();
-    let charge = usize::try_from(budget.consumed_allocated_bytes()).unwrap();
-    assert!(charge > 2 && charge < TEST_ALLOCATION_CEILING);
-    charge - 1
-}
-
 fn selected(fixture: &Fixture) -> (SumeragiFinalityVerifier, SumeragiFinalityCheckpoint) {
     let mut verifier = fixture.verifier();
     verifier.verify(&fixture.first).unwrap();
@@ -46,6 +27,46 @@ fn caller_limits(allocation: usize) -> norito::DecodeLimits {
         allocation,
         64,
     )
+}
+
+// Select a genuinely charged prefix of the original signed-genesis decoder. Bounds
+// validation owns only inline epoch entries; it does not allocate decoder storage.
+fn signed_genesis_refusal_prefix(checkpoint: &SumeragiFinalityCheckpoint) -> usize {
+    let bounds = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
+    bounds.with(|| checkpoint.validate_bounds()).unwrap();
+    assert_eq!(bounds.consumed_allocated_bytes(), 0);
+    let refusal = |cap| {
+        let budget = DecodeBudgetContext::new(caller_limits(cap));
+        let error = budget
+            .with(|| {
+                norito::core::classify_decode_attempt(|| {
+                    norito::core::with_decode_limits_scope(
+                        norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
+                        || {
+                            decode_framed_signed_block(&checkpoint.genesis_wire)
+                                .map_err(norito::core::DecodeAttemptError::into_error)
+                        },
+                    )
+                })
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let Some(DecodeResourceError::TotalAllocationExceeded { attempted, limit }) =
+            error.into_error().decode_resource_error()
+        else {
+            panic!("the original signed-genesis allocation must refuse")
+        };
+        assert_eq!(limit, cap as u64);
+        assert!(attempted > limit);
+        (attempted, budget.consumed_allocated_bytes())
+    };
+    let (first_attempt, _) = refusal(1);
+    let first_cap = usize::try_from(first_attempt).unwrap();
+    assert!(first_cap > 1 && first_cap < TEST_ALLOCATION_CEILING);
+    let (_, prefix) = refusal(first_cap);
+    let prefix = usize::try_from(prefix).unwrap();
+    assert!(prefix > 1 && prefix <= first_cap);
+    prefix
 }
 
 #[test]
@@ -157,6 +178,7 @@ fn warmed_import_epoch_work_never_replaces_fresh_roster_or_quorum_authentication
         let bytes = changed.encode_canonical().unwrap();
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let refusal = SumeragiFinalityVerifier::from_trusted_checkpoint_with_consumer(
@@ -262,13 +284,10 @@ fn positive_outer_refusal_keeps_native_provenance_and_original_source_retry() {
     let fixture = Fixture::new();
     let (_, checkpoint) = selected(&fixture);
     let original = checkpoint.encode_canonical().unwrap();
-    // Bounds retain no allocated memo. The native decoder must still refuse after positive
-    // mandatory work, with exactly the same resource provenance as the independent recipe.
-    let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
-    prefix.with(|| checkpoint.validate_bounds()).unwrap();
-    let prefix_charge = prefix.consumed_allocated_bytes();
-    assert_eq!(prefix_charge, 0);
-    let cap = signed_genesis_refusal_cap(&checkpoint);
+    // Admit a completed native decoding prefix, then refuse the next real allocation.
+    let cap = signed_genesis_refusal_prefix(&checkpoint);
+    let prefix_charge = cap as u64;
+    assert!(prefix_charge > 0);
     assert!(cap < TEST_ALLOCATION_CEILING);
     let expected_budget = DecodeBudgetContext::new(caller_limits(cap));
     let expected = expected_budget
@@ -279,10 +298,15 @@ fn positive_outer_refusal_keeps_native_provenance_and_original_source_retry() {
                 "checkpoint differs from independently selected network or chain",
             )
             .unwrap();
-            norito::core::with_decode_limits_scope(
-                norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
-                || decode_framed_signed_block(&checkpoint.genesis_wire),
-            )
+            norito::core::classify_decode_attempt(|| {
+                norito::core::with_decode_limits_scope(
+                    norito::canonical_decode_limits(checkpoint.genesis_wire.len()),
+                    || {
+                        decode_framed_signed_block(&checkpoint.genesis_wire)
+                            .map_err(norito::core::DecodeAttemptError::into_error)
+                    },
+                )
+            })
         })
         .unwrap_err();
     assert_eq!(expected.kind(), DecodeAttemptErrorKind::EnclosingLimit);
@@ -780,6 +804,7 @@ fn operation_epoch_workspace_never_accepts_context_substitution_or_fresh_quorum_
     for changed in [&wrong_roster, &wrong_quorum] {
         let expected = verifier
             .verify_retained_decision(changed.tip())
+            .map_err(invalid_read_error)
             .unwrap_err();
         let before = validation_counts::calls();
         let error = SumeragiFinalityVerifier::from_trusted_checkpoint_with_validation_consumer(
@@ -888,12 +913,9 @@ fn warmed_operation_epoch_workspace_preserves_late_positive_outer_charges_and_ty
         checkpoint
     );
 
-    // Inline bounds validation costs no decoder allocations. Force the original signed-
-    // genesis decoder to refuse a late mandatory allocation under a positive ceiling.
-    let prefix = DecodeBudgetContext::new(caller_limits(TEST_ALLOCATION_CEILING));
-    prefix.with(|| checkpoint.validate_bounds()).unwrap();
-    assert_eq!(prefix.consumed_allocated_bytes(), 0);
-    let cap = signed_genesis_refusal_cap(&checkpoint);
+    // A warmed inline epoch workspace cannot suppress the original decoder's positive
+    // partial charge or its next allocation refusal under a later enclosing owner.
+    let cap = signed_genesis_refusal_prefix(&checkpoint);
     assert!(cap > 1 && cap < TEST_ALLOCATION_CEILING);
     let original_budget = DecodeBudgetContext::new(caller_limits(cap));
     let original_error = original_budget

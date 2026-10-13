@@ -152,15 +152,20 @@ fn world_refuses_publication_before_complete_original_preparation() {
 
 #[test]
 fn world_publication_handle_keeps_one_allocation_across_moves_and_phases() {
-    // The handle contains only the publication phase and the actual budgeted
-    // OriginalWorldFields control owner. That owner now retains its backing
-    // allocation charge and initialization cursor, rather than a bare Box.
-    // Account for exactly these two declared fields and their alignment; the
+    // The handle contains the publication phase, the actual budgeted
+    // OriginalWorldFields control owner and the original deferred-refund scope.
+    // The fields owner retains its backing charge and initialization cursor.
+    // Account for exactly these three declared fields and their alignment; the
     // complete World inventory must remain in the same external allocation.
     let handle_layout =
         std::alloc::Layout::new::<Option<world_acquisition::OriginalWorldFields<'_>>>()
             .extend(std::alloc::Layout::new::<block_field::AggregatePublication>())
-            .expect("two-field original World handle layout")
+            .expect("original World fields and publication layout")
+            .0
+            .extend(std::alloc::Layout::new::<
+                iroha_allocation::OwnedAllocationScope,
+            >())
+            .expect("original World deferred-refund scope layout")
             .0
             .pad_to_align();
     assert_eq!(std::mem::size_of::<WorldBlock<'_>>(), handle_layout.size());
@@ -171,6 +176,11 @@ fn world_publication_handle_keeps_one_allocation_across_moves_and_phases() {
     assert!(std::mem::size_of::<WorldBlockFields<'_>>() > std::mem::size_of::<WorldBlock<'_>>());
     let world = World::default();
     let block = world.block();
+    let WorldBlock {
+        publication: _,
+        fields: _,
+        _refund_scope: _,
+    } = &block;
     let original = std::ptr::from_ref(block.fields.as_deref().unwrap());
     // Move the complete original through an enclosing owner and retain exactly
     // the same allocation while both native preparation and publication run.

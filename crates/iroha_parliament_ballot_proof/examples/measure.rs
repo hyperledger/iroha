@@ -165,6 +165,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("Measured on the machine running this example; not a validator or phone baseline.");
     println!(
+        "Heap is incremental requested allocation above entry: excludes existing inputs, stack, allocator overhead and RSS."
+    );
+    println!(
+        "Verification starts from decoded statements; no fresh wire decoding, cold-process or late-invalid-input qualification."
+    );
+    println!(
         "{:<10} {:<12} {:>5} {:>9} {:>10} {:>10} {:>10} {:>10} {:>11} {:>11}",
         "row",
         "relation",
@@ -211,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "-",
             |repetition| {
                 registration::prove(row, &statement, &voter, tape("reg", repetition))
-                    .unwrap_or_default()
+                    .expect("honest measurement proof")
             },
             |proof| registration::verify(row, &statement, proof).is_ok(),
         );
@@ -223,14 +229,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let position = list
                 .position(&voter.commitment(&body))
                 .ok_or("the voter is a member")?;
-            let statement = VoteStatement::new(
-                body,
-                scope,
-                &list,
-                voter.nullifier(&scope),
-                Vote::Aye,
-                policy,
-            )?;
+            let statement =
+                VoteStatement::for_secret(&profile, &voter, body, scope, &list, Vote::Aye, policy)?;
             report(
                 row,
                 "vote",
@@ -243,7 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         position,
                         tape(&format!("vote/{size}"), repetition),
                     )
-                    .unwrap_or_default()
+                    .expect("honest measurement proof")
                 },
                 |proof| vote::verify(row, &statement, proof).is_ok(),
             );

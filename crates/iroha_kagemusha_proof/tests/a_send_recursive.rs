@@ -1688,9 +1688,9 @@ fn native_installed_send_differential(
             .map_err(|_| native::Error::Artifact)?;
         let prover = native::Prover::from_artifacts(plan, a_metadata, w_metadata)?;
         for (stage, original) in a.iter().enumerate() {
-            drop(prover.import_a(stage, &original.pk, config)?);
+            prover.import_a(stage, &original.pk, config)?;
             if let Some(original) = w.get(stage) {
-                drop(prover.import_w(stage, &original.pk, config)?);
+                prover.import_w(stage, &original.pk, config)?;
             }
         }
         Ok(prover)
@@ -1862,7 +1862,6 @@ fn native_installed_send_differential(
         ),
         Err(native::Error::Artifact)
     ));
-    drop(foreign_seal);
     let key_seal = installed
         .import_a(0, &key_originals_a[0].pk, config)
         .unwrap();
@@ -1876,7 +1875,6 @@ fn native_installed_send_differential(
             ProverConfig::default(),
         )
         .unwrap();
-    drop(key_seal);
     assert_eq!(generated.proof(), originals_a[0].0);
     let mut current = session
         .restore_first(originals_a[0].0.clone(), &originals_a[0].1, budget)
@@ -1927,7 +1925,6 @@ fn native_installed_send_differential(
                 ),
                 Err(native::Error::Artifact)
             ));
-            drop(foreign_seal);
         }
         let key_seal = installed
             .import_w(stage, &key_originals_w[stage].pk, config)
@@ -1943,7 +1940,6 @@ fn native_installed_send_differential(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(key_seal);
         let restored_w = session
             .restore_wrapper(
                 &current,
@@ -1987,7 +1983,6 @@ fn native_installed_send_differential(
                 ),
                 Err(native::Error::Artifact)
             ));
-            drop(foreign_seal);
         }
         let key_seal = installed
             .import_a(stage + 1, &key_originals_a[stage + 1].pk, config)
@@ -2003,7 +1998,6 @@ fn native_installed_send_differential(
                 ProverConfig::default(),
             )
             .unwrap();
-        drop(key_seal);
         let restored_a = session
             .restore_a(
                 &restored_w,

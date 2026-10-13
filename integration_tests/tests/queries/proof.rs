@@ -153,12 +153,7 @@ fn proof_query_network_builder(
         .with_genesis_instruction(Grant::account_permission(
             Permission::new("CanManageVerifyingKeys".into(), Json::new(())),
             SAMPLE_GENESIS_ACCOUNT_ID.clone(),
-        ))
-        .with_config_layer(|layer| {
-            layer
-                .write(["zk", "pipa_r", "enabled"], true)
-                .write(["zk", "stark", "enabled"], true);
-        });
+        ));
     for registration in registrations {
         builder = builder.with_genesis_instruction(registration);
     }

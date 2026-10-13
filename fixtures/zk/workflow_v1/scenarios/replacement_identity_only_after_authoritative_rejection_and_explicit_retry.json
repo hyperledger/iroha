@@ -1,0 +1,179 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "replacement_identity_only_after_authoritative_rejection_and_explicit_retry",
+  "category": "replacement_identity",
+  "rules": [
+    "no_replacement_while_unresolved",
+    "reconcile_before_decide"
+  ],
+  "description": "The first identity of a step that allows two is rejected by the ledger. A plain resume does nothing and reports the rejection again. Only an explicit retry opens the second identity, which is a new transaction; both identities stay in the journal.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "replacement-identity-only-after-authoritative-rejection-and-expl",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction",
+        "max_transaction_identities": 2
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "rejected"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": true,
+          "has_transaction_identity": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": true
+        },
+        "effects": [],
+        "status": "in_progress",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "script": {
+        "builds": [
+          "ok",
+          "ok"
+        ],
+        "signs": [
+          "ok",
+          "ok"
+        ],
+        "dispatches": [
+          "accepted",
+          "accepted"
+        ],
+        "statuses": [
+          "applied",
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "build:0#2",
+          "sign:0#2",
+          "dispatch:0#2",
+          "status:0#2",
+          "build:1#1",
+          "sign:1#1",
+          "dispatch:1#1",
+          "status:1#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "ledger_rejected"
+            },
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

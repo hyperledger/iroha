@@ -42,6 +42,7 @@ mod identifier_owner_execute;
 mod multisig_accounts;
 mod native_sumeragi_lanes;
 mod native_sumeragi_status;
+mod proof_attachments;
 /// Well-known public key shared with the Kotlin parity tests.
 const PARITY_PUBLIC_KEY: &str =
     "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03";
@@ -54,12 +55,13 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
         eprintln!(
-            "Usage: {} <register-account|transfer-asset|transfer-asset-scoped|claim-identifier|contract-lifecycle|hidden-ram-fhe-program|multisig-accounts-v1|fastpq-balance-keys-v1|native-sumeragi-status-v1|native-sumeragi-lanes-v1|identifier-owner-execute-v1>",
+            "Usage: {} <register-account|transfer-asset|transfer-asset-scoped|claim-identifier|contract-lifecycle|hidden-ram-fhe-program|multisig-accounts-v1|fastpq-balance-keys-v1|native-sumeragi-status-v1|native-sumeragi-lanes-v1|identifier-owner-execute-v1|proof-attachments-v1>",
             args[0]
         );
         std::process::exit(1);
     }
     match args[1].as_str() {
+        "proof-attachments-v1" => proof_attachments::emit(),
         "identifier-owner-execute-v1" => identifier_owner_execute::emit(),
         "register-account" => emit_register_account(),
         "transfer-asset" => emit_transfer_asset(),

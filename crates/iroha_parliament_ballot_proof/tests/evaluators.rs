@@ -372,7 +372,7 @@ fn the_vote_relation_is_one_polynomial_system_on_all_evaluators() {
         mixed_values(&witness, 0, "vote/honest"),
         "vote/honest",
     );
-    assert!(nonzero(&plain, 35_904).is_empty());
+    assert!(nonzero(&plain, 53_504).is_empty());
     let plain = agree(
         &VoteRelation,
         instance.public(),
@@ -382,7 +382,7 @@ fn the_vote_relation_is_one_polynomial_system_on_all_evaluators() {
     // The two retained prefix constraints at j = 0 are identically zero.
     assert_eq!(plain[0], Gf256::ZERO);
     assert_eq!(plain[33], Gf256::ZERO);
-    assert!(nonzero(&plain, 35_904).len() > 36_000);
+    assert!(nonzero(&plain, 53_504).len() > 36_000);
     // A Boolean but invalid witness: the same constraints fail here and in the
     // backend's plain evaluator.
     let wrong = vote::witness(
@@ -399,7 +399,7 @@ fn the_vote_relation_is_one_polynomial_system_on_all_evaluators() {
         "vote/wrong",
     );
     assert_eq!(
-        Ok(nonzero(&plain, 35_904)),
+        Ok(nonzero(&plain, 53_504)),
         violated_constraints::<Gf256, _>(&VoteRelation, instance.public(), &wrong)
     );
 }

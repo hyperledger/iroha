@@ -15,4 +15,5 @@ pub(crate) mod tests_runtime_handlers {
     include!("lib_runtime_handlers/part_11_canonical_history.rs");
     include!("lib_runtime_handlers/validator_committee.rs");
     include!("lib_runtime_handlers/current_transaction_admission.rs");
+    include!("lib_runtime_handlers/iso_payment_outcome.rs");
 }

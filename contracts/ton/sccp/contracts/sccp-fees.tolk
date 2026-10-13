@@ -23,6 +23,7 @@
 import "@stdlib/gas-payments"
 import "sccp-constants"
 import "sccp-errors"
+import "sccp-recovery"
 
 /// 100 years (§5.3.5 minter and bucket floors).
 const SCCP_FLOOR_SECONDS = 3153600000
@@ -69,26 +70,29 @@ const SCCP_GAS_WALLET_TRANSFER = 8000
 /// Full 1024-byte recipient validation measures 12573 gas at the wallet.
 const SCCP_GAS_WALLET_BURN = 15000
 
-// Account state sizes, upper bounds of the storage statistics of each
-// account (code, data and the account's own cell). The minter bound is the
-// measured largest state: the compiled code, the 16 `KeyChunk`s of n = 31,
+// Account state sizes including code, data and the account's own cell.
+// The sampled minter state contains the compiled code, the 16 `KeyChunk`s of n = 31,
 // three checkpoints, the largest supplies and counters, the wallet and bucket
-// code, and eight `retries` records, which only bounced steps create: 261
-// cells and 121 916 bits.
+// code, and eight `retries` records, which only bounced steps create: 222
+// cells and 113 633 bits.
+// TODO: establish a bound or funded storage policy for arbitrary retained
+// retry history; this eight-retry sample does not prove such a bound.
 // `TON_MINTER_STATE_BITS` and `TON_MINTER_STATE_CELLS` in the Rust mirror
 // `crates/iroha_sccp/src/v1/ton_cell.rs` use these same measured bounds.
-const SCCP_BUCKET_STATE_BITS = 9500
-const SCCP_BUCKET_STATE_CELLS = 27
-const SCCP_WALLET_STATE_BITS = 8000
-const SCCP_WALLET_STATE_CELLS = 18
-const SCCP_MINTER_STATE_BITS = 124000
-const SCCP_MINTER_STATE_CELLS = 265
+// TODO: tighten these conservative analytical bounds against the completed
+// 512-row native maximum-state fixtures before release qualification.
+const SCCP_BUCKET_STATE_BITS = 130000
+const SCCP_BUCKET_STATE_CELLS = 1100
+const SCCP_WALLET_STATE_BITS = 130000
+const SCCP_WALLET_STATE_CELLS = 1100
+const SCCP_MINTER_STATE_BITS = 950000
+const SCCP_MINTER_STATE_CELLS = 2600
 
 // StateInit sizes attached to deployments (code + data + root), upper bounds.
-const SCCP_BUCKET_STATE_INIT_BITS = 9500
-const SCCP_BUCKET_STATE_INIT_CELLS = 28
-const SCCP_WALLET_STATE_INIT_BITS = 8000
-const SCCP_WALLET_STATE_INIT_CELLS = 18
+const SCCP_BUCKET_STATE_INIT_BITS = 30000
+const SCCP_BUCKET_STATE_INIT_CELLS = 70
+const SCCP_WALLET_STATE_INIT_BITS = 30000
+const SCCP_WALLET_STATE_INIT_CELLS = 70
 
 // Message sizes (header and body cells), upper bounds.
 const SCCP_MSG_CONSUME_BITS = 1800
@@ -145,9 +149,23 @@ fun sccpWalletMinStorage(): coins {
     return calculateStorageFee(
         SCCP_WORKCHAIN,
         SCCP_WALLET_MIN_STORAGE_SECONDS,
-        SCCP_WALLET_STATE_BITS,
-        SCCP_WALLET_STATE_CELLS,
+        SCCP_WALLET_STATE_INIT_BITS,
+        SCCP_WALLET_STATE_INIT_CELLS,
     );
+}
+
+/// A wallet holding bridge receipts prepays the same 100-year custody horizon
+/// as the minter and buckets, before it credits any minted tokens.
+fun sccpWalletRecoveryFloor(): coins {
+    return calculateStorageFee(SCCP_WORKCHAIN, SCCP_FLOOR_SECONDS,
+        SCCP_WALLET_STATE_BITS, SCCP_WALLET_STATE_CELLS);
+}
+
+/// Dispatch, Prepared, Drop and Dropped: each side has a bounded dictionary
+/// operation. This also funds the most expensive recovery confirmation step.
+fun sccpRecoveryRoundTrip(): coins {
+    return 4 * (sccpGasFee(60000) +
+        sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS));
 }
 
 /// Value attached to `sccp_activate_bucket`: the bucket's gas and its floor.
@@ -158,7 +176,7 @@ fun sccpBucketActivationValue(): coins {
 /// Cost of one bucket activation sent by the minter (value plus forwarding
 /// with the bucket StateInit, paid separately).
 fun sccpBucketActivationCost(): coins {
-    return sccpBucketActivationValue() +
+    return sccpBucketActivationValue() + sccpRecoveryRoundTrip() +
         sccpForwardFee(
             SCCP_MSG_SMALL_BITS + SCCP_BUCKET_STATE_INIT_BITS,
             SCCP_MSG_SMALL_CELLS + SCCP_BUCKET_STATE_INIT_CELLS,
@@ -169,7 +187,8 @@ fun sccpBucketActivationCost(): coins {
 /// StateInit): forwarding there and back, bucket gas and the bucket floor
 /// top-up.
 fun sccpConsumeRoundTrip(): coins {
-    return sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS) +
+    return sccpRecoveryRoundTrip() +
+        sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS) +
         sccpGasFee(SCCP_GAS_BUCKET_CONSUME) +
         sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_CONSUME_BITS, SCCP_MSG_CONSUME_CELLS);
@@ -219,7 +238,7 @@ fun sccpFinalizeRequiredValue(deployCount: int): coins {
             SCCP_MSG_INTERNAL_TRANSFER_CELLS + SCCP_WALLET_STATE_INIT_CELLS,
         ) +
         sccpGasFee(SCCP_GAS_WALLET_RECEIVE) +
-        sccpWalletMinStorage() +
+        sccpWalletRecoveryFloor() + sccpRecoveryRoundTrip() +
         sccpExcessForwardFee() +
         deployCount * sccpBucketActivationCost();
 }
@@ -236,7 +255,7 @@ fun sccpVoidRequiredValue(deployCount: int): coins {
 /// Value the minter attaches to `sccp_consume_range`: bucket gas and floor,
 /// the reply and the minter's handling of it.
 fun sccpRangeConsumeValue(): coins {
-    return sccpGasFee(SCCP_GAS_BUCKET_CONSUME_RANGE) + sccpBucketFloor() +
+    return sccpRecoveryRoundTrip() + sccpGasFee(SCCP_GAS_BUCKET_CONSUME_RANGE) + sccpBucketFloor() +
         sccpForwardFee(SCCP_MSG_SMALL_BITS, SCCP_MSG_SMALL_CELLS) +
         sccpGasFee(SCCP_GAS_MINTER_RANGE_REPLY) +
         sccpEventForwardFee();
@@ -278,9 +297,9 @@ fun sccpUnconsumeCost(): coins {
 /// Step value of `sccp_retry`: the minter step, the costlier of the two
 /// retried messages and the excess return.
 fun sccpRetryRequiredValue(): coins {
-    return sccpGasFee(SCCP_GAS_MINTER_RETRY) +
-        max(sccpBucketActivationCost(), sccpUnconsumeCost()) +
-        sccpExcessForwardFee();
+    // Any recovery stage can finish its receipt handshake and then dispatch
+    // the next stage. A complete maximum activation batch is a safe bound.
+    return sccpFinalizeRequiredValue(SCCP_MAX_DEPLOY_BUCKETS_PER_CALL);
 }
 
 /// Value a bucket attaches to `sccp_consume_reverted` from its own balance.

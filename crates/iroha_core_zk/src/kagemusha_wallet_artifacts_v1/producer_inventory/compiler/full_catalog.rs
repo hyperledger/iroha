@@ -21,12 +21,15 @@ use super::*;
 
 #[path = "full_catalog/acceptance.rs"]
 mod acceptance;
+#[path = "full_catalog/mask_boundary.rs"]
+mod mask_boundary;
 #[path = "full_catalog/reuse.rs"]
 mod reuse;
 #[path = "full_catalog/transport.rs"]
 mod transport;
 pub(crate) use acceptance::{
     open_pinned_engineering_finality_sources, open_pinned_engineering_wallet_sources,
+    reopen_pinned_engineering_wallet_sources,
 };
 
 const OUTPUT_BYTES: u64 = 128 << 30;
@@ -156,6 +159,9 @@ struct Originals {
     root: PathBuf,
     bytes: u64,
     count: usize,
+    // Existing linked DATA does not spend this separately bounded fresh-write allowance.
+    // It remains charged to `bytes` and the unchanged total logical OUTPUT_BYTES cap.
+    new_write_remaining: u64,
 }
 impl OriginalSourceV1 for Originals {
     fn open(&mut self, digest: [u8; 32]) -> Result<Box<dyn Read + '_>, Error> {
@@ -188,9 +194,14 @@ impl OriginalSinkV1 for Originals {
                     .checked_add(identity.bytes)
                     .filter(|n| *n <= OUTPUT_BYTES)
                     .ok_or(Error::Inventory)?;
+                let remaining = self
+                    .new_write_remaining
+                    .checked_sub(identity.bytes)
+                    .ok_or(Error::Inventory)?;
                 // Durable hard-link publication never replaces an existing address.
                 publish(&path, bytes)?;
                 self.bytes = total;
+                self.new_write_remaining = remaining;
                 self.count += 1;
                 if bytes.len() > 1 << 20 {
                     eprintln!(
@@ -245,7 +256,12 @@ fn complete_wallet_catalog_from_pinned_genesis() {
         root: output.join("originals"),
         bytes: 0,
         count: 0,
+        new_write_remaining: OUTPUT_BYTES,
     };
+    // Engineering-only explicit cap chosen before the expensive run. Invalid or
+    // oversized values refuse; absent selection preserves the existing total cap.
+    originals.new_write_remaining =
+        new_write_limit(std::env::var_os("KAGEMUSHA_WALLET_NEW_RAW_BYTES").as_deref()).unwrap();
     let config = ReadConfig {
         maximum_bytes: PROVING_KEY_MAX_BYTES_V1,
         maximum_rows: 1 << 16,
@@ -278,6 +294,11 @@ fn complete_wallet_catalog_from_pinned_genesis() {
         &BlobV1::of(&bytes).sha256,
     )
     .unwrap();
+    // wallet_pack strictly imports both new and reused originals. Inspect the
+    // public Omega/sigma and every private Q/A/W original, retaining the inventory on refusal.
+    mask_boundary::assert_final_omega(&inventory, &mut originals);
+    mask_boundary::assert_public_sigmas(&inventory, &mut originals);
+    mask_boundary::assert_private_roles(&inventory, &mut originals);
     assert_eq!(inventory.routes.len(), compiled_routes().len());
     eprintln!(
         "WALLET_SOURCE_CATALOG routes={} programs={} terminal_keys={} originals={} stored_bytes={} signed=false qualified_wallet=false actual_receipt_proof=false",
@@ -307,6 +328,44 @@ fn pinned_reader_rejects_substitution_trailing_oversized_and_absent_originals() 
     assert!(bounded_file(directory.path(), 4).is_err());
 }
 
+fn new_write_limit(value: Option<&std::ffi::OsStr>) -> Result<u64, Error> {
+    let Some(value) = value else {
+        return Ok(OUTPUT_BYTES);
+    };
+    let text = value.to_str().ok_or(Error::Inventory)?;
+    let bytes = text.parse::<u64>().map_err(|_| Error::Inventory)?;
+    if bytes > OUTPUT_BYTES || bytes.to_string() != text {
+        return Err(Error::Inventory);
+    }
+    Ok(bytes)
+}
+
+#[test]
+fn fresh_original_budget_counts_only_new_bytes_and_refuses_before_publication() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut originals = Originals {
+        root: directory.path().to_owned(),
+        bytes: 0,
+        count: 0,
+        new_write_remaining: 3,
+    };
+    let bytes = [1, 2, 3];
+    let identity = BlobV1::of(&bytes);
+    originals.store(identity, &bytes).unwrap();
+    assert_eq!(originals.new_write_remaining, 0);
+    originals.store(identity, &bytes).unwrap();
+    assert_eq!((originals.bytes, originals.count), (3, 1));
+    let refused = BlobV1::of(&[4]);
+    assert!(originals.store(refused, &[4]).is_err());
+    assert!(!directory.path().join(hex::encode(refused.sha256)).exists());
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    assert_eq!(new_write_limit(None).unwrap(), OUTPUT_BYTES);
+    assert_eq!(new_write_limit(Some(std::ffi::OsStr::new("0"))).unwrap(), 0);
+    for invalid in ["-1", "+1", "01", " 1", "1 ", "", "137438953473"] {
+        assert!(new_write_limit(Some(std::ffi::OsStr::new(invalid))).is_err());
+    }
+}
+
 #[test]
 fn output_preserves_exact_content_and_refuses_changed_address_or_replacement() {
     let directory = tempfile::tempdir().unwrap();
@@ -314,6 +373,7 @@ fn output_preserves_exact_content_and_refuses_changed_address_or_replacement() {
         root: directory.path().to_owned(),
         bytes: 0,
         count: 0,
+        new_write_remaining: OUTPUT_BYTES,
     };
     let original = [1, 2, 3];
     let identity = BlobV1::of(&original);

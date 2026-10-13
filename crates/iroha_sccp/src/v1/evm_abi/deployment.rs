@@ -2,7 +2,7 @@
 
 use std::sync::LazyLock;
 
-use super::{AbiToken, SccpCommitteePinV1, SccpNetworkV1, encode_tokens, word_u64, word_u128};
+use super::{SccpCommitteePinV1, SccpNetworkV1, word_u64, word_u128};
 use crate::v1::{hashes::keccak256, network::tag};
 
 /// Canonical keyless CREATE2 proxy, identical on Ethereum and BSC.
@@ -60,20 +60,24 @@ pub struct ConstructorArgsV1 {
 }
 
 impl ConstructorArgsV1 {
+    fn words(&self) -> [[u8; 32]; 9] {
+        [
+            self.taira_network_id,
+            self.consensus_instance,
+            word_u64(u64::from(tag(self.network))),
+            word_u64(u64::from(self.route_revision)),
+            word_u128(self.max_wrapped_supply),
+            word_u64(self.pin.generation),
+            self.pin.committee_root,
+            word_u64(self.pin.start_height),
+            word_u64(self.pin.until_ms),
+        ]
+    }
+
     /// Canonical ABI encoding in the constructor's exact argument order.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        encode_tokens(&[
-            AbiToken::Word(self.taira_network_id),
-            AbiToken::Word(self.consensus_instance),
-            AbiToken::Word(word_u64(u64::from(tag(self.network)))),
-            AbiToken::Word(word_u64(u64::from(self.route_revision))),
-            AbiToken::Word(word_u128(self.max_wrapped_supply)),
-            AbiToken::Word(word_u64(self.pin.generation)),
-            AbiToken::Word(self.pin.committee_root),
-            AbiToken::Word(word_u64(self.pin.start_height)),
-            AbiToken::Word(word_u64(self.pin.until_ms)),
-        ])
+        self.words().concat()
     }
 
     /// Locked creation code followed by the nine ABI words.
@@ -85,9 +89,13 @@ impl ConstructorArgsV1 {
     }
 
     /// P4 address under the canonical proxy and zero salt.
+    /// Hashes the embedded code and fixed constructor words without allocating an init-code copy.
     #[must_use]
     pub fn address(&self) -> [u8; 20] {
-        create2_address(&SCCP_EVM_DEPLOYER, &SCCP_EVM_SALT, &self.init_code())
+        let words = self.words();
+        let code_hash = keccak256(&[&SCCP_EVM_CREATION_CODE, words.as_flattened()]);
+        let hash = keccak256(&[&[0xff], &SCCP_EVM_DEPLOYER, &SCCP_EVM_SALT, &code_hash]);
+        hash[12..].try_into().expect("20-byte address suffix")
     }
 }
 

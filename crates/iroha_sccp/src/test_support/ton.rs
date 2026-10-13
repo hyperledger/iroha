@@ -464,6 +464,13 @@ pub struct SyntheticKeyBlockV1 {
 /// What a synthetic minter transaction emits.
 #[derive(Clone, Debug)]
 pub enum SyntheticTonEventV1 {
+    /// `SccpFinalizedEvent`; the event contains no amount field.
+    Finalized {
+        /// Finalized message identity.
+        message_id: [u8; 32],
+        /// Route outbound nonce.
+        nonce: u64,
+    },
     /// `sccp_transfer_to_taira`.
     Transfer {
         /// Message id.
@@ -866,6 +873,11 @@ impl SyntheticTonChainV1 {
         let mut body = BitsV1::new();
         let mut body_refs = Vec::new();
         match event {
+            SyntheticTonEventV1::Finalized { message_id, nonce } => {
+                body.uint(0x5343_464e, 32)
+                    .bytes(message_id)
+                    .uint(u128::from(*nonce), 64);
+            }
             SyntheticTonEventV1::Transfer {
                 message_id,
                 nonce,

@@ -82,8 +82,15 @@ fn canonical_cntr_refusal_keeps_existing_vm_state_and_retries_without_reclassifi
     );
     let error = with_decode_limits_scope(limits(0), || vm.load_program(&bytes)).unwrap_err();
     assert_eq!(
-        error,
-        VMError::ExecutionDeferred(crate::error::ExecutionDeferral::ActiveMemoryCapacity)
+        error.execution_deferral(),
+        Some(crate::error::ExecutionDeferral::ActiveMemoryCapacity)
+    );
+    let VMError::DecodeDeferred(original_refusal) = error else {
+        panic!("program loading must retain the original decoder owner");
+    };
+    assert_eq!(
+        original_refusal.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
     );
     assert_eq!(
         (
@@ -109,9 +116,9 @@ fn original_pool_refusal_precedes_preparation_and_same_artifact_retries() {
     let bytes = artifact();
     let original = bytes.clone();
     let budget = AllocationBudget::new(0);
-    let error = prepare_contract_with_memory_budget(&bytes, &budget)
-        .err()
-        .expect("original instruction funding refuses");
+    let Err(error) = prepare_contract_with_memory_budget(&bytes, &budget) else {
+        panic!("original instruction funding refuses");
+    };
     assert!(matches!(
         error.into_vm_error(),
         VMError::AllocationDeferred(_)

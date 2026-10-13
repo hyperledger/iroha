@@ -17,13 +17,12 @@ use crate::{
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload};
 use iroha_crypto::HashOf;
-#[cfg(test)]
-use iroha_data_model::sumeragi_finality::ExecutionResultCommitment;
 use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock,
         consensus::{ExecKv, ExecWitness},
     },
+    sumeragi_finality::CertifiedResultV1,
     sumeragi_lanes::SumeragiLaneState,
 };
 
@@ -132,6 +131,7 @@ struct Projection<'a> {
     lanes: LaneStateRef<'a>,
     ordinary_writes: OrdinaryWritesRef<'a>,
     casting_bindings: CastingBindingsRef<'a>,
+    sccp_delta: &'a [u8],
 }
 impl norito::NoritoSchema for Projection<'_> {
     fn nominal_name() -> String {
@@ -264,7 +264,7 @@ impl NativeContextArchive {
         &self,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<iroha_data_model::sumeragi_finality::CertifiedResultV1>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &ExecWitness,
     ) -> Result<PreparedNativeContext, NativeContextArchiveError> {
         self.recheck_namespace()?;
@@ -316,11 +316,23 @@ impl NativeContextArchive {
                 "complete values differ from original R proof",
             ));
         }
+        // Stream only the original overlay. The buffer and final archive frame are
+        // admitted by this same original pool; no uncharged Vec clone is introduced.
+        let sccp_delta = capture_sccp_delta(&overlay.world, &self.budget, self.maximum.get())?;
+        crate::smartcontracts::isi::sccp::witness::require_exact_delta(
+            executed.header().height().get(),
+            sccp_delta.as_slice(),
+            &witness.writes,
+        )
+        .map_err(|_| {
+            NativeContextArchiveError::Source("SCCP delta differs from original witness")
+        })?;
         let projection = Projection {
             carrier_height: result.get().commitment().height,
             carrier_hash: executed.hash(),
             lanes: LaneStateRef(lanes),
             ordinary_writes: OrdinaryWritesRef(&witness.writes),
+            sccp_delta: sccp_delta.as_slice(),
             casting_bindings: CastingBindingsRef(
                 overlay.captured_parliament_casting_bindings().ok_or(
                     NativeContextArchiveError::Source("original casting leaves are absent"),
@@ -355,7 +367,7 @@ impl NativeContextArchive {
                 .ordinary_writes
                 .0
                 .iter()
-                .any(|write| prepared_intents::is_prepared_key_prefix(&write.key)),
+                .any(|write| prepared_intents::is_relay_key_prefix(&write.key)),
         })
     }
 
@@ -438,6 +450,42 @@ impl NativeContextArchive {
         let mut read = read::RecordRead::new(height, carrier_hash);
         read::to_completion(|| read.poll(self))
     }
+}
+
+fn capture_sccp_delta(
+    world: &crate::state::WorldBlock<'_>,
+    budget: &AllocationBudget,
+    maximum: usize,
+) -> Result<ChargedBuffer<u8>, NativeContextArchiveError> {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_add(bytes.len())
+                .ok_or(std::io::ErrorKind::InvalidData)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut length = Count(0);
+    world.write_sccp_execution_delta(&mut length)?;
+    if length.0 > maximum {
+        return Err(NativeContextArchiveError::Limit {
+            maximum,
+            actual: length.0,
+        });
+    }
+    let mut bytes = ChargedBuffer::new(length.0, budget)?;
+    world.write_sccp_execution_delta(&mut BufferWriter(&mut bytes))?;
+    if bytes.as_slice().len() != length.0 {
+        return Err(NativeContextArchiveError::Source(
+            "SCCP delta changed during capture",
+        ));
+    }
+    Ok(bytes)
 }
 
 struct BufferWriter<'a>(&'a mut ChargedBuffer<u8>);

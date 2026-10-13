@@ -85,22 +85,10 @@ fn second_boundary(
     let shares: Vec<_> = keys[..3]
         .iter()
         .map(|key| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                    .unwrap(),
-            )
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let references: Vec<_> = shares
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls_normal_aggregate_signatures(&references)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(iroha_crypto::bls::consensus::aggregate(&shares).unwrap());
     SumeragiCommitCertificateV1 {
         consensus_header: norito::encode_canonical(&header).unwrap(),
         commit_qc: norito::encode_canonical(&qc).unwrap(),

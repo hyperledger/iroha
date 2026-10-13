@@ -120,4 +120,10 @@ enum SccpErrors {
     /// An inline certificate meets a violation V1–V3; only
     /// `sccp_checkpoint` latches, so submit it there (§5.1.2).
     LatchRequired = 434
+    /// Every prepaid asynchronous operation slot is occupied.
+    RecoveryFull = 435
+    /// Monotonic operation id or per-operation attempt cannot advance.
+    RecoveryExhausted = 436
+    /// Recovery receipt, stage, attempt or phase mismatch.
+    BadRecovery = 437
 }

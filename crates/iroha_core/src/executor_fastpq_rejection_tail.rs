@@ -27,6 +27,7 @@ use iroha_primitives::{
 #[derive(std::fmt::Debug)]
 enum TailError {
     Intrinsic,
+    ReceiverDeferred(crate::execution_attempt::ExecutionDeferred),
     Fault(String),
 }
 
@@ -190,14 +191,19 @@ fn check(
     });
     let receiver = if gas.is_some() {
         Some(
-            parse_account_id_literal(
-                &state.world,
-                &state.nexus.dataspace_catalog,
-                &state.pipeline.gas.tech_account_id,
-                state.block_unix_timestamp_ms(),
-            )
-            .map_err(|error| TailError::Fault(error.to_string()))?
-            .ok_or_else(|| TailError::Fault("invalid pipeline gas technical account".into()))?,
+            crate::pipeline_gas_policy::receiver_id(&state.pipeline.gas.tech_account_id).map_err(
+                |error| match crate::execution_attempt::norito_decode_attempt_error(
+                    error,
+                    |error| format!("invalid committed pipeline gas receiver: {error}"),
+                ) {
+                    crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                        TailError::ReceiverDeferred(reason)
+                    }
+                    crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                        TailError::Fault(error)
+                    }
+                },
+            )?,
         )
     } else {
         None
@@ -245,6 +251,7 @@ pub(super) fn preflight(
         Err(TailError::Intrinsic) => Err(ValidationFail::NotPermitted(
             SOURCE_INTRINSIC_REJECTION.into(),
         )),
+        Err(TailError::ReceiverDeferred(reason)) => Err(state.defer_execution(reason)),
         Err(TailError::Fault(error)) => {
             state.fail_fastpq_rejection_tail(error.clone());
             Err(ValidationFail::InternalError(error))

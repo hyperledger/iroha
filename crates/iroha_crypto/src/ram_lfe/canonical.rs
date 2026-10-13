@@ -387,6 +387,9 @@ public_commitment_type!(
     "iroha_crypto::ram_lfe::RamLfeAssociatedDataHashV1"
 );
 
+// TODO(C.3): no encryption profile defines the bytes behind the profile, key and
+// ciphertext commitments below. They commit opaque caller-supplied bytes until C.3
+// selects the profile and fixes each canonical encoding.
 opaque_commitment_type!(
     /// Identity of one complete encryption profile.
     RamLfeProfileIdV1,
@@ -698,6 +701,8 @@ impl RamLfeQueryLimitV1 {
         Ok(())
     }
 
+    // TODO(R.12): no State transition calls `charge_receipt` yet. The receipt consumer
+    // of R.12 applies the charge in the transition that accepts the receipt.
     /// Charge one accepted receipt against the total.
     ///
     /// `accepted_receipts` is the persisted count before this receipt. The
@@ -713,6 +718,8 @@ impl RamLfeQueryLimitV1 {
         Ok(accepted_receipts + 1)
     }
 
+    // TODO(R.8): no State transition calls `charge_opening` yet. The opening consumer
+    // of R.8 applies the charge in the transition that accepts the opening.
     /// Charge one accepted opening against one beneficiary's limit.
     ///
     /// `beneficiary_openings` is the persisted count of that beneficiary before

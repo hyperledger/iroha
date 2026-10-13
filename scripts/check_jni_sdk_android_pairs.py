@@ -19,8 +19,8 @@ EXPECTED_GOVERNANCE_METHODS = (
     "nativeBridgeAbiVersion", "nativeVerifyCastingProofV1", "nativeVerifyCastingProofPageV1",
     "nativeRegistrationFromProofV1", "nativeBallotFromProofV1",
 )
-EXPECTED_ABI_DIGEST = "dc78a30d4283897a423abcba22ee6a9e4f1cf4e372ffe05c48f22a5e48ccad66"
-EXPECTED_ATTRIBUTE_DIGEST = "c80e87e1a878a1263dd1cb7708bc8ec335cb7e4e5461934708561466f7a2d795"
+EXPECTED_ABI_DIGEST = "dda833218dcc5d421a9958e4f9b588623343553f55a792d966bf70349c0e89d1"
+EXPECTED_ATTRIBUTE_DIGEST = "2ce13aae27f2db4f0af112ffc17015ae9fc6125eb75e88cb40229da972c79acd"
 
 EXPECTED_METHODS = {
     "crypto_NativeSignerBridge": (
@@ -42,6 +42,7 @@ EXPECTED_METHODS = {
         "nativeInspectExact12CapabilityManifest",
         "nativeRequireExact12CapabilityTupleForNetworkV1",
         "nativeValidateExact12SubmitProofConstructionForNetworkV1",
+        "nativeSubmitProofIntentProjectionV1",
         "nativeExact12FixtureBundle",
         "nativeValidateExact12FixtureBundle",
     ),

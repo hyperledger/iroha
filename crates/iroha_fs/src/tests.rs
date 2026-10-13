@@ -735,6 +735,41 @@ fn traversal_stream_and_device_names_are_rejected_before_mutation() {
 }
 
 #[test]
+fn concurrent_lock_creation_retains_one_native_identity() {
+    let (_temporary, store) = store();
+    for round in 0..16 {
+        let directory = store.ensure_child(format!("lock-race-{round}")).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let independent = PrivateDirectory::open(directory.path()).unwrap();
+            let barrier = std::sync::Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                independent.open_lock("owner.lock")
+            }));
+        }
+        // Finish every open before asserting so a failure never removes another
+        // worker's original directory while that worker is still inspecting it.
+        let outcomes = workers
+            .into_iter()
+            .map(std::thread::JoinHandle::join)
+            .collect::<Vec<_>>();
+        let handles = outcomes
+            .into_iter()
+            .map(|result| result.unwrap().expect("concurrent lock creation"))
+            .collect::<Vec<_>>();
+        let expected = FileIdentity::of(&handles[0]).unwrap();
+        assert!(
+            handles
+                .iter()
+                .all(|file| FileIdentity::of(file).unwrap() == expected),
+            "all cooperating openers must retain the same lock inode"
+        );
+    }
+}
+
+#[test]
 fn persistent_lock_handles_exclude_another_open_and_do_not_truncate() {
     let (_temporary, store) = store();
     let mut first = store.open_lock("owner.lock").unwrap();

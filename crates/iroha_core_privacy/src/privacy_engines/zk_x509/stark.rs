@@ -3992,61 +3992,6 @@ fn der_fixed_row_at_point_for_shape_v1(
     row[FIX_PARSER_CONTINUE] = parser_continue;
     Ok(row)
 }
-#[cfg(test)]
-fn der_fixed_row_at_point_v1(
-    schedule: &ZkX509DerStarkFixedScheduleV1,
-    trace_log2: u8,
-    x: F,
-) -> Result<[F; ZK_X509_DER_STARK_FIXED_WIDTH_V1], ZkX509StarkErrorV1> {
-    der_fixed_row_at_point_for_shape_v1(
-        1,
-        super::der_stark::ZK_X509_DER_STARK_MAX_PARSER_ROWS_V1,
-        schedule.active_rows(),
-        trace_log2,
-        x,
-    )
-}
-#[cfg(test)]
-fn der_fixed_openings_v1(
-    schedule: &ZkX509DerStarkFixedScheduleV1,
-    layout: SegmentLayoutV1,
-    opening_indices: &[usize],
-) -> Result<BTreeMap<usize, [F; ZK_X509_DER_STARK_FIXED_WIDTH_V1]>, ZkX509StarkErrorV1> {
-    if layout.adapter != SegmentAdapterIdV1::StrictDer
-        || layout.fixed_width != ZK_X509_DER_STARK_FIXED_WIDTH_V1
-        || opening_indices.is_empty()
-        || opening_indices.len() > DER_FIXED_MAX_SAMPLED_OPENINGS_V1
-        || opening_indices
-            .iter()
-            .any(|index| *index >= layout.lde_size())
-        || opening_indices.windows(2).any(|pair| pair[0] >= pair[1])
-    {
-        return Err(ZkX509StarkErrorV1::ProfileMismatch);
-    }
-    checked_der_fixed_sampled_work_v1(
-        schedule.active_rows(),
-        layout.trace_size(),
-        opening_indices.len(),
-    )?;
-    #[cfg(test)]
-    DER_FIXED_OPENING_EVALUATIONS_V1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let lde_root =
-        goldilocks_primitive_root_v1(layout.lde_log2).map_err(map_transparent_error_v1)?;
-    let mut rows = BTreeMap::new();
-    for index in opening_indices.iter().copied() {
-        let x = F(GOLDILOCKS_GENERATOR_V1).mul(lde_root.pow(index as u128));
-        if rows
-            .insert(
-                index,
-                der_fixed_row_at_point_v1(schedule, layout.trace_log2, x)?,
-            )
-            .is_some()
-        {
-            return Err(ZkX509StarkErrorV1::ProfileMismatch);
-        }
-    }
-    Ok(rows)
-}
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RegisteredRetainedProverPlanV1 {

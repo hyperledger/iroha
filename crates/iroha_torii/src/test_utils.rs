@@ -1013,6 +1013,7 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
         },
         soracloud_runtime: A::SoracloudRuntime::default(),
         musubi_publication: A::MusubiPublication::default(),
+        amx_relay: A::AmxRelay::default(),
         kura: A::Kura { init_mode: iroha_config::kura::InitMode::Strict, store_dir: WithOrigin::inline(std::env::temp_dir()),
             max_disk_usage_bytes: defaults::kura::MAX_DISK_USAGE_BYTES,
             blocks_in_memory: nonzero!(10usize),
@@ -1428,35 +1429,7 @@ pub fn mk_minimal_root_cfg() -> iroha_config::parameters::actual::Root {
             enabled: defaults::confidential::ENABLED,
             assume_valid: defaults::confidential::ASSUME_VALID,
             verifier_backend: defaults::confidential::VERIFIER_BACKEND.to_string(),
-            max_proof_size_bytes: defaults::confidential::MAX_PROOF_SIZE_BYTES,
-            max_nullifiers_per_tx: defaults::confidential::MAX_NULLIFIERS_PER_TX,
-            max_commitments_per_tx: defaults::confidential::MAX_COMMITMENTS_PER_TX,
-            max_confidential_ops_per_block: defaults::confidential::MAX_CONFIDENTIAL_OPS_PER_BLOCK,
             verify_timeout: defaults::confidential::VERIFY_TIMEOUT,
-            max_anchor_age_blocks: defaults::confidential::MAX_ANCHOR_AGE_BLOCKS,
-            max_proof_bytes_block: defaults::confidential::MAX_PROOF_BYTES_BLOCK,
-            max_verify_calls_per_tx: defaults::confidential::MAX_VERIFY_CALLS_PER_TX,
-            max_verify_calls_per_block: defaults::confidential::MAX_VERIFY_CALLS_PER_BLOCK,
-            max_public_inputs: defaults::confidential::MAX_PUBLIC_INPUTS,
-            reorg_depth_bound: defaults::confidential::REORG_DEPTH_BOUND,
-            policy_transition_delay_blocks: defaults::confidential::POLICY_TRANSITION_DELAY_BLOCKS,
-            policy_transition_window_blocks:
-                defaults::confidential::POLICY_TRANSITION_WINDOW_BLOCKS,
-            policy_transition_max_per_height:
-                defaults::confidential::POLICY_TRANSITION_MAX_PER_HEIGHT,
-            tree_roots_history_len: defaults::confidential::TREE_ROOTS_HISTORY_LEN,
-            tree_frontier_checkpoint_interval:
-                defaults::confidential::TREE_FRONTIER_CHECKPOINT_INTERVAL,
-            registry_max_vk_entries: defaults::confidential::REGISTRY_MAX_VK_ENTRIES,
-            registry_max_params_entries: defaults::confidential::REGISTRY_MAX_PARAMS_ENTRIES,
-            registry_max_delta_per_block: defaults::confidential::REGISTRY_MAX_DELTA_PER_BLOCK,
-            gas: A::ConfidentialGas {
-                proof_base: defaults::confidential::gas::PROOF_BASE,
-                per_public_input: defaults::confidential::gas::PER_PUBLIC_INPUT,
-                per_proof_byte: defaults::confidential::gas::PER_PROOF_BYTE,
-                per_nullifier: defaults::confidential::gas::PER_NULLIFIER,
-                per_commitment: defaults::confidential::gas::PER_COMMITMENT,
-            },
         },
         crypto: A::Crypto::default(),
         settlement: A::Settlement::default(),
@@ -1754,7 +1727,8 @@ pub(crate) fn bind_fixture_root(
         .set_parameter(Parameter::Custom(CustomParameter::new(
             consensus_metadata::handshake_meta_id(),
             iroha_primitives::json::Json::new(metadata),
-        )));
+        )))
+        .expect("install the routing fixture root authority");
     block.commit();
 }
 

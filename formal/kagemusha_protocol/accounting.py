@@ -26,10 +26,26 @@ def require(condition, reason):
 
 @dataclass(frozen=True, slots=True)
 class Credit:
-    """Permanent first received identity; variant 1 denotes a failing input."""
+    """Permanent first credit; (key, digest) names exact bytes, variant 1 means burned."""
 
     key: int
     variant: int
+    amount: int
+    digest: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DuplicateReceive:
+    """Already committed duplicate intake, never a normal Receive retry.
+
+    The sequence names a distinct committed receiver operation. Its proposed
+    digest may match or differ from the permanent first credit. All its amount
+    is burned without changing that first credit or adding genuine backing.
+    """
+
+    sequence: int
+    key: int
+    digest: int
     amount: int
 
 
@@ -50,6 +66,7 @@ class Wallet:
     core_pending: frozenset[int] = frozenset()
     adjusted_pending: frozenset[int] = frozenset()
     credits: tuple[Credit, ...] = ()
+    duplicate_receives: tuple[DuplicateReceive, ...] = ()
 
     def folded(self):
         """Whether the current head, rather than an older head, has durable Ω."""
@@ -86,6 +103,7 @@ class Payment:
     fee_retained: bool = False
     carrier_copy: bool = False
     archived_sequence: int | None = None
+    digest: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +214,7 @@ def send(world, sender, receiver, amount, *, fee=0):
     return replace(result, payments=world.payments + (payment,))
 
 
-def receive(world, receiver, key, *, variant=0):
+def receive(world, receiver, key, *, variant=0, digest=0):
     """Commit first-credit intake or return its exact original without another credit.
 
     Variant 0 is the authenticated retained Payment. Variant 1 abstracts a
@@ -205,10 +223,12 @@ def receive(world, receiver, key, *, variant=0):
     a correct native verifier admits malformed proofs in normal execution.
     """
     wallet = owner(world, receiver)
-    require(type(key) is int and type(variant) is int and variant in (0, 1), "incoming identity")
+    require(type(key) is int and type(variant) is int and variant in (0, 1)
+            and type(digest) is int and 0 <= digest <= MAX, "incoming identity")
     previous = next((credit for credit in wallet.credits if credit.key == key), None)
     if previous is not None:
-        require(previous.variant == variant, "conflicting original for consumed credit")
+        require(previous.variant == variant and previous.digest == digest,
+                "conflicting original for consumed credit")
         return world
     if key < 0:
         require(variant == 1, "unbacked input cannot be valid")
@@ -217,14 +237,43 @@ def receive(world, receiver, key, *, variant=0):
         require(key < len(world.payments), "payment identity")
         payment = world.payments[key]
         require(payment.receiver == receiver and payment.received_variant is None, "payment recipient or replay")
+        require(payment.digest == digest, "incoming Payment original")
         require(payment.retained or payment.carrier_copy, "missing delivery bytes")
         amount = payment.amount
     result = advance(world, receiver, balance=wallet.balance + amount,
                      deferred_burn=wallet.deferred_burn + (amount if variant else 0),
-                     credits=wallet.credits + (Credit(key, variant, amount),))
+                     credits=wallet.credits + (Credit(key, variant, amount, digest),))
     if payment is not None:
         result = replace(result, payments=changed(world.payments, key, replace(payment, received_variant=variant)))
     return result
+
+
+def contain_duplicate_receive(world, receiver, key, amount, *, digest, sequence):
+    """Account for a distinct post-commit nonmembership failure, not admission.
+
+    Canonical section 3.2 contains an already committed optimistic increment
+    when lineage detects a duplicate. Normal ``receive`` still returns its
+    exact first result or rejects a changed original before any mutation.
+    Checked core transition, receipt binding and valid consumed-root shape are
+    premises here. Sequence identifies the committed operation for exact replay.
+    """
+    wallet = owner(world, receiver)
+    require(type(key) is int and type(digest) is int and 0 <= digest <= MAX
+            and type(sequence) is int and 0 < sequence <= MAX
+            and type(amount) is int and 0 < amount <= MAX, "duplicate intake terms")
+    effect = DuplicateReceive(sequence, key, digest, amount)
+    previous = next((value for value in wallet.duplicate_receives if value.sequence == sequence), None)
+    if previous is not None:
+        require(previous == effect, "conflicting committed duplicate original")
+        return world
+    require(sequence == wallet.sequence + 1, "duplicate committed sequence")
+    first = next((credit for credit in wallet.credits if credit.key == key), None)
+    require(first is not None, "duplicate first credit missing")
+    require(all(value.amount == amount for value in (*wallet.credits, *wallet.duplicate_receives)
+                if value.key == key and value.digest == digest), "duplicate original amount")
+    return advance(world, receiver, balance=wallet.balance + amount,
+                   deferred_burn=wallet.deferred_burn + amount,
+                   duplicate_receives=wallet.duplicate_receives + (effect,))
 
 
 def fold(world, wallet):
@@ -237,15 +286,20 @@ def fold(world, wallet):
     return replace(world, wallets=changed(world.wallets, wallet, folded))
 
 
-def archive(world, key, *, evidence_valid=True):
+def archive(world, key, *, evidence_valid=True, evidence_digest=0):
     """Core removes its descriptor; a failing lineage verdict keeps adjusted pending."""
     require(type(key) is int and 0 <= key < len(world.payments), "payment identity")
     require(type(evidence_valid) is bool, "evidence verdict")
+    require(type(evidence_digest) is int and 0 <= evidence_digest <= MAX, "evidence original")
     payment = world.payments[key]
     wallet = owner(world, payment.sender)
     require(key in wallet.core_pending and payment.retained, "retained pending payment")
     if evidence_valid:
-        require(payment.received_variant == 0, "delivery evidence does not bind retained Payment")
+        require(payment.received_variant is not None and evidence_digest == payment.digest,
+                "delivery evidence does not bind retained Payment")
+        first = next((credit for credit in world.wallets[payment.receiver].credits if credit.key == key), None)
+        require(first is not None and first.digest == evidence_digest,
+                "delivery evidence differs from first credit")
     adjusted = wallet.adjusted_pending - {key} if evidence_valid else wallet.adjusted_pending
     result = advance(world, payment.sender, core_pending=wallet.core_pending - {key}, adjusted_pending=adjusted)
     if evidence_valid:
@@ -355,12 +409,23 @@ def invariant(world):
             c.amount - c.charge for c in world.claims if c.wallet == index and c.paid), "bound account payout"
         assert 0 <= wallet.balance <= MAX and 0 <= wallet.normalized_balance(), "wallet value"
         assert wallet.balance == sum(v.amount for v in world.vouchers if v.wallet == index and v.absorbed) + sum(
-            credit.amount for credit in wallet.credits) - sum(p.amount + p.fee for p in world.payments if p.sender == index) - sum(
+            credit.amount for credit in wallet.credits) + sum(
+            effect.amount for effect in wallet.duplicate_receives) - sum(p.amount + p.fee for p in world.payments if p.sender == index) - sum(
             claim.amount for claim in world.claims if claim.wallet == index), "wallet effect ownership"
         assert 0 <= wallet.core_burned <= wallet.burned and 0 <= wallet.folded_sequence <= wallet.sequence, "lineage order"
         assert wallet.deferred_burn >= 0, "negative deferred burn"
-        assert wallet.burned + wallet.deferred_burn == sum(c.amount for c in wallet.credits if c.variant), "burn accounting"
+        assert wallet.burned + wallet.deferred_burn == sum(c.amount for c in wallet.credits if c.variant) + sum(
+            effect.amount for effect in wallet.duplicate_receives), "burn accounting"
         assert len({c.key for c in wallet.credits}) == len(wallet.credits), "permanent first credit"
+        assert all(type(c.digest) is int and 0 <= c.digest <= MAX for c in wallet.credits), "first credit digest"
+        assert len({effect.sequence for effect in wallet.duplicate_receives}) == len(wallet.duplicate_receives), "duplicate operation replay"
+        original_amounts = {(credit.key, credit.digest): credit.amount for credit in wallet.credits}
+        for effect in wallet.duplicate_receives:
+            assert type(effect.sequence) is int and 0 < effect.sequence <= wallet.sequence, "duplicate operation sequence"
+            assert type(effect.amount) is int and 0 < effect.amount <= MAX, "duplicate effect amount"
+            assert type(effect.digest) is int and 0 <= effect.digest <= MAX, "duplicate effect digest"
+            assert any(c.key == effect.key for c in wallet.credits), "duplicate first credit"
+            assert original_amounts.setdefault((effect.key, effect.digest), effect.amount) == effect.amount, "original amount consistency"
         assert wallet.next_load == sum(v.wallet == index and v.absorbed for v in world.vouchers), "load replay"
         assert wallet.next_send == sum(p.sender == index for p in world.payments), "send ordinal"
         assert wallet.next_redeem == sum(c.wallet == index for c in world.claims), "unload ordinal"
@@ -378,9 +443,10 @@ def invariant(world):
         credits = [c for c in world.wallets[payment.receiver].credits if c.key == key]
         assert len(credits) == int(payment.received_variant is not None), "recipient first credit"
         if credits:
-            assert credits[0].amount == payment.amount and credits[0].variant == payment.received_variant, "received original"
+            assert (credits[0].amount, credits[0].variant, credits[0].digest) == (
+                payment.amount, payment.received_variant, payment.digest), "received original"
         assert payment.sender != payment.receiver and payment.amount > 0 and payment.fee >= 0, "payment terms"
         if payment.archived_sequence is not None:
-            assert payment.received_variant == 0, "Archive original mismatch"
+            assert payment.received_variant is not None, "Archive original mismatch"
         if payment.fee and not payment.fee_paid:
             assert payment.fee_retained, "lost independent unpaid fee original"

@@ -35,8 +35,8 @@ fn instruction_self_registers_authority(
 
 /// Return whether the executable's first instruction registers its exact authority.
 ///
-/// Self-registering transactions are the only single-signature transactions that may enter
-/// admission before their authority exists in world state. Keeping this recognition in Core lets
+/// Exact self-registration is one permitted shape for entering admission before the authority
+/// exists in world state. Keeping this recognition in Core lets
 /// pre-admission services, such as fee quoting, apply the same instruction-shape rule.
 #[must_use]
 pub fn executable_self_registers_authority(executable: &Executable, authority: &AccountId) -> bool {
@@ -60,19 +60,20 @@ pub fn executable_self_registers_authority(executable: &Executable, authority: &
 /// proposal envelope path, whose authorisation is established from multisig membership rather
 /// than a materialised authority account, and the SCCP rules of
 /// [`crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority`]: a keeper
-/// advance from any authority (`specs/sccp.md` §4.19) and the bridge-key registration from the
-/// new key's own account.
+/// advance or sole forgery-evidence submission from any authority (`specs/sccp.md` §4.19).
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     executable_self_registers_authority(executable, authority)
+        || (crate::smartcontracts::isi::sccp::keepalive::is_standalone(executable)
+            && authority
+                .try_signatory()
+                .is_some_and(|key| key.algorithm() == iroha_crypto::Algorithm::Ed25519))
         || matches!(
             executable,
             Executable::Instructions(instructions)
                 if instructions_allow_multisig_envelope_authority(instructions)
         )
-        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(
-            executable, authority,
-        )
+        || crate::smartcontracts::isi::sccp::admission::allows_unregistered_authority(executable)
 }
 
 pub(crate) fn instructions_allow_multisig_envelope_authority(

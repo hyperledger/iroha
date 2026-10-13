@@ -10,7 +10,9 @@ use iroha_core::{
     state::{State as CoreState, World},
     telemetry::StateTelemetry,
 };
-use iroha_data_model::block::consensus::{EvidencePenaltyStatus, EvidenceRecord};
+use iroha_data_model::block::consensus::{
+    EvidencePenaltyStatus, EvidenceRecord, RecordedEvidenceV1,
+};
 use iroha_torii::{Error, EvidenceListQuery, NoritoQuery, handle_v1_sumeragi_evidence_list};
 use std::sync::Arc;
 #[tokio::test]
@@ -27,7 +29,7 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
     let mut state = state;
     let records = [
         EvidenceRecord {
-            evidence: make_phase_vote_evidence(10, 0xA1),
+            evidence: RecordedEvidenceV1::Native(make_phase_vote_evidence(10, 0xA1)),
             attribution: make_phase_vote_attribution(10, 0xA1),
             recorded_at_height: 1,
             recorded_at_view: 0,
@@ -35,7 +37,7 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
             penalty_status: EvidencePenaltyStatus::Pending,
         },
         EvidenceRecord {
-            evidence: make_phase_vote_evidence(20, 0xB2),
+            evidence: RecordedEvidenceV1::Native(make_phase_vote_evidence(20, 0xB2)),
             attribution: make_phase_vote_attribution(20, 0xB2),
             recorded_at_height: 2,
             recorded_at_view: 0,
@@ -43,7 +45,7 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
             penalty_status: EvidencePenaltyStatus::Applied { height: 4 },
         },
         EvidenceRecord {
-            evidence: make_phase_vote_evidence(30, 0xC3),
+            evidence: RecordedEvidenceV1::Native(make_phase_vote_evidence(30, 0xC3)),
             attribution: make_phase_vote_attribution(30, 0xC3),
             recorded_at_height: 3,
             recorded_at_view: 0,
@@ -122,6 +124,13 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
             item.get("kind").and_then(norito::json::Value::as_str),
             Some("NativeSumeragiEvidence")
         );
+        assert_eq!(
+            item.as_object().unwrap().len(),
+            2,
+            "closed kind/value envelope"
+        );
+        let item = item.get("value").expect("native audit payload");
+        assert_eq!(item["scope"]["kind"].as_str(), Some("root"));
         assert_eq!(item.get("penalty_status"), Some(expected_status));
         assert_eq!(
             item.get("consensus_admitted_height")
@@ -130,7 +139,7 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
         );
         let item = item.as_object().expect("evidence audit object");
         let expected_keys = [
-            "kind",
+            "scope",
             "class",
             "instance",
             "height",
@@ -207,12 +216,12 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
         .expect("items array");
     assert_eq!(filtered_items.len(), 1);
     assert_eq!(
-        filtered_items[0]
+        filtered_items[0]["value"]
             .get("class")
             .and_then(norito::json::Value::as_str),
         Some("phase_vote"),
     );
-    for kind in ["NativeSumeragiEvidence"] {
+    for kind in ["NativeSumeragiEvidence", "SccpForgeryEvidence"] {
         let query = EvidenceListQuery {
             limit: None,
             offset: None,
@@ -224,6 +233,31 @@ async fn evidence_list_endpoint_supports_filters_and_pagination() {
                 .is_ok(),
             "canonical evidence kind `{kind}` must be accepted"
         );
+    }
+    // Unsupported SCCP retention never makes an explicit SCCP filter return Native DATA.
+    for accept in ["application/json", "application/x-norito"] {
+        let response = handle_v1_sumeragi_evidence_list(
+            State(state.clone()),
+            NoritoQuery(EvidenceListQuery {
+                limit: Some(3),
+                offset: Some(0),
+                kind: Some("SccpForgeryEvidence".into()),
+            }),
+            Some(axum::http::HeaderValue::from_static(accept)),
+        )
+        .await
+        .expect("explicit empty SCCP selection");
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        if accept == "application/json" {
+            let value: norito::json::Value = norito::json::from_slice(&bytes).unwrap();
+            assert_eq!(value["total"].as_u64(), Some(0));
+            assert!(value["items"].as_array().unwrap().is_empty());
+        } else {
+            let value: iroha_torii_shared::sumeragi_evidence_api::SumeragiEvidenceListWireResponse =
+                norito::decode_from_bytes(&bytes).unwrap();
+            assert_eq!(value.total, 0);
+            assert!(value.items.is_empty());
+        }
     }
     for kind in [
         "DoublePrevote",

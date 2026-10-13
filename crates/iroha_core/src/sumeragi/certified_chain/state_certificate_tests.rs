@@ -887,16 +887,14 @@ fn state_certificate_pairing_constructor_refusal_preserves_original_source_for_r
             relations.qcs.is_empty(),
             "constructor admission precedes any QC relation"
         );
-        // Pure epoch validation first attempts its native context roundtrip under this same
-        // cumulative allowance. Refused optional insertion retains those original charges;
-        // the next failed charge must still be the exact pairing constructor backing.
-        let prelude = usage.total_allocated_bytes();
-        assert!(prelude > 0 && prelude < backing);
+        // Exact epoch snapshots are inline; validation has no optional decoder debit.
+        // The first refused charge is the exact pairing constructor backing.
+        assert_eq!(usage.total_allocated_bytes(), 0);
         assert!(matches!(
             result,
             Err(VerificationReadError::Resource(
                 norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
-            )) if attempted == u64::try_from(prelude.checked_add(backing).unwrap()).unwrap()
+            )) if attempted == u64::try_from(backing).unwrap()
                 && limit == u64::try_from(backing - 1).unwrap()
         ));
         assert_eq!(parent.id(), chain.committed(2).id());

@@ -46,6 +46,44 @@ pub fn state_delta_witness_write(height: u64, delta: &[u8]) -> Option<ExecKv> {
     })
 }
 
+/// Check exact delta preimage/height against the sole synthetic write. This is only
+/// a structural join; the caller must authenticate the complete writes root separately.
+pub(crate) fn require_exact_delta(
+    height: u64,
+    delta: &[u8],
+    writes: &[ExecKv],
+) -> Result<(), norito::Error> {
+    let mut matching = writes
+        .iter()
+        .filter(|write| write.key == SCCP_STATE_DELTA_WITNESS_KEY_V1);
+    let found = matching.next();
+    if matching.next().is_some() || delta.is_empty() != found.is_none() {
+        return Err(norito::Error::NonCanonicalEncoding);
+    }
+    if let Some(write) = found {
+        let expected = (height, <[u8; 32]>::from(Hash::new(delta)));
+        struct Exact<'a>(&'a [u8]);
+        impl std::io::Write for Exact<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if !self.0.starts_with(bytes) {
+                    return Err(std::io::ErrorKind::InvalidData.into());
+                }
+                self.0 = &self.0[bytes.len()..];
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut exact = Exact(&write.value);
+        norito::core::write_canonical_to_writer(&expected, &mut exact)?;
+        if !exact.0.is_empty() {
+            return Err(norito::Error::NonCanonicalEncoding);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +245,17 @@ mod tests {
             roots[1],
             "the SCCP witness is deterministic"
         );
+    }
+    #[test]
+    fn exact_delta_join_rejects_missing_duplicate_foreign_height_and_substitution() {
+        let delta = b"exact canonical source bytes";
+        let write = state_delta_witness_write(5, delta).unwrap();
+        assert!(require_exact_delta(5, delta, std::slice::from_ref(&write)).is_ok());
+        assert!(require_exact_delta(5, &[], &[]).is_ok());
+        assert!(require_exact_delta(5, delta, &[]).is_err());
+        assert!(require_exact_delta(5, &[], std::slice::from_ref(&write)).is_err());
+        assert!(require_exact_delta(6, delta, std::slice::from_ref(&write)).is_err());
+        assert!(require_exact_delta(5, b"other", std::slice::from_ref(&write)).is_err());
+        assert!(require_exact_delta(5, delta, &[write.clone(), write]).is_err());
     }
 }

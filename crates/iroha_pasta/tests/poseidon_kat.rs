@@ -1,12 +1,12 @@
 //! Known-answer tests of the KAGEMUSHA RP57 Poseidon permutation and sponge.
 //!
-//! The vectors were exported from the vendored stack (vendor/halo2-base
-//! `OptimizedPoseidonSpec::<F, 3, 2>::new::<8, 57, 0>()` with the
-//! snark-verifier `Poseidon` native sponge, the implementation behind the
-//! KAGEMUSHA domain hash) by a scratch program. `iroha_pasta` cannot depend on
-//! those crates; `iroha_plonk_oracle` re-checks the same vectors directly. The
-//! constant tables are additionally regenerated from the published RP57
-//! parameters by `iroha_pasta::poseidon::grain`.
+//! These historical vectors were exported by a scratch program from the
+//! now-deleted vendor/halo2-base `OptimizedPoseidonSpec::<F, 3, 2>::new::<8, 57, 0>()`
+//! and snark-verifier `Poseidon` sponge. No live `iroha_plonk_oracle` or vendored
+//! prover is required. This suite checks the retained answers and regenerates
+//! the constant tables from RP57 parameters via `iroha_pasta::poseidon::grain`.
+//! `fixtures/native_prover/verify_kats_v1.py` separately rederives the recorded
+//! RP57 hash and transcript KATs using plain integer arithmetic.
 
 use ff::{Field, PrimeField};
 use iroha_pasta::poseidon::{PoseidonField, PoseidonParams, Sponge, hash, hash_with_domain};

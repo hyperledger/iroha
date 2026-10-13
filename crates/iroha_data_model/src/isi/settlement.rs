@@ -1,6 +1,9 @@
 //! Settlement instructions and typed successful receipts.
 pub use self::model::SettlementId;
 mod atomic;
+mod id;
+#[cfg(test)]
+mod id_tests;
 use super::*;
 use crate::{
     NetworkId,
@@ -13,7 +16,7 @@ pub use atomic::{
     AtomicSettlementMovements, ResolvedSettlementMovement, ResolvedSettlementMovements,
     SettleAtomic,
 };
-use derive_more::{Constructor, Display, FromStr};
+use derive_more::{Constructor, Display};
 use getset::{CopyGetters, Getters};
 use iroha_crypto::{Hash, HashOf, derive_non_signing_ed25519_public_key};
 use iroha_data_model_derive::model;
@@ -30,13 +33,12 @@ const FX_CORRIDOR_ESCROW_ACCOUNT_DOMAIN_V1: &[u8] = b"iroha:fx-corridor:escrow-a
 #[model]
 mod model {
     use super::*;
-    /// One-shot identifier consumed when a settlement commits successfully.
+    /// Owner-qualified business reference consumed when a settlement commits successfully.
     #[derive(norito::NoritoSchema)]
     #[norito_schema(name = "iroha_data_model::isi::settlement::model::SettlementId")]
     #[derive(
         Debug,
         Display,
-        FromStr,
         Clone,
         PartialEq,
         Eq,
@@ -48,17 +50,19 @@ mod model {
         Decode,
         Encode,
         IntoSchema,
+        JsonSerialize,
+        JsonDeserialize,
     )]
-    #[display("{name}")]
+    #[display("{reference}${owner}")]
     #[getset(get = "pub")]
-    #[repr(transparent)]
-
+    #[norito(deny_unknown_fields)]
     pub struct SettlementId {
-        /// Logical identifier chosen by upstream trade/collateral workflows.
-        pub name: Name,
+        /// Explicit participating debit owner whose namespace contains this reference.
+        pub owner: AccountId,
+        /// Stable original business reference, independent of payment terms or carrier identity.
+        pub reference: Name,
     }
 }
-string_id!(SettlementId);
 enum_type! {
     #[norito_schema(name = "iroha_data_model::isi::settlement::SettlementExecutionOrder")]
     pub enum SettlementExecutionOrder {
@@ -67,11 +71,11 @@ enum_type! {
     }
 }
 enum_type! {
+    /// Native settlement accepts only an all-or-nothing outcome.
+    /// Discriminant zero is canonical; all other binary tags and JSON names are invalid.
     #[norito_schema(name = "iroha_data_model::isi::settlement::SettlementAtomicity")]
     pub enum SettlementAtomicity {
         AllOrNothing,
-        CommitFirstLeg,
-        CommitSecondLeg,
     }
 }
 #[allow(clippy::derivable_impls)]
@@ -1045,6 +1049,52 @@ mod tests {
         codec::{Decode, Encode},
         core::DecodeFromSlice,
     };
+    #[test]
+    fn settlement_atomicity_rejects_retired_tags_and_names() {
+        assert_eq!(SettlementAtomicity::AllOrNothing as u8, 0);
+        let frame = norito::to_bytes(&SettlementAtomicity::AllOrNothing).unwrap();
+        assert_eq!(
+            norito::decode_from_bytes::<SettlementAtomicity>(&frame).unwrap(),
+            SettlementAtomicity::AllOrNothing
+        );
+        // Complete formerly accepted frames have valid schema, length and checksum;
+        // rejection must come from the closed enum boundary, not corrupt framing.
+        for (tag, name, frame) in [
+            (
+                1,
+                "CommitFirstLeg",
+                "4e525430000084f0cfcacef07ac0d3b044000262f53a000400000000000000973e373c6b0c4be90001000000",
+            ),
+            (
+                2,
+                "CommitSecondLeg",
+                "4e525430000084f0cfcacef07ac0d3b044000262f53a000400000000000000f3dc425a899278cf0002000000",
+            ),
+        ] {
+            assert!(SettlementAtomicity::try_from(tag).is_err());
+            assert!(
+                norito::decode_from_bytes::<SettlementAtomicity>(&hex::decode(frame).unwrap())
+                    .is_err()
+            );
+            assert!(
+                norito::json::from_value::<SettlementAtomicity>(norito::json::Value::String(
+                    name.into()
+                ))
+                .is_err()
+            );
+            let plan = norito::json::to_json(&SettlementPlan::default()).unwrap();
+            let invalid_plan = plan.replace("AllOrNothing", name);
+            assert!(norito::json::from_str::<SettlementPlan>(&invalid_plan).is_err());
+            let dvp = norito::json::to_json(&dvp_instruction())
+                .unwrap()
+                .replace("AllOrNothing", name);
+            let pvp = norito::json::to_json(&pvp_instruction())
+                .unwrap()
+                .replace("AllOrNothing", name);
+            assert!(norito::json::from_str::<DvpIsi>(&dvp).is_err());
+            assert!(norito::json::from_str::<PvpIsi>(&pvp).is_err());
+        }
+    }
     #[derive(Encode)]
     struct ForgedSettleFxCorridor {
         policy_id: Name,
@@ -1086,7 +1136,10 @@ mod tests {
         )
     }
     fn dvp_instruction() -> DvpIsi {
-        let settlement_id: SettlementId = "dvp_trade_1".parse().expect("settlement id");
+        let settlement_id: SettlementId = SettlementId::new(
+            account(ALICE_SIGNATORY, "test"),
+            "dvp_trade_1".parse().expect("reference"),
+        );
         let delivery_leg = SettlementLeg::new(
             asset("wonderland", "bond"),
             1_000u32,
@@ -1111,7 +1164,10 @@ mod tests {
         }
     }
     fn pvp_instruction() -> PvpIsi {
-        let settlement_id: SettlementId = "pvp_fx_1".parse().expect("settlement id");
+        let settlement_id: SettlementId = SettlementId::new(
+            account(ALICE_SIGNATORY, "test"),
+            "pvp_fx_1".parse().expect("reference"),
+        );
         let primary_leg = SettlementLeg::new(
             asset("wonderland", "usd"),
             1_000u32,
@@ -1130,7 +1186,7 @@ mod tests {
             counter_leg,
             plan: SettlementPlan::new(
                 SettlementExecutionOrder::PaymentThenDelivery,
-                SettlementAtomicity::CommitSecondLeg,
+                SettlementAtomicity::AllOrNothing,
             ),
             metadata: Metadata::default(),
         }
@@ -1188,7 +1244,10 @@ mod tests {
             expected_policy_revision: policy.revision,
             source_asset_definition_id: policy.source_asset_definition_id,
             destination_asset_definition_id: policy.destination_asset_definition_id,
-            settlement_id: "fx_settlement_1".parse().expect("settlement id"),
+            settlement_id: SettlementId::new(
+                account(ALICE_SIGNATORY, "test"),
+                "fx_settlement_1".parse().expect("reference"),
+            ),
             recipient: account(BOB_SIGNATORY, "sbp"),
             source_amount: Quantity::from(10_u32),
             expected_destination_amount: Quantity::from(760_u32),
@@ -1213,9 +1272,46 @@ mod tests {
             amount: Quantity::from(250_u32),
         }
     }
+
+    #[test]
+    #[ignore = "explicit current typed captures of owner-qualified settlement instructions"]
+    fn print_scoped_settlement_bilateral_and_fx_fixture_rows() {
+        use crate::isi::{
+            generated_box_identity_tests::case, generated_record_identity_tests::capture,
+        };
+        let dvp = dvp_instruction();
+        let pvp = pvp_instruction();
+        let fx = fx_settlement_instruction();
+        for row in [
+            capture(dvp.clone()),
+            capture(pvp.clone()),
+            capture(fx.clone()),
+        ] {
+            println!(
+                "SCOPED_SETTLEMENT_RECORD={}",
+                norito::json::to_json(&row).unwrap()
+            );
+        }
+        for row in [
+            case("Dvp", SettlementInstructionBox::Dvp(dvp)),
+            case("Pvp", SettlementInstructionBox::Pvp(pvp)),
+            case(
+                "SettleFxCorridor",
+                SettlementInstructionBox::SettleFxCorridor(fx),
+            ),
+        ] {
+            println!(
+                "SCOPED_SETTLEMENT_BOX_CASE={}",
+                norito::json::to_json(&row).unwrap()
+            );
+        }
+    }
     #[test]
     fn dvp_roundtrip_encodes_plan() {
-        let settlement_id: SettlementId = "dvp_trade_1".parse().expect("settlement id");
+        let settlement_id: SettlementId = SettlementId::new(
+            account(ALICE_SIGNATORY, "test"),
+            "dvp_trade_1".parse().expect("reference"),
+        );
         let delivery_leg = SettlementLeg::new(
             asset("wonderland", "bond"),
             1_000u32,
@@ -1251,7 +1347,10 @@ mod tests {
     }
     #[test]
     fn pvp_display_includes_identifier() {
-        let settlement_id: SettlementId = "pvp_fx_1".parse().expect("settlement id");
+        let settlement_id: SettlementId = SettlementId::new(
+            account(ALICE_SIGNATORY, "test"),
+            "pvp_fx_1".parse().expect("reference"),
+        );
         let primary_leg = SettlementLeg::new(
             asset("wonderland", "usd"),
             1_000u32,
@@ -1266,7 +1365,7 @@ mod tests {
         );
         let plan = SettlementPlan::new(
             SettlementExecutionOrder::PaymentThenDelivery,
-            SettlementAtomicity::CommitSecondLeg,
+            SettlementAtomicity::AllOrNothing,
         );
         let instruction = PvpIsi {
             settlement_id,
@@ -1278,7 +1377,7 @@ mod tests {
         let formatted = format!("{instruction}");
         assert!(formatted.contains("pvp_fx_1"));
         assert!(formatted.contains("PaymentThenDelivery"));
-        assert!(formatted.contains("CommitSecondLeg"));
+        assert!(formatted.contains("AllOrNothing"));
     }
     #[test]
     fn bilateral_intent_hash_binds_complete_instruction() {
@@ -1503,7 +1602,10 @@ mod tests {
             expected_policy_revision: policy.revision,
             source_asset_definition_id: policy.source_asset_definition_id.clone(),
             destination_asset_definition_id: policy.destination_asset_definition_id.clone(),
-            settlement_id: "negative_fx_settlement".parse().expect("settlement id"),
+            settlement_id: SettlementId::new(
+                account(ALICE_SIGNATORY, "test"),
+                "negative_fx_settlement".parse().expect("reference"),
+            ),
             recipient: recipient.clone(),
             source_amount: Numeric::new(-1_i32, 0),
             expected_destination_amount: Quantity::from(760_u32),

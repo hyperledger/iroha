@@ -22,7 +22,9 @@ use thiserror::Error;
 
 use crate::{
     credential::RegistrationContext,
-    framing::{BodyContext, Commitment, Digest64, FramingError, OpaqueField, frame_bytes},
+    framing::{
+        BodyContext, Commitment, Digest64, FramingError, Nullifier, OpaqueField, frame_bytes,
+    },
     profile::{Profile, Role},
     proving::StatementError,
     registration::RegistrationStatement,
@@ -36,8 +38,8 @@ pub const REGISTRATION_TAG: &[u8] = b"PARL/TEST/REG/v1";
 pub const VOTE_TAG: &[u8] = b"PARL/TEST/VOTE/v1";
 /// Fields of a test registration statement: `D` and the ten of `F_REG`.
 const REGISTRATION_FIELDS: usize = 11;
-/// Fields of a test vote statement: `D` and the eight of `F_VOTE`.
-const VOTE_FIELDS: usize = 9;
+/// Fields of a test vote statement: `D` and the nine of `F_VOTE`.
+const VOTE_FIELDS: usize = 10;
 
 /// Why test-codec bytes were refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -131,6 +133,7 @@ pub fn encode_vote(
             &statement.size.to_le_bytes(),
             &sealed_list::concat(&statement.list),
             statement.nullifier.as_bytes(),
+            statement.auth_v.as_bytes(),
             &[statement.vote],
             statement.policy_hash.as_bytes(),
         ],
@@ -276,6 +279,7 @@ pub fn decode_vote(profile: &Profile, data: &[u8]) -> Result<VoteStatement, Test
         size,
         list,
         nullifier,
+        auth_v,
         vote,
         policy_hash,
     ] = fields[..]
@@ -300,13 +304,25 @@ pub fn decode_vote(profile: &Profile, data: &[u8]) -> Result<VoteStatement, Test
         }
         .into());
     };
+    // Bound the allocation before copying any list entries from untrusted bytes.
+    if !list.len().is_multiple_of(crate::framing::COMMITMENT_BYTES) {
+        return Err(StatementError::List(sealed_list::ListError::EntryLength {
+            actual: list.len(),
+        })
+        .into());
+    }
+    let entries = list.len() / crate::framing::COMMITMENT_BYTES;
+    if !(sealed_list::MIN_LIST_SIZE..=sealed_list::MAX_LIST_SIZE).contains(&entries) {
+        return Err(StatementError::List(sealed_list::ListError::Size { actual: entries }).into());
+    }
     let statement = VoteStatement {
         body_digest: Digest64::from_slice(body_digest)?,
         scope: Digest64::from_slice(scope)?,
         list_digest: Digest64::from_slice(list_digest)?,
         size: u16::from_le_bytes([size_low, size_high]),
         list: sealed_list::split(list).map_err(StatementError::List)?,
-        nullifier: Digest64::from_slice(nullifier)?,
+        nullifier: Nullifier::from_slice(nullifier)?,
+        auth_v: Digest64::from_slice(auth_v)?,
         vote,
         policy_hash: Digest64::from_slice(policy_hash)?,
     };
@@ -387,7 +403,8 @@ mod tests {
             body,
             Digest64([4; 64]),
             &list,
-            Digest64([5; 64]),
+            Nullifier([5; 128]),
+            Digest64([7; 64]),
             Vote::Abstain,
             Digest64([6; 64]),
         )
@@ -413,7 +430,7 @@ mod tests {
         );
         let statement = vote();
         let bytes = encode_vote(&fast, &statement).expect("encodes");
-        assert!(bytes.starts_with(b"\x11\x00PARL/TEST/VOTE/v1\x09\x00\x40\x00\x00\x00"));
+        assert!(bytes.starts_with(b"\x11\x00PARL/TEST/VOTE/v1\x0a\x00\x40\x00\x00\x00"));
         assert_eq!(decode_vote(&fast, &bytes), Ok(statement));
         assert_eq!(
             decode_vote(&small, &bytes),
@@ -512,7 +529,7 @@ mod tests {
         let profile = Profile::new(Row::Candidate).expect("tables");
         let statement = vote();
         let bytes = encode_vote(&profile, &statement).expect("encodes");
-        let fields = parse_frame(&bytes, VOTE_TAG, 9).expect("canonical");
+        let fields = parse_frame(&bytes, VOTE_TAG, 10).expect("canonical");
         let refused = |index: usize, replacement: &[u8]| {
             let mut bad = fields.clone();
             bad[index] = replacement;
@@ -526,14 +543,14 @@ mod tests {
             }))
         );
         assert_eq!(
-            refused(7, &[]),
+            refused(8, &[]),
             Err(TestCodecError::Field(FramingError::FixedLength {
                 expected: 1,
                 actual: 0
             }))
         );
         assert_eq!(
-            refused(7, &[3]),
+            refused(8, &[3]),
             Err(TestCodecError::Statement(StatementError::VoteValue {
                 value: 3
             }))
@@ -551,6 +568,12 @@ mod tests {
             )))
         );
         assert_eq!(
+            refused(5, &vec![0; 1001 * 128]),
+            Err(TestCodecError::Statement(StatementError::List(
+                ListError::Size { actual: 1001 }
+            )))
+        );
+        assert_eq!(
             refused(4, &5u16.to_le_bytes()),
             Err(TestCodecError::Statement(StatementError::ListLength {
                 declared: 5,
@@ -561,7 +584,14 @@ mod tests {
             refused(3, &[0u8; 64]),
             Err(TestCodecError::Statement(StatementError::ListDigest))
         );
-        for index in [1usize, 2, 3, 6, 8] {
+        assert_eq!(
+            refused(6, &[0u8; 64]),
+            Err(TestCodecError::Field(FramingError::FixedLength {
+                expected: 128,
+                actual: 64,
+            }))
+        );
+        for index in [1usize, 2, 3, 7, 9] {
             assert_eq!(
                 refused(index, &[0u8; 63]),
                 Err(TestCodecError::Field(FramingError::FixedLength {
@@ -573,7 +603,7 @@ mod tests {
         assert_eq!(
             decode_vote(&profile, &reframe(VOTE_TAG, &fields[..8])),
             Err(TestCodecError::FieldCount {
-                expected: 9,
+                expected: 10,
                 actual: 8
             })
         );

@@ -1,3 +1,4 @@
+//! Typed consensus status and closed evidence audit commands.
 use super::{evidence, status};
 use crate::{Run, RunContext};
 use clap::ValueEnum;
@@ -53,6 +54,9 @@ pub struct EvidenceCountArgs {}
 pub enum EvidenceKindArg {
     #[value(name = "NativeSumeragiEvidence")]
     NativeSumeragiEvidence,
+    /// Recorded SCCP forgery DATA; this command performs no admission verification.
+    #[value(name = "SccpForgeryEvidence")]
+    SccpForgeryEvidence,
 }
 impl EvidenceKindArg {
     /// Convert the CLI literal into the closed client query enum.
@@ -60,6 +64,9 @@ impl EvidenceKindArg {
         match self {
             EvidenceKindArg::NativeSumeragiEvidence => {
                 iroha::client::SumeragiEvidenceKind::NativeSumeragiEvidence
+            }
+            EvidenceKindArg::SccpForgeryEvidence => {
+                iroha::client::SumeragiEvidenceKind::SccpForgeryEvidence
             }
         }
     }
@@ -107,10 +114,13 @@ mod tests {
 
     #[test]
     fn evidence_kind_filter_maps_to_the_current_wire_name() {
-        let cases = [(
-            EvidenceKindArg::NativeSumeragiEvidence,
-            "NativeSumeragiEvidence",
-        )];
+        let cases = [
+            (
+                EvidenceKindArg::NativeSumeragiEvidence,
+                "NativeSumeragiEvidence",
+            ),
+            (EvidenceKindArg::SccpForgeryEvidence, "SccpForgeryEvidence"),
+        ];
         for (kind, expected) in cases {
             assert_eq!(kind.into_client().as_str(), expected);
             assert_eq!(

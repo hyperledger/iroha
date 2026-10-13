@@ -4,8 +4,16 @@
 //! payload; submission remains a separate once-only transition after exact signed bytes are durable.
 use super::*;
 use iroha_data_model::transaction::{TransactionDomain, TransactionPayload};
-use iroha_operation_journal::{MAX_JOURNAL_BYTES, NativeRecord, canonical_bytes};
+use iroha_operation_journal::{
+    MAX_JOURNAL_BYTES, NativeRecord, NativeRecordObservation, ObservedNativeRecord, canonical_bytes,
+};
 use sha2::{Digest as _, Sha256};
+
+#[path = "operations_terminal_reader.rs"]
+mod terminal_reader;
+pub use terminal_reader::CustodyPreparationReader;
+#[cfg(test)]
+pub(super) use terminal_reader::count_request_verifications;
 
 const PAYLOAD_MAX: usize = 1024 * 1024;
 // Norito counts raw byte vectors as sequence elements. Bound them by the admitted journal
@@ -171,6 +179,8 @@ impl Request {
         }
     }
     fn verify(&self, config: &Config) -> Result<()> {
+        #[cfg(test)]
+        terminal_reader::record_request_verification();
         eyre::ensure!(
             self.schema == "iroha.wallet.native-preparation.v1"
                 && self.torii_url == config.torii_api_url.as_str()
@@ -256,6 +266,47 @@ struct Retirement {
     request_sha256: String,
 }
 
+// These associations are wallet-private and are constructed only from a single actual
+// canonical read. Request and Retirement have no interior mutation or mutation API. The
+// lower observation owns bytes/identity only and never certifies an arbitrary cached T.
+struct ObservedRecord<T> {
+    value: T,
+    observation: NativeRecordObservation,
+}
+struct TerminalRecords {
+    request: ObservedRecord<Request>,
+    retirement: ObservedRecord<Retirement>,
+    custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
+}
+struct TerminalRead {
+    request: NativeRecordObservation,
+    retirement: Option<ObservedRecord<Retirement>>,
+    custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
+}
+// The call owns the retained records. The recipe only selects and consumes that
+// owner, so an original read does not carry an inline terminal-record graph.
+enum ReadRecipe<'a> {
+    Original,
+    Terminal(&'a mut Option<TerminalRecords>),
+}
+fn observed_record<T: norito::json::JsonDeserialize + norito::json::JsonSerialize>(
+    reader: &mut iroha_operation_journal::NativeJournalReadScope<'_, '_>,
+    record: NativeRecord,
+    previous: Option<ObservedRecord<T>>,
+) -> Result<Option<(ObservedRecord<T>, bool)>> {
+    match reader.read_native_observed(record, previous.as_ref().map(|value| &value.observation))? {
+        ObservedNativeRecord::Missing => Ok(None),
+        ObservedNativeRecord::Unchanged => Ok(Some((
+            previous
+                .ok_or_else(|| eyre!("unchanged native observation lost its original value"))?,
+            true,
+        ))),
+        ObservedNativeRecord::Decoded { value, observation } => {
+            Ok(Some((ObservedRecord { value, observation }, false)))
+        }
+    }
+}
+
 pub(super) struct Retained {
     request: Request,
     payload: Option<EncodedPayload>,
@@ -271,15 +322,70 @@ impl Retained {
         self.request.selection()
     }
     pub(super) fn read(journal: &Journal, config: &Config) -> Result<Self> {
+        Self::read_with_recipe(journal, config, ReadRecipe::Original).map(|(value, _)| value)
+    }
+    fn read_with_recipe(
+        journal: &Journal,
+        config: &Config,
+        recipe: ReadRecipe<'_>,
+    ) -> Result<(Self, Option<TerminalRead>)> {
         journal.verify_native_inventory()?;
         journal.read_native_scope(|reader| {
-            let request: Request = reader
-                .read_native(NativeRecord::Request)?
-                .ok_or_else(|| eyre!("native journal requires its original preparation record"))?;
-            request.verify(config)?;
+            let (retain, previous_request, previous_retirement, previous_custody_plan) =
+                match recipe {
+                    ReadRecipe::Original => (false, None, None, None),
+                    ReadRecipe::Terminal(previous) => match previous.take() {
+                        Some(previous) => (
+                            true,
+                            Some(previous.request),
+                            Some(previous.retirement),
+                            previous.custody_plan,
+                        ),
+                        None => (true, None, None, None),
+                    },
+                };
+            let (request, request_observation, custody_plan) = if retain {
+                let (request, unchanged) =
+                    observed_record(reader, NativeRecord::Request, previous_request)?.ok_or_else(
+                        || eyre!("native journal requires its original preparation record"),
+                    )?;
+                // This exact immutable Request was already verified against the same borrowed
+                // AccountService. A new value is verified before opening any later record.
+                if !unchanged {
+                    request.value.verify(config)?;
+                }
+                // The observed record admits reuse only after fresh native identity and
+                // exact byte checks. Changed requests discard their old Plan metadata.
+                (
+                    request.value,
+                    Some(request.observation),
+                    if unchanged {
+                        previous_custody_plan
+                    } else {
+                        None
+                    },
+                )
+            } else {
+                let request: Request =
+                    reader.read_native(NativeRecord::Request)?.ok_or_else(|| {
+                        eyre!("native journal requires its original preparation record")
+                    })?;
+                request.verify(config)?;
+                (request, None, None)
+            };
             let payload: Option<EncodedPayload> = reader.read_native(NativeRecord::Payload)?;
             let record: Option<TransactionJournal> = reader.read_native(NativeRecord::Operation)?;
-            let retirement: Option<Retirement> = reader.read_native(NativeRecord::Retired)?;
+            let (retirement, retirement_observation) = if retain {
+                match observed_record(reader, NativeRecord::Retired, previous_retirement)? {
+                    Some((record, _)) => (Some(record.value), Some(record.observation)),
+                    None => (None, None),
+                }
+            } else {
+                (
+                    reader.read_native::<Retirement>(NativeRecord::Retired)?,
+                    None,
+                )
+            };
             let has_dispatch = reader.has_dispatch_evidence()?;
             if let Some(retirement) = &retirement {
                 eyre::ensure!(
@@ -328,14 +434,25 @@ impl Retained {
                 .transpose()?
                 .unwrap_or(request.deadline_ms)
                 .min(request.deadline_ms);
-            Ok(Self {
+            let retired = retirement.is_some();
+            let retained = request_observation.map(|request| TerminalRead {
                 request,
-                payload,
-                record,
-                signed,
-                retired: retirement.is_some(),
-                authorization_deadline_ms,
-            })
+                custody_plan,
+                retirement: retirement
+                    .zip(retirement_observation)
+                    .map(|(value, observation)| ObservedRecord { value, observation }),
+            });
+            Ok((
+                Self {
+                    request,
+                    payload,
+                    record,
+                    signed,
+                    retired,
+                    authorization_deadline_ms,
+                },
+                retained,
+            ))
         })
     }
     pub(super) fn verify_selection(

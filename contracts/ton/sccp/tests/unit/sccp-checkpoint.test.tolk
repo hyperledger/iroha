@@ -2564,9 +2564,8 @@ get fun `test the checkpoint use check runs in the order of the specification`()
 // ---------------------------------------------------------------------------
 // Messages and events of the certificate entry points (§5.3.3).
 //
-// TODO: WP-TON-RUST (map step T8, suite T7m): replay the golden bodies of
-// `fixtures/sccp/ton_boc_v1.json` once the Rust body encoders write that
-// file. Until then the test below pins the tags and the data-bit layouts.
+// `sccp-boc.test.tolk` imports and replays the actual Rust wallet bodies of
+// `fixtures/sccp/ton_boc_v1.json`. This test also pins tags and data-bit layouts.
 
 /// The 32-bit tag and the data bits of a serialized body.
 fun tagAndBits(body: cell): (int, int) {

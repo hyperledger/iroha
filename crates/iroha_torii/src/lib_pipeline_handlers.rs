@@ -76,7 +76,10 @@ async fn handler_post_transactions_batch(
         move || {
             let prechecks = precheck_transaction_batch_ed25519(
                 &transactions,
-                worker_app.state.pipeline.signature_batch_max_ed25519,
+                worker_app
+                    .state
+                    .installed_pipeline()
+                    .signature_batch_max_ed25519,
             );
             let mut prepared = Vec::with_capacity(transactions.len());
             // Authenticate the entire batch before any route selection or mutation.
@@ -1240,9 +1243,8 @@ fn pipeline_status_terminal_or_state_entry_with_carrier_reader(
     }
     Ok(None)
 }
-// Test convenience delegates to the actual production reconciliation stage below. It
-// observes that stage before the HTTP scalar's separate Applied promotion.
-#[cfg(test)]
+// HTTP consumers authenticate the exact carrier with request-owned capacity and use the
+// canonical outcome kernel. A cached status or membership alone cannot authorize settlement.
 fn reconcile_pending_pipeline_transaction(
     app: &SharedAppState,
     hash: &HashOf<SignedTransaction>,

@@ -24,6 +24,8 @@ pub const OPAQUE_FIELD_MAX_BYTES: usize = 256;
 pub const DIGEST_BYTES: usize = SHA3_512_BYTES;
 /// Length of a credential commitment in bytes.
 pub const COMMITMENT_BYTES: usize = 128;
+/// Length of a scope nullifier in bytes.
+pub const NULLIFIER_BYTES: usize = 128;
 
 /// Errors of the framing layer and of the bounded inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -304,7 +306,7 @@ impl OpaqueField {
     }
 }
 
-/// A 64-byte public value: `B`, `scope`, `R`, `auth`, `nf`, `policy_hash`,
+/// A 64-byte public value: `B`, `scope`, `R`, `auth`, `auth_v`, `policy_hash`,
 /// `proposal_digest`, `D` or `D_reg`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Digest64(pub [u8; DIGEST_BYTES]);
@@ -362,6 +364,36 @@ impl Commitment {
 
     /// The bytes.
     pub const fn as_bytes(&self) -> &[u8; COMMITMENT_BYTES] {
+        &self.0
+    }
+}
+
+/// A 128-byte scope nullifier `nf`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Nullifier(pub [u8; NULLIFIER_BYTES]);
+
+impl core::fmt::Debug for Nullifier {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write_hex(f, "Nullifier", &self.0)
+    }
+}
+
+impl Nullifier {
+    /// The nullifier in `bytes`.
+    ///
+    /// # Errors
+    /// [`FramingError::FixedLength`] unless `bytes` is exactly 128 bytes long.
+    pub fn from_slice(bytes: &[u8]) -> Result<Self, FramingError> {
+        <[u8; NULLIFIER_BYTES]>::try_from(bytes)
+            .map(Self)
+            .map_err(|_| FramingError::FixedLength {
+                expected: NULLIFIER_BYTES,
+                actual: bytes.len(),
+            })
+    }
+
+    /// The bytes.
+    pub const fn as_bytes(&self) -> &[u8; NULLIFIER_BYTES] {
         &self.0
     }
 }
@@ -516,6 +548,23 @@ mod tests {
         let odd = b" \0caf\xc3\xa9\xff\n";
         assert_eq!(OpaqueField::new(odd).expect("opaque").as_bytes(), odd);
         assert_eq!(BodyContext::new(odd).expect("opaque").as_bytes(), odd);
+    }
+
+    #[test]
+    fn nullifiers_require_all_128_bytes_and_debug_is_public() {
+        let value = Nullifier::from_slice(&[7; 128]).expect("128 bytes");
+        assert_eq!(value, Nullifier([7; 128]));
+        assert_eq!(value.as_bytes(), &[7; 128]);
+        assert!(format!("{value:?}").starts_with("Nullifier(0707"));
+        for len in [0, 64, 127, 129] {
+            assert_eq!(
+                Nullifier::from_slice(&vec![0; len]),
+                Err(FramingError::FixedLength {
+                    expected: 128,
+                    actual: len
+                })
+            );
+        }
     }
 
     #[test]

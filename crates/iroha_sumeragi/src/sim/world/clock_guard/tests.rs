@@ -1,5 +1,5 @@
 //! The application clock guard of the simulator (§4.5) and its named deterministic tests
-//! (§13.4: MS51, MS52; the liveness test of the cross-session clock-guard agreement).
+//! (§13.4: MS51, MS52, MS65, MS66; the cross-session clock-guard agreement).
 
 use super::*;
 use crate::sim::{
@@ -95,6 +95,29 @@ fn guard_rules_and_leads() {
     assert_eq!(state.violated(0, false, 1_001), None);
     assert_eq!(GuardRule::ClockAhead.reason(), "ClockAhead");
     assert_eq!(GuardRule::StaleDueWork.reason(), "StaleDueWork");
+}
+
+/// MS66: an honest leader may be exactly one allowed drift ahead of a slow honest voter.
+/// Removing the allowance must not turn that admissible execution into `ClockAhead`.
+#[test]
+fn clock_guard_accepts_exact_drift_allowance() {
+    let mut sc = Scenario::base("clock-guard-drift-allowance", 1, 4);
+    guarded(
+        &mut sc,
+        ClockGuard {
+            max_clock_drift_ms: DRIFT,
+            due_work_max_lag_ms: 4 * DRIFT,
+            wall_offsets: vec![drift_i64(), 0, 0, 0],
+            ..ClockGuard::default()
+        },
+    );
+    let mut w = World::new(sc);
+    let mut payload = encode_tx_with_due(1, false, true, 0);
+    w.stamp_block_time(0, &mut payload);
+    let t = block_time(&payload).unwrap();
+    let slow_wall = w.wall_ms(1);
+    assert_eq!(i64::try_from(t).unwrap() - slow_wall, drift_i64());
+    assert_eq!(guard_of(&w).violated(t, true, slow_wall), None);
 }
 
 /// Wall clocks, the builder stamp, the executor guard (refused, exempt, Byzantine, unstamped)
@@ -390,6 +413,56 @@ fn clock_guard_certified_time_within_two_drifts() {
             max > drift,
             "seed={seed}: some certified time exceeds an honest clock by more than one drift \
              ({max} ms)"
+        );
+    }
+}
+
+/// MS65: the Byzantine leader votes but stamps due-work blocks older than CT5 permits.
+/// Honest leaders still make progress; the first genuine honest Prepare oracle rejects
+/// stale due-work acceptance without imposing a bound on eventual commit time.
+#[test]
+fn clock_guard_due_work_lower_bound_at_first_prepare() {
+    for seed in [1, 2, 3] {
+        let mut sc = Scenario::base("clock_guard_due_work_lower_bound", seed, 4);
+        sc.duration = 40_000;
+        sc.demotion_window = 8;
+        sc.byz = vec![(3, Vec::new())];
+        sc.workload = Some(Workload {
+            due_every: 1,
+            ..sc.workload.unwrap_or_default()
+        });
+        let lag = lag(DRIFT, &sc);
+        guarded(
+            &mut sc,
+            ClockGuard {
+                max_clock_drift_ms: DRIFT,
+                due_work_max_lag_ms: lag,
+                leads: vec![(3, vec![-i64::try_from(2 * lag).unwrap()])],
+                ..ClockGuard::default()
+            },
+        );
+        let w = crate::sim::run(sc).unwrap_or_else(|report| panic!("seed={seed}: {report}"));
+        let guard = guard_of(&w);
+        assert!(
+            guard
+                .events
+                .iter()
+                .any(|event| { event.rule == GuardRule::StaleDueWork && !event.certified }),
+            "seed={seed}: stale due-work proposals reached an honest executor"
+        );
+        assert!(
+            guard.first_due_prepares.len() >= 10,
+            "seed={seed}: genuine Prepares checked"
+        );
+        assert!(
+            guard.certified.len() >= 10,
+            "seed={seed}: honest leaders progressed"
+        );
+        assert!(
+            guard
+                .certified
+                .iter()
+                .all(|certificate| certificate.proposer != Some(3))
         );
     }
 }

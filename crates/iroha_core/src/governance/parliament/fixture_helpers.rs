@@ -506,9 +506,14 @@ pub(crate) fn seed_npos_policy_for_tests(
         slashing_delay_blocks: 1,
         ..iroha_data_model::parameter::system::SumeragiNposParameters::default()
     };
-    state_transaction.world.parameters.get_mut().set_parameter(
-        iroha_data_model::parameter::Parameter::Custom(policy.into_custom_parameter()),
-    );
+    state_transaction
+        .world
+        .parameters
+        .get_mut()
+        .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+            policy.into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
 }
 
 /// Install a committed consensus schedule whose window starts at the transaction's block

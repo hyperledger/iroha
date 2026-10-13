@@ -31,7 +31,7 @@ use iroha_config::{
 };
 #[cfg(test)]
 use iroha_crypto::Algorithm;
-#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+#[cfg(test)]
 use iroha_crypto::KeyPair;
 use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
@@ -182,7 +182,7 @@ fn recovery_control_decode_limits_v1(wire_limit: u64) -> Result<norito::DecodeLi
             .min(RECOVERY_CONTROL_DECODE_DEPTH_V1),
     ))
 }
-#[cfg(any(test, feature = "bench", feature = "iroha-core-tests"))]
+#[cfg(test)]
 fn checked_keypair() -> KeyPair {
     KeyPair::try_random().expect("kura fixture key generation should succeed")
 }
@@ -228,7 +228,9 @@ mod physical_resource_initialization_tests;
 
 use crate::publication_lock::{PublicationGuard, PublicationMutex};
 mod publication_lease;
-pub(crate) use publication_lease::{KuraPublicationLease, KuraPublicationPreparationError};
+pub(crate) use publication_lease::{
+    KuraPublicationLease, KuraPublicationPreparationError, KuraPublicationSlot,
+};
 
 /// The interface of Kura subsystem.
 ///
@@ -5778,15 +5780,6 @@ impl Kura {
             hashes: required(HASHES_FILE_NAME)?,
             commit_marker: required(COUNT_FILE_NAME)?,
         })
-    }
-    fn canonical_block_store_metadata_unchanged(
-        left: &StableCanonicalBlockStoreMetadata,
-        right: &StableCanonicalBlockStoreMetadata,
-    ) -> bool {
-        Self::stable_sidecar_metadata_unchanged(&left.data, &right.data)
-            && Self::stable_sidecar_metadata_unchanged(&left.index, &right.index)
-            && Self::stable_sidecar_metadata_unchanged(&left.hashes, &right.hashes)
-            && Self::stable_sidecar_metadata_unchanged(&left.commit_marker, &right.commit_marker)
     }
     #[cfg(test)]
     pub(crate) fn canonical_body_bytes_read_for_test(&self) -> u64 {

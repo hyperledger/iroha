@@ -195,13 +195,16 @@ pub fn finalize_block(
     state_block: &mut StateBlock<'_>,
     header: &BlockHeader,
     height_inputs: Option<&SccpHeightInputsV1<'_>>,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
 ) -> Result<SccpFinalityHeaderV1, BlockValidationError> {
     let height = header.height().get();
     let time = generations::timestamp_ms(header);
     let inactive =
         SccpFinalityHeaderV1::inactive(*state_block.network_id().as_bytes(), height, time)
             .expect("BlockHeader height is nonzero");
-    if !params::exists(&state_block.world) {
+    if root_scope != iroha_data_model::block::consensus::SumeragiRootScope::Global
+        || !params::exists(&state_block.world)
+    {
         return Ok(inactive);
     }
     #[cfg(test)]
@@ -290,7 +293,8 @@ pub fn finalize_block(
                 .ok()
             });
         if let Some(active) = active {
-            plan.publish(&mut stx);
+            plan.publish(&mut stx)
+                .map_err(BlockValidationError::StateStorageAdmission)?;
             active
         } else {
             failure = Some(SccpFinalityDegradedReasonV1::InvalidGeneration);
@@ -301,7 +305,10 @@ pub fn finalize_block(
     };
     if let Some(anchor) = anchor {
         if let Some((chunk, root)) = anchor.completed {
-            stx.world.sccp_anchor_chunks.insert(chunk, root);
+            stx.world
+                .sccp_anchor_chunks
+                .try_insert_admitted(chunk, root)
+                .map_err(|(_, error)| BlockValidationError::StateStorageAdmission(error.into()))?;
         }
         store::anchor_open::set(&mut stx, anchor.open);
     }
@@ -309,9 +316,9 @@ pub fn finalize_block(
         degrade(&mut stx, height, reason);
     }
     light_clients::prune(&mut stx, MAX_PRUNE_DELETIONS_PER_BLOCK);
-    // TODO: WP-S6: generation/anchor-root retirement requires the real Pending SCCP forgery
-    // State and instruction owner. Never replace that missing authority with an empty set.
-    generations::clear_destinations(&mut stx);
+    super::pruning::prune(&mut stx).map_err(BlockValidationError::StateStorageAdmission)?;
+    generations::clear_destinations(&mut stx)
+        .map_err(BlockValidationError::StateStorageAdmission)?;
     stx.apply();
     Ok(header)
 }
@@ -474,7 +481,13 @@ mod tests {
         let candidate = header(2);
         let mut block = state.block(candidate);
         let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no-op finalizer");
+        finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("no-op finalizer");
         assert!(
             observed::take().is_empty(),
             "the finalizer returns before reading inputs without SCCP"
@@ -531,7 +544,13 @@ mod tests {
                     .unwrap(),
             ),
         };
-        finalize_block(&mut block, &candidate, Some(&inputs)).expect("hook");
+        finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("hook");
         assert_eq!(
             observed::take(),
             vec![(2, Some(observed::HeightInputsSnapshot::from(&inputs)))]
@@ -590,7 +609,13 @@ mod tests {
         }
         // Block 2 runs at 8 000 ms, past the retention of checkpoints recorded at 0. The
         // lowest checkpoint of a stride bucket is permanent; the other one is pruned.
-        finalize_block(&mut block, &candidate, None).expect("hook");
+        finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("hook");
         let _ = observed::take();
         assert!(store::light_client_checkpoints::contains(
             &block.world,
@@ -644,7 +669,13 @@ mod tests {
         }
         let before = block.world.sccp_execution_write_set_bytes();
         let _ = observed::take();
-        finalize_block(&mut block, &candidate, None).expect("no leaves");
+        finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect("no leaves");
         assert_ne!(block.world.sccp_execution_write_set_bytes(), before);
         assert_eq!(*store::degraded_run::get(&block.world), 1);
         assert_eq!(store::history::get(&block.world).size, 0);
@@ -846,8 +877,18 @@ mod tests {
         let original = reader.certified(height).unwrap();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
-        let retained = super::super::read::certificate_from_native(&original, &budget).unwrap();
-        let certificate = retained.certificate();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let retained = super::super::read::native::finality(
+            &view,
+            std::num::NonZeroU64::new(height),
+            &budget,
+            super::super::read::native::SccpNativeReadControl {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                stop: &stop,
+            },
+        )
+        .unwrap();
+        let certificate = retained.data();
         assert_eq!(
             &certificate.header,
             original.certified_result().header().as_bytes()
@@ -872,7 +913,9 @@ mod tests {
         );
         assert_eq!(
             budget.reserved_bytes(),
-            occupied + certificate.committee.len() * 48
+            occupied
+                + std::mem::size_of::<iroha_sccp::api::SccpCertificateV1>()
+                + iroha_data_model::sumeragi::epoch::MAX_VALIDATORS * 48
         );
         drop(retained);
         assert_eq!(budget.reserved_bytes(), occupied);
@@ -949,7 +992,13 @@ mod tests {
         let candidate =
             BlockHeader::new(std::num::NonZeroU64::new(2).unwrap(), None, None, 2_000, 0);
         let mut block = chain.state().block(candidate);
-        let inactive = finalize_block(&mut block, &candidate, None).unwrap();
+        let inactive = finalize_block(
+            &mut block,
+            &candidate,
+            None,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(!inactive.is_active());
         assert_eq!(*store::degraded_run::get(&block.world), 1);
         assert_eq!(*store::committee_current::get(&block.world), 1);
@@ -978,7 +1027,13 @@ mod tests {
             .unwrap(),
             next_roster: None,
         };
-        let active = finalize_block(&mut recovered, &candidate, Some(&inputs)).unwrap();
+        let active = finalize_block(
+            &mut recovered,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(active.is_active());
         assert!(!active.is_rotation());
         assert_eq!(active.generation(), 1);
@@ -1004,6 +1059,7 @@ mod tests {
         let view = chain.state().view();
         let budget = chain.state().ivm_execution_budget();
         let occupied = budget.reserved_bytes();
+        let original_generation = chain.state().state_view_generation();
         let original_peer = std::ptr::from_ref(
             &view
                 .world()
@@ -1040,8 +1096,13 @@ mod tests {
         let external = budget
             .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
             .unwrap();
-        let error = finalize_block(&mut block, &candidate, Some(&inputs))
-            .expect_err("original transaction admission refuses");
+        let error = finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        )
+        .expect_err("original transaction admission refuses");
         let BlockValidationError::ExecutionDeferred(deferred) = &error else {
             panic!("expected unfinished original execution: {error:?}")
         };
@@ -1058,9 +1119,29 @@ mod tests {
             std::ptr::from_ref(inputs.roster.iter().next().unwrap()),
             original_peer
         );
+        let released_bytes = external.remaining_bytes();
+        let before_release = budget.reserved_bytes();
         drop(external);
+        assert_eq!(budget.reserved_bytes(), before_release - released_bytes);
+        assert_eq!(
+            waiter.poll_wait(release, &mut cx),
+            Poll::Pending,
+            "same-thread refunds wait until every original State writer retires"
+        );
+        // Native validation drops an unsealed refused overlay before returning its
+        // original proposal and release. Retry that same candidate only after the
+        // writer boundary, retaining this exact captured schedule and its borrower.
+        drop(block);
         assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
-        let active = finalize_block(&mut block, &candidate, Some(&inputs)).unwrap();
+        assert_eq!(chain.state().state_view_generation(), original_generation);
+        let mut block = chain.state().block(candidate);
+        let active = finalize_block(
+            &mut block,
+            &candidate,
+            Some(&inputs),
+            SumeragiRootScope::Global,
+        )
+        .unwrap();
         assert!(active.is_active());
         assert!(!active.is_rotation());
         assert_eq!(active.generation(), 1);

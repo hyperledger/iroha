@@ -35,6 +35,61 @@ use iroha_data_model::{
 };
 use mv::storage::StorageReadOnly;
 
+/// Keep the original local refusal armed until the enclosing block aborts.
+fn storage_refusal(
+    state: &mut StateTransaction<'_, '_>,
+    error: mv::storage::AdmittedStorageError,
+) -> Error {
+    state.arm_local_storage_refusal(crate::state::StateStorageAdmissionError::World(error));
+    Error::InvariantViolation("SCCP original map allocation did not complete".into())
+}
+macro_rules! insert_map {
+    ($state:ident, sccp_committee_generations, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_committee_generations
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident, $value:ident) => {
+        $state
+            .world
+            .sccp_anchor_chunks
+            .try_insert_admitted($key, $value)
+            .map_err(|(_, error)| storage_refusal($state, error))
+    };
+    ($state:ident, $field:ident, $key:ident, $value:ident) => {
+        Ok::<_, Error>($state.world.$field.insert($key, $value))
+    };
+}
+macro_rules! remove_map {
+    ($state:ident, sccp_committee_generations, $key:ident) => {
+        match $state
+            .world
+            .sccp_committee_generations
+            .try_remove_admitted($key)
+        {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, sccp_anchor_chunks, $key:ident) => {
+        match $state.world.sccp_anchor_chunks.try_remove_admitted($key) {
+            Ok(previous) => previous,
+            Err((_, error)) => {
+                let _ = storage_refusal($state, error);
+                None
+            }
+        }
+    };
+    ($state:ident, $field:ident, $key:ident) => {
+        $state.world.$field.remove($key)
+    };
+}
+
 /// Generate the typed helpers of one SCCP storage map, optionally with a stored invariant
 /// `valid(key_pattern, value_pattern) => rule` over borrowed keys and values.
 macro_rules! storage_map {
@@ -96,15 +151,16 @@ macro_rules! storage_map {
                         .into(),
                     ));
                 }
+                $(let $indexed_value = &value; let indexed = $indexed;)?
+                let previous = insert_map!(state_transaction, $field, key, value)?;
                 $(
-                    let $indexed_value = &value;
-                    if $indexed {
+                    if indexed {
                         state_transaction.world.$index.insert(key, ());
                     } else {
                         state_transaction.world.$index.remove(key);
                     }
                 )?
-                Ok(state_transaction.world.$field.insert(key, value))
+                Ok(previous)
             }
 
             /// Remove `key` in the executing transaction, returning the previous value.
@@ -112,8 +168,13 @@ macro_rules! storage_map {
                 state_transaction: &mut StateTransaction<'_, '_>,
                 key: $key,
             ) -> Option<$value> {
-                $(state_transaction.world.$index.remove(key);)?
-                state_transaction.world.$field.remove(key)
+                let previous = remove_map!(state_transaction, $field, key);
+                $(
+                    if previous.is_some() {
+                        state_transaction.world.$index.remove(key);
+                    }
+                )?
+                previous
             }
 
             /// Iterate every entry in ascending key order.
@@ -737,4 +798,49 @@ mod tests {
         assert_eq!(set_governance_revision(&mut stx, subject, 0), 3);
         assert!(governance_revisions::is_empty(&*stx.world));
     }
+}
+
+/// Permanent offences are read separately from Native evidence; no native-horizon pruning.
+pub mod forgery_offences {
+    use super::*;
+    use crate::state::sccp_forgery_custody::OffenceKey;
+
+    /// Borrow the original evidence id, retaining absence as absence.
+    #[must_use]
+    pub fn get<'a>(
+        world: &'a (impl WorldReadOnly + ?Sized),
+        key: &OffenceKey,
+    ) -> Option<&'a [u8; 32]> {
+        world.sccp_forgery_offences().get(key)
+    }
+
+    /// Install one new offence under its original map pool and advance the maximum.
+    /// The executing-parent handler owns paired record/event publication in the same
+    /// child transaction; this primitive alone grants no instruction authority.
+    pub(crate) fn insert_new(
+        stx: &mut StateTransaction<'_, '_>,
+        key: OffenceKey,
+        evidence_id: [u8; 32],
+    ) -> Result<bool, (OffenceKey, mv::storage::AdmittedStorageError)> {
+        if !key.belongs_to(stx.world.sccp_forgery_offences.allocation_budget()) {
+            return Err((key, mv::storage::AdmittedStorageError::ScopeIdentity));
+        }
+        if stx.world.sccp_forgery_offences.get(&key).is_some() {
+            return Ok(false);
+        }
+        let generation = key.generation();
+        stx.world
+            .sccp_forgery_offences
+            .try_insert_admitted(key, evidence_id)
+            .map_err(|((key, _), error)| (key, error))?;
+        let maximum = stx.world.sccp_forgery_max_generation.get_mut();
+        *maximum = Some(maximum.map_or(generation, |previous| previous.max(generation)));
+        Ok(true)
+    }
+}
+
+/// Highest recorded SCCP generation; this does not derive a hold release by itself.
+#[must_use]
+pub fn forgery_max_generation(world: &(impl WorldReadOnly + ?Sized)) -> Option<u64> {
+    *world.sccp_forgery_max_generation()
 }

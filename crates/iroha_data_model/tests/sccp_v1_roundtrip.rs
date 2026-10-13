@@ -3,8 +3,8 @@
 //!
 //! Covers `specs/sccp.md` §3.5, §4.4, §4.5, §4.11–§4.17 and §4.19: stable schema names and
 //! instruction ids, binary (bare, headered and slice) and JSON roundtrips of every type and
-//! instruction, closed JSON objects, unknown enum tags (including the unassigned tags of the
-//! retired attestation transport) and trailing bytes, the route escrow derivation
+//! instruction, closed JSON objects, unknown enum tags, retired JSON event names and trailing
+//! bytes, the route escrow derivation
 //! (deterministic, distinct per route and `NetworkId`, revision-free) and the bounds of the
 //! opaque proof, advance and evidence wrappers.
 
@@ -19,7 +19,7 @@ use iroha_data_model::{
     isi::{
         Instruction,
         sccp::{
-            AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
+            AdvanceSccpLightClientV1, InitializeSccpV1, ProveSccpForgedMintV1, RecordSccpMessage,
             ReportSccpLightClientEquivocationV1, SccpSettleInboundV1, SccpSettleRefundV1,
             SccpSettleTargetV1, SettleSccpV1, SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
         },
@@ -31,21 +31,27 @@ use iroha_data_model::{
             SCCP_FIRST_CONTROL_NONCE_V1, SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1,
             SccpTransferLeafRefV1,
         },
-        deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
+        deployment::{SccpCommitteePinV1, SccpDeploymentV1, SccpEvmDeploymentV1},
         escrow::{
             SCCP_ROUTE_ESCROW_DOMAIN_V1, SCCP_TAIRA_XOR_ASSET_DEFINITION_ID_V1,
             SCCP_XOR_ASSET_ID_TEXT, sccp_route_escrow_account_id_v1,
             sccp_taira_xor_asset_definition_id, sccp_xor_route_escrow_account_id_v1,
         },
         events::{
-            SccpBlockCommittedV1, SccpBounceReasonV1, SccpControlRecordedV1, SccpEvent,
-            SccpEventSet, SccpGovernanceEnactedV1, SccpInboundBouncedV1,
-            SccpInboundLiabilityShortfallV1, SccpInboundProvenV1, SccpInboundReleasedV1,
-            SccpLightClientAdvancedV1, SccpLightClientFrozenV1, SccpLightClientInitializedV1,
-            SccpMessageRecordedV1, SccpOutboundRefundedV1, SccpOutboundStrandedV1,
-            SccpOutboundVoidedV1, SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1,
-            SccpStrandedReleasedV1, SccpTrustedCheckpointInstalledV1,
+            SccpBlockCommittedV1, SccpBounceReasonV1, SccpCommitteeGenerationCreatedV1,
+            SccpCommitteeResyncV1, SccpControlRecordedV1, SccpEvent, SccpEventSet,
+            SccpFastPauseLapsedV1, SccpFinalityDegradedReasonV1, SccpFinalityDegradedV1,
+            SccpForgeryEvidenceRecordedV1, SccpForgeryOffenderUnslashableV1,
+            SccpGenerationDestinationClearedV1, SccpGenerationMemberUnslashableV1,
+            SccpGovernanceEnactedV1, SccpInboundBouncedV1, SccpInboundLiabilityShortfallV1,
+            SccpInboundProvenV1, SccpInboundReleasedV1, SccpLightClientAdvancedV1,
+            SccpLightClientFrozenV1, SccpLightClientInitializedV1, SccpMessageRecordedV1,
+            SccpOutboundRefundedV1, SccpOutboundStrandedV1, SccpOutboundVoidedV1,
+            SccpRecipientRegisteredV1, SccpRevisionActivationChangedV1, SccpRevisionForgeryHeldV1,
+            SccpRevisionForgeryReleasedV1, SccpRevisionQuarantinedV1, SccpStrandedReleasedV1,
+            SccpTrustedCheckpointInstalledV1,
         },
+        generation::SccpGenerationCauseV1,
         governance::SccpGovernanceSubjectV1,
         inbound::{
             SCCP_SOURCE_PROOF_MAX_BYTES_V1, SccpBounceStatusV1, SccpInboundRecordV1,
@@ -58,11 +64,13 @@ use iroha_data_model::{
             SccpLcFreezeReasonV1, SccpLcHeadV1, SccpLcParliamentFreezeV1, SccpLcPointV1,
             SccpLightClientParamsV1, SccpLightClientV1,
         },
+        native::{SccpForgeryOffenderV1, SccpForgeryRuleV1},
         outbound::{
             SccpOutboundMessageRecordV1, SccpOutboundStatusV1, SccpStatusHeightV1, SccpVoidKindV1,
             SccpVoidStatusV1,
         },
         params::SccpParametersV1,
+        reconciliation::{SccpForgedMintPayloadV1, SccpForgedMintProofV1},
         registry::{
             SCCP_ROUTE_ID_TAIRA_BSC_XOR_V1, SCCP_ROUTE_ID_TAIRA_ETH_XOR_V1,
             SCCP_ROUTE_ID_TAIRA_TON_XOR_V1, SccpRouteActivationV1, SccpRouteRevisionV1,
@@ -117,6 +125,15 @@ fn evm(seed: u8) -> SccpDeploymentV1 {
     })
 }
 
+fn pin() -> SccpCommitteePinV1 {
+    SccpCommitteePinV1 {
+        generation: 7,
+        committee_root: [0xa5; 32],
+        start_height: 11,
+        until_ms: 90_000,
+    }
+}
+
 fn revision(number: u32, activation: SccpRouteActivationV1) -> SccpRouteRevisionV1 {
     SccpRouteRevisionV1 {
         activation,
@@ -126,12 +143,7 @@ fn revision(number: u32, activation: SccpRouteActivationV1) -> SccpRouteRevision
         ..SccpRouteRevisionV1::staged(
             number,
             evm(u8::try_from(number).expect("small revision")),
-            iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
-                generation: 1,
-                committee_root: [0x44; 32],
-                start_height: 1,
-                until_ms: 1_801_209_600_000,
-            },
+            pin(),
             21_000_000_000_000_000,
             100,
         )
@@ -188,12 +200,12 @@ fn outbound_statuses() -> [SccpOutboundStatusV1; 5] {
         SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
             kind: SccpVoidKindV1::Expired,
             proven_at_height: 10,
-            refund_pending: false,
+            refund_pending: None,
         }),
         SccpOutboundStatusV1::Voided(SccpVoidStatusV1 {
             kind: SccpVoidKindV1::Frozen,
             proven_at_height: 11,
-            refund_pending: true,
+            refund_pending: Some(iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred),
         }),
         SccpOutboundStatusV1::Refunded(SccpStatusHeightV1 { height: 12 }),
         SccpOutboundStatusV1::Stranded(SccpStatusHeightV1 { height: 13 }),
@@ -216,14 +228,19 @@ fn outbound(status: SccpOutboundStatusV1) -> SccpOutboundMessageRecordV1 {
     }
 }
 
-fn inbound_statuses() -> [SccpInboundStatusV1; 5] {
+fn inbound_statuses() -> [SccpInboundStatusV1; 6] {
     [
         SccpInboundStatusV1::pending(SccpPendingReasonV1::Disabled),
         SccpInboundStatusV1::pending(SccpPendingReasonV1::RevisionNotSettleable),
         SccpInboundStatusV1::pending(SccpPendingReasonV1::LiabilityShortfall),
-        SccpInboundStatusV1::Released(SccpStatusHeightV1 { height: 90 }),
+        SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 { height: 90, payout: 1 }),
         SccpInboundStatusV1::Bounced(SccpBounceStatusV1 {
             bounce_message_id: [0x88; 32],
+            payout: 1,
+        }),
+        SccpInboundStatusV1::Stranded(iroha_data_model::sccp::inbound::SccpInboundSettledV1 {
+            height: 91,
+            payout: u128::MAX,
         }),
     ]
 }
@@ -252,10 +269,10 @@ fn evidence(len: usize) -> SccpLcEvidenceBytesV1 {
     SccpLcEvidenceBytesV1::new(vec![0x45; len]).expect("bounded evidence")
 }
 
-/// Codec index of every event variant, in declaration order. Indices 2 to 9 belonged to the
-/// events of the attestation transport and stay unassigned.
-const EVENT_CODEC_INDICES: [u32; 18] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+/// The complete first-release native layout, in declaration order.
+const EVENT_CODEC_INDICES: [u32; 34] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 31, 32, 33,
 ];
 
 /// JSON tags of the events deleted with the attestation transport (§4.17).
@@ -440,7 +457,7 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 track: 1,
                 parliament_paused: true,
                 fast_pause_until_ms: 0,
-                certificate_id: [0x5a; 32],
+                certificate_id: [4; 32],
                 height: 30,
                 commitment_index: 0,
             }),
@@ -457,6 +474,106 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "governance_enacted",
         ),
+        (
+            SccpEvent::CommitteeGenerationCreated(SccpCommitteeGenerationCreatedV1 {
+                generation: 7,
+                cause: SccpGenerationCauseV1::KeyChange,
+                committee_root: [0x71; 32],
+                start_height: 11,
+                deadline_ms: 90_000,
+            }),
+            "committee_generation_created",
+        ),
+        (
+            SccpEvent::GenerationMemberUnslashable(SccpGenerationMemberUnslashableV1 {
+                generation: 7,
+                index: 3,
+            }),
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEvent::CommitteeResync(SccpCommitteeResyncV1 {
+                generation: 8,
+                committee_root: [0x72; 32],
+                start_height: 31,
+            }),
+            "committee_resync",
+        ),
+        (
+            SccpEvent::GenerationDestinationCleared(SccpGenerationDestinationClearedV1 {
+                generation: 7,
+                lc: 90_001,
+            }),
+            "generation_destination_cleared",
+        ),
+        (
+            SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+                height: 33,
+                reason: SccpFinalityDegradedReasonV1::MissingParent,
+            }),
+            "finality_degraded",
+        ),
+        (
+            SccpEvent::FastPauseLapsed(SccpFastPauseLapsedV1 {
+                network: ETH,
+                certificate_id: [0x73; 32],
+                until_ms: 90_002,
+            }),
+            "fast_pause_lapsed",
+        ),
+        (
+            SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
+                evidence_id: [8; 32],
+                generation: 7,
+                height: 123,
+                rule: SccpForgeryRuleV1::E4,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 2,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: account(7),
+                    activation_height: 11,
+                }],
+            }),
+            "forgery_evidence_recorded",
+        ),
+        (
+            SccpEvent::ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1 {
+                generation: 7,
+                signer: 1,
+            }),
+            "forgery_offender_unslashable",
+        ),
+        (
+            SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 7,
+                generation: 8,
+            }),
+            "revision_forgery_held",
+        ),
+        (
+            SccpEvent::RevisionForgeryReleased(SccpRevisionForgeryReleasedV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 9,
+            }),
+            "revision_forgery_released",
+        ),
+        (
+            SccpEvent::RevisionQuarantined(SccpRevisionQuarantinedV1 {
+                network: TON,
+                revision: 3,
+                certificate_id: [9; 32],
+                since_height: 45,
+            }),
+            "revision_quarantined",
+        ),
+        (SccpEvent::ReconciliationOpened(iroha_data_model::sccp::events::SccpReconciliationOpenedV1 { network: TON, revision: 3, opened_at_ms: 1, closes_at_ms: 5 }), "reconciliation_opened"),
+        (SccpEvent::ForgedMintProven(iroha_data_model::sccp::events::SccpForgedMintProvenV1 { network: TON, revision: 3, message_id: [8; 32], amount: u128::MAX }), "forged_mint_proven"),
+        (SccpEvent::ReconciliationSettled(iroha_data_model::sccp::events::SccpReconciliationSettledV1 { network: TON, revision: 3, backing: 100, forged_supply: 20 }), "reconciliation_settled"),
+        (SccpEvent::ReconciledClaimSettled(iroha_data_model::sccp::events::SccpReconciledClaimSettledV1 { network: TON, revision: 3, message_id: [8; 32], amount: u128::MAX, payout: 100 }), "reconciled_claim_settled"),
+        (SccpEvent::InboundStranded(iroha_data_model::sccp::events::SccpInboundStrandedV1 { message_id: [3; 32], network: TON, revision: 3, amount: 10, reason: SccpBounceReasonV1::UndecodableRecipient }), "inbound_stranded"),
     ]
 }
 
@@ -886,6 +1003,54 @@ fn event_schema_names_are_stable() {
             SccpGovernanceEnactedV1::nominal_name(),
             "iroha_data_model::sccp::events::SccpGovernanceEnactedV1",
         ),
+        (
+            SccpCommitteeGenerationCreatedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeGenerationCreatedV1",
+        ),
+        (
+            SccpGenerationMemberUnslashableV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationMemberUnslashableV1",
+        ),
+        (
+            SccpCommitteeResyncV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpCommitteeResyncV1",
+        ),
+        (
+            SccpGenerationDestinationClearedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpGenerationDestinationClearedV1",
+        ),
+        (
+            SccpFinalityDegradedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedV1",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFinalityDegradedReasonV1",
+        ),
+        (
+            SccpFastPauseLapsedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpFastPauseLapsedV1",
+        ),
+        (
+            SccpForgeryEvidenceRecordedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpForgeryEvidenceRecordedV1",
+        ),
+        (
+            SccpForgeryOffenderUnslashableV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpForgeryOffenderUnslashableV1",
+        ),
+        (
+            SccpRevisionForgeryHeldV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpRevisionForgeryHeldV1",
+        ),
+        (
+            SccpRevisionForgeryReleasedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpRevisionForgeryReleasedV1",
+        ),
+        (
+            SccpRevisionQuarantinedV1::nominal_name(),
+            "iroha_data_model::sccp::events::SccpRevisionQuarantinedV1",
+        ),
     ];
     let mut seen = BTreeSet::new();
     for (actual, expected) in cases {
@@ -1022,7 +1187,7 @@ fn leaf_control_and_record_roundtrips() {
         commitment_index: 511,
         leaf: [3; 32],
         certificate_id: [4; 32],
-        effect_hash: [5; 32],
+        effect_hash: [0x45; 32],
     });
     for status in outbound_statuses() {
         roundtrip(&status);
@@ -1124,7 +1289,8 @@ fn every_event_roundtrips_with_its_snake_case_tag() {
 
 #[test]
 fn retired_attestation_and_roster_events_do_not_decode() {
-    // Binary: the freed indices 2..=9 are holes, with any payload.
+    // These indices are assigned in the sole native layout. Their original
+    // malformed-payload controls remain; they are not proof of reserved holes.
     assert_rejects_tags::<SccpEvent>(&[2, 3, 4, 5, 6, 7, 8, 9], 0);
     assert_rejects_tags::<SccpEvent>(&[2, 3, 4, 5, 6, 7, 8, 9], 256);
     // JSON: a kept event under a retired tag, and a retired tag with an empty payload.
@@ -1148,10 +1314,63 @@ fn retired_attestation_and_roster_events_do_not_decode() {
 #[test]
 fn event_set_selects_exactly_the_named_variants() {
     let events = every_event();
-    for (event, _) in &events {
+    let mut covered = SccpEventSet::empty();
+    for (event, tag) in &events {
         assert!(SccpEventSet::all().matches(event));
         assert!(!SccpEventSet::empty().matches(event));
+        // Exhaustiveness makes a newly added native variant require a fixture.
+        let selected = match event {
+            SccpEvent::MessageRecorded(_) => SccpEventSet::MessageRecorded,
+            SccpEvent::BlockCommitted(_) => SccpEventSet::BlockCommitted,
+            SccpEvent::InboundProven(_) => SccpEventSet::InboundProven,
+            SccpEvent::RecipientRegistered(_) => SccpEventSet::RecipientRegistered,
+            SccpEvent::InboundReleased(_) => SccpEventSet::InboundReleased,
+            SccpEvent::InboundBounced(_) => SccpEventSet::InboundBounced,
+            SccpEvent::InboundLiabilityShortfall(_) => SccpEventSet::InboundLiabilityShortfall,
+            SccpEvent::OutboundVoided(_) => SccpEventSet::OutboundVoided,
+            SccpEvent::OutboundRefunded(_) => SccpEventSet::OutboundRefunded,
+            SccpEvent::OutboundStranded(_) => SccpEventSet::OutboundStranded,
+            SccpEvent::StrandedReleased(_) => SccpEventSet::StrandedReleased,
+            SccpEvent::LightClientAdvanced(_) => SccpEventSet::LightClientAdvanced,
+            SccpEvent::LightClientFrozen(_) => SccpEventSet::LightClientFrozen,
+            SccpEvent::LightClientInitialized(_) => SccpEventSet::LightClientInitialized,
+            SccpEvent::TrustedCheckpointInstalled(_) => SccpEventSet::TrustedCheckpointInstalled,
+            SccpEvent::RevisionActivationChanged(_) => SccpEventSet::RevisionActivationChanged,
+            SccpEvent::ControlRecorded(_) => SccpEventSet::ControlRecorded,
+            SccpEvent::GovernanceEnacted(_) => SccpEventSet::GovernanceEnacted,
+            SccpEvent::CommitteeGenerationCreated(_) => SccpEventSet::CommitteeGenerationCreated,
+            SccpEvent::GenerationMemberUnslashable(_) => SccpEventSet::GenerationMemberUnslashable,
+            SccpEvent::CommitteeResync(_) => SccpEventSet::CommitteeResync,
+            SccpEvent::GenerationDestinationCleared(_) => {
+                SccpEventSet::GenerationDestinationCleared
+            }
+            SccpEvent::FinalityDegraded(_) => SccpEventSet::FinalityDegraded,
+            SccpEvent::FastPauseLapsed(_) => SccpEventSet::FastPauseLapsed,
+            SccpEvent::ForgeryEvidenceRecorded(_) => SccpEventSet::ForgeryEvidenceRecorded,
+            SccpEvent::ForgeryOffenderUnslashable(_) => SccpEventSet::ForgeryOffenderUnslashable,
+            SccpEvent::RevisionForgeryHeld(_) => SccpEventSet::RevisionForgeryHeld,
+            SccpEvent::RevisionForgeryReleased(_) => SccpEventSet::RevisionForgeryReleased,
+            SccpEvent::RevisionQuarantined(_) => SccpEventSet::RevisionQuarantined,
+            SccpEvent::ReconciliationOpened(_) => SccpEventSet::ReconciliationOpened,
+            SccpEvent::ForgedMintProven(_) => SccpEventSet::ForgedMintProven,
+            SccpEvent::ReconciliationSettled(_) => SccpEventSet::ReconciliationSettled,
+            SccpEvent::ReconciledClaimSettled(_) => SccpEventSet::ReconciledClaimSettled,
+            SccpEvent::InboundStranded(_) => SccpEventSet::InboundStranded,
+
+        };
+        let matched: Vec<&str> = events
+            .iter()
+            .filter(|(candidate, _)| selected.matches(candidate))
+            .map(|(_, candidate_tag)| *candidate_tag)
+            .collect();
+        assert_eq!(matched, vec![*tag], "one exact native event bit");
+        covered |= selected;
     }
+    assert_eq!(
+        covered,
+        SccpEventSet::all(),
+        "all native variants are covered"
+    );
     let set = SccpEventSet::InboundReleased
         | SccpEventSet::OutboundRefunded
         | SccpEventSet::GovernanceEnacted;
@@ -1172,6 +1391,19 @@ fn event_set_selects_exactly_the_named_variants() {
 
 #[test]
 fn every_instruction_roundtrips_through_every_decoder() {
+    let forged = ProveSccpForgedMintV1 {
+        network: BSC,
+        revision: 1,
+        proof: SccpForgedMintProofV1 {
+            source: proof(128),
+            payload: SccpForgedMintPayloadV1::new(vec![2; 64]).unwrap(),
+        },
+    };
+    roundtrip_with_slice(&forged);
+    assert_rejects_unknown_field(&forged, &[]);
+    assert_rejects_unknown_field(&forged, &["proof"]);
+    assert_eq!(Instruction::id(&forged), "iroha_data_model::isi::sccp::ProveSccpForgedMintV1");
+    assert_eq!(ProveSccpForgedMintV1::nominal_name(), "iroha_data_model::isi::sccp::ProveSccpForgedMintV1");
     roundtrip_with_slice(&InitializeSccpV1 {
         parameters: SccpParametersV1::taira_default(),
         reset_nonce: [0x5a; 32],
@@ -1439,12 +1671,12 @@ fn unknown_binary_tags_are_rejected() {
     assert_rejects_tags::<SccpLeafRefV1>(&[2, u32::MAX], 64);
     assert_rejects_tags::<SccpVoidKindV1>(&[2, u32::MAX], 0);
     assert_rejects_tags::<SccpOutboundStatusV1>(&[4, u32::MAX], 64);
-    assert_rejects_tags::<SccpPendingReasonV1>(&[7, u32::MAX], 0);
-    assert_rejects_tags::<SccpInboundStatusV1>(&[3, u32::MAX], 64);
+    assert_rejects_tags::<SccpPendingReasonV1>(&[8, u32::MAX], 0);
+    assert_rejects_tags::<SccpInboundStatusV1>(&[4, u32::MAX], 64);
     assert_rejects_tags::<SccpRouteActivationV1>(&[5, u32::MAX], 0);
     assert_rejects_tags::<SccpLcFreezeReasonV1>(&[2, u32::MAX], 64);
     assert_rejects_tags::<SccpBounceReasonV1>(&[4, u32::MAX], 0);
-    assert_rejects_tags::<SccpEvent>(&[26, 27, u32::MAX], 256);
+    assert_rejects_tags::<SccpEvent>(&[34, 35, u32::MAX], 256);
     assert_rejects_tags::<SccpSettleTargetV1>(&[2, u32::MAX], 64);
 }
 
@@ -1809,18 +2041,7 @@ fn registry_rules() {
     assert!(!SccpRouteActivationV1::Retired.can_transition_to(SccpRouteActivationV1::Staged));
     assert!(!SccpRouteActivationV1::Staged.can_transition_to(SccpRouteActivationV1::Paused));
 
-    let staged = SccpRouteRevisionV1::staged(
-        1,
-        evm(9),
-        iroha_data_model::sccp::deployment::SccpCommitteePinV1 {
-            generation: 1,
-            committee_root: [0x44; 32],
-            start_height: 1,
-            until_ms: 1_801_209_600_000,
-        },
-        1_000,
-        40,
-    );
+    let staged = SccpRouteRevisionV1::staged(1, evm(9), pin(), 1_000, 40);
     assert_eq!(staged.destination_word, evm(9).destination_word());
     assert_eq!(staged.next_control_nonce, SCCP_FIRST_CONTROL_NONCE_V1);
     assert_eq!(staged.next_outbound_nonce, 0);
@@ -1847,12 +2068,13 @@ fn status_helpers() {
     for status in [recorded, voided, refunded, stranded] {
         assert!(!status.is_refund_pending());
     }
-    let [disabled, paused, shortfall, released, bounced] = inbound_statuses();
+    let [disabled, paused, shortfall, released, bounced, stranded] = inbound_statuses();
     for status in [disabled, paused, shortfall] {
         assert!(status.is_pending());
     }
     assert!(!released.is_pending());
     assert!(!bounced.is_pending());
+    assert!(!stranded.is_pending());
     assert_eq!(
         disabled,
         SccpInboundStatusV1::Pending(SccpPendingStatusV1 {

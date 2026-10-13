@@ -16,25 +16,25 @@ fn profile(geometry: Geometry, baseline: AesCpuBaseline, cpu: u64, metal: u64) -
 
 #[test]
 fn exact_key_rejects_neighboring_blocks_and_distinct_families_or_rounds() {
-    let work = MetalBatchWork::AesEncRounds(9);
+    let work = MetalBatchWork::EncryptRounds(9);
     let geometry = Geometry::new(work, 129).unwrap();
     for neighbor in [128, 130, 513, 2_047] {
         assert_ne!(geometry, Geometry::new(work, neighbor).unwrap());
     }
     for other in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(1),
-        MetalBatchWork::AesEncRounds(8),
-        MetalBatchWork::AesDecRounds(9),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(1),
+        MetalBatchWork::EncryptRounds(8),
+        MetalBatchWork::DecryptRounds(9),
     ] {
         assert_ne!(geometry, Geometry::new(other, 129).unwrap());
     }
     for work in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(1),
-        MetalBatchWork::AesDecRounds(64),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(1),
+        MetalBatchWork::DecryptRounds(64),
     ] {
         for blocks in [0, 1, 31, 2_049, usize::MAX] {
             assert!(Geometry::new(work, blocks).is_none());
@@ -44,15 +44,15 @@ fn exact_key_rejects_neighboring_blocks_and_distinct_families_or_rounds() {
         }
     }
     for rounds in [0, 65, usize::MAX] {
-        assert!(Geometry::new(MetalBatchWork::AesEncRounds(rounds), 128).is_none());
-        assert!(Geometry::new(MetalBatchWork::AesDecRounds(rounds), 128).is_none());
+        assert!(Geometry::new(MetalBatchWork::EncryptRounds(rounds), 128).is_none());
+        assert!(Geometry::new(MetalBatchWork::DecryptRounds(rounds), 128).is_none());
     }
 }
 
 #[test]
 fn conservative_cost_uses_fastest_cpu_slowest_gpu_and_full_width_margin() {
     let _scalar = ScalarOverride::new();
-    let work = MetalBatchWork::AesEncRounds(9);
+    let work = MetalBatchWork::EncryptRounds(9);
     let geometry = Geometry::new(work, 129).unwrap();
     let baseline = AesCpuBaseline::capture(work);
     let measured = Profile::from_trials(
@@ -86,7 +86,7 @@ fn conservative_cost_uses_fastest_cpu_slowest_gpu_and_full_width_margin() {
             CalibrationFailure::Overloaded
         );
     }
-    let other = AesCpuBaseline::capture(MetalBatchWork::AesDecRounds(9));
+    let other = AesCpuBaseline::capture(MetalBatchWork::DecryptRounds(9));
     assert_eq!(
         Profile::from_trials(
             geometry,
@@ -102,7 +102,7 @@ fn conservative_cost_uses_fastest_cpu_slowest_gpu_and_full_width_margin() {
 #[test]
 fn exact_hit_survives_cooldown_but_neighbor_waits_for_an_admitted_sample() {
     let _scalar = ScalarOverride::new();
-    let work = MetalBatchWork::AesEncRounds(9);
+    let work = MetalBatchWork::EncryptRounds(9);
     let first = Geometry::new(work, 129).unwrap();
     let second = Geometry::new(work, 130).unwrap();
     let baseline = AesCpuBaseline::capture(work);
@@ -186,7 +186,7 @@ fn exact_hit_survives_cooldown_but_neighbor_waits_for_an_admitted_sample() {
 #[test]
 fn cpu_changes_preserve_original_cooldown_profile_and_healthy_gpu() {
     let _scalar = ScalarOverride::new();
-    let work = MetalBatchWork::AesDecRounds(9);
+    let work = MetalBatchWork::DecryptRounds(9);
     let first = Geometry::new(work, 129).unwrap();
     let second = Geometry::new(work, 130).unwrap();
     let baseline = AesCpuBaseline::capture(work);
@@ -256,7 +256,7 @@ fn cpu_changes_preserve_original_cooldown_profile_and_healthy_gpu() {
 #[test]
 fn original_cooldown_survives_callback_unwind_and_all_transient_failures() {
     let _scalar = ScalarOverride::new();
-    let work = MetalBatchWork::AesEnc;
+    let work = MetalBatchWork::Encrypt;
     let geometry = Geometry::new(work, 33).unwrap();
     let baseline = AesCpuBaseline::capture(work);
     let now = Instant::now();
@@ -326,7 +326,7 @@ fn original_cooldown_survives_callback_unwind_and_all_transient_failures() {
 #[test]
 fn quarantine_precedes_existing_exact_profile_and_no_cost_does_not_resample() {
     let _scalar = ScalarOverride::new();
-    let work = MetalBatchWork::AesDec;
+    let work = MetalBatchWork::Decrypt;
     let first = Geometry::new(work, 129).unwrap();
     let second = Geometry::new(work, 130).unwrap();
     let baseline = AesCpuBaseline::capture(work);
@@ -402,10 +402,10 @@ fn four_inline_family_slots_bound_key_churn_without_sharing_measurements() {
     let mut slots: [CostCache; 4] = std::array::from_fn(|_| CostCache::default());
     let now = Instant::now();
     for (family, work) in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(9),
-        MetalBatchWork::AesDecRounds(64),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(9),
+        MetalBatchWork::DecryptRounds(64),
     ]
     .into_iter()
     .enumerate()
@@ -442,10 +442,10 @@ fn four_inline_family_slots_bound_key_churn_without_sharing_measurements() {
 fn changed_cpu_identity_invalidates_comparison_without_quarantining_any_family() {
     let _forced = ScalarOverride::new();
     for work in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesDec,
-        MetalBatchWork::AesEncRounds(9),
-        MetalBatchWork::AesDecRounds(9),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::Decrypt,
+        MetalBatchWork::EncryptRounds(9),
+        MetalBatchWork::DecryptRounds(9),
     ] {
         let geometry = Geometry::new(work, 512).unwrap();
         let baseline = AesCpuBaseline::capture(work);
@@ -520,7 +520,7 @@ fn changed_cpu_identity_invalidates_comparison_without_quarantining_any_family()
 #[test]
 fn cost_cannot_replace_the_prescan_work_or_cpu_baseline() {
     let _forced = ScalarOverride::new();
-    let work = MetalBatchWork::AesEncRounds(9);
+    let work = MetalBatchWork::EncryptRounds(9);
     let geometry = Geometry::new(work, 512).unwrap();
     let captured = AesCpuBaseline::capture(work);
     let measured = profile(geometry, captured, 100, 20);
@@ -533,9 +533,9 @@ fn cost_cannot_replace_the_prescan_work_or_cpu_baseline() {
         Some(20)
     );
     for other in [
-        MetalBatchWork::AesEnc,
-        MetalBatchWork::AesEncRounds(8),
-        MetalBatchWork::AesDecRounds(9),
+        MetalBatchWork::Encrypt,
+        MetalBatchWork::EncryptRounds(8),
+        MetalBatchWork::DecryptRounds(9),
     ] {
         assert_eq!(
             cache.qualified_cost(

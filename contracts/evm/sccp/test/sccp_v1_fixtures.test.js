@@ -75,8 +75,9 @@ const CONTEXT = FINALITY.verification_context;
 const EVM_SCENARIOS = TRANSITIONS.scenarios.filter((scenario) => scenario.flavor === "evm");
 const CONTROL_SCENARIOS = CONTROL.destination_effects;
 const PORTABLE_SCENARIOS = EVM_SCENARIOS.filter(r.isProfileIndependent);
-const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen"]);
-const CONFORMANCE = CALLDATA.calldata_conformance;
+const CONFORMANCE_FUNCTIONS = Object.freeze(["transferToTaira", "voidFrozen", "voidExpired", "voidExpiredFromCheckpoint"]);
+const CONFORMANCE = CALLDATA.calldata_conformance.filter((row) => ["transferToTaira", "voidFrozen"].includes(row.function));
+const NATIVE_VOID_CONFORMANCE = CALLDATA.calldata_conformance.filter((row) => ["voidExpired", "voidExpiredFromCheckpoint"].includes(row.function));
 
 /**
  * Pinned row counts. A regenerated fixture with other counts fails here until
@@ -119,6 +120,8 @@ const ROW_COUNTS = Object.freeze({
   "calldata.logs": 4,
   "calldata_conformance.transferToTaira": 13,
   "calldata_conformance.voidFrozen": 12,
+  "calldata_conformance.voidExpired": 25,
+  "calldata_conformance.voidExpiredFromCheckpoint": 19,
 });
 
 /** Negative certificates that only the TON flavour can express (`expected.evm` is null). */
@@ -185,6 +188,7 @@ function expectedRows() {
     "ethereum/calldata.logs": labels(CALLDATA.logs),
     "ethereum/calldata_conformance": conformance,
     "bsc/calldata_conformance": conformance,
+    "ethereum/native_void_conformance": NATIVE_VOID_CONFORMANCE.map((row) => `${row.function}/${row.label}`),
   };
   for (const run of ["ethereum", "bsc", "dirty"]) {
     for (const [group, groupRows] of CERTIFICATE_GROUPS) rows[`${run}/${group}`] = labels(withEvmForm(groupRows));
@@ -412,9 +416,11 @@ describe("SCCP v1 fixtures: the JavaScript model reproduces the reference", () =
       "calldata.logs": CALLDATA.logs.length,
       "calldata_conformance.transferToTaira": count(CONFORMANCE, (entry) => entry.function === "transferToTaira"),
       "calldata_conformance.voidFrozen": count(CONFORMANCE, (entry) => entry.function === "voidFrozen"),
+      "calldata_conformance.voidExpired": count(NATIVE_VOID_CONFORMANCE, (entry) => entry.function === "voidExpired"),
+      "calldata_conformance.voidExpiredFromCheckpoint": count(NATIVE_VOID_CONFORMANCE, (entry) => entry.function === "voidExpiredFromCheckpoint"),
     };
     assert.deepEqual(measured, { ...ROW_COUNTS });
-    assert.deepEqual([...new Set(CONFORMANCE.map((row) => row.function))].sort(), [...CONFORMANCE_FUNCTIONS].sort());
+    assert.deepEqual([...new Set(CALLDATA.calldata_conformance.map((row) => row.function))].sort(), [...CONFORMANCE_FUNCTIONS].sort());
     for (const rows of [CALLDATA.calls, CALLDATA.views, CALLDATA.logs]) {
       assert.equal(new Set(labels(rows)).size, rows.length, "Rust calldata labels are unique");
     }
@@ -1963,6 +1969,54 @@ for (const hardfork of HARDFORKS) {
       }
     });
 
+    it("dynamic void calldata preserves separate strict decoder and contract verdicts", async () => {
+      const { scenario, deployment, c150, c200 } = rustGoldenScenario();
+      for (const functionName of ["voidExpired", "voidExpiredFromCheckpoint"]) {
+        const { chain, destination } = await r.openDestination({ hardfork, profile: ETHEREUM,
+          deployment, at: T0, relocateTo: r.addressOfWord(scenario.destination.destination_word) });
+        try {
+          const stored = functionName === "voidExpiredFromCheckpoint";
+          const nonce = stored ? 2n : 1n;
+          if (stored) await destination.tx("submitCheckpoints", [[c150, c200]], { at: T0 + 300n });
+          const probes = { heights: [100n, 150n, 200n], nonces: [1n, 2n] };
+          const at = BigInt(scenario.deadline_ms) / 1000n + 1n;
+          const rows = NATIVE_VOID_CONFORMANCE.filter((row) => row.function === functionName);
+          const canonical = rows.find((row) => row.label === "canonical");
+          const before = await destination.state(probes);
+          let expected;
+          await onSnapshot(chain, async () => {
+            const receipt = await destination.raw(canonical.calldata, { at });
+            assert.equal(await destination.view("isConsumed", [nonce]), true);
+            assert.equal(await destination.view("opCount"), 1n);
+            assert.equal(await destination.view("totalSupply"), 0n);
+            expected = { logs: destination.logs(receipt), state: await destination.state(probes),
+              returned: await chain.returnData(receipt) };
+          });
+          for (const row of rows) {
+            const id = `${functionName}/${row.label}`;
+            assert.equal(row.decoder === "accept", row.label === "canonical", `${id}: strict decoder`);
+            assert.equal(ethers.dataSlice(row.calldata, 0, 4), TRANSITIONS.selectors[functionName].selector);
+            await onSnapshot(chain, async () => {
+              const outcome = await destination.attempt(row.calldata, { at });
+              if (row.contract === "accept") {
+                assert(outcome.receipt, `${id}: ${outcome.revert && h.describeRevert(outcome.revert)}`);
+                assert.deepEqual(destination.logs(outcome.receipt), expected.logs, `${id}: exact logs`);
+                assert.deepEqual(await destination.state(probes), expected.state, `${id}: exact state`);
+                assert.equal(await chain.returnData(outcome.receipt), expected.returned, `${id}: return`);
+              } else {
+                assertRevert(outcome, row.contract === "empty" ? null : row.contract, id);
+                assert.equal(await destination.view("isConsumed", [nonce]), false, `${id}: no consumption`);
+                assert.equal(await destination.view("opCount"), 0n, `${id}: no operation`);
+                assert.deepEqual(await destination.state(probes), before, `${id}: refusal preserves state`);
+              }
+            });
+            assert.deepEqual(await destination.state(probes), before, `${id}: restored`);
+            ledger.ran("ethereum/native_void_conformance", id);
+          }
+        } finally { await chain.close(); }
+      }
+    });
+
     // -- evm_calldata_v1.json calldata_conformance ------------------------------
 
     for (const profile of [ETHEREUM, BSC]) {
@@ -2073,6 +2127,7 @@ for (const hardfork of HARDFORKS) {
           "init bounds": count("ethereum/transitions.init_bounds", "bsc/transitions.init_bounds"),
           "Rust golden entries": count("ethereum/calldata."),
           "calldata conformance entries": count("ethereum/calldata_conformance", "bsc/calldata_conformance"),
+          "dynamic void conformance entries": count("ethereum/native_void_conformance"),
         },
         {
           "certificates and headers on ethereum": certificates + headers,
@@ -2089,6 +2144,7 @@ for (const hardfork of HARDFORKS) {
           "init bounds": 2 * ROW_COUNTS["transitions.init_bounds"],
           "Rust golden entries": 1 + ROW_COUNTS["calldata.calls"] + ROW_COUNTS["calldata.views"] + ROW_COUNTS["calldata.logs"],
           "calldata conformance entries": 2 * conformance,
+          "dynamic void conformance entries": ROW_COUNTS["calldata_conformance.voidExpired"] + ROW_COUNTS["calldata_conformance.voidExpiredFromCheckpoint"],
         },
       );
       const total = Object.values(counts).reduce((sum, rows) => sum + rows, 0);

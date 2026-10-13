@@ -117,13 +117,14 @@ impl GeneratedLocalPublicationTransportV1 {
         }
         Ok(())
     }
-    /// Build a guarded client with fixed loopback resolution and the sole original TLS verifier.
+    /// Consume this selection into a guarded client with fixed loopback resolution and the
+    /// sole original TLS verifier.
     ///
     /// No raw HTTP client, request builder, alternate resolver or custom root API is exposed.
     /// # Errors
     /// Refuses zero timeout, invalid original TLS material or client construction failure.
     pub fn blocking_client(
-        &self,
+        self,
         timeout: Duration,
     ) -> Result<GeneratedLocalPublicationHttpClientV1, GeneratedLocalPublicationTransportErrorV1>
     {
@@ -136,7 +137,7 @@ impl GeneratedLocalPublicationTransportV1 {
             .blocking_http_client(&self.url, self.socket, timeout, timeout)
             .map_err(|_| GeneratedLocalPublicationTransportErrorV1)?;
         Ok(GeneratedLocalPublicationHttpClientV1 {
-            selection: self.clone(),
+            selection: self,
             http,
             timeout,
         })

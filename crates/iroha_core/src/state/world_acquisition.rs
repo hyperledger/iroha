@@ -73,6 +73,39 @@ impl<'a, V: mv::Value, C: Send + Sync + 'static> WorldFieldAcquisition
     }
 }
 
+/// Admitted maps retain their original pair and aggregate refund scope on refusal.
+pub(super) struct PrepaidAcquisition<'a, K, V, P>(
+    pub(super) mv::storage::BlockAcquisitionSlot<'a, K, V, concread::bptree::Prepaid<P>>,
+)
+where
+    K: mv::Key,
+    V: mv::Value,
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>;
+impl<'a, K, V, P> WorldFieldAcquisition for PrepaidAcquisition<'a, K, V, P>
+where
+    K: mv::Key,
+    V: mv::Value,
+    P: mv::storage::AdmittedStoragePolicy
+        + concread::bptree::ClonePlanning<K, V>
+        + concread::bptree::ClonePlanning<K, Option<V>>,
+{
+    type Block = mv::storage::Block<'a, K, V, concread::bptree::Prepaid<P>>;
+    fn try_initialize(&mut self, mode: BlockMode) -> Result<(), AdmittedStorageError> {
+        self.0.try_initialize(mode)
+    }
+    fn release(&mut self) {
+        self.0.release();
+    }
+    fn take_block(&mut self) -> Self::Block {
+        self.0.take_block()
+    }
+    fn into_block(self) -> Self::Block {
+        self.0.into_block()
+    }
+}
+
 pub(super) trait IntoWorldField {
     type Field;
     fn into_world_field(self) -> Self::Field;
@@ -88,6 +121,49 @@ impl IntoWorldField for super::TriggerSetBlock<'_> {
     fn into_world_field(self) -> Self {
         self
     }
+}
+
+// Only the admitted table needs a scope argument. The entire aggregate retains
+// that original scope until every ordinary and prepaid sibling has released.
+macro_rules! install_frozen_world_field {
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliations) => {
+        $fields
+            .sccp_reconciliations
+            .install_frozen_publication_owned(&$target.sccp_reconciliations, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliation_proven) => {
+        $fields
+            .sccp_reconciliation_proven
+            .install_frozen_publication_owned(&$target.sccp_reconciliation_proven, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_pending_refund_amount) => {
+        $fields
+            .sccp_pending_refund_amount
+            .install_frozen_publication_owned(&$target.sccp_pending_refund_amount, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_reconciliation_due) => {
+        $fields
+            .sccp_reconciliation_due
+            .install_frozen_publication_owned(&$target.sccp_reconciliation_due, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_anchor_chunks) => {
+        $fields
+            .sccp_anchor_chunks
+            .install_frozen_publication_owned(&$target.sccp_anchor_chunks, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_committee_generations) => {
+        $fields
+            .sccp_committee_generations
+            .install_frozen_publication_owned(&$target.sccp_committee_generations, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, sccp_forgery_offences) => {
+        $fields
+            .sccp_forgery_offences
+            .install_frozen_publication_owned(&$target.sccp_forgery_offences, $scope)
+    };
+    ($fields:ident, $target:ident, $scope:expr, $field:ident) => {
+        $fields.$field.install_frozen_publication(&$target.$field)
+    };
 }
 
 macro_rules! declare_world_acquisition {
@@ -162,9 +238,9 @@ macro_rules! declare_world_acquisition {
             ) -> Result<(), AdmittedStorageError> {
                 self.publication.begin_reacquisition();
                 let fields: &mut super::WorldBlockFields<'world> = self.fields.as_mut().expect("original World block fields");
-                $(fields.$prefix.install_frozen_publication(&target.$prefix)?;)*
-                $(fields.$privacy.install_frozen_publication(&target.$privacy)?;)*
-                $(fields.$suffix.install_frozen_publication(&target.$suffix)?;)*
+                $(install_frozen_world_field!(fields, target, &self._refund_scope, $prefix)?;)*
+                $(install_frozen_world_field!(fields, target, &self._refund_scope, $privacy)?;)*
+                $(install_frozen_world_field!(fields, target, &self._refund_scope, $suffix)?;)*
                 Ok(())
             }
             pub(super) fn try_prepare_frozen_publication(&mut self)
@@ -242,6 +318,9 @@ macro_rules! build_world_block_from_fields {
     ($state:expr, $mode:expr, $budget:expr;
         [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
         let budget = $budget;
+        // Declared before every field owner: all partial values and sibling writers
+        // retire before this original notification scope can release.
+        let refund_scope = budget.try_owned_refund_scope().map_err(mv::storage::AdmittedStorageError::Allocation)?;
         let mut demand = world_acquisition::OriginalWorldFields::layout().size();
         // End the complete read-only census frame, including each propagated
         // error temporary, before allocating controls or acquiring any writer.
@@ -263,9 +342,9 @@ macro_rules! build_world_block_from_fields {
         // Fill the same caller-owned slots one at a time before acquiring any
         // writer, without retaining a full composite initializer temporary.
         world_acquisition::fill_world_acquisition(|| -> Result<(), mv::storage::AdmittedStorageError> {
-            $(world_acquisition::initialize_original_field(&mut pending.$prefix, &$state.$prefix, budget, &mut reservation)?;)*
-            $(world_acquisition::initialize_original_field(&mut pending.$privacy, &$state.$privacy, budget, &mut reservation)?;)*
-            $(world_acquisition::initialize_original_field(&mut pending.$suffix, &$state.$suffix, budget, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$prefix, &$state.$prefix, budget, &refund_scope, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$privacy, &$state.$privacy, budget, &refund_scope, &mut reservation)?;)*
+            $(world_acquisition::initialize_original_field(&mut pending.$suffix, &$state.$suffix, budget, &refund_scope, &mut reservation)?;)*
             Ok(())
         })?;
         assert_eq!(reservation.remaining_bytes(), 0, "complete original World control inventory");
@@ -292,6 +371,7 @@ macro_rules! build_world_block_from_fields {
         Ok(WorldBlock {
             publication: block_field::AggregatePublication::Executing,
             fields: Some(fields),
+            _refund_scope: refund_scope,
         })
     }};
 }
@@ -312,9 +392,9 @@ pub(super) fn original_world_cell_control_bytes(world: &super::World) -> usize {
     macro_rules! sum_successors {
         ($owner:ident; [$($prefix:ident,)*] [$($privacy:ident,)*] [$($suffix:ident,)*]) => {{
             let mut bytes = 0;
-            $(bytes += $owner.$prefix.generation_layouts().into_iter().chain([$owner.$prefix.successor_layout()]).flatten().map(|layout| layout.size()).sum::<usize>();)*
-            $(bytes += $owner.$privacy.generation_layouts().into_iter().chain([$owner.$privacy.successor_layout()]).flatten().map(|layout| layout.size()).sum::<usize>();)*
-            $(bytes += $owner.$suffix.generation_layouts().into_iter().chain([$owner.$suffix.successor_layout()]).flatten().map(|layout| layout.size()).sum::<usize>();)*
+            $(bytes += $owner.$prefix.generation_layouts().into_iter().chain([$owner.$prefix.successor_layout()]).flatten().map(|layout: std::alloc::Layout| layout.size()).sum::<usize>();)*
+            $(bytes += $owner.$privacy.generation_layouts().into_iter().chain([$owner.$privacy.successor_layout()]).flatten().map(|layout: std::alloc::Layout| layout.size()).sum::<usize>();)*
+            $(bytes += $owner.$suffix.generation_layouts().into_iter().chain([$owner.$suffix.successor_layout()]).flatten().map(|layout: std::alloc::Layout| layout.size()).sum::<usize>();)*
             bytes
         }};
     }

@@ -8,6 +8,7 @@ struct Plan {
     version: u16,
     request_id: [u8; 32],
     capsule: [u8; 32],
+    capsule_commitment: [u8; 32],
     completion: [u8; 32],
     credential: KagemushaWalletCredentialV1,
     certificates: KagemushaWalletCertificateSetV1,
@@ -34,11 +35,12 @@ impl Plan {
         if self.request_id == [0; 32]
             || self.version != 1
             || self.capsule == [0; 32]
+            || self.capsule_commitment == [0; 32]
             || self.completion == [0; 32]
             || self.output == Some([0; 32])
             || &self.credential.body.scheme_id != scheme
             || &self.credential.body.wallet_id != wallet
-            || self.package.receipt.capsule_digest != self.capsule
+            || self.package.receipt.capsule_commitment != self.capsule_commitment
             || self.package.statement.lifecycle != KagemushaWalletLifecycleV1::Retiring
             || !self.package.statement.effect.kind().consumes_lineage()
         {
@@ -46,11 +48,27 @@ impl Plan {
         }
         Ok(())
     }
+    fn require_source(&self, step: &manifest::StepEntry) -> Result<(), Error> {
+        if self.capsule != step.capsule
+            || self.completion != step.completion
+            || self.package.receipt.operation_id != step.operation
+            || self.package.statement.effect.kind() != step.kind
+        {
+            return Err(Error::WitnessLost("close_loads retained source binding"));
+        }
+        Ok(())
+    }
+
     fn output(&self, bytes: &[u8]) -> Result<KagemushaWalletCloseLoadsV1, Error> {
-        let value = valid(KagemushaWalletCloseLoadsV1::decode_canonical(
-            bytes,
-            &self.credential.body.scheme_id,
-        ))?;
+        let value = read_model_original(
+            || {
+                KagemushaWalletCloseLoadsV1::decode_canonical(
+                    bytes,
+                    &self.credential.body.scheme_id,
+                )
+            },
+            Error::Invalid("G1 validation"),
+        )?;
         if value.control.body != self.body()?
             || value.credential != self.credential
             || value.certificates != self.certificates
@@ -73,6 +91,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .map_err(|_| Error::WitnessLost("CloseLoads plan index"))?;
             let plan: Plan = archive::decode(&self.archive.read_object(&address, PLAN_MAX)?)?;
             plan.require(&self.scheme_id, &self.wallet_id)?;
+            plan.require_source(&self.step_entry(&selected, plan.package.statement.sequence)?)?;
             if plan.request_id != request_id {
                 return Err(Error::WitnessLost("CloseLoads retry binding"));
             }
@@ -91,7 +110,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let certificates = snapshot
             .original(
                 &mut self.archive,
-                &source.frozen.capsule.successor_state,
+                &source.frozen.capsule.body().successor_state,
                 PreparationOriginalV1::EnrollmentCertificates,
             )?
             .ok_or(Error::WitnessLost("CloseLoads issuer original"))?;
@@ -99,14 +118,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             version: 1,
             request_id,
             capsule,
+            capsule_commitment: source.frozen.capsule.receipt_commitment(),
             completion: source.retained.completion_digest,
             credential: source.frozen.credential,
             certificates: archive::decode(&certificates)?,
-            package: if source.frozen.capsule.kind == KagemushaWalletOperationKindV1::Send {
-                valid(KagemushaWalletPaymentV1::decode_canonical(
-                    &source.retained.record.output,
-                    &self.scheme_id,
-                ))?
+            package: if source.frozen.capsule.body().kind == KagemushaWalletOperationKindV1::Send {
+                read_model_original(
+                    || {
+                        KagemushaWalletPaymentV1::decode_canonical(
+                            &source.retained.record.output,
+                            &self.scheme_id,
+                        )
+                    },
+                    Error::Invalid("G1 validation"),
+                )?
                 .send
             } else {
                 archive::decode(&source.retained.record.output)?

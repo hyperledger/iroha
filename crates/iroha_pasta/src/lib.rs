@@ -20,18 +20,21 @@
 //! - [`fold`]: the lockstep batch-affine GLV generator fold of the IPA prover.
 //! - [`fft`]: radix-4 (fused radix-2) transforms with cached twiddles and coset
 //!   transforms.
-//! - [`params`]: `ParamsIPA`-compatible generator derivation and its byte codec.
+//! - [`params`]: the pinned IPA generator derivation and parameter byte codec.
 //! - [`poseidon`]: the KAGEMUSHA V1 RP57 Poseidon permutation and sponge with
 //!   pinned, regenerable constant tables.
 //!
-//! # Compatibility
+//! # Pinned representations and independent tests
 //!
-//! Scalar and point encodings, `Field::random`/`Group::random` consumption of
-//! a seeded RNG, square roots, hash-to-curve and the parameter bytes are
-//! identical to `pasta_curves` 0.5.2 and the vendored halo2 stack. The tests
-//! compare against `pasta_curves` (a dev-dependency used only as an oracle) and
-//! against digests and vectors exported from the vendored stack; the
-//! `iroha_plonk_oracle` crate repeats those comparisons directly.
+//! `tests/field_oracle.rs` and `tests/curve_oracle.rs` compare field and curve
+//! behavior with the retained `pasta_curves` 0.5.2 dev oracle;
+//! `tests/cross_impl_encoding.rs` also uses the separate `halo2curves` dev
+//! oracle. Parameter and Poseidon KATs retain digests and vectors captured
+//! before the vendored prover and `iroha_plonk_oracle` were deleted.
+//! `tests/params_parity.rs` and `tests/poseidon_kat.rs` check those captures;
+//! native parameter tests compare the group IFFT with a naive group DFT, and
+//! Poseidon tests regenerate the constant tables. No live external prover is
+//! required by these checks.
 //!
 //! # Determinism and timing
 //!

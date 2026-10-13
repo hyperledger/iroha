@@ -1454,7 +1454,8 @@ fn seed_da_admission_parameter(app: &crate::SharedAppState, parameter: CustomPar
         .world_mut_for_testing()
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(parameter));
+        .set_parameter(Parameter::Custom(parameter))
+        .expect("valid fixture parameters");
     transaction.apply();
     block
         .commit_world_overlay_for_testing()

@@ -1,7 +1,7 @@
 //! AMX records, proofs, the foreign-committee tracker and the global two-phase-commit state,
 //! over genuine BLS certificates of synthetic foreign blocks.
 
-use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, bls_normal_aggregate_signatures};
+use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, bls::consensus};
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
     message::{BlockHeader as CoreHeader, Qc, VoteKind},
@@ -246,22 +246,10 @@ fn sign(
                 .iter()
                 .find(|pair| pair.public_key() == member.validator.public_key())
                 .expect("a fixture key");
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(pair.private_key(), &qc.preimage())
-                    .unwrap(),
-            )
+            consensus::sign_preimage(pair.private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let payloads: Vec<_> = shares
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(&payloads)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
     (header, qc)
 }
 
@@ -351,7 +339,12 @@ fn state_with(dataspaces: &[DataSpaceId]) -> SumeragiAmxState {
         state
             .register_dataspace(
                 *dataspace,
-                AmxForeignInstanceV1::new(instance(*dataspace), fixture(4)).unwrap(),
+                AmxForeignInstanceV1::new(
+                    instance(*dataspace),
+                    fixture(4),
+                    crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+                )
+                .unwrap(),
             )
             .unwrap();
     }
@@ -585,16 +578,17 @@ fn sumeragi_amx_record_proof_construction_requires_the_complete_certified_write_
     };
 
     let proof = build(block.clone(), &all).unwrap();
-    let tracker = AmxForeignInstanceV1::new(instance(DS1), context.clone()).unwrap();
-    tracker
-        .verify_record(&proof, fixture_scope(tracker.instance))
-        .unwrap();
+    let tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        context.clone(),
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    tracker.verify_record(&proof).unwrap();
     let encoded = norito::encode_canonical(&proof).unwrap();
     let restored: AmxRecordProofV1 = norito::decode_canonical(&encoded).unwrap();
     assert_eq!(restored, proof);
-    tracker
-        .verify_record(&restored, fixture_scope(tracker.instance))
-        .unwrap();
+    tracker.verify_record(&restored).unwrap();
 
     // Keeping the AMX record while losing either mandatory or ordinary writes must fail
     // before a relayer retains an unusable proof.
@@ -650,14 +644,17 @@ fn sumeragi_amx_record_proof_construction_rejects_invalid_result_preimages() {
 #[test]
 fn sumeragi_amx_tracker_verifies_records_under_the_tracked_committee_only() {
     let context = fixture(4);
-    let tracker = AmxForeignInstanceV1::new(instance(DS1), context.clone()).unwrap();
+    let tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        context.clone(),
+        crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
     let x = transaction(&[DS1, DS2], 50, 1).id().unwrap();
     let record = prepared(x, DS1, AmxVoteV1::Yes([5; 32]));
     let others = vec![(b"unrelated".to_vec(), b"write".to_vec())];
     let proof = record_proof(instance(DS1), &context, 3, &record, &others);
-    let verified = tracker
-        .verify_record(&proof, fixture_scope(tracker.instance))
-        .unwrap();
+    let verified = tracker.verify_record(&proof).unwrap();
     assert_eq!((verified.height, verified.epoch), (3, 0));
     let bytes = norito::encode_canonical(&proof).unwrap();
     assert_eq!(
@@ -673,25 +670,13 @@ fn sumeragi_amx_tracker_verifies_records_under_the_tracked_committee_only() {
     // Another record under the same path, or the same record in another instance's block.
     let mut forged = proof.clone();
     forged.record = prepared(x, DS1, AmxVoteV1::No);
-    assert!(
-        tracker
-            .verify_record(&forged, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&forged).is_err());
     let foreign = record_proof(instance(DS2), &context, 3, &record, &others);
-    assert!(
-        tracker
-            .verify_record(&foreign, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&foreign).is_err());
     // A block that does not hold the record.
     let mut elsewhere = proof.clone();
     elsewhere.block = certify(instance(DS1), &context, 3, &others, None, 3);
-    assert!(
-        tracker
-            .verify_record(&elsewhere, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&elsewhere).is_err());
     // Fewer than a quorum of signers.
     let mut short = proof.clone();
     short.block = certify(
@@ -702,44 +687,28 @@ fn sumeragi_amx_tracker_verifies_records_under_the_tracked_committee_only() {
         None,
         2,
     );
-    assert!(
-        tracker
-            .verify_record(&short, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&short).is_err());
     // A committee the tracker does not hold (same epoch number, other keys).
     let other = rotated(&context, [9, 10, 11, 12]);
     let stranger = record_proof(instance(DS1), &other, 13, &record, &others);
     assert!(matches!(
-        tracker.verify_record(&stranger, fixture_scope(tracker.instance)),
+        tracker.verify_record(&stranger),
         Err(AmxError::EpochNotTracked { epoch: 1, .. })
     ));
     // A result preimage that is not the certified one.
     let mut swapped = proof.clone();
     swapped.block.result_preimage =
         certify(instance(DS1), &context, 3, &others, None, 3).result_preimage;
-    assert!(
-        tracker
-            .verify_record(&swapped, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&swapped).is_err());
     // A header of another height under the same certificate.
     let mut moved = proof.clone();
     moved.block.consensus_header =
         certify(instance(DS1), &context, 4, &others, None, 3).consensus_header;
-    assert!(
-        tracker
-            .verify_record(&moved, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&moved).is_err());
     // Oversized parts are rejected before decoding.
     let mut oversized = proof;
     oversized.block.commit_qc = vec![0; MAX_AMX_QC_BYTES + 1];
-    assert!(
-        tracker
-            .verify_record(&oversized, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&oversized).is_err());
 }
 
 #[test]
@@ -747,13 +716,18 @@ fn sumeragi_amx_tracker_hands_off_epoch_by_epoch() {
     let first = fixture(4);
     let second = rotated(&first, [5, 6, 7, 8]);
     let third = kept(&second);
-    let mut tracker = AmxForeignInstanceV1::new(instance(DS1), first.clone()).unwrap();
+    let mut tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        first.clone(),
+        crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
     let x = [3; 32];
     let record = prepared(x, DS1, AmxVoteV1::No);
     let in_second = record_proof(instance(DS1), &second, 12, &record, &[]);
     let in_third = record_proof(instance(DS1), &third, 22, &record, &[]);
     assert!(matches!(
-        tracker.verify_record(&in_second, fixture_scope(tracker.instance)),
+        tracker.verify_record(&in_second),
         Err(AmxError::EpochNotTracked {
             epoch: 1,
             tracked: 0
@@ -764,17 +738,13 @@ fn sumeragi_amx_tracker_hands_off_epoch_by_epoch() {
     let early = AmxHandoffProofV1 {
         block: certify(instance(DS1), &first, 5, &[], None, 3),
     };
-    assert!(
-        tracker
-            .apply_handoff(&early, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.apply_handoff(&early).is_err());
     // A boundary signed by the successor committee is not verifiable yet.
     let skipped = AmxHandoffProofV1 {
         block: certify(instance(DS1), &second, 20, &[], Some(&third), 3),
     };
     assert!(matches!(
-        tracker.apply_handoff(&skipped, fixture_scope(tracker.instance)),
+        tracker.apply_handoff(&skipped),
         Err(AmxError::EpochNotTracked { .. })
     ));
     let handoff = AmxHandoffProofV1 {
@@ -786,52 +756,33 @@ fn sumeragi_amx_tracker_hands_off_epoch_by_epoch() {
         handoff
     );
     assert_eq!(
-        tracker
-            .apply_handoff(&handoff, fixture_scope(tracker.instance))
-            .unwrap(),
+        tracker.apply_handoff(&handoff).unwrap(),
         AmxHandoffOutcome::Advanced { epoch: 1 }
     );
     assert_eq!(tracker.epoch(), 1);
     tracker.validate().unwrap();
     // Epochs e − 1 and e verify; the replayed handoff is stale.
+    tracker.verify_record(&in_second).unwrap();
     tracker
-        .verify_record(&in_second, fixture_scope(tracker.instance))
-        .unwrap();
-    tracker
-        .verify_record(
-            &record_proof(instance(DS1), &first, 4, &record, &[]),
-            fixture_scope(tracker.instance),
-        )
+        .verify_record(&record_proof(instance(DS1), &first, 4, &record, &[]))
         .unwrap();
     assert_eq!(
-        tracker
-            .apply_handoff(&handoff, fixture_scope(tracker.instance))
-            .unwrap(),
+        tracker.apply_handoff(&handoff).unwrap(),
         AmxHandoffOutcome::Stale
     );
-    assert!(
-        tracker
-            .verify_record(&in_third, fixture_scope(tracker.instance))
-            .is_err()
-    );
+    assert!(tracker.verify_record(&in_third).is_err());
     assert_eq!(
-        tracker.apply_handoff(
-            &AmxHandoffProofV1 {
+        tracker
+            .apply_handoff(&AmxHandoffProofV1 {
                 block: certify(instance(DS1), &second, 20, &[], Some(&third), 3),
-            },
-            fixture_scope(tracker.instance)
-        ),
-        Ok(AmxHandoffOutcome::Advanced { epoch: 2 })
+            })
+            .unwrap(),
+        AmxHandoffOutcome::Advanced { epoch: 2 }
     );
-    tracker
-        .verify_record(&in_third, fixture_scope(tracker.instance))
-        .unwrap();
+    tracker.verify_record(&in_third).unwrap();
     // Epoch 0 has left the window.
     assert!(matches!(
-        tracker.verify_record(
-            &record_proof(instance(DS1), &first, 4, &record, &[]),
-            fixture_scope(tracker.instance)
-        ),
+        tracker.verify_record(&record_proof(instance(DS1), &first, 4, &record, &[])),
         Err(AmxError::EpochNotTracked { epoch: 0, .. })
     ));
     let bytes = norito::encode_canonical(&tracker).unwrap();
@@ -1080,6 +1031,85 @@ fn sumeragi_amx_state_relays_handoffs_to_the_registered_tracker() {
     state.validate().unwrap();
 }
 
+#[test]
+fn sumeragi_amx_registered_destination_lineage_survives_handoffs_and_restart() {
+    let first = fixture(4);
+    let second = rotated(&first, [5, 6, 7, 8]);
+    let third = rotated(&second, [9, 10, 11, 12]);
+    let fourth = rotated(&third, [13, 14, 15, 16]);
+    let original_network = first.network_id;
+    let original_instance = instance(DS1);
+    let mut state = state_with(&[DS1]);
+
+    // A separately valid tracker cannot replace the registered bank at the same DsId.
+    let mut foreign = first.clone();
+    foreign.network_id = crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"another registered bank root"),
+    ));
+    foreign.authorization.network_id = foreign.network_id;
+    foreign.authorization.authority_id = foreign.generation().generation_id().unwrap();
+    foreign.validate().unwrap();
+    let replacement =
+        AmxForeignInstanceV1::new(instance(DS2), foreign, CertifiedResultScope::NonGlobal).unwrap();
+    let before = state.clone();
+    assert!(state.register_dataspace(DS1, replacement).is_err());
+    assert_eq!(state, before);
+
+    // Even a genuine quorum over an otherwise valid boundary of another instance
+    // cannot replace that registered instance's committee or destination identity.
+    let other_instance = AmxHandoffProofV1 {
+        block: certify(instance(DS2), &first, 10, &[], Some(&second), 3),
+    };
+    assert!(state.relay_handoff(DS1, &other_instance).is_err());
+    assert_eq!(state, before);
+
+    // A complete, individually valid context from another network cannot be a
+    // successor. It is rejected before a canonical certified result can be built.
+    let mut relabeled = second.clone();
+    relabeled.network_id = crate::NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+        Hash::new(b"relabeled bank network"),
+    ));
+    relabeled.authorization.network_id = relabeled.network_id;
+    relabeled.authorization.authority_id = relabeled.generation().generation_id().unwrap();
+    relabeled.validate().unwrap();
+    assert!(relabeled.validate_successor(&first).is_err());
+    let boundary = ValidatorEpochBoundaryV1 {
+        version: 1,
+        height: 10,
+        predecessor_context_id: first.context_id().unwrap(),
+        selection_anchor: HashOf::from_untyped_unchecked(Hash::new(b"boundary parent")),
+        next: relabeled,
+        preparation: None,
+    };
+    assert!(boundary.validate_against(&first).is_err());
+
+    for (previous, next) in [(&first, &second), (&second, &third), (&third, &fourth)] {
+        let handoff = AmxHandoffProofV1 {
+            block: certify(
+                original_instance,
+                previous,
+                previous.authorization.last_height,
+                &[],
+                Some(next),
+                3,
+            ),
+        };
+        assert!(matches!(
+            state.relay_handoff(DS1, &handoff).unwrap(),
+            AmxHandoffOutcome::Advanced { .. }
+        ));
+        let wire = norito::encode_canonical(&state).unwrap();
+        let restored: SumeragiAmxState = norito::decode_canonical(&wire).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored, state);
+        state = restored;
+        let tracker = &state.dataspace(DS1).unwrap().tracker;
+        assert_eq!(tracker.instance, original_instance);
+        assert_eq!(tracker.current.network_id, original_network);
+        assert_eq!(tracker.current, *next);
+    }
+}
+
 const GLOBAL: [u8; 32] = [0x47; 32];
 
 /// An in-memory dataspace ledger: a leg `[from, to, amount_be64]` moves `amount` from `from` to
@@ -1182,7 +1212,12 @@ fn decision(tx: &AmxTransactionV1, outcome: AmxOutcomeV1) -> AmxRecordV1 {
 fn participant() -> AmxParticipantStateV1 {
     AmxParticipantStateV1::new(
         DS1,
-        AmxForeignInstanceV1::new(GLOBAL, long_fixture()).unwrap(),
+        AmxForeignInstanceV1::new(
+            GLOBAL,
+            long_fixture(),
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap(),
     )
 }
 
@@ -1269,10 +1304,10 @@ fn sumeragi_amx_participant_resource_refusal_never_votes_no_or_closes_escrow() {
             calls: Vec::new(),
         };
         let original_ledger = escrow.ledger.clone();
-        assert_eq!(
+        assert!(matches!(
             state.prepare(&mut escrow, &tx, &begin),
             Err(AmxParticipantError::Escrow(EscrowCall::Prepare))
-        );
+        ));
         assert_eq!(
             state, original,
             "refusal cannot install No or advance global height"
@@ -1299,10 +1334,10 @@ fn sumeragi_amx_participant_resource_refusal_never_votes_no_or_closes_escrow() {
         );
         assert_eq!(state, prepared_state);
         for _ in 0..2 {
-            assert_eq!(
+            assert!(matches!(
                 state.settle(&mut escrow, &decision),
-                Err(AmxParticipantError::Escrow(operation))
-            );
+                Err(AmxParticipantError::Escrow(actual)) if actual == operation
+            ));
             assert_eq!(
                 state, prepared_state,
                 "failed settlement cannot close or prune the Yes"
@@ -1400,6 +1435,265 @@ fn sumeragi_amx_participant_escrows_once_and_applies_on_commit() {
         norito::json::from_str::<AmxParticipantStateV1>(&json).unwrap(),
         state
     );
+}
+
+#[test]
+fn sumeragi_amx_delayed_decisions_survive_three_rotations_and_restart() {
+    for outcome in [AmxOutcomeV1::Commit, AmxOutcomeV1::Abort] {
+        let first = fixture(4);
+        let second = rotated(&first, [5, 6, 7, 8]);
+        let third = rotated(&second, [9, 10, 11, 12]);
+        let fourth = rotated(&third, [13, 14, 15, 16]);
+        let mut state = AmxParticipantStateV1::new(
+            DS1,
+            AmxForeignInstanceV1::new(GLOBAL, first.clone(), CertifiedResultScope::TairaGlobal)
+                .unwrap(),
+        );
+        let mut ledger = Ledger::with(&[(1, 100)]);
+        let tx = transfer(8, 71, [60, 5]);
+        let begin = record_proof(
+            GLOBAL,
+            &first,
+            5,
+            &AmxRecordV1::Begin(tx.begin().unwrap()),
+            &[],
+        );
+        let delayed = record_proof(GLOBAL, &first, 7, &decision(&tx, outcome), &[]);
+        state.prepare(&mut ledger, &tx, &begin).unwrap();
+        for (previous, next) in [(&first, &second), (&second, &third), (&third, &fourth)] {
+            state
+                .handoff(&AmxHandoffProofV1 {
+                    block: certify(
+                        GLOBAL,
+                        previous,
+                        previous.authorization.last_height,
+                        &[],
+                        Some(next),
+                        3,
+                    ),
+                })
+                .unwrap();
+            let bytes = norito::encode_canonical(&state).unwrap();
+            state = norito::decode_canonical(&bytes).unwrap();
+            state.validate().unwrap();
+        }
+        assert!(state.entry(&tx.id().unwrap()).unwrap().settled.is_none());
+        assert_eq!(state.decision_contexts, vec![first.clone()]);
+        assert_eq!(ledger.balances[&1], 40, "handoffs cannot release escrow");
+        let settled = state.settle(&mut ledger, &delayed).unwrap();
+        assert_eq!(
+            settled,
+            match outcome {
+                AmxOutcomeV1::Commit => AmxSettleOutcome::Applied,
+                AmxOutcomeV1::Abort => AmxSettleOutcome::Released,
+            }
+        );
+        assert_eq!(ledger.total(), 100);
+        assert_eq!(ledger.applied.len() + ledger.released.len(), 1);
+        assert!(
+            state.decision_contexts.is_empty(),
+            "closed obligation reclaims old authority"
+        );
+        assert!(state.settle(&mut ledger, &delayed).is_err());
+        assert_eq!(ledger.applied.len() + ledger.released.len(), 1);
+        state.validate().unwrap();
+    }
+}
+
+#[test]
+fn sumeragi_amx_decision_history_is_scoped_bounded_and_reclaimed() {
+    let first = fixture(4);
+    let second = rotated(&first, [5, 6, 7, 8]);
+    let third = rotated(&second, [9, 10, 11, 12]);
+    let fourth = rotated(&third, [13, 14, 15, 16]);
+    let mut state = AmxParticipantStateV1::new(
+        DS1,
+        AmxForeignInstanceV1::new(GLOBAL, first.clone(), CertifiedResultScope::TairaGlobal)
+            .unwrap(),
+    );
+    let mut ledger = Ledger::with(&[(1, 100)]);
+    let early = transfer(7, 72, [20, 5]);
+    let later = transfer(17, 73, [30, 5]);
+    let refused = transfer(8, 74, [1_000, 5]);
+    let closed = transfer(8, 75, [10, 5]);
+    for tx in [&early, &later, &refused, &closed] {
+        let begin = record_proof(
+            GLOBAL,
+            &first,
+            5,
+            &AmxRecordV1::Begin(tx.begin().unwrap()),
+            &[],
+        );
+        state.prepare(&mut ledger, tx, &begin).unwrap();
+    }
+    let closed_proof = record_proof(
+        GLOBAL,
+        &first,
+        7,
+        &decision(&closed, AmxOutcomeV1::Commit),
+        &[],
+    );
+    state.settle(&mut ledger, &closed_proof).unwrap();
+    let handoffs: Vec<_> = [(&first, &second), (&second, &third), (&third, &fourth)]
+        .into_iter()
+        .map(|(previous, next)| AmxHandoffProofV1 {
+            block: certify(
+                GLOBAL,
+                previous,
+                previous.authorization.last_height,
+                &[],
+                Some(next),
+                3,
+            ),
+        })
+        .collect();
+    let original = state.clone();
+    assert!(
+        state.handoff(&handoffs[1]).is_err(),
+        "handoffs cannot skip authority"
+    );
+    assert_eq!(state, original);
+    for handoff in &handoffs {
+        state.handoff(handoff).unwrap();
+    }
+    assert_eq!(state.decision_contexts, vec![first.clone(), second.clone()]);
+    state.validate().unwrap();
+    let bytes = norito::encode_canonical(&state).unwrap();
+    let restored = norito::decode_canonical::<AmxParticipantStateV1>(&bytes).unwrap();
+    assert_eq!(restored, state);
+    let json = norito::json::to_json(&state).unwrap();
+    assert_eq!(
+        norito::json::from_str::<AmxParticipantStateV1>(&json).unwrap(),
+        state
+    );
+    let original = state.clone();
+    let ledger_before = ledger.clone();
+    // An independently valid alternative successor was never authenticated by this history.
+    let wrong_history = rotated(&first, [13, 14, 15, 16]);
+    for invalid in [
+        record_proof(
+            GLOBAL,
+            &wrong_history,
+            12,
+            &decision(&later, AmxOutcomeV1::Commit),
+            &[],
+        ),
+        record_proof(
+            instance(DS1),
+            &first,
+            7,
+            &decision(&early, AmxOutcomeV1::Commit),
+            &[],
+        ),
+        record_proof(
+            GLOBAL,
+            &first,
+            4,
+            &decision(&early, AmxOutcomeV1::Commit),
+            &[],
+        ),
+        record_proof(
+            GLOBAL,
+            &first,
+            8,
+            &decision(&early, AmxOutcomeV1::Commit),
+            &[],
+        ),
+        record_proof(
+            GLOBAL,
+            &second,
+            12,
+            &decision(&early, AmxOutcomeV1::Abort),
+            &[],
+        ),
+        record_proof(
+            GLOBAL,
+            &first,
+            7,
+            &decision(&refused, AmxOutcomeV1::Abort),
+            &[],
+        ),
+        closed_proof,
+    ] {
+        assert!(state.settle(&mut ledger, &invalid).is_err());
+        assert_eq!(state, original);
+        assert_eq!(ledger, ledger_before);
+    }
+    // Retained authority is never an old Begin or an out-of-order handoff authority.
+    let stale_begin = record_proof(
+        GLOBAL,
+        &first,
+        5,
+        &AmxRecordV1::Begin(early.begin().unwrap()),
+        &[],
+    );
+    assert!(state.prepare(&mut ledger, &early, &stale_begin).is_err());
+    assert!(state.handoff(&handoffs[0]).is_err());
+    assert_eq!(state, original);
+    let mut missing = state.clone();
+    missing.decision_contexts.remove(0);
+    assert!(
+        missing.validate().is_err(),
+        "restart cannot lose needed authority"
+    );
+    let mut wrong_order = state.clone();
+    wrong_order.decision_contexts.reverse();
+    assert!(wrong_order.validate().is_err());
+    let mut excessive = state.clone();
+    excessive.prepared[0].deadline = excessive.prepared[0].begun_at + MAX_AMX_DEADLINE_WINDOW + 1;
+    assert!(excessive.validate().is_err());
+    let mut unrelated = state.clone();
+    unrelated.decision_contexts.push(third);
+    assert!(unrelated.validate().is_err());
+    state
+        .settle(
+            &mut ledger,
+            &record_proof(
+                GLOBAL,
+                &first,
+                7,
+                &decision(&early, AmxOutcomeV1::Commit),
+                &[],
+            ),
+        )
+        .unwrap();
+    assert_eq!(
+        state.decision_contexts.len(),
+        2,
+        "shared authority lives until the last owner closes"
+    );
+    state
+        .settle(
+            &mut ledger,
+            &record_proof(
+                GLOBAL,
+                &second,
+                18,
+                &decision(&later, AmxOutcomeV1::Abort),
+                &[],
+            ),
+        )
+        .unwrap();
+    assert!(state.decision_contexts.is_empty());
+    state.validate().unwrap();
+    assert_eq!(ledger.total(), 100);
+    assert_eq!(ledger.applied.len(), 2);
+    assert_eq!(ledger.released.len(), 1);
+}
+
+#[test]
+fn sumeragi_amx_participant_rejects_unbounded_authenticated_begin_interval() {
+    for deadline in [5, 5 + MAX_AMX_DEADLINE_WINDOW + 1, u64::MAX] {
+        let mut state = participant();
+        let original = state.clone();
+        let mut ledger = Ledger::with(&[(1, 100)]);
+        let original_ledger = ledger.clone();
+        let tx = transfer(deadline, 76, [20, 5]);
+        let begin = global_proof(5, &AmxRecordV1::Begin(tx.begin().unwrap()));
+        assert!(state.prepare(&mut ledger, &tx, &begin).is_err());
+        assert_eq!(state, original);
+        assert_eq!(ledger, original_ledger);
+    }
 }
 
 #[test]
@@ -1595,7 +1889,12 @@ fn sumeragi_amx_participant_follows_global_handoffs() {
     let second = rotated(&first, [5, 6, 7, 8]);
     let mut state = AmxParticipantStateV1::new(
         DS1,
-        AmxForeignInstanceV1::new(GLOBAL, first.clone()).unwrap(),
+        AmxForeignInstanceV1::new(
+            GLOBAL,
+            first.clone(),
+            crate::sumeragi_finality::CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap(),
     );
     let handoff = AmxHandoffProofV1 {
         block: certify(GLOBAL, &first, 10, &[], Some(&second), 3),
@@ -1648,14 +1947,17 @@ fn amx_record_decode_refusal_is_not_a_deterministic_record_error() {
 #[test]
 fn amx_foreign_certificate_decode_refusal_is_not_a_proof_verdict() {
     let context = fixture(4);
-    let tracker = AmxForeignInstanceV1::new(instance(DS1), context.clone()).unwrap();
+    let tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        context.clone(),
+        crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
     let block = certify(instance(DS1), &context, 2, &[], None, 3);
     let original = block.clone();
-    let expected = tracker
-        .verify_block(&block, fixture_scope(tracker.instance))
-        .unwrap();
+    let expected = tracker.verify_block(&block).unwrap();
     let error = norito::with_decode_limits_scope(refused_amx_decode_limits(), || {
-        tracker.verify_block(&block, fixture_scope(tracker.instance))
+        tracker.verify_block(&block)
     })
     .unwrap_err();
     assert!(
@@ -1663,12 +1965,7 @@ fn amx_foreign_certificate_decode_refusal_is_not_a_proof_verdict() {
         "local decoder refusal became a deterministic proof verdict: {error:?}"
     );
     assert_eq!(block, original);
-    assert_eq!(
-        tracker
-            .verify_block(&block, fixture_scope(tracker.instance))
-            .unwrap(),
-        expected
-    );
+    assert_eq!(tracker.verify_block(&block).unwrap(), expected);
 }
 
 #[test]
@@ -1754,23 +2051,42 @@ fn amx_participant_decode_refusal_preserves_original_escrow_and_cursor() {
 
 #[test]
 fn amx_codec_classification_preserves_resource_category_and_malformed_input() {
-    let error = norito::Error::AllocationFailed { bytes: 57 };
-    let expected =
-        AmxError::Resource(norito::core::DecodeResourceError::AllocationFailed { bytes: 57 });
-    assert_eq!(
-        super::proof_codec_error(&error, "core header", false),
-        expected
-    );
-    assert_eq!(
-        super::commitment_error(&crate::sumeragi_finality::CertifiedResultError::Body(
-            crate::sumeragi_finality::CommitmentError::Resource(
-                error.decode_resource_error().unwrap()
-            )
+    let physical = || {
+        norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+        })
+        .unwrap_err()
+    };
+    for error in [
+        super::proof_codec_error(physical(), "core header"),
+        super::certified_result_error(crate::sumeragi_finality::CertifiedResultError::Body(
+            crate::sumeragi_finality::CommitmentError::Resource(physical()),
         )),
-        expected
-    );
+    ] {
+        let AmxError::Resource(original) = error else {
+            panic!("{error:?}");
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::Allocator
+        );
+        assert_eq!(
+            original.error().decode_resource_error(),
+            Some(norito::core::DecodeResourceError::AllocationFailed { bytes: 57 })
+        );
+    }
     assert!(matches!(
-        super::proof_codec_error(&norito::Error::InvalidMagic, "core header", true),
+        super::certified_result_error(crate::sumeragi_finality::CertifiedResultError::Header(
+            crate::sumeragi_finality::FinalityHeaderError::X1
+        )),
+        AmxError::Proof(_)
+    ));
+    assert!(matches!(
+        super::proof_codec_error(
+            norito::core::classify_decode_attempt(|| Err::<(), _>(norito::Error::InvalidMagic))
+                .unwrap_err(),
+            "core header"
+        ),
         AmxError::Proof(_)
     ));
     let protocol: AmxParticipantError<core::convert::Infallible> =
@@ -1782,19 +2098,58 @@ fn amx_codec_classification_preserves_resource_category_and_malformed_input() {
 }
 
 #[test]
-fn amx_intrinsic_codec_limit_without_caller_scope_remains_a_proof_error() {
-    let error = norito::Error::SequenceLengthExceeded {
-        length: 97,
-        limit: 96,
+fn amx_intrinsic_codec_limit_under_equal_or_wider_caller_scope_remains_a_proof_error() {
+    let limits = |bytes| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64);
+    for outer in [8, 16] {
+        let error = norito::with_decode_limits_scope(limits(outer), || {
+            norito::core::classify_decode_attempt(|| {
+                norito::with_decode_limits_scope(limits(8), || {
+                    norito::core::reserve_decode_allocation(9)
+                })
+            })
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+        assert!(matches!(
+            super::proof_codec_error(error, "core header"),
+            AmxError::Proof(_)
+        ));
+    }
+}
+
+#[test]
+fn amx_record_refusal_keeps_original_origin_after_scope_retirement_and_foreign_budget() {
+    let record = prepared([0x75; 32], DS1, AmxVoteV1::Yes([0x76; 32]));
+    let key = record.witness_key();
+    let bytes = record.witness_value().unwrap();
+    let original_bytes = bytes.clone();
+    let error = norito::with_decode_limits_scope(refused_amx_decode_limits(), || {
+        AmxRecordV1::from_witness(&key, &bytes)
+    })
+    .unwrap_err();
+    let AmxError::Resource(original) = error else {
+        panic!("{error:?}");
     };
-    assert!(matches!(
-        super::proof_codec_error(&error, "core header", false),
-        AmxError::Proof(_)
-    ));
     assert_eq!(
-        super::proof_codec_error(&error, "core header", true),
-        AmxError::Resource(error.decode_resource_error().unwrap())
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
     );
+    let fields = original.error().decode_resource_error();
+    assert!(
+        matches!(fields, Some(norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 }) if attempted > 0)
+    );
+    norito::with_decode_limits_scope(refused_amx_decode_limits(), || {
+        assert!(!norito::core::decode_error_matches_active_limits(
+            original.error()
+        ));
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(original.error().decode_resource_error(), fields);
+    });
+    assert_eq!(bytes, original_bytes);
+    assert_eq!(AmxRecordV1::from_witness(&key, &bytes).unwrap(), record);
 }
 
 /// Construct the actual allocation owner from the existing exact-quorum BLS AMX fixture.
@@ -1831,9 +2186,9 @@ pub fn allocated_amx_instruction_fixture() -> (
     )
     .unwrap();
     assert_eq!(
-        AmxForeignInstanceV1::new(GLOBAL, context)
+        AmxForeignInstanceV1::new(GLOBAL, context, CertifiedResultScope::TairaGlobal)
             .unwrap()
-            .verify_record(&expected, CertifiedResultScope::TairaGlobal)
+            .verify_record(&expected)
             .unwrap()
             .height,
         2
@@ -1946,13 +2301,287 @@ fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
 
 #[test]
 fn sumeragi_amx_encoding_keeps_exact_physical_allocator_refusal() {
-    let error = norito::Error::AllocationFailed { bytes: 57 };
+    let error = norito::core::classify_decode_attempt(|| {
+        Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+    })
+    .unwrap_err();
+    let AmxError::Resource(original) = super::encoding(error) else {
+        panic!("physical refusal lost");
+    };
     assert_eq!(
-        super::encoding(&error),
-        AmxError::Resource(norito::core::DecodeResourceError::AllocationFailed { bytes: 57 })
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::Allocator
+    );
+    assert_eq!(
+        original.into_error().decode_resource_error(),
+        Some(norito::core::DecodeResourceError::AllocationFailed { bytes: 57 })
     );
     assert!(matches!(
-        super::encoding(norito::Error::LengthMismatch),
+        super::encoding(
+            norito::core::classify_decode_attempt(|| Err::<(), _>(norito::Error::LengthMismatch))
+                .unwrap_err()
+        ),
         AmxError::Encoding(_)
     ));
+}
+
+#[test]
+fn native_certified_result_scope_is_original_tracker_authority_and_survives_codec() {
+    let context = fixture(4);
+    let instance = instance(DS1);
+    let mut proof = certify(instance, &context, 2, &[], None, 3);
+    let private =
+        AmxForeignInstanceV1::new(instance, context.clone(), CertifiedResultScope::NonGlobal)
+            .unwrap();
+    private.verify_block(&proof).unwrap();
+    let original = private.clone();
+    let decoded =
+        CertifiedResultV1::decode(&proof.result_preimage, CertifiedResultScope::NonGlobal).unwrap();
+    let (header, body) = decoded.into_parts();
+    let mut fields = header.fields();
+    fields.flags = crate::sumeragi_finality::certified_result::FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = crate::sumeragi_finality::context_committee_root(&context).unwrap();
+    let active = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        body,
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let (header, qc) = sign(instance, &context, 2, active.result().unwrap(), 3);
+    proof.consensus_header = norito::encode_canonical(&header).unwrap();
+    proof.commit_qc = norito::encode_canonical(&qc).unwrap();
+    proof.result_preimage = active.preimage().unwrap();
+    assert!(
+        matches!(private.verify_block(&proof), Err(AmxError::Proof(reason)) if reason.contains("non-global"))
+    );
+    assert_eq!(private, original);
+    let global =
+        AmxForeignInstanceV1::new(instance, context, CertifiedResultScope::TairaGlobal).unwrap();
+    global.verify_block(&proof).unwrap();
+    for tracker in [private, global] {
+        let encoded = norito::encode_canonical(&tracker).unwrap();
+        assert_eq!(
+            norito::decode_canonical::<AmxForeignInstanceV1>(&encoded).unwrap(),
+            tracker
+        );
+        let mut json = norito::json::to_value(&tracker).unwrap();
+        assert_eq!(
+            norito::json::from_value::<AmxForeignInstanceV1>(json.clone()).unwrap(),
+            tracker
+        );
+        json.as_object_mut().unwrap().remove("result_scope");
+        assert!(norito::json::from_value::<AmxForeignInstanceV1>(json).is_err());
+    }
+}
+
+#[test]
+fn amx_roles_reject_a_tracker_from_another_original_root_class() {
+    let mut state = SumeragiAmxState::default();
+    let private =
+        AmxForeignInstanceV1::new(instance(DS1), fixture(4), CertifiedResultScope::NonGlobal)
+            .unwrap();
+    let global =
+        AmxForeignInstanceV1::new(GLOBAL, fixture(4), CertifiedResultScope::TairaGlobal).unwrap();
+    assert!(state.register_dataspace(DS1, global.clone()).is_err());
+    state.register_dataspace(DS1, private.clone()).unwrap();
+    state.validate().unwrap();
+    let mut forged = state.clone();
+    forged.dataspaces[0].tracker.result_scope = CertifiedResultScope::TairaGlobal;
+    assert!(forged.validate().is_err());
+    assert!(AmxParticipantStateV1::new(DS1, private).validate().is_err());
+    AmxParticipantStateV1::new(DS1, global).validate().unwrap();
+}
+
+fn active_record_proof(
+    source: [u8; 32],
+    context: &ValidatorEpochContextV1,
+    height: u64,
+    record: &AmxRecordV1,
+) -> AmxRecordProofV1 {
+    use crate::sumeragi_finality::certified_result::FLAG_ACTIVE;
+    use crate::sumeragi_finality::{SccpFinalityHeaderFieldsV1, context_committee_root};
+    let writes = vec![write_of(record)];
+    let body = result_commitment(context, height, &writes, None);
+    let header = SccpFinalityHeaderV1::from_fields(&SccpFinalityHeaderFieldsV1 {
+        network_id: *context.network_id.as_bytes(),
+        height,
+        timestamp_ms: height,
+        flags: FLAG_ACTIVE,
+        generation: 1,
+        committee_root: context_committee_root(context).unwrap(),
+        ..SccpFinalityHeaderFieldsV1::default()
+    })
+    .unwrap();
+    let result = CertifiedResultV1::new(header, body, CertifiedResultScope::TairaGlobal).unwrap();
+    let (header, qc) = sign(source, context, height, result.result().unwrap(), 3);
+    let block = AmxCertifiedBlockV1 {
+        consensus_header: norito::encode_canonical(&header).unwrap(),
+        commit_qc: norito::encode_canonical(&qc).unwrap(),
+        result_preimage: result.preimage().unwrap(),
+    };
+    let all = block_writes(context, height, &writes);
+    AmxRecordProofV1::from_writes(
+        block,
+        all.iter()
+            .map(|(key, value)| (key.as_slice(), value.as_slice())),
+        record.clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap()
+}
+
+#[test]
+fn amx_active_global_begin_and_decision_retain_x_and_settle_once() {
+    let context = long_fixture();
+    let tx = transfer(10, 61, [7, 8]);
+    let begin = active_record_proof(
+        GLOBAL,
+        &context,
+        2,
+        &AmxRecordV1::Begin(tx.begin().unwrap()),
+    );
+    let decision = active_record_proof(GLOBAL, &context, 9, &decision(&tx, AmxOutcomeV1::Commit));
+    let tracker =
+        AmxForeignInstanceV1::new(GLOBAL, context, CertifiedResultScope::TairaGlobal).unwrap();
+    let verified = tracker.verify_record(&begin).unwrap();
+    assert!(verified.certified_result().header().is_active());
+    assert_eq!(
+        verified.certified_result().header().height(),
+        verified.height
+    );
+    assert_eq!(verified.commitment().height, verified.height);
+    assert_eq!(
+        verified.certified_result().preimage().unwrap(),
+        begin.block.result_preimage
+    );
+    assert_eq!(
+        verified.certified_result().result().unwrap().0,
+        verified.result
+    );
+    let mut state = participant();
+    let mut ledger = Ledger::with(&[(1, 20)]);
+    assert!(matches!(
+        state.prepare(&mut ledger, &tx, &begin).unwrap(),
+        AmxRecordV1::Prepared(_)
+    ));
+    assert_eq!(
+        state.settle(&mut ledger, &decision).unwrap(),
+        AmxSettleOutcome::Applied
+    );
+    assert!(state.settle(&mut ledger, &decision).is_err());
+    assert_eq!(ledger.applied, vec![tx.id().unwrap()]);
+    assert_eq!(ledger.total(), 20);
+}
+
+#[test]
+fn amx_active_child_is_rejected_before_any_vote_or_handoff_changes() {
+    let context = fixture(4);
+    let tx = transaction(&[DS1, DS2], 50, 62);
+    let record = prepared(tx.id().unwrap(), DS1, AmxVoteV1::Yes([0x62; 32]));
+    let proof = active_record_proof(instance(DS1), &context, 3, &record);
+    let mut tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        context.clone(),
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    // The same genuine signature/header/body passes the global structural role.
+    assert!(
+        AmxForeignInstanceV1::new(instance(DS1), context, CertifiedResultScope::TairaGlobal)
+            .unwrap()
+            .verify_record(&proof)
+            .is_ok()
+    );
+    assert!(matches!(
+        tracker.verify_record(&proof),
+        Err(AmxError::Proof(_))
+    ));
+    let original_tracker = tracker.clone();
+    assert!(
+        tracker
+            .apply_handoff(&AmxHandoffProofV1 {
+                block: proof.block.clone()
+            })
+            .is_err()
+    );
+    assert_eq!(tracker, original_tracker);
+    let all = block_writes(&fixture(4), 3, &[write_of(&record)]);
+    assert!(
+        AmxRecordProofV1::from_writes(
+            proof.block.clone(),
+            all.iter()
+                .map(|(key, value)| (key.as_slice(), value.as_slice())),
+            record,
+            CertifiedResultScope::NonGlobal,
+        )
+        .is_err()
+    );
+    let mut state = state_with(&[DS1, DS2]);
+    state.begin(2, &tx).unwrap();
+    let original = state.clone();
+    assert!(state.relay_prepared(3, &proof).is_err());
+    assert_eq!(state, original);
+}
+
+#[test]
+fn amx_bare_body_and_mismatched_x_are_not_certified_results() {
+    use crate::sumeragi_finality::certified_result::result_of_preimage;
+    let context = fixture(4);
+    let record = prepared([0x63; 32], DS1, AmxVoteV1::No);
+    let writes = vec![write_of(&record)];
+    let all = block_writes(&context, 3, &writes);
+    let original = certify(instance(DS1), &context, 3, &writes, None, 3);
+    let tracker = AmxForeignInstanceV1::new(
+        instance(DS1),
+        context.clone(),
+        CertifiedResultScope::NonGlobal,
+    )
+    .unwrap();
+    let wrapped =
+        CertifiedResultV1::decode(&original.result_preimage, CertifiedResultScope::NonGlobal)
+            .unwrap();
+    let bare = wrapped.commitment().preimage().unwrap();
+    assert_eq!(result_of_preimage(&bare), None);
+    let mut invalid = original.clone();
+    invalid.result_preimage = bare;
+    assert!(tracker.verify_block(&invalid).is_err());
+    assert!(
+        AmxRecordProofV1::from_writes(
+            invalid,
+            all.iter()
+                .map(|(key, value)| (key.as_slice(), value.as_slice())),
+            record,
+            CertifiedResultScope::NonGlobal,
+        )
+        .is_err()
+    );
+    // Re-sign the actual changed X||body, so rejection must check C1/C2, not just R/QC.
+    for header in [
+        SccpFinalityHeaderV1::inactive(*context.network_id.as_bytes(), 4, 3).unwrap(),
+        SccpFinalityHeaderV1::inactive([0xa7; 32], 3, 3).unwrap(),
+    ] {
+        let invalid_result =
+            CertifiedResultV1::from_parts_unvalidated(header, wrapped.commitment().clone());
+        let result_preimage = invalid_result.preimage().unwrap();
+        let (header, qc) = sign(
+            instance(DS1),
+            &context,
+            3,
+            result_of_preimage(&result_preimage).unwrap(),
+            3,
+        );
+        let invalid = AmxCertifiedBlockV1 {
+            consensus_header: norito::encode_canonical(&header).unwrap(),
+            commit_qc: norito::encode_canonical(&qc).unwrap(),
+            result_preimage,
+        };
+        assert!(matches!(
+            tracker.verify_block(&invalid),
+            Err(AmxError::Proof(_))
+        ));
+    }
+    let superset = certify(instance(DS1), &context, 3, &writes, None, 4);
+    assert!(tracker.verify_block(&superset).is_err());
+    tracker.verify_block(&original).unwrap();
 }

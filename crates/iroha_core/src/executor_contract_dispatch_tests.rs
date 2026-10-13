@@ -4,6 +4,7 @@ fn contract_dispatch_context_rejects_no_selector_self_describing_artifact_withou
         contract_program_with_entrypoint("run", Some("RunPermission"));
     let metadata = Metadata::default();
     let err = parse_contract_call_execution_context(&metadata, &program)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("self-describing default dispatch without main should reject");
     assert!(matches!(
         err,
@@ -95,6 +96,7 @@ fn malformed_invocation_arguments_fail_during_context_preparation() {
         invocation.contract_address.subject_id(),
         u64::MAX,
     )
+    .map_err(crate::execution_attempt::expect_completed_rejection)
     .expect_err("malformed arguments must fail before a VM is constructed or entered");
     assert!(matches!(
         error,
@@ -113,6 +115,7 @@ fn trigger_dispatch_rejects_static_payload_and_implicit_entrypoint() {
         &event_args,
         u64::MAX,
     )
+    .map_err(crate::execution_attempt::expect_completed_rejection)
     .expect_err("trigger callback selection must be explicit");
     assert!(matches!(
         err,
@@ -130,6 +133,7 @@ fn trigger_dispatch_rejects_static_payload_and_implicit_entrypoint() {
     );
     let err =
         parse_prepared_trigger_call_execution_context(&metadata, &contract, &event_args, u64::MAX)
+            .map_err(crate::execution_attempt::expect_completed_rejection)
             .expect_err("fixed metadata payload must not shadow event arguments");
     assert!(matches!(
         err,
@@ -1926,25 +1930,28 @@ fn initial_executor_separates_sccp_proposal_authority_from_parameter_governance(
             .count(),
         0
     );
-    super::Executor::Initial
+    validate_initial_native_instruction_authority(
+        &state_transaction,
+        &sccp_proposer,
+        &propose(),
+        false,
+    )
+    .expect("SCCP proposer permission passes the instruction authority check");
+    let events = state_transaction.world.internal_event_buf.len();
+    let error = super::Executor::Initial
         .execute_instruction(&mut state_transaction, &sccp_proposer, propose())
-        .expect("the SCCP proposer permission admits a canonical Parliament proposal");
+        .expect_err("SCCP proposer permission cannot open the unavailable binding-ballot gate");
+    assert!(
+        matches!(
+            &error,
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(reason))
+                if reason.as_ref() == "ParliamentBallotUnavailable"
+        ),
+        "{error:?}"
+    );
     let proposals = state_transaction.world.governance_proposals();
-    assert_eq!(proposals.iter().count(), 1);
-    let (_, record) = proposals.iter().next().expect("the admitted SCCP proposal");
-    assert_eq!(record.proposer, sccp_proposer);
-    assert_eq!(
-        record.status,
-        crate::state::GovernanceProposalStatus::Proposed
-    );
-    assert_eq!(
-        record
-            .as_sccp_route_governance()
-            .expect("the canonical SCCP proposal body")
-            .proposal
-            .as_ref(),
-        &proposal
-    );
+    assert_eq!(proposals.iter().count(), 0);
+    assert_eq!(state_transaction.world.internal_event_buf.len(), events);
     assert!(
         state_transaction.world.sccp_parameters().is_none(),
         "proposing SetParameters must not enact the SCCP parameter change"

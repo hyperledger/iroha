@@ -65,8 +65,9 @@ fn send_destination_original(
     original: &[u8],
     request: &KagemushaWalletRequestV1,
 ) -> Result<Vec<u8>, Error> {
-    intake::account(original, &request.body.receiver_account_digest)
-        .map_err(|_| Error::Invalid("review destination account original"))?;
+    intake::account(original, &request.body.receiver_account_digest).map_err(|error| {
+        error.into_state_error(Error::Invalid("review destination account original"))
+    })?;
     Ok(original.to_vec())
 }
 
@@ -79,12 +80,13 @@ fn unload_beneficiary_original(
     match (charge, original) {
         (None, None) => Ok(None),
         (Some(charge), Some(original)) => {
-            let quote = valid(KagemushaWalletChargeQuoteV1::decode_canonical(
-                &charge.quote,
-                scheme,
-            ))?;
-            intake::account(original, &quote.body.beneficiary_account_digest)
-                .map_err(|_| Error::Invalid("review Unload beneficiary original"))?;
+            let quote = read_model_original(
+                || KagemushaWalletChargeQuoteV1::decode_canonical(&charge.quote, scheme),
+                Error::Invalid("G1 validation"),
+            )?;
+            intake::account(original, &quote.body.beneficiary_account_digest).map_err(|error| {
+                error.into_state_error(Error::Invalid("review Unload beneficiary original"))
+            })?;
             Ok(Some(original.to_vec()))
         }
         _ => Err(Error::Invalid("review Unload beneficiary presence")),
@@ -197,11 +199,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         if marker.marker().scheme_id != self.scheme_id
             || marker.marker().wallet_id != self.wallet_id
             || marker.payment_key() != &released.frozen.credential.body.payment_key
-            || sequence != capsule.statement.sequence
-            || operation_id != capsule.operation_id
-            || head != capsule.statement.successor
-            || head != valid(capsule.successor_state.commitment())?
-            || capsule_digest != valid(capsule.capsule_digest())?
+            || sequence != capsule.body().statement.sequence
+            || operation_id != capsule.body().operation_id
+            || head != capsule.body().statement.successor
+            || head != valid(capsule.body().successor_state.commitment())?
+            || capsule_digest != capsule.custody_digest()
             || capsule_digest != released.retained.capsule_digest
             || operation_id != released.retained.operation_id
             || marker.selected_generation() != Some(released.retained.selected_generation)
@@ -290,22 +292,29 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         ) = match &action {
             OperationActionV1::Send { request } => {
                 let blacklist = if before.enforces_blacklist() {
-                    Some(valid(KagemushaWalletBlacklistV1::decode_canonical(
-                        &custody
-                            .original(PreparationOriginalV1::Blacklist)?
-                            .ok_or(Error::WitnessLost("review blacklist"))?,
-                        &self.scheme_id,
-                    ))?)
+                    let original = custody
+                        .original(PreparationOriginalV1::Blacklist)?
+                        .ok_or(Error::WitnessLost("review blacklist"))?;
+                    Some(read_model_original(
+                        || KagemushaWalletBlacklistV1::decode_canonical(&original, &self.scheme_id),
+                        Error::Invalid("G1 validation"),
+                    )?)
                 } else {
                     None
                 };
                 let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
-                    Some(valid(KagemushaWalletQuotaShareV1::decode_canonical(
-                        &custody
-                            .original(PreparationOriginalV1::QuotaShare)?
-                            .ok_or(Error::WitnessLost("review quota share"))?,
-                        &self.scheme_id,
-                    ))?)
+                    let original = custody
+                        .original(PreparationOriginalV1::QuotaShare)?
+                        .ok_or(Error::WitnessLost("review quota share"))?;
+                    Some(read_model_original(
+                        || {
+                            KagemushaWalletQuotaShareV1::decode_canonical(
+                                &original,
+                                &self.scheme_id,
+                            )
+                        },
+                        Error::Invalid("G1 validation"),
+                    )?)
                 } else {
                     None
                 };
@@ -393,7 +402,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             charge_quote_digest,
             scheme_id: self.scheme_id,
             wallet_id: self.wallet_id,
-            current_head: released.frozen.capsule.statement.successor.value,
+            current_head: released.frozen.capsule.body().statement.successor.value,
             source_state_commitment: valid(before.commitment())?.value,
             source_capsule_digest: released.retained.capsule_digest,
             credential_digest: owner.credential().credential_digest(),

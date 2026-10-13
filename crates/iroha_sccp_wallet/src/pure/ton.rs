@@ -620,23 +620,39 @@ pub fn stack_of_ints(values: &[i64]) -> Result<Vec<u8>, TonError> {
             .store_uint(u128::from(value.cast_unsigned()), 64)?;
         list = node.build();
     }
-    let depth = u128::try_from(values.len()).map_err(|_| TonError::FieldTooLarge)?;
+    finish_stack(list, values.len())
+}
+
+/// A `VmStack` `BoC` of unsigned 64-bit arguments, preserving the complete nonce range.
+///
+/// # Errors
+/// Returns an error if the stack depth or a cell exceeds the current TL-B bound.
+pub fn stack_of_uints(values: &[u64]) -> Result<Vec<u8>, TonError> {
+    let mut list = CellBuilder::new().build();
+    for &value in values {
+        let mut node = CellBuilder::new();
+        node.store_ref(list)?
+            .store_uint(2, 8)? // vm_stk_int#0201_, positive int257
+            .store_uint(0, 7)?
+            .store_uint(0, 1)?
+            .store_uint(0, 128)?
+            .store_uint(u128::from(value), 128)?;
+        list = node.build();
+    }
+    finish_stack(list, values.len())
+}
+
+fn finish_stack(list: Cell, depth: usize) -> Result<Vec<u8>, TonError> {
+    let depth = u128::try_from(depth).map_err(|_| TonError::FieldTooLarge)?;
     let mut root = CellBuilder::new();
     root.store_uint(depth, 24)?;
-    // The root holds the top list node inline: its `rest` reference and value bits.
-    if values.is_empty() {
-        return Ok(root.build().to_boc()?);
+    for child in list.refs() {
+        root.store_ref(child.clone())?;
     }
-    let top = list;
-    let mut builder = CellBuilder::new();
-    builder.store_uint(depth, 24)?;
-    for child in top.refs() {
-        builder.store_ref(child.clone())?;
+    for bit in 0..list.bit_len() {
+        root.store_bit(list.data()[bit / 8] & (0x80 >> (bit % 8)) != 0)?;
     }
-    for bit in 0..top.bit_len() {
-        builder.store_bit(top.data()[bit / 8] & (0x80 >> (bit % 8)) != 0)?;
-    }
-    Ok(builder.build().to_boc()?)
+    Ok(root.build().to_boc()?)
 }
 
 /// A TVM integer as a 33-byte two's-complement big-endian value.
@@ -818,6 +834,24 @@ mod tests {
     }
 
     #[test]
+    fn unsigned_stack_preserves_full_nonce_range() {
+        let values = [0, 1, i64::MAX as u64, (i64::MAX as u64) + 1, u64::MAX];
+        let actual = parse_int_stack(&stack_of_uints(&values).unwrap()).unwrap();
+        assert_eq!(
+            actual
+                .into_iter()
+                .map(|value| value.unwrap().to_u64().unwrap())
+                .collect::<Vec<_>>(),
+            values
+        );
+        assert!(
+            parse_int_stack(&stack_of_uints(&[]).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn attached_values_cover_the_quote_and_the_floor() {
         assert_eq!(quote_with_margin(0), QUOTE_MARGIN_MIN);
         assert_eq!(
@@ -828,10 +862,10 @@ mod tests {
         assert_eq!(quote_with_margin(u128::MAX), u128::MAX);
         let floor = ton_minter_floor_at_mainnet_prices();
         assert!(minter_deploy_value() > floor + floor / 5);
-        // about 15.53 TON at mainnet prices (MINTER_FLOOR is about 12.34 TON)
+        // about 13.78 TON at mainnet prices (MINTER_FLOOR is about 10.95 TON)
         assert_eq!(
             minter_deploy_value(),
-            12_342_810_059 + 3_085_702_514 + 100_000_000
+            10_947_326_661 + 2_736_831_665 + 100_000_000
         );
     }
 
@@ -895,3 +929,7 @@ mod tests {
 #[cfg(test)]
 #[path = "ton/current_tests.rs"]
 mod current_tests;
+
+#[cfg(test)]
+#[path = "ton/golden_tests.rs"]
+mod golden_tests;

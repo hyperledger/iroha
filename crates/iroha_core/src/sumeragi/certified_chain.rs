@@ -3,7 +3,7 @@
 //!
 //! Kura holds one frame per committed height: the result-bearing iroha block and its
 //! [`CommitCertificate`] — the canonical core [`BlockHeader`], the `CommitQC` and the preimage of
-//! the certified result `R` ([`ExecutionResultCommitment`]). Genesis carries a result-only
+//! the certified result `R` ([`CertifiedResultV1`], the fixed `X` and its execution body). Genesis carries a result-only
 //! certificate (no header, no `CommitQC`). Its signed body and registered authority are the
 //! network-pinned trust root. The result-only execution preimage is added after genesis executes;
 //! genesis signatures do not authenticate that preimage. An exact-quorum successor authenticates
@@ -65,13 +65,13 @@ use iroha_crypto::{Hash, HashOf, PublicKey as IrohaPublicKey};
 use iroha_data_model::{
     block::{
         BlockHeader as IrohaHeader, CommitCertificate, SignedBlock,
-        consensus::HeightContextId,
+        consensus::{HeightContextId, SumeragiRootScope},
         proofs::{
             TrustedBlockProofAnchor, TrustedBlockProofAnchorError, TrustedExecutionOutputAnchor,
         },
     },
     sumeragi::epoch::ValidatorEpochContextV1,
-    sumeragi_finality::EpochValidationScope,
+    sumeragi_finality::{CertifiedResultError, CertifiedResultV1, EpochValidationScope},
     transaction::TransactionEntrypoint,
 };
 use iroha_sumeragi::{
@@ -82,9 +82,7 @@ use iroha_sumeragi::{
 };
 
 use super::{
-    commitment::{
-        CertifiedResultError, CertifiedResultV1, ExecutionResultCommitment, result_of_preimage,
-    },
+    commitment::{ExecutionResultCommitment, result_of_preimage},
     crypto::{BlsCrypto, core_key},
     schedule,
     startup::{GENESIS_HEIGHT, core_hash_of},
@@ -272,7 +270,7 @@ impl CommittedBlock {
         self.result
     }
 
-    /// The decoded preimage of `R`.
+    /// The decoded execution body within the certified `X ‖ body` preimage.
     #[must_use]
     pub fn commitment(&self) -> &ExecutionResultCommitment {
         self.certified_result.commitment()
@@ -545,7 +543,18 @@ fn frame_result_error(
 ) -> ExecutionAttemptError<ChainReadError> {
     match error {
         CertifiedResultError::Body(super::commitment::CommitmentError::Resource(error)) => {
-            read_decode_error(height, error.into())
+            if cfg!(all(test, sumeragi_core_mutation = "HC43")) {
+                return ExecutionAttemptError::Rejected(ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                });
+            }
+            crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
+                ChainReadError::Malformed {
+                    height,
+                    reason: error.to_string(),
+                }
+            })
         }
         completed => ExecutionAttemptError::Rejected(ChainReadError::Malformed {
             height,
@@ -1029,6 +1038,18 @@ fn verification_codec_error(height: u64, error: norito::Error) -> VerificationRe
     }
 }
 
+mod funded_authority;
+
+/// A borrowed projection of one already established native authority owner.
+/// Construction is private; this type creates neither keys nor authority.
+#[derive(Clone, Copy)]
+struct AuthorityRef<'a> {
+    material: &'a ValidatorEpochContextV1,
+    epoch: EpochId,
+    committee: &'a Committee,
+    crypto: &'a dyn iroha_sumeragi::crypto::Crypto,
+}
+
 /// One complete epoch authority. Its crypto owner admits only this roster's original proofs.
 struct VerifiedAuthority {
     material: ValidatorEpochContextV1,
@@ -1038,6 +1059,15 @@ struct VerifiedAuthority {
 }
 
 impl VerifiedAuthority {
+    fn projection(&self) -> AuthorityRef<'_> {
+        AuthorityRef {
+            material: &self.material,
+            epoch: self.epoch,
+            committee: &self.committee,
+            crypto: &self.crypto,
+        }
+    }
+
     fn new(
         material: ValidatorEpochContextV1,
         height: u64,
@@ -1138,9 +1168,27 @@ struct PreparedAdvance {
     proof_source: Option<Hash>,
 }
 
+// Structural frame readers retain X and check C1–C5 without conferring scope authority.
+// Only the original signed genesis selects whether an active X is permitted. This check
+// borrows the same decoded owner and never repeats body decoding or epoch validation.
+fn check_result_scope(
+    committed: &CommittedBlock,
+    root_scope: SumeragiRootScope,
+) -> Result<(), ChainReadError> {
+    if root_scope != SumeragiRootScope::Global && committed.certified_result().header().is_active()
+    {
+        return Err(ChainReadError::Malformed {
+            height: committed.height,
+            reason: CertifiedResultError::ActiveOutsideGlobal.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// One crypto context for both random pinned reads and one-pass externally streamed evidence.
 struct PrefixVerifierContext {
     instance: Hash32,
+    root_scope: SumeragiRootScope,
 }
 impl PrefixVerifierContext {
     fn advance_prefix(
@@ -1207,7 +1255,7 @@ impl PrefixVerifierContext {
             .map_err(|error| malformed(error.to_string()))?;
         let certificate =
             self.prepare_certificate(committed, &authority, Some(&config), artifacts)?;
-        verify_boundary_source(committed, &prefix.tip, &authority)?;
+        verify_boundary_source(committed, &prefix.tip, authority.projection())?;
         let schedule = prefix
             .schedule
             .advanced_with_validation(&committed.commitment().schedule, &mut prefix.validation)
@@ -1254,7 +1302,7 @@ impl PrefixVerifierContext {
         // graph or provide an independent physical scratch owner for AMX relaying.
         self.prepare_certificate_with_scratch_admission(
             committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             &mut state_certificate::query_scratch_admission,
@@ -1273,9 +1321,10 @@ impl PrefixVerifierContext {
     fn verify_commit_qc_original(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         commit_qc: &Qc,
     ) -> Result<(), ChainReadError> {
+        check_result_scope(committed, self.root_scope)?;
         let height = committed.height;
         let header = committed
             .header
@@ -1303,16 +1352,18 @@ impl PrefixVerifierContext {
         #[cfg(test)]
         relation_counts::qc(height);
         let checked = iroha_sumeragi::crypto::Verifier::new(
-            &authority.crypto,
+            authority.crypto,
             &self.instance,
             &authority.epoch,
-            &authority.committee,
+            authority.committee,
         )
         .verify_qc(commit_qc);
         checked.map_err(|error| ChainReadError::Certificate { height, error })?;
         Ok(())
     }
 
+    /// Fixture adapter over the production preparer with an injected scratch admission.
+    #[cfg(test)]
     fn verify_certificate_with_scratch_admission(
         &self,
         committed: CommittedBlock,
@@ -1323,7 +1374,7 @@ impl PrefixVerifierContext {
     ) -> Result<CertifiedBlock, VerificationReadError> {
         let certificate = self.prepare_certificate_with_scratch_admission(
             &committed,
-            authority,
+            authority.projection(),
             config,
             artifacts,
             admit_scratch,
@@ -1334,11 +1385,12 @@ impl PrefixVerifierContext {
     fn prepare_certificate_with_scratch_admission(
         &self,
         committed: &CommittedBlock,
-        authority: &VerifiedAuthority,
+        authority: AuthorityRef<'_>,
         config: Option<&iroha_sumeragi::types::HeightConfig>,
         artifacts: Option<PrefixArtifacts>,
         admit_scratch: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
     ) -> Result<CertificateVerdict, VerificationReadError> {
+        check_result_scope(committed, self.root_scope)?;
         let height = committed.height;
         let malformed = |reason: String| ChainReadError::Malformed { height, reason };
         let certificate = committed
@@ -1371,7 +1423,7 @@ impl PrefixVerifierContext {
         verify_availability(
             committed,
             config,
-            &authority.crypto,
+            authority.crypto,
             availability,
             admit_scratch,
         )?;
@@ -1386,7 +1438,7 @@ impl PrefixVerifierContext {
 fn verify_boundary_source(
     certified: &CommittedBlock,
     parent: &CommittedBlock,
-    authority: &VerifiedAuthority,
+    authority: AuthorityRef<'_>,
 ) -> Result<(), ChainReadError> {
     let height = certified.height();
     let malformed = |reason: String| ChainReadError::Committee { height, reason };
@@ -1429,7 +1481,7 @@ fn verify_boundary_source(
 fn verify_availability(
     committed: &CommittedBlock,
     config: &iroha_sumeragi::types::HeightConfig,
-    crypto: &BlsCrypto,
+    crypto: &dyn iroha_sumeragi::crypto::Crypto,
     prepared: Option<(
         iroha_sumeragi::availability::AvailabilityFrame,
         iroha_sumeragi::availability::PayloadBytes,
@@ -1682,6 +1734,7 @@ impl AdmittedPrefixPush {
             (prefix.prefix.tip.height == GENESIS_HEIGHT).then(|| prefix.prefix.tip.clone());
         let prepared = PrefixVerifierContext {
             instance: prefix.instance,
+            root_scope: prefix.root_scope,
         }
         .prepare_advance(&mut prefix.prefix, self.frame.committed(), None)?;
         Ok(Self::finish(
@@ -1928,6 +1981,7 @@ impl CertifiedPrefix {
         let genesis = (self.prefix.tip.height == GENESIS_HEIGHT).then(|| self.prefix.tip.clone());
         let current = PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         }
         .advance_prefix(&mut self.prefix, committed, artifacts)?;
         let genesis = genesis.map(|committed| GenesisExecutionAnchor {
@@ -2301,6 +2355,7 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     fn verification_context(&self) -> PrefixVerifierContext {
         PrefixVerifierContext {
             instance: self.instance,
+            root_scope: self.root_scope,
         }
     }
 
@@ -2822,13 +2877,15 @@ pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,
 };
-pub(crate) use state_certificate::{ParentServiceError, VerifiedParentService};
+pub(crate) use state_certificate::{
+    ParentServiceError, ParentServicePreparation, VerifiedParentService,
+};
 
 #[cfg(test)]
 pub(crate) mod relation_counts;
 
 #[cfg(test)]
-use iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1;
+use iroha_data_model::sumeragi_finality::{CertifiedResultScope, SccpFinalityHeaderV1};
 
 #[cfg(test)]
 fn fixture_result_parts(preimage: &[u8]) -> (SccpFinalityHeaderV1, ExecutionResultCommitment) {
@@ -2848,3 +2905,6 @@ fn fixture_result_preimage(
     bytes.extend_from_slice(&norito::encode_canonical(body).unwrap());
     bytes
 }
+
+#[cfg(test)]
+pub(crate) use state_certificate::{ParentServiceAdmissionProbe, observe_parent_service_admission};

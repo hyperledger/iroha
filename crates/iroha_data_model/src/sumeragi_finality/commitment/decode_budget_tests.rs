@@ -118,19 +118,24 @@ fn ten_seat_boundary_result_roundtrips_complete_repeated_epoch_graph() {
     let decoded = ExecutionResultCommitment::decode(&bytes).unwrap();
     assert_eq!(decoded, value);
     assert_eq!(decoded.preimage().unwrap(), bytes);
-    let x = crate::sumeragi_finality::SccpFinalityHeaderV1::inactive(
+    let header = crate::sumeragi_finality::SccpFinalityHeaderV1::inactive(
         *value.schedule.current.network_id.as_bytes(),
         value.height,
         0,
     )
     .unwrap();
-    let result = |body: &ExecutionResultCommitment| {
-        crate::sumeragi_finality::certified_result::outer_result(
-            &x,
-            &crate::sumeragi_finality::certified_result::body_digest(&body.preimage().unwrap()),
+    let certified = |body| {
+        crate::sumeragi_finality::CertifiedResultV1::new(
+            header,
+            body,
+            crate::sumeragi_finality::CertifiedResultScope::NonGlobal,
         )
+        .unwrap()
     };
-    assert_eq!(result(&decoded), result(&value));
+    assert_eq!(
+        certified(decoded.clone()).result().unwrap(),
+        certified(value.clone()).result().unwrap()
+    );
     let mut invalid = value;
     invalid.schedule.boundary = None;
     assert!(matches!(
@@ -159,11 +164,16 @@ fn strict_outer_allocation_limit_refuses_same_result_and_scope_exit_allows_retry
         ExecutionResultCommitment::decode(&bytes)
     });
     // Preserve the exact local category through the production result wrapper.
+    let Err(CommitmentError::Resource(original_attempt)) = wrapped else {
+        panic!("expected the original caller allocation refusal");
+    };
     assert_eq!(
-        wrapped,
-        Err(CommitmentError::Resource(
-            error.decode_resource_error().unwrap()
-        ))
+        original_attempt.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert_eq!(
+        original_attempt.into_error().decode_resource_error(),
+        error.decode_resource_error()
     );
     assert_eq!(bytes, original);
     assert_eq!(ExecutionResultCommitment::decode(&bytes).unwrap(), value);
@@ -187,11 +197,18 @@ fn original_caller_decode_counter_is_not_replaced_after_nested_refusal() {
             norito::Error::TotalAllocationExceeded { attempted, limit }
                 if attempted > limit && limit == cap as u64
         ));
+        let Err(CommitmentError::Resource(original_attempt)) =
+            ExecutionResultCommitment::decode(&bytes)
+        else {
+            panic!("expected the original caller allocation refusal");
+        };
         assert_eq!(
-            ExecutionResultCommitment::decode(&bytes),
-            Err(CommitmentError::Resource(
-                error.decode_resource_error().unwrap()
-            ))
+            original_attempt.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            original_attempt.into_error().decode_resource_error(),
+            error.decode_resource_error()
         );
         // Failed nested scopes must neither reset nor refund the caller's consumed counter.
         assert!(matches!(
@@ -217,11 +234,16 @@ fn strict_outer_element_limit_refuses_without_replacing_original_counter() {
     );
     let refusal =
         norito::with_decode_limits_scope(outer, || ExecutionResultCommitment::decode(&bytes));
+    let Err(CommitmentError::Resource(original_attempt)) = refusal else {
+        panic!("expected the original caller element refusal");
+    };
+    assert_eq!(
+        original_attempt.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
     assert!(matches!(
-        refusal,
-        Err(CommitmentError::Resource(
-            norito::core::DecodeResourceError::TotalElementsExceeded { .. }
-        ))
+        original_attempt.into_error().decode_resource_error(),
+        Some(norito::core::DecodeResourceError::TotalElementsExceeded { .. })
     ));
     assert_eq!(ExecutionResultCommitment::decode(&bytes).unwrap(), value);
 }
@@ -474,8 +496,8 @@ fn maximal_31_seat_boundary_with_frozen_preparation_fits_the_result_body_bound()
     assert_eq!(preimage[X_LEN..], bytes[..]);
     assert!(preimage.len() <= MAX_RESULT_PREIMAGE_BYTES);
     assert_eq!(
-        CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal),
-        Ok(certified)
+        CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal).unwrap(),
+        certified
     );
 
     // Per-component payload bytes; the last row is what the listed parts do not cover.
@@ -523,4 +545,59 @@ fn maximal_31_seat_boundary_with_frozen_preparation_fits_the_result_body_bound()
 
     assert!(bytes.len() <= MAX_RESULT_BODY_BYTES);
     assert_eq!(bytes.len(), MAXIMAL_31_SEAT_BOUNDARY_BODY_BYTES);
+}
+
+#[test]
+fn result_refusal_keeps_original_origin_after_scope_retirement_and_equal_foreign_budget() {
+    let bytes = ten_seat_boundary().preimage().unwrap();
+    let original = norito::with_decode_limits_scope(protocol_limits(0), || {
+        ExecutionResultCommitment::decode(&bytes)
+    })
+    .unwrap_err();
+    let CommitmentError::Resource(original) = original else {
+        panic!("the original enclosing allocation owner must refuse");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    let original_error = original.into_error();
+    assert!(matches!(
+        original_error.decode_resource_error(),
+        Some(norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. })
+    ));
+    norito::with_decode_limits_scope(protocol_limits(0), || {
+        assert!(
+            !norito::core::decode_error_matches_active_limits(&original_error),
+            "an unrelated equal numeric budget must not acquire the retired attempt's origin"
+        );
+    });
+    assert!(ExecutionResultCommitment::decode(&bytes).is_ok());
+}
+
+#[test]
+fn intrinsic_result_sequence_ceiling_stays_invalid_under_equal_or_wider_caller_limits() {
+    let mut value = ten_seat_boundary();
+    // The canonical wire can represent this malformed credential; the intrinsic decoder
+    // sequence cap must reject it before credential crypto, irrespective of outer limits.
+    value.schedule.current.committee[0]
+        .proof_of_possession
+        .resize(97, 0);
+    let bytes = norito::encode_canonical(&value).unwrap();
+    let canonical = norito::canonical_decode_limits(bytes.len());
+    for sequence_limit in [96, 1024] {
+        let outer = norito::DecodeLimits::new(
+            sequence_limit,
+            MAX_RESULT_PREIMAGE_BYTES,
+            canonical.max_total_elements(),
+            canonical.max_total_allocated_bytes(),
+            64,
+        );
+        let result =
+            norito::with_decode_limits_scope(outer, || ExecutionResultCommitment::decode(&bytes));
+        assert!(
+            matches!(result, Err(CommitmentError::Encoding(_))),
+            "intrinsic sequence limit must remain invalid: {result:?}"
+        );
+    }
 }

@@ -2218,11 +2218,195 @@
       }
     ]
   },
-  "IvmExecutionFail": {
+  "IvmFaultKindV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "OutOfGas"
+      },
+      {
+        "discriminant": 1,
+        "tag": "MemoryLimitExceeded"
+      },
+      {
+        "discriminant": 2,
+        "tag": "MemoryAccessViolation"
+      },
+      {
+        "discriminant": 3,
+        "tag": "MisalignedAccess"
+      },
+      {
+        "discriminant": 4,
+        "tag": "MemoryOutOfBounds"
+      },
+      {
+        "discriminant": 5,
+        "tag": "DecodeError"
+      },
+      {
+        "discriminant": 6,
+        "tag": "InvalidOpcode"
+      },
+      {
+        "discriminant": 7,
+        "tag": "UnknownSyscall"
+      },
+      {
+        "discriminant": 8,
+        "tag": "UnsupportedSyscall"
+      },
+      {
+        "discriminant": 9,
+        "tag": "GasCostOverflow"
+      },
+      {
+        "discriminant": 10,
+        "tag": "Numeric",
+        "type": "NumericFaultV1"
+      },
+      {
+        "discriminant": 11,
+        "tag": "PointerAbi",
+        "type": "PointerAbiFaultV1"
+      },
+      {
+        "discriminant": 12,
+        "tag": "AssertionFailed"
+      },
+      {
+        "discriminant": 13,
+        "tag": "ExceededMaxCycles"
+      },
+      {
+        "discriminant": 14,
+        "tag": "InvalidMetadata"
+      },
+      {
+        "discriminant": 15,
+        "tag": "InvalidVectorLength"
+      },
+      {
+        "discriminant": 16,
+        "tag": "MissingHalt"
+      },
+      {
+        "discriminant": 17,
+        "tag": "VectorExtensionDisabled"
+      },
+      {
+        "discriminant": 18,
+        "tag": "ZkExtensionDisabled"
+      },
+      {
+        "discriminant": 19,
+        "tag": "NullifierAlreadyUsed"
+      },
+      {
+        "discriminant": 20,
+        "tag": "PermissionDenied"
+      },
+      {
+        "discriminant": 21,
+        "tag": "PrivacyViolation"
+      },
+      {
+        "discriminant": 22,
+        "tag": "RegisterOutOfBounds"
+      },
+      {
+        "discriminant": 23,
+        "tag": "NoritoInvalid"
+      },
+      {
+        "discriminant": 24,
+        "tag": "AbiTypeNotAllowed"
+      },
+      {
+        "discriminant": 25,
+        "tag": "HostOutputItemsExceeded"
+      },
+      {
+        "discriminant": 26,
+        "tag": "HostOutputBytesExceeded"
+      },
+      {
+        "discriminant": 27,
+        "tag": "AmxBudgetExceeded"
+      },
+      {
+        "discriminant": 28,
+        "tag": "ReentrantCall"
+      },
+      {
+        "discriminant": 29,
+        "tag": "CallDepthExceeded"
+      }
+    ]
+  },
+  "IvmFaultPositionV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Initialization"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Execute",
+        "type": "IvmFaultPositionV1::Execute"
+      },
+      {
+        "discriminant": 2,
+        "tag": "ReturnValidation"
+      }
+    ]
+  },
+  "IvmFaultPositionV1::Execute": {
     "Struct": [
       {
-        "name": "reason",
-        "type": "String"
+        "name": "pc_offset",
+        "type": "u64"
+      }
+    ]
+  },
+  "IvmFaultSiteV1": {
+    "Struct": [
+      {
+        "name": "code_hash",
+        "type": "Hash"
+      },
+      {
+        "name": "selector",
+        "type": "IvmInvocationSelectorV1"
+      },
+      {
+        "name": "position",
+        "type": "IvmFaultPositionV1"
+      }
+    ]
+  },
+  "IvmFaultV1": {
+    "Struct": [
+      {
+        "name": "kind",
+        "type": "IvmFaultKindV1"
+      },
+      {
+        "name": "site",
+        "type": "IvmFaultSiteV1"
+      }
+    ]
+  },
+  "IvmInvocationSelectorV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Generic"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Entrypoint",
+        "type": "u32"
       }
     ]
   },
@@ -2612,6 +2796,62 @@
       }
     ]
   },
+  "NumericFaultV1": {
+    "Enum": [
+      {
+        "discriminant": 1,
+        "tag": "MantissaOverflow"
+      },
+      {
+        "discriminant": 2,
+        "tag": "ScaleOverflow"
+      },
+      {
+        "discriminant": 3,
+        "tag": "DivisionByZero"
+      },
+      {
+        "discriminant": 4,
+        "tag": "RepeatingDecimal"
+      },
+      {
+        "discriminant": 5,
+        "tag": "ExactDivisionScaleOverflow"
+      },
+      {
+        "discriminant": 6,
+        "tag": "InvalidScale"
+      },
+      {
+        "discriminant": 7,
+        "tag": "InexactConversion"
+      },
+      {
+        "discriminant": 8,
+        "tag": "NegativeQuantity"
+      },
+      {
+        "discriminant": 9,
+        "tag": "QuantityUnderflow"
+      },
+      {
+        "discriminant": 10,
+        "tag": "InvalidRoundingMode"
+      },
+      {
+        "discriminant": 11,
+        "tag": "InvalidFailureMode"
+      },
+      {
+        "discriminant": 12,
+        "tag": "ReservedRegisterNonZero"
+      },
+      {
+        "discriminant": 13,
+        "tag": "NegativeSquareRoot"
+      }
+    ]
+  },
   "NumericSpec": {
     "Struct": [
       {
@@ -2915,6 +3155,54 @@
         "discriminant": 2,
         "tag": "Witness",
         "type": "WitnessEventFilter"
+      }
+    ]
+  },
+  "PointerAbiFaultV1": {
+    "Enum": [
+      {
+        "discriminant": 1,
+        "tag": "InvalidAddress"
+      },
+      {
+        "discriminant": 2,
+        "tag": "UnknownType"
+      },
+      {
+        "discriminant": 3,
+        "tag": "TypeNotAllowed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "WrongType"
+      },
+      {
+        "discriminant": 5,
+        "tag": "InvalidEnvelopeVersion"
+      },
+      {
+        "discriminant": 6,
+        "tag": "OversizedLength"
+      },
+      {
+        "discriminant": 7,
+        "tag": "TruncatedEnvelope"
+      },
+      {
+        "discriminant": 8,
+        "tag": "PayloadHashMismatch"
+      },
+      {
+        "discriminant": 9,
+        "tag": "MalformedFrame"
+      },
+      {
+        "discriminant": 10,
+        "tag": "SchemaMismatch"
+      },
+      {
+        "discriminant": 11,
+        "tag": "NonCanonical"
       }
     ]
   },
@@ -3330,98 +3618,66 @@
         },
         {
           "mask": 4,
-          "name": "SubjectCreated"
-        },
-        {
-          "mask": 8,
-          "name": "AttestationSigned"
-        },
-        {
-          "mask": 16,
-          "name": "BlockAttested"
-        },
-        {
-          "mask": 32,
-          "name": "RosterGenerationCreated"
-        },
-        {
-          "mask": 64,
-          "name": "RosterDerivationFailed"
-        },
-        {
-          "mask": 128,
-          "name": "HandoffStalled"
-        },
-        {
-          "mask": 256,
-          "name": "BridgeKeySet"
-        },
-        {
-          "mask": 512,
-          "name": "AttestationFault"
-        },
-        {
-          "mask": 1024,
           "name": "InboundProven"
         },
         {
-          "mask": 2048,
+          "mask": 8,
           "name": "RecipientRegistered"
         },
         {
-          "mask": 4096,
+          "mask": 16,
           "name": "InboundReleased"
         },
         {
-          "mask": 8192,
+          "mask": 32,
           "name": "InboundBounced"
         },
         {
-          "mask": 16384,
+          "mask": 64,
           "name": "InboundLiabilityShortfall"
         },
         {
-          "mask": 32768,
+          "mask": 128,
           "name": "OutboundVoided"
         },
         {
-          "mask": 65536,
+          "mask": 256,
           "name": "OutboundRefunded"
         },
         {
-          "mask": 131072,
+          "mask": 512,
           "name": "OutboundStranded"
         },
         {
-          "mask": 262144,
+          "mask": 1024,
           "name": "StrandedReleased"
         },
         {
-          "mask": 524288,
+          "mask": 2048,
           "name": "LightClientAdvanced"
         },
         {
-          "mask": 1048576,
+          "mask": 4096,
           "name": "LightClientFrozen"
         },
         {
-          "mask": 2097152,
+          "mask": 8192,
           "name": "LightClientInitialized"
         },
         {
-          "mask": 4194304,
+          "mask": 16384,
           "name": "TrustedCheckpointInstalled"
         },
         {
-          "mask": 8388608,
+          "mask": 32768,
           "name": "RevisionActivationChanged"
         },
         {
-          "mask": 16777216,
+          "mask": 65536,
           "name": "ControlRecorded"
         },
         {
-          "mask": 33554432,
+          "mask": 131072,
           "name": "GovernanceEnacted"
         }
       ],
@@ -3946,11 +4202,6 @@
       },
       {
         "discriminant": 4,
-        "tag": "IvmExecution",
-        "type": "IvmExecutionFail"
-      },
-      {
-        "discriminant": 5,
         "tag": "TriggerExecution",
         "type": "TriggerExecutionFail"
       }
@@ -4106,20 +4357,25 @@
       },
       {
         "discriminant": 4,
+        "tag": "IvmFault",
+        "type": "IvmFaultV1"
+      },
+      {
+        "discriminant": 5,
         "tag": "QueryFailed",
         "type": "QueryExecutionFail"
       },
       {
-        "discriminant": 5,
+        "discriminant": 6,
         "tag": "AxtReject",
         "type": "AxtRejectContext"
       },
       {
-        "discriminant": 6,
+        "discriminant": 7,
         "tag": "TooComplex"
       },
       {
-        "discriminant": 7,
+        "discriminant": 8,
         "tag": "InternalError"
       }
     ]

@@ -712,22 +712,19 @@ fn parent_fee_options_sum_full_width_limits_and_keep_numeric_overflow_cause() {
         let parent = service
             .open_musubi_namespace_binding_parent(&path, &selected, &intent)
             .unwrap();
-        match expected {
-            Some(expected) => {
-                let options = parent.options(requested_deadline).unwrap();
-                assert_eq!(options.fee_payment, intent);
-                assert_eq!(options.deadline, requested_deadline);
-                assert_eq!(options.max_total_fees.len(), 1);
-                assert_eq!(options.max_total_fees.get(&asset), Some(&expected));
-            }
-            None => {
-                let error = parent.options(requested_deadline).unwrap_err();
-                assert_eq!(
-                    error.downcast_ref::<NumericOperationError>(),
-                    Some(&NumericOperationError::MantissaOverflow)
-                );
-                assert_eq!(error.to_string(), "namespace fee ceiling overflow");
-            }
+        if let Some(expected) = expected {
+            let options = parent.options(requested_deadline).unwrap();
+            assert_eq!(options.fee_payment, intent);
+            assert_eq!(options.deadline, requested_deadline);
+            assert_eq!(options.max_total_fees.len(), 1);
+            assert_eq!(options.max_total_fees.get(&asset), Some(&expected));
+        } else {
+            let error = parent.options(requested_deadline).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<NumericOperationError>(),
+                Some(&NumericOperationError::MantissaOverflow)
+            );
+            assert_eq!(error.to_string(), "namespace fee ceiling overflow");
         }
         assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
     }

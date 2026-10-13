@@ -928,20 +928,21 @@ pub mod sccp_instruction_enum {
         isi::{
             Instruction, InstructionBox,
             sccp::{
-                AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-                ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
-                SubmitSccpOutboundVoidV1,
+                AdvanceSccpLightClientV1, InitializeSccpV1, ProveSccpForgedMintV1, RecordSccpMessage,
+                ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpForgeryEvidenceV1,
+                SubmitSccpInboundMessageV1, SubmitSccpOutboundVoidV1,
             },
         },
         sccp::{
             inbound::SccpSourceProofBytesV1,
             light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
             params::SccpParametersV1,
+            reconciliation::{SccpForgedMintPayloadV1, SccpForgedMintProofV1},
         },
     };
     use iroha_primitives::numeric::Numeric;
 
-    /// Deterministic populated values of the seven SCCP v1 instructions, in wire-id order.
+    /// Deterministic populated initialization of the native SCCP instruction family.
     pub fn initialize() -> InitializeSccpV1 {
         InitializeSccpV1 {
             parameters: SccpParametersV1::taira_default(),
@@ -1003,6 +1004,32 @@ pub mod sccp_instruction_enum {
         }
     }
 
+    /// Syntax-only native forgery submission; codec coverage asserts no BLS authority.
+    pub fn submit_forgery() -> SubmitSccpForgeryEvidenceV1 {
+        SubmitSccpForgeryEvidenceV1 {
+            qc: [0xa1; 116],
+            header: [0xb2; 221],
+            aggregate_signature: [0xc3; 96],
+            anchor: Some(crate::sccp::native::SccpAnchorWitnessV1 {
+                core_hash: [1; 32],
+                result: [0; 32],
+                path: [[2; 32]; 12],
+            }),
+        }
+    }
+
+    /// Populated permissionless forged-mint proof with its canonical payload preimage.
+    pub fn prove_forged_mint() -> ProveSccpForgedMintV1 {
+        ProveSccpForgedMintV1 {
+            network: SccpNetworkV1::BscMainnet,
+            revision: 1,
+            proof: SccpForgedMintProofV1 {
+                source: SccpSourceProofBytesV1::new(vec![1, 2, 3]).expect("bounded source proof"),
+                payload: SccpForgedMintPayloadV1::new(vec![2, 1, 0, 0]).expect("bounded payload"),
+            },
+        }
+    }
+
     /// Every SCCP v1 instruction with its expected wire id.
     pub fn boxed_samples() -> Vec<(&'static str, InstructionBox)> {
         vec![
@@ -1031,6 +1058,14 @@ pub mod sccp_instruction_enum {
                 "iroha.instruction.v1::sccp::ReportSccpLightClientEquivocationV1",
                 report_equivocation().into(),
             ),
+            (
+                "iroha.instruction.v1::sccp::SubmitSccpForgeryEvidenceV1",
+                submit_forgery().into(),
+            ),
+            (
+                "iroha.instruction.v1::sccp::ProveSccpForgedMintV1",
+                prove_forged_mint().into(),
+            ),
         ]
     }
 
@@ -1038,7 +1073,7 @@ pub mod sccp_instruction_enum {
     fn sccp_instructions_use_their_v1_wire_ids() {
         let registry = crate::instruction_registry::default();
         let samples = boxed_samples();
-        assert_eq!(samples.len(), 7, "the complete SCCP v1 instruction set");
+        assert_eq!(samples.len(), 9, "the complete SCCP v1 instruction set");
         for (wire_id, instruction) in &samples {
             let type_name = Instruction::id(&**instruction);
             assert!(
@@ -1089,6 +1124,9 @@ pub mod sccp_instruction_enum {
             capture(submit_void()),
             capture(advance()),
             capture(report_equivocation()),
+            capture(submit_forgery()),
+            capture(prove_forged_mint()),
+            capture(crate::isi::chain::Keepalive {}),
         ];
         for row in rows {
             println!(
@@ -1116,6 +1154,36 @@ pub mod sccp_instruction_enum {
             samples[3].1.as_any().downcast_ref::<SettleSccpV1>(),
             Some(&settle())
         );
+    }
+
+    #[test]
+    fn chain_keepalive_has_one_wire_identity_and_roundtrips_without_payload() {
+        let _guard = RegistryGuard::set(crate::instruction_registry::default());
+        let registry = crate::instruction_registry::default();
+        let value: InstructionBox = crate::isi::chain::Keepalive {}.into();
+        assert_eq!(
+            registry.wire_id(Instruction::id(&*value)),
+            Some("iroha.chain.keepalive.v1")
+        );
+        let frame = norito::to_bytes(&value).expect("frame");
+        assert_eq!(
+            norito::decode_from_bytes::<InstructionBox>(&frame).expect("decode"),
+            value
+        );
+        assert!(
+            value
+                .as_any()
+                .downcast_ref::<crate::isi::chain::Keepalive>()
+                .is_some()
+        );
+        for wrong in [
+            "iroha.instruction.v1::chain::Keepalive",
+            "iroha.chain.keepalive.v2",
+            "iroha_data_model::isi::chain::Keepalive",
+        ] {
+            assert!(!registry.contains(wrong));
+            assert!(registry.decode(wrong, &[]).is_none());
+        }
     }
 
     #[test]
@@ -1158,6 +1226,8 @@ pub mod sccp_instruction_enum {
                 "iroha.instruction.v1::sccp::SubmitSccpOutboundVoidV1",
                 "iroha.instruction.v1::sccp::AdvanceSccpLightClientV1",
                 "iroha.instruction.v1::sccp::ReportSccpLightClientEquivocationV1",
+                "iroha.instruction.v1::sccp::SubmitSccpForgeryEvidenceV1",
+                "iroha.instruction.v1::sccp::ProveSccpForgedMintV1",
             ]
         );
     }

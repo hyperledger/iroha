@@ -20,7 +20,7 @@ pub(super) fn block_failure(error: &SharedBlockAdmissionError) -> PublicationErr
             ExecutionDeferral::AllocationUnavailable.into()
         }
         SharedBlockAdmissionError::Allocation(PrepaidSharedError::Reservation(_)) => {
-            ExecutionDeferral::ActiveMemoryCapacity.into()
+            return PublicationError::RecoveryRequired(error.to_string());
         }
     };
     PublicationError::Deferred(original.into())
@@ -33,7 +33,13 @@ pub(super) fn encoding_failure(
         super::super::commitment::ResultPreimageError::Allocation(error) => {
             PublicationError::Deferred(buffer_refusal(error).into())
         }
-        other => PublicationError::Retryable(other.to_string()),
+        super::super::commitment::ResultPreimageError::ForeignBudget
+        | super::super::commitment::ResultPreimageError::PreimageLength(_)
+        | super::super::commitment::ResultPreimageError::Encoding(_) => {
+            // Repeating this unchanged immutable source cannot repair its custody,
+            // protocol extent or canonical serializer. Never blame the peer.
+            PublicationError::RecoveryRequired(error.to_string())
+        }
     }
 }
 
@@ -50,13 +56,13 @@ pub(super) fn certificate_failure(error: &CertificateAdmissionError) -> Publicat
                 ExecutionDeferred::from(ExecutionDeferral::AllocationUnavailable).into(),
             )
         }
-        // A short prepaid parent has no observed pool release that could repair it.
+        // No pool release can enlarge this unchanged prepaid parent.
         CertificateAdmissionError::ControlAllocation(PrepaidSharedError::Reservation(_)) => {
-            PublicationError::Deferred(
-                ExecutionDeferred::from(ExecutionDeferral::ActiveMemoryCapacity).into(),
-            )
+            PublicationError::RecoveryRequired(error.to_string())
         }
-        CertificateAdmissionError::ForeignBudget => PublicationError::Retryable(error.to_string()),
+        CertificateAdmissionError::ForeignBudget => {
+            PublicationError::RecoveryRequired(error.to_string())
+        }
     }
 }
 
@@ -91,6 +97,9 @@ pub(super) fn payload_failure(error: &super::payload::PayloadError) -> Option<Pu
         PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
             PublicationError::Deferred(original.clone().into())
         }
+        PayloadError::SccpForgeryPreparation(original) => validation_failure(
+            &BlockValidationError::StateStorageAdmission(original.clone()),
+        )?,
         PayloadError::StakingPreparation(original) => {
             validation_failure(&BlockValidationError::EvidencePreparation(original.clone()))?
         }
@@ -132,7 +141,7 @@ pub(super) fn witness_failure(
             ExecutionDeferral::AllocationUnavailable.into()
         }
         ByteAdmissionError::ControlAllocation(PrepaidSharedError::Reservation(_)) => {
-            ExecutionDeferral::ActiveMemoryCapacity.into()
+            return PublicationError::RecoveryRequired(error.to_string());
         }
         ByteAdmissionError::Length { .. } | ByteAdmissionError::ForeignBudget => {
             return PublicationError::RecoveryRequired(error.to_string());
@@ -146,12 +155,18 @@ pub(super) fn witness_failure(
 /// never authorizes reuse. An impossible pool demand has no release source and may
 /// require local policy changes. Malformed custody and poisoned owners require recovery.
 pub(super) fn validation_failure(error: &BlockValidationError) -> Option<PublicationError> {
+    if let BlockValidationError::GovernanceDueUnavailable(original) = error {
+        return Some(PublicationError::Retryable(original.to_string()));
+    }
     use crate::state::{
         BlockHashAdmissionError, EvidencePreparationError, MembershipAdmissionError,
         StateStorageAdmissionError, StateViewError,
     };
     use mv::storage::AdmittedStorageError;
     let source = match error {
+        BlockValidationError::NativeHistory(original) => {
+            return Some(super::parent_native_source_error(original.clone()));
+        }
         BlockValidationError::NativeSourceChanged { .. } => {
             return Some(if cfg!(all(test, sumeragi_core_mutation = "HC98")) {
                 PublicationError::RecoveryRequired(error.to_string())
@@ -189,9 +204,25 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 | AdmittedStorageError::PolicyIdentity
                 | AdmittedStorageError::PolicyDemand { .. },
             )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Invalid
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Poisoned { .. }
+                    | AdmittedStorageError::Planning(_)
+                    | AdmittedStorageError::ScopeIdentity
+                    | AdmittedStorageError::PolicyIdentity
+                    | AdmittedStorageError::PolicyDemand { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(EvidencePreparationError::Invariant)
             | StateStorageAdmissionError::NativeAmx(
                 super::super::amx::NativeAmxAdmissionError::Invalid(_),
             ) => return Some(PublicationError::RecoveryRequired(original.to_string())),
+            StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::OriginalHistoryPending,
+            ) => {
+                return Some(PublicationError::Retryable(original.to_string()));
+            }
             StateStorageAdmissionError::World(
                 AdmittedStorageError::Busy { .. }
                 | AdmittedStorageError::Changed
@@ -202,6 +233,21 @@ pub(super) fn validation_failure(error: &BlockValidationError) -> Option<Publica
                 super::super::amx::NativeAmxAdmissionError::Admission(_)
                 | super::super::amx::NativeAmxAdmissionError::Allocator { .. }
                 | super::super::amx::NativeAmxAdmissionError::Codec(_),
+            )
+            | StateStorageAdmissionError::SccpForgery(
+                crate::state::sccp_forgery_custody::ForgeryStorageError::Codec(_)
+                | crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+                    AdmittedStorageError::Busy { .. }
+                    | AdmittedStorageError::Changed
+                    | AdmittedStorageError::Allocation(_)
+                    | AdmittedStorageError::Allocator { .. },
+                ),
+            )
+            | StateStorageAdmissionError::SccpEvidence(
+                EvidencePreparationError::Admission(_)
+                | EvidencePreparationError::Allocator { .. }
+                | EvidencePreparationError::DecodeScope { .. }
+                | EvidencePreparationError::DecodeResource(_),
             )
             | StateStorageAdmissionError::AmxDecode(_)
             | StateStorageAdmissionError::RootScopeDecode(_) => {

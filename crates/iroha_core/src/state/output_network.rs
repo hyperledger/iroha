@@ -398,6 +398,20 @@ fn execute_network_attempt_with_amx<'attempt>(
     {
         return Err("Network attempt differs from its exact authenticated projection".into());
     }
+    // R-EX is a property of the original signed source and original parent state.
+    // Admission is only a precheck; an eligible forgery cannot become an ordinary
+    // rejected output (and a free failed transaction) inside a valid block.
+    let requires_forgery_success =
+        crate::smartcontracts::isi::sccp::admission::exempt_class_of_entrypoint_from(
+            &crate::smartcontracts::isi::sccp::eligibility::BlockParent(&state.world),
+            input,
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(state)
+                .map_err(|error| error.to_string())?,
+        ) == Some(crate::smartcontracts::isi::sccp::admission::SccpExemptClassV1::ForgeryEvidence);
+    let requires_keepalive_success = crate::smartcontracts::isi::sccp::keepalive::payload(input)
+        .is_some_and(|payload| {
+            crate::smartcontracts::isi::sccp::keepalive::count(&payload.instructions) != 0
+        });
     state.retain_fastpq_source_invocation(Hash::from(input.execution_call_hash()))?;
     let gas_before = state.gas_used_in_block;
     let gas_limit = state.gas_limit_per_block;
@@ -461,6 +475,25 @@ fn execute_network_attempt_with_amx<'attempt>(
                 "block gas limit exceeded: {attempted} > {gas_limit}"
             )),
         ));
+    }
+    if (requires_forgery_success || requires_keepalive_success)
+        && let Err(reason) = &result
+    {
+        // Every local refusal above has already returned Deferred, and storage admission
+        // has been checked. This is a completed deterministic failure: drop the original
+        // transaction overlay without recording a rejection fee, output or partial evidence.
+        // The outer rejection's Display omits its nested instruction reason. Keep
+        // the terminal cause so a duplicate cannot masquerade as another R-EX.
+        let mut cause: &dyn std::error::Error = reason;
+        while let Some(source) = cause.source() {
+            cause = source;
+        }
+        let kind = if requires_keepalive_success {
+            "Keepalive failed at execution (K2)"
+        } else {
+            "SCCP forgery evidence failed at execution (R-EX)"
+        };
+        return Err(format!("{kind}: {cause}").into());
     }
     if let Err(reason) = result {
         transaction
@@ -549,6 +582,17 @@ fn execute_network_attempt_with_amx<'attempt>(
         ReservedExecutionOutput::Accepted(row) => (row, !journal_overflow),
         ReservedExecutionOutput::OutputLimit(row) => (row, false),
     };
+    if (requires_forgery_success || requires_keepalive_success) && !apply {
+        // A completed callback/event/output limit can reject an otherwise successful
+        // handler. It is also R-EX: never publish a failed carrier without its evidence.
+        // Original local reservation and journal refusals returned above remain local.
+        return Err(if requires_keepalive_success {
+            "Keepalive output failed at execution (K3)"
+        } else {
+            "SCCP forgery output failed at execution (R-EX)"
+        }
+        .into());
+    }
     if apply {
         let transaction = attempt
             .transaction
@@ -787,6 +831,7 @@ fn bind_source(
     index: u64,
     route: RoutingDecision,
 ) -> Result<(), String> {
+    transaction.bind_sccp_forgery_source(input, index);
     transaction.current_entrypoint_index = Some(index);
     transaction.current_network_entrypoint_hash = Some(input.hash());
     transaction.tx_call_hash = Some(Hash::from(input.execution_call_hash()));

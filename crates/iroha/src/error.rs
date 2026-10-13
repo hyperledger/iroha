@@ -528,6 +528,13 @@ pub enum TransactionPreparationError {
         #[source]
         source: TransactionSignatureError,
     },
+    /// The declared proof attachments violated the signed attachment schema.
+    #[error("signed attachments are invalid: {source}")]
+    InvalidAttachments {
+        /// Canonical data-model schema violation.
+        #[source]
+        source: iroha_data_model::transaction::SignedAttachmentErrorV1,
+    },
 }
 
 /// Typed cause of a local account transaction signing failure.

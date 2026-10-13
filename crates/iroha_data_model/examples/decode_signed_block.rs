@@ -1,10 +1,7 @@
 //! Inspect a Norito-framed `SignedBlock` (e.g., encoded genesis) for debugging.
 use iroha_crypto::{KeyPair, SignatureOf};
 use iroha_data_model::{
-    block::{
-        BlockHeader, BlockSignature, decode_framed_signed_block,
-        deframe_versioned_signed_block_bytes,
-    },
+    block::{BlockHeader, BlockSignature, decode_framed_signed_block},
     prelude::SetParameter,
     transaction::{ExecutableBatchItem, executable::Executable, signed::TransactionResult},
 };
@@ -89,19 +86,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let bytes = fs::read(&path)?;
     println!("file: {path}");
     println!("total bytes: {}", bytes.len());
-    let deframed = deframe_versioned_signed_block_bytes(&bytes)?;
+    let (&version, framed_payload) = bytes.split_first().ok_or("empty block wire")?;
+    let frame = norito::core::from_bytes_view(framed_payload)?;
     let header_index = 1 + norito::core::Header::SIZE - 1;
     let header_flags = bytes
         .get(header_index)
         .copied()
         .unwrap_or(norito::core::default_encode_flags());
     println!("framed header flags: 0x{header_flags:02x}");
-    println!("bare versioned len: {}", deframed.bare_versioned.len());
-    let versioned = deframed.bare_versioned.as_ref();
-    if versioned.is_empty() {
-        return Err("versioned payload empty".into());
-    }
-    let payload = &versioned[1..];
+    println!("block wire version: {version}");
+    let payload = frame.as_bytes();
     println!("payload len: {}", payload.len());
     println!(
         "payload head: {}",

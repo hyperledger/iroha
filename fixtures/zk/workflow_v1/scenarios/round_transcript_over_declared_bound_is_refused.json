@@ -1,0 +1,73 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "round_transcript_over_declared_bound_is_refused",
+  "category": "bounds_and_bindings",
+  "rules": [
+    "plan_fits_the_journal",
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "The driver returns a transcript one byte above the bound declared in the plan; the engine rejects it before persisting the result or starting a later step.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "round_transcript_over_declared_bound_is_refused",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0,
+        "max_transcript_bytes": 17
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "round",
+          "step": 0,
+          "bounds": {
+            "actual": 18,
+            "maximum": 17
+          }
+        },
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_started",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

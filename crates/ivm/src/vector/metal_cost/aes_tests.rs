@@ -61,17 +61,17 @@ fn measured_cpu_traversal_matches_ordered_fallback_without_replacing_storage() {
 #[test]
 fn retained_work_defines_every_direction_round_count_and_fused_pipeline() {
     for (work, direction, decrypt, fused, rounds) in [
-        (MetalBatchWork::AesEnc, Direction::Encrypt, false, false, 1),
-        (MetalBatchWork::AesDec, Direction::Decrypt, true, false, 1),
+        (MetalBatchWork::Encrypt, Direction::Encrypt, false, false, 1),
+        (MetalBatchWork::Decrypt, Direction::Decrypt, true, false, 1),
         (
-            MetalBatchWork::AesEncRounds(9),
+            MetalBatchWork::EncryptRounds(9),
             Direction::Encrypt,
             false,
             true,
             9,
         ),
         (
-            MetalBatchWork::AesDecRounds(64),
+            MetalBatchWork::DecryptRounds(64),
             Direction::Decrypt,
             true,
             true,
@@ -92,6 +92,6 @@ fn qualified_owner_can_sample_aes_without_production_receipts() {
     }
     // A loaded host can miss the bounded deadline; CPU remains the valid
     // path and a later attempt may retry. Parity faults disable Metal.
-    let _ = super::super::select_metal_batch(MetalBatchWork::AesEnc, 2_048);
+    let _ = super::super::select_metal_batch(MetalBatchWork::Encrypt, 2_048);
     assert!(super::super::metal_parity_ok());
 }

@@ -373,10 +373,12 @@ impl Sandbox {
         };
         // Force deterministic single-threaded pipeline evaluation in tests to avoid
         // parallel scheduling reordering transactions that rely on chained data triggers.
-        sandbox.state.pipeline.dynamic_prepass = false;
-        sandbox.state.pipeline.parallel_overlay = false;
-        sandbox.state.pipeline.parallel_apply = false;
-        sandbox.state.pipeline.workers = 1;
+        sandbox.state.edit_pipeline_for_testing(|pipeline| {
+            pipeline.dynamic_prepass = false;
+            pipeline.parallel_overlay = false;
+            pipeline.parallel_apply = false;
+            pipeline.workers = 1;
+        });
         sandbox.with_max_execution_depth(INIT_EXECUTION_DEPTH)
     }
 }
@@ -599,9 +601,12 @@ impl Sandbox {
     #[must_use]
     pub fn with_max_execution_depth(self, depth: u8) -> Self {
         let mut world = self.state.world.block();
-        world.parameters.set_parameter(Parameter::SmartContract(
-            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
-        ));
+        world
+            .parameters
+            .set_parameter(Parameter::SmartContract(
+                iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
+            ))
+            .expect("valid fixture parameters");
         world.commit();
         self
     }

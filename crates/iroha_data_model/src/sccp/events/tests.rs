@@ -24,10 +24,10 @@ fn point() -> SccpLcPointV1 {
     }
 }
 
-/// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
-/// the attestation transport and stay unassigned.
-const CODEC_INDICES: [u32; 24] = [
-    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+/// Codec index of every first-release variant, in declaration order.
+const CODEC_INDICES: [u32; 34] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    26, 27, 28, 29, 30, 31, 32, 33,
 ];
 
 /// One event of every variant, in declaration order, with its JSON tag.
@@ -271,6 +271,101 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
             }),
             "fast_pause_lapsed",
         ),
+        (
+            SccpEvent::ForgeryEvidenceRecorded(SccpForgeryEvidenceRecordedV1 {
+                evidence_id: [8; 32],
+                generation: 7,
+                height: 123,
+                rule: SccpForgeryRuleV1::E4,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 2,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: account(7),
+                    activation_height: 11,
+                }],
+            }),
+            "forgery_evidence_recorded",
+        ),
+        (
+            SccpEvent::ForgeryOffenderUnslashable(SccpForgeryOffenderUnslashableV1 {
+                generation: 7,
+                signer: 1,
+            }),
+            "forgery_offender_unslashable",
+        ),
+        (
+            SccpEvent::RevisionForgeryHeld(SccpRevisionForgeryHeldV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 7,
+                generation: 8,
+            }),
+            "revision_forgery_held",
+        ),
+        (
+            SccpEvent::RevisionForgeryReleased(SccpRevisionForgeryReleasedV1 {
+                network: ETH,
+                revision: 2,
+                forgery_floor: 9,
+            }),
+            "revision_forgery_released",
+        ),
+        (
+            SccpEvent::RevisionQuarantined(SccpRevisionQuarantinedV1 {
+                network: TON,
+                revision: 3,
+                certificate_id: [9; 32],
+                since_height: 45,
+            }),
+            "revision_quarantined",
+        ),
+        (
+            SccpEvent::ReconciliationOpened(SccpReconciliationOpenedV1 {
+                network: TON,
+                revision: 3,
+                opened_at_ms: 1,
+                closes_at_ms: 5,
+            }),
+            "reconciliation_opened",
+        ),
+        (
+            SccpEvent::ForgedMintProven(SccpForgedMintProvenV1 {
+                network: TON,
+                revision: 3,
+                message_id: [8; 32],
+                amount: u128::MAX,
+            }),
+            "forged_mint_proven",
+        ),
+        (
+            SccpEvent::ReconciliationSettled(SccpReconciliationSettledV1 {
+                network: TON,
+                revision: 3,
+                backing: 100,
+                forged_supply: 20,
+            }),
+            "reconciliation_settled",
+        ),
+        (
+            SccpEvent::ReconciledClaimSettled(SccpReconciledClaimSettledV1 {
+                network: TON,
+                revision: 3,
+                message_id: [8; 32],
+                amount: u128::MAX,
+                payout: 100,
+            }),
+            "reconciled_claim_settled",
+        ),
+        (
+            SccpEvent::InboundStranded(SccpInboundStrandedV1 {
+                message_id: [3; 32],
+                network: TON,
+                revision: 3,
+                amount: 10,
+                reason: SccpBounceReasonV1::UndecodableRecipient,
+            }),
+            "inbound_stranded",
+        ),
     ]
 }
 
@@ -295,14 +390,17 @@ fn every_event_roundtrips_with_a_snake_case_tag() {
 }
 
 #[test]
-fn codec_indices_are_explicit_and_skip_the_retired_ones() {
+fn codec_indices_are_explicit_and_contiguous() {
     let events = every_event();
     assert_eq!(events.len(), CODEC_INDICES.len());
     for ((event, _), index) in events.into_iter().zip(CODEC_INDICES) {
         assert!(event.encode().starts_with(&index.encode()), "{event:?}");
     }
     assert!(CODEC_INDICES.is_sorted());
-    assert!(CODEC_INDICES.iter().all(|index| !(2..=9).contains(index)));
+    assert_eq!(
+        CODEC_INDICES,
+        core::array::from_fn(|index| u32::try_from(index).expect("event fixture index fits u32"))
+    );
 }
 
 #[test]
@@ -311,7 +409,7 @@ fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
 
     // The freed indices and the first index above the last variant decode to nothing, whatever
     // payload follows.
-    for index in (2_u32..=9).chain([32, u32::MAX]) {
+    for index in [34_u32, u32::MAX] {
         for filler in [0, 1, 32, 256] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&vec![0x11; filler]);
@@ -419,6 +517,125 @@ fn enum_payloads_roundtrip_in_every_variant() {
             proposal_id: [1; 32],
         }),
     }));
+}
+
+#[test]
+fn finality_degraded_reasons_are_closed_and_have_explicit_tags() {
+    use norito::codec::DecodeAll as _;
+
+    let reasons = [
+        (
+            SccpFinalityDegradedReasonV1::MissingInputs,
+            "missing_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidInputs,
+            "invalid_inputs",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingGeneration,
+            "missing_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::InvalidGeneration,
+            "invalid_generation",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::MissingParent,
+            "missing_parent",
+        ),
+        (
+            SccpFinalityDegradedReasonV1::CounterExhausted,
+            "counter_exhausted",
+        ),
+    ];
+    for (index, (reason, tag)) in reasons.into_iter().enumerate() {
+        roundtrip(&reason);
+        assert!(
+            reason.encode().starts_with(
+                &u32::try_from(index)
+                    .expect("closed reason discriminant")
+                    .encode()
+            )
+        );
+        let event = SccpEvent::FinalityDegraded(SccpFinalityDegradedV1 {
+            height: u64::MAX,
+            reason,
+        });
+        roundtrip(&event);
+        let value = norito::json::to_value(&reason).expect("reason JSON");
+        assert_eq!(
+            value.get("reason").and_then(norito::json::Value::as_str),
+            Some(tag)
+        );
+        assert_rejects_unknown_field(&reason, &[]);
+        assert_rejects_unknown_field(&event, &["payload", "reason"]);
+    }
+    for index in [6_u32, u32::MAX] {
+        assert!(SccpFinalityDegradedReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+    }
+    for tag in ["allocation_failed", "storage_unavailable", "unknown"] {
+        let json = format!(r#"{{"reason":"{tag}","detail":null}}"#);
+        assert!(norito::json::from_json::<SccpFinalityDegradedReasonV1>(&json).is_err());
+    }
+}
+
+#[test]
+fn generation_event_set_selects_each_native_variant() {
+    let sets = [
+        (SccpEventSet::FinalityDegraded, "finality_degraded"),
+        (
+            SccpEventSet::CommitteeGenerationCreated,
+            "committee_generation_created",
+        ),
+        (SccpEventSet::CommitteeResync, "committee_resync"),
+        (
+            SccpEventSet::GenerationMemberUnslashable,
+            "generation_member_unslashable",
+        ),
+        (
+            SccpEventSet::GenerationDestinationCleared,
+            "generation_destination_cleared",
+        ),
+    ];
+    let events = every_event();
+    for (set, tag) in sets {
+        let matches: Vec<_> = events
+            .iter()
+            .filter(|(event, _)| set.matches(event))
+            .map(|(_, tag)| *tag)
+            .collect();
+        assert_eq!(matches, vec![tag]);
+    }
+}
+
+#[test]
+fn native_generation_event_payload_fields_are_required() {
+    for (event, tag) in every_event().into_iter().skip(18) {
+        let value = norito::json::to_value(&event).expect("event JSON");
+        let fields: Vec<_> = value
+            .get("payload")
+            .and_then(norito::json::Value::as_object)
+            .expect("event payload")
+            .keys()
+            .cloned()
+            .collect();
+        for field in fields {
+            let mut missing = value.clone();
+            missing
+                .as_object_mut()
+                .expect("event")
+                .get_mut("payload")
+                .and_then(norito::json::Value::as_object_mut)
+                .expect("event payload")
+                .remove(&field);
+            let json = norito::json::to_json(&missing).expect("missing-field JSON");
+            assert!(
+                norito::json::from_json::<SccpEvent>(&json).is_err(),
+                "{tag} accepted missing {field}"
+            );
+        }
+    }
 }
 
 #[test]

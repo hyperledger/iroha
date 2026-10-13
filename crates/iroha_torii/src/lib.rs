@@ -1,6 +1,5 @@
 //! The web server of Iroha. `Torii` translates to gateway.
 #![allow(unexpected_cfgs)]
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
 // Temporarily relax a curated set of clippy lints while the Torii refactor is in flight.
 // Trim this list further as the remaining call sites are cleaned up.
 #![allow(
@@ -5755,6 +5754,11 @@ fn canonical_error_response(
         }
         if parts.status != StatusCode::NOT_FOUND || envelope.code != "query_asset_not_found" {
             details.query_asset_not_found = None;
+        }
+        if parts.status != StatusCode::NOT_FOUND
+            || envelope.code != "query_settlement_receipt_not_found"
+        {
+            details.query_settlement_receipt_not_found = None;
         }
         if parts.status != StatusCode::NOT_FOUND
             || envelope.code != iroha_torii_shared::PIPELINE_TRANSACTION_STATUS_NOT_FOUND_CODE
@@ -12389,7 +12393,7 @@ async fn handler_get_configuration(
 ) -> Result<impl IntoResponse, Error> {
     let remote_ip = remote.ip();
     check_operator_rate_limit(&app, &headers, Some(remote_ip), "v1/configuration", true).await?;
-    routing::handle_get_configuration(app.kiso.clone()).await
+    routing::handle_get_configuration(app.kiso.clone(), app.state.clone()).await
 }
 /// Exact native marketplace policy and reviewed rollout qualification.
 async fn handler_nft_offer_capabilities(
@@ -27821,24 +27825,40 @@ async fn handler_iso_lifecycle_submit(
         .map_err(|err| Error::Query(map_iso_error(err)))?;
     let msg_id = Iso20022BridgeRuntime::lifecycle_message_id(message_type, &parsed)
         .map_err(|err| Error::Query(map_iso_error(err)))?;
+    let settlement_transaction_hash = lifecycle_authorization
+        .settlement_transaction_hash(message_type, &parsed)
+        .map_err(|err| Error::Query(map_iso_error(err)))?;
+    let applied_transaction_hash = match settlement_transaction_hash {
+        Some(transaction_hash) => {
+            let hash = parse_signed_transaction_hash(transaction_hash).map_err(|_| {
+                pipeline_status_projection_error(format!(
+                    "ISO bridge retained a non-canonical signed transaction hash: {transaction_hash}"
+                ))
+            })?;
+            match reconcile_pending_pipeline_transaction(&app, &hash)? {
+                Some(CanonicalTransactionOutcome::Applied { .. }) => Some(transaction_hash),
+                Some(CanonicalTransactionOutcome::Rejected { .. }) => None,
+                None => {
+                    return Err(Error::AppServiceUnavailable {
+                        code: "iso_settlement_outcome_pending",
+                        message: "ISO settlement requires a canonical execution outcome; retry after finality"
+                            .to_owned(),
+                    });
+                }
+            }
+        }
+        None => None,
+    };
+    // A failed authenticated carrier read must leave this lifecycle identity retryable.
     runtime
         .admit_authenticated_inbound(&msg_id, metadata, lifecycle_authorization.parties().clone())
         .map_err(map_iso_admission_error)?;
-    let committed_transaction_hash = lifecycle_authorization
-        .settlement_transaction_hash(message_type, &parsed)
-        .map_err(|err| Error::Query(map_iso_error(err)))?
-        .filter(|hash| {
-            hash.parse::<HashOf<SignedTransaction>>()
-                .ok()
-                .is_some_and(|hash| app.state.has_committed_entrypoint(entrypoint_hash(hash)))
-        })
-        .map(ToOwned::to_owned);
     let (outcome, status_snapshot) = match runtime.apply_inbound_lifecycle_message_with_evidence(
         &msg_id,
         message_type,
         &parsed,
         &lifecycle_authorization,
-        committed_transaction_hash.as_deref(),
+        applied_transaction_hash,
     ) {
         Ok(result) => result,
         Err(error) => return Err(map_iso_lifecycle_apply_error(&runtime, &msg_id, error)),
@@ -32470,6 +32490,7 @@ pub(crate) fn quote_internal_fee_payment_from_parts(
         quote_view.world(),
         quote_view.nexus(),
         quote_view.pipeline(),
+        &quote_view.zk().gas,
         payload,
         ledger_time_ms,
         sccp_committed_time_ms,
@@ -32588,6 +32609,7 @@ async fn handler_fee_quote(
             quote_view.world(),
             quote_view.nexus(),
             quote_view.pipeline(),
+            &quote_view.zk().gas,
             &request.payload,
             ledger_time_ms,
             sccp_committed_time_ms,
@@ -37582,12 +37604,14 @@ impl Torii {
             LIGHT_CLIENT_SETS => public_get(sccp::handler_light_client_sets);
             LIGHT_CLIENT_CHECKPOINTS => public_get(sccp::handler_light_client_checkpoints);
             REGISTRY => public_get(sccp::handler_registry);
+            FORGERY_HOLD => public_get(sccp::handler_forgery_hold);
             MESSAGES_RECENT => public_get(sccp::handler_messages_recent);
             MESSAGE => public_get(sccp::handler_message);
-            MESSAGE_PROOF => public_get(sccp::handler_message_proof);
             OUTBOUND_BY_NONCE => public_get(sccp::handler_outbound);
             CONTROLS => public_get(sccp::handler_controls);
+            MESSAGE_PROOF => public_get(sccp::handler_message_proof);
             CONTROL_PROOF => public_get(sccp::handler_control_proof);
+            FINALITY => public_get(sccp::handler_finality);
         );
     }
     /// Musubi Kotodama package-registry routes.
@@ -43465,6 +43489,22 @@ fn public_validation_fail_envelope(
     if status == StatusCode::NOT_FOUND
         && let iroha_data_model::ValidationFail::QueryFailed(
             iroha_data_model::query::error::QueryExecutionFail::Find(
+                iroha_data_model::query::error::FindError::SettlementReceipt(settlement_id),
+            ),
+        ) = fail
+    {
+        return ErrorEnvelope::new(
+            "query_settlement_receipt_not_found",
+            validation_fail_message(fail),
+        )
+        .with_details(ErrorDetails {
+            query_settlement_receipt_not_found: Some(settlement_id.clone()),
+            ..Default::default()
+        });
+    }
+    if status == StatusCode::NOT_FOUND
+        && let iroha_data_model::ValidationFail::QueryFailed(
+            iroha_data_model::query::error::QueryExecutionFail::Find(
                 iroha_data_model::query::error::FindError::Asset(asset_id),
             ),
         ) = fail
@@ -43707,8 +43747,10 @@ impl IntoResponse for Error {
                 let mut response = utils::respond_with_status_and_format(status, envelope, format);
                 let headers = response.headers_mut();
                 let (reject_code, _detail) = queue_rejection_metadata(source.as_ref());
-                if let Ok(header) = HeaderValue::from_str(reject_code) {
-                    headers.insert(HeaderName::from_static("x-iroha-reject-code"), header);
+                if queue_error_has_rejection_code(source.as_ref()) {
+                    if let Ok(header) = HeaderValue::from_str(reject_code) {
+                        headers.insert(HeaderName::from_static("x-iroha-reject-code"), header);
+                    }
                 }
                 if let Ok(depth) = HeaderValue::from_str(&backpressure.queued().to_string()) {
                     headers.insert("X-Iroha-Queue-Depth", depth);
@@ -43974,6 +44016,7 @@ impl Error {
             }
             IvmFault(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AxtReject(_) => StatusCode::BAD_REQUEST,
+            SettlementReplay(_) => StatusCode::CONFLICT,
             QueryFailed(query_error)
             | InstructionFailed(InstructionExecutionError::Query(query_error)) => match query_error
             {

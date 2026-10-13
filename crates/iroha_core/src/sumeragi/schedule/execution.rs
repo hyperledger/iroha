@@ -406,6 +406,8 @@ impl StateBlock<'_> {
                 validate_executed_genesis(&self.world, &source.current)?;
                 params
             } else {
+                crate::resource_coherence::validate_final_policy(&self.world, source.height)
+                    .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
                 self.world.consensus_schedule().ready(source.height)?.params
             };
             let graph = epoch_election::retain_outcome_schedule(
@@ -486,6 +488,14 @@ pub(crate) fn validate_executed_genesis(
 ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<ScheduleError>> {
     use iroha_data_model::{consensus::ConsensusKeyRole, parameter::system::ConsensusMode};
     context.validate().map_err(ScheduleError::Epoch)?;
+    iroha_data_model::parameter::system::validate_max_clock_drift_ms(
+        world.parameters().sumeragi().max_clock_drift_ms(),
+    )
+    .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
+    crate::smartcontracts::isi::sccp::keepalive::clock_parameters(world)
+        .map_err(|error| ScheduleError::Epoch(error.into()))?;
+    crate::resource_coherence::validate_final_policy(world, 1)
+        .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
     crate::executor::private_fees::policy(world).map_err(|error| {
         error.map_rejection(|error| {
             ScheduleError::Epoch(format!(

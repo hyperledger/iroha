@@ -87,21 +87,21 @@ world_test!(sccp_route_governance_proposal_requires_permission_or_bond {
             iroha_executor_data_model::permission::sccp::CanProposeSccpRouteGovernance,
         )]),
     );
-    gov::ProposeSccpRouteGovernance { proposal }
+    let before_events = stx.world.internal_event_buf.len();
+    let error = gov::ProposeSccpRouteGovernance { proposal }
         .execute(&ALICE_ID, &mut stx)
-        .expect("the exact proposer permission admits the proposal");
-    assert_eq!(stx.world.governance_proposals.iter().count(), 1);
+        .expect_err("SCCP proposer permission must not bypass the Parliament ballot gate");
+    assert!(error.to_string().contains("ParliamentBallotUnavailable"));
+    assert!(stx.world.governance_proposals.iter().next().is_none());
+    assert_eq!(stx.world.internal_event_buf.len(), before_events);
 });
 
-world_test!(sccp_route_governance_proposal_records_once_and_replays_idempotently {
+world_test!(sccp_route_governance_storage_records_once_and_replays_idempotently {
     blank_test_state_transaction!(checked state, block, stx);
     bond_sccp_route_governance_test_proposer(&mut stx);
     let proposal = sccp_route_governance_test_proposal(stx.network_id);
-    gov::ProposeSccpRouteGovernance {
-        proposal: proposal.clone(),
-    }
-    .execute(&ALICE_ID, &mut stx)
-    .expect("a bonded citizen may propose a valid SCCP governance change");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("proposal storage component");
     let kind = sccp_route_governance_test_kind(&proposal);
     let proposal_id = kind.fingerprint();
     let record = stx
@@ -116,17 +116,23 @@ world_test!(sccp_route_governance_proposal_records_once_and_replays_idempotently
         crate::state::GovernanceProposalStatus::Proposed
     );
     let before = norito::codec::Encode::encode(record);
-    gov::ProposeSccpRouteGovernance { proposal }
-        .execute(&ALICE_ID, &mut stx)
-        .expect("an exact re-proposal is idempotent");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("an exact storage replay is idempotent");
     assert_eq!(stx.world.governance_proposals.iter().count(), 1);
     assert_eq!(
         stx.world
             .governance_proposals
             .get(&proposal_id)
             .map(norito::codec::Encode::encode),
-        Some(before)
+        Some(before.clone())
     );
+    let events = stx.world.internal_event_buf.len();
+    let error = gov::ProposeSccpRouteGovernance { proposal }
+        .execute(&ALICE_ID, &mut stx)
+        .expect_err("a bonded citizen or existing record cannot bypass the ballot gate");
+    assert!(error.to_string().contains("ParliamentBallotUnavailable"));
+    assert_eq!(stx.world.governance_proposals.get(&proposal_id).map(norito::codec::Encode::encode), Some(before));
+    assert_eq!(stx.world.internal_event_buf.len(), events);
 });
 
 world_test!(sccp_route_governance_expected_head_is_scoped_per_subject {
@@ -205,11 +211,8 @@ world_test!(sccp_governance_proposals_list_open_proposals_with_their_admissibili
     bond_sccp_route_governance_test_proposer(&mut stx);
     assert!(read::governance_proposals(&*stx.world).is_empty());
     let proposal = sccp_route_governance_test_proposal(stx.network_id);
-    gov::ProposeSccpRouteGovernance {
-        proposal: proposal.clone(),
-    }
-    .execute(&ALICE_ID, &mut stx)
-    .expect("a bonded citizen proposes");
+    record_sccp_route_governance_proposal(proposal.clone(), &ALICE_ID, &mut stx)
+        .expect("proposal listing DATA; not a qualified ballot or admitted proposal");
     let listed = read::governance_proposals(&*stx.world);
     let [open] = listed.as_slice() else {
         panic!("one open proposal: {listed:?}");

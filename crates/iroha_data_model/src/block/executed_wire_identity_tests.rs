@@ -30,7 +30,7 @@ fn reference_wire(block: &SignedBlock) -> Vec<u8> {
 fn assert_exact_identity(block: &SignedBlock) -> (u64, Hash) {
     let original = block.encode_wire().unwrap();
     let wire = reference_wire(block);
-    assert_eq!(wire[0], block.version());
+    assert_eq!(wire[0], SignedBlock::WIRE_VERSION);
     let frame = norito::core::from_bytes_view(&wire[1..]).unwrap();
     assert_eq!(
         frame.schema(),

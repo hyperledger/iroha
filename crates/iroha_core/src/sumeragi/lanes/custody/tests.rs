@@ -94,14 +94,18 @@ fn malformed_original_deadline_cannot_release_retained_custody() {
 
 fn parameters(world: &mut WorldBlock<'_>, horizon: u64, delay: u64) {
     use iroha_data_model::parameter::{Parameter, system::SumeragiNposParameters};
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: horizon,
-            slashing_delay_blocks: delay,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: horizon,
+                slashing_delay_blocks: delay,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
 }
 
 fn lane(original: &PublicLaneValidatorRecord) -> SumeragiLaneRecord {
@@ -328,7 +332,9 @@ fn pending_original_evidence_delays_reclamation_without_native_height_arithmetic
         key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence: Evidence { native: vec![] },
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                    Evidence { native: vec![] },
+                ),
                 attribution: EvidenceAttribution {
                     scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                     instance: row.instance,

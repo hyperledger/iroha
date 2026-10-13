@@ -780,7 +780,35 @@ impl Core {
         preimage: &[u8],
     ) -> Option<Signature> {
         let signer = self.keys.get(slot)?.signer.as_ref()?;
-        match signer.sign(preimage) {
+        let outcome = signer.sign(preimage);
+        self.signing_outcome(kind, height, view, outcome)
+    }
+
+    /// Prepare signs only through the structured original Core context, including restart.
+    fn sign_prepare(
+        &mut self,
+        slot: usize,
+        view: u64,
+        context: &crate::crypto::PrepareSigningContext<'_>,
+    ) -> Option<Signature> {
+        let signer = self.keys.get(slot)?.signer.as_ref()?;
+        let outcome = signer.sign_prepare(context);
+        self.signing_outcome(
+            crate::api::SigningKind::Prepare,
+            context.height(),
+            view,
+            outcome,
+        )
+    }
+
+    fn signing_outcome(
+        &mut self,
+        kind: crate::api::SigningKind,
+        height: u64,
+        view: u64,
+        outcome: Result<Signature, crate::crypto::SigningError>,
+    ) -> Option<Signature> {
+        match outcome {
             Ok(signature) => Some(signature),
             Err(error) => {
                 self.local_fault(LocalFault::SigningFailed {

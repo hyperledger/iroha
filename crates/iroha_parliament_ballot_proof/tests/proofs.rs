@@ -73,11 +73,12 @@ fn is_rejected(result: Result<(), VerifyError>) -> bool {
     result == Err(VerifyError::Rejected)
 }
 
-fn backend_tape(tape: &[u8; 80]) -> Tape {
-    Tape::explicit(
+fn backend_tape(tape: &[u8; 112]) -> Tape {
+    Tape::extended(
         iroha_parliament_ballot_proof::profile::LEVEL,
         &tape[..32],
         &common::array(&tape[32..48]),
+        &common::array(&tape[80..112]),
     )
     .expect("32-byte root")
 }
@@ -87,10 +88,10 @@ fn backend_tape(tape: &[u8; 80]) -> Tape {
 #[test]
 fn honest_proofs_verify_with_the_exact_lengths() {
     let (case, proof) = reg();
-    assert_eq!(proof.len(), 159_588);
+    assert_eq!(proof.len(), 160_148);
     assert_eq!(registration::verify(ROW, &case.statement, proof), Ok(()));
     let (case, proof) = vote3();
-    assert_eq!(proof.len(), 159_852);
+    assert_eq!(proof.len(), 233_012);
     assert_eq!(vote::verify(ROW, &case.statement, proof), Ok(()));
 }
 
@@ -105,7 +106,7 @@ fn a_vote_proof_at_the_last_position_of_a_list_of_five_hundred_verifies() {
         ProvingTape::from_bytes(&case.tape),
     )
     .expect("honest proof");
-    assert_eq!(proof.len(), 159_852);
+    assert_eq!(proof.len(), 233_012);
     assert_eq!(vote::verify(ROW, &case.statement, &proof), Ok(()));
     // The same proof is not a proof for the list without its first entry.
     let shorter = SealedList::new(case.list.entries()[1..].to_vec()).expect("sealed");
@@ -122,7 +123,7 @@ fn a_vote_proof_at_the_last_position_of_a_list_of_five_hundred_verifies() {
 #[test]
 fn registration_proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
     let (case, proof) = reg();
-    let prove = |tape: &[u8; 80]| {
+    let prove = |tape: &[u8; 112]| {
         registration::prove(
             ROW,
             &case.statement,
@@ -132,7 +133,7 @@ fn registration_proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
         .expect("honest proof")
     };
     assert_eq!(&prove(&case.tape), proof);
-    let other_tape: [u8; 80] = common::array(&fx("tape/reg/other", 80));
+    let other_tape: [u8; 112] = common::array(&fx("tape/reg/other", 112));
     let other = prove(&other_tape);
     assert_ne!(&other, proof);
     assert_eq!(other.len(), proof.len());
@@ -142,7 +143,7 @@ fn registration_proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
 #[test]
 fn vote_proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
     let (case, proof) = vote3();
-    let prove = |tape: &[u8; 80]| {
+    let prove = |tape: &[u8; 112]| {
         vote::prove(
             ROW,
             &case.statement,
@@ -154,7 +155,7 @@ fn vote_proofs_are_deterministic_in_the_tape_and_differ_across_tapes() {
     };
     assert_eq!(&prove(&case.tape), proof);
     // Another tape: another proof of the same statement with the same nullifier.
-    let other_tape: [u8; 80] = common::array(&fx("tape/vote/other", 80));
+    let other_tape: [u8; 112] = common::array(&fx("tape/vote/other", 112));
     let other = prove(&other_tape);
     assert_ne!(&other, proof);
     assert_eq!(vote::verify(ROW, &case.statement, &other), Ok(()));
@@ -182,6 +183,7 @@ fn another_pad_changes_exactly_the_fields_that_depend_on_the_witness() {
                 | ProofField::MultCorrections
                 | ProofField::UTilde
                 | ProofField::IvPre
+                | ProofField::Salt
         );
         if depends_on_tape_and_mu_only {
             assert!(same, "{:?}", segment.field);
@@ -304,7 +306,7 @@ fn registration_fault_is_rejected(index: usize) {
         &backend_tape(&case.tape),
     )
     .expect("the unchecked prover runs");
-    assert_eq!(forged.len(), 159_588);
+    assert_eq!(forged.len(), 160_148);
     assert_eq!(
         registration::verify(ROW, &fault.statement, &forged),
         Err(VerifyError::Rejected),
@@ -342,7 +344,7 @@ fn vote_fault_is_rejected(index: usize) {
         &backend_tape(&case.tape),
     )
     .expect("the unchecked prover runs");
-    assert_eq!(forged.len(), 159_852);
+    assert_eq!(forged.len(), 233_012);
     assert_eq!(
         vote::verify(ROW, &fault.statement, &forged),
         Err(VerifyError::Rejected),
@@ -398,12 +400,16 @@ fault_tests!(vote_fault_is_rejected:
     forged_vote_proof_11_is_rejected = 11,
     forged_vote_proof_12_is_rejected = 12,
     forged_vote_proof_13_is_rejected = 13,
+    forged_vote_authorization_low_half_is_rejected = 14,
+    forged_vote_authorization_high_half_is_rejected = 15,
+    forged_nullifier_low_half_is_rejected = 16,
+    forged_nullifier_high_half_is_rejected = 17,
 );
 
 #[test]
-fn the_fault_lists_are_the_twenty_of_the_prototype() {
+fn the_fault_lists_cover_the_prototype_and_all_output_halves() {
     assert_eq!(registration_faults(&reg_case(ROW)).len(), 6);
-    assert_eq!(vote_faults(&vote_case(ROW, 3, 1)).len(), 14);
+    assert_eq!(vote_faults(&vote_case(ROW, 3, 1)).len(), 18);
 }
 
 // ------------------------------------------------------ statement mutations
@@ -602,46 +608,46 @@ fn a_wrong_length_and_trailing_bytes_are_malformed() {
     longer.push(0);
     assert_eq!(
         registration::verify(ROW, &reg_case.statement, &longer),
-        length_error(159_588, 159_589)
+        length_error(160_148, 160_149)
     );
     assert_eq!(
-        registration::verify(ROW, &reg_case.statement, &reg_proof[..159_587]),
-        length_error(159_588, 159_587)
+        registration::verify(ROW, &reg_case.statement, &reg_proof[..160_147]),
+        length_error(160_148, 160_147)
     );
     assert_eq!(
         registration::verify(ROW, &reg_case.statement, &[]),
-        length_error(159_588, 0)
+        length_error(160_148, 0)
     );
     let mut longer = vote_proof.clone();
     longer.extend_from_slice(&[0; 4]);
     assert_eq!(
         vote::verify(ROW, &vote_case.statement, &longer),
-        length_error(159_852, 159_856)
+        length_error(233_012, 233_016)
     );
     // The other relation's proof and the other row are wrong lengths: no row or
     // relation is detected from the bytes.
     assert_eq!(
         vote::verify(ROW, &vote_case.statement, reg_proof),
-        length_error(159_852, 159_588)
+        length_error(233_012, 160_148)
     );
     assert_eq!(
         registration::verify(ROW, &reg_case.statement, vote_proof),
-        length_error(159_588, 159_852)
+        length_error(160_148, 233_012)
     );
     assert_eq!(
         registration::verify(Row::Comparator, &reg_case.statement, reg_proof),
-        length_error(109_114, 159_588)
+        length_error(109_498, 160_148)
     );
     assert_eq!(
         vote::verify(Row::Comparator, &vote_case.statement, vote_proof),
-        length_error(109_290, 159_852)
+        length_error(158_074, 233_012)
     );
     // The length is checked before the statement.
     let mut malformed = vote_case.statement.clone();
     malformed.vote = 7;
     assert_eq!(
         vote::verify(ROW, &malformed, &vote_proof[1..]),
-        length_error(159_852, 159_851)
+        length_error(233_012, 233_011)
     );
     // At the right length the malformed statement has its own error, whatever
     // the proof bytes are.
@@ -652,7 +658,7 @@ fn a_wrong_length_and_trailing_bytes_are_malformed() {
         }))
     );
     assert_eq!(
-        vote::verify(ROW, &malformed, &vec![0u8; 159_852]),
+        vote::verify(ROW, &malformed, &vec![0u8; 233_012]),
         Err(VerifyError::Statement(StatementError::VoteValue {
             value: 7
         }))
@@ -660,12 +666,12 @@ fn a_wrong_length_and_trailing_bytes_are_malformed() {
     let mut malformed = vote_case.statement.clone();
     malformed.list.swap(0, 1);
     assert_eq!(
-        vote::verify(ROW, &malformed, &vec![0u8; 159_852]),
+        vote::verify(ROW, &malformed, &vec![0u8; 233_012]),
         Err(VerifyError::Statement(StatementError::List(
             ListError::Order { index: 1 }
         )))
     );
-    assert_eq!(vote::verify(ROW, &malformed, &[]), length_error(159_852, 0));
+    assert_eq!(vote::verify(ROW, &malformed, &[]), length_error(233_012, 0));
 }
 
 /// At the right length, the role and the row are bound by the prefix: the
@@ -678,7 +684,7 @@ fn a_valid_proof_is_rejected_under_another_role_or_row_prefix() {
     let small = Profile::new(Row::Comparator).expect("tables");
     let instance = case.statement.instance(&fast).expect("valid");
     let verify_under = |prefix: &[u8; 77]| {
-        let context = ProofContext::new(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
+        let context = ProofContext::extended(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
             .expect("non-empty prefix");
         proof::verify::<Gf256, _>(
             &context,
@@ -714,7 +720,7 @@ fn a_valid_vote_proof_is_rejected_under_another_role_or_row_prefix() {
     let small = Profile::new(Row::Comparator).expect("tables");
     let instance = case.statement.instance(&fast).expect("valid");
     let verify_under = |prefix: &[u8; 77]| {
-        let context = ProofContext::new(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
+        let context = ProofContext::extended(Namespace::new(prefix).expect("77 bytes"), ROW.vole())
             .expect("non-empty prefix");
         proof::verify::<Gf256, _>(
             &context,
@@ -793,7 +799,7 @@ fn a_flip_in_a_correction_is_rejected(role: Role) {
     assert_eq!(segment.field, ProofField::Corrections);
     let stride = match role {
         Role::Registration => 35_840 / 8,
-        Role::Vote => 35_904 / 8,
+        Role::Vote => 53_504 / 8,
     };
     assert_eq!(segment.len % stride, 0);
     let corrections = segment.len / stride;
@@ -841,5 +847,65 @@ fault_tests!(flips_in_field_are_rejected:
     flips_in_the_node_seeds_are_rejected = 6,
     flips_in_the_challenge_are_rejected = 7,
     flips_in_iv_pre_are_rejected = 8,
-    flips_in_the_counter_are_rejected = 9,
+    flips_in_the_salt_are_rejected = 9,
+    flips_in_the_counter_are_rejected = 10,
 );
+
+/// Holding mu fixed isolates the authorization relation from transcript binding.
+#[test]
+fn a_vote_flip_is_rejected_even_with_the_original_message_digest() {
+    let (case, bytes) = vote3();
+    let profile = Profile::new(ROW).expect("profile");
+    let context = profile.context(Role::Vote).expect("context");
+    let original = case.statement.instance(&profile).expect("valid");
+    assert_eq!(
+        proof::verify::<Gf256, _>(
+            &context,
+            &VoteRelation,
+            original.public(),
+            original.mu(),
+            bytes
+        ),
+        Ok(())
+    );
+    let mut changed = case.statement.clone();
+    changed.vote = 1;
+    let changed = changed.instance(&profile).expect("valid");
+    assert_eq!(
+        proof::verify::<Gf256, _>(
+            &context,
+            &VoteRelation,
+            changed.public(),
+            original.mu(),
+            bytes
+        ),
+        Err(ProofError::ChallengeMismatch)
+    );
+}
+
+#[test]
+fn retired_descriptors_and_out_of_range_counters_are_refused() {
+    let (case, bytes) = vote3();
+    for counter in [1u32 << 20, u32::MAX] {
+        let mut changed = bytes.clone();
+        let end = changed.len();
+        changed[end - 4..].copy_from_slice(&counter.to_le_bytes());
+        assert_eq!(
+            vote::verify(ROW, &case.statement, &changed),
+            Err(VerifyError::Rejected)
+        );
+    }
+    let profile = Profile::new(ROW).expect("profile");
+    let mut encoded =
+        iroha_parliament_ballot_proof::test_codec::encode_vote(&profile, &case.statement)
+            .expect("encode");
+    let old = common::hex(
+        "44028deb664beb1a06a336cd6f622c223a5c15741dfafa72b55e19cbb42f287ba48979a0d6a8342c80034cc88b87fcb055f0db686fe97beffb2197bc7f85e910",
+    );
+    let offset = 2 + b"PARL/TEST/VOTE/v1".len() + 2 + 4;
+    encoded[offset..offset + 64].copy_from_slice(&old);
+    assert_eq!(
+        iroha_parliament_ballot_proof::test_codec::decode_vote(&profile, &encoded),
+        Err(iroha_parliament_ballot_proof::test_codec::TestCodecError::DescriptorDigest)
+    );
+}

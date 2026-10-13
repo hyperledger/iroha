@@ -67,14 +67,10 @@ where
         payload,
         ivm_abi::codec::canonical_norito_decode_limits(payload.len()),
     )
-    .map_err(|error| match error.kind() {
-        norito::core::DecodeAttemptErrorKind::Allocator => {
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::AllocationUnavailable)
-        }
-        norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
-            VMError::ExecutionDeferred(ivm_abi::error::ExecutionDeferral::ActiveMemoryCapacity)
-        }
-        norito::core::DecodeAttemptErrorKind::Invalid => VMError::InvalidMetadata,
+    .map_err(|error| {
+        error
+            .into_local_refusal()
+            .map_or_else(|_| VMError::InvalidMetadata, VMError::DecodeDeferred)
     })
 }
 pub fn validate_literal_payload(

@@ -78,6 +78,7 @@ def release_methods():
             native("nativeValidateExact12CapabilityManifestForNetworkV1", "([B[B)I"),
             native("nativeRequireExact12CapabilityTupleForNetworkV1", "([BI[B)Z"),
             native("nativeValidateExact12SubmitProofConstructionForNetworkV1", "([BI[B[B)Z"),
+            native("nativeSubmitProofIntentProjectionV1", "([B)[B"),
         ),
         SIGNER: (
             JVM.Method("encodeRegisterZkAssetSignedTransaction",
@@ -330,7 +331,7 @@ def test_audit_seals_inputs_without_claiming_runtime_qualification(tmp_path, mon
     library.write_bytes(b"test export inventory")
     monkeypatch.setattr(GUARD.ARTIFACT, "inspect_exported_symbols", lambda *args, **kwargs: tuple(exports))
     report = GUARD.audit(roots, library)
-    assert report["valid"] and report["native_method_count"] == 8
+    assert report["valid"] and report["native_method_count"] == 9
     assert not report["native_execution_qualified"]
     assert not report["native_signatures_qualified"]
     assert not report["source_build_provenance_qualified"]
@@ -385,7 +386,7 @@ def test_android_audit_uses_only_pinned_tool_and_retains_originals(tmp_path, mon
     assert inspection["tool_pinned"] and report["platform"] == "android"
     assert inspection["argv"] == [str(pin["tool"]), *GUARD.ANDROID_SYMBOL_ARGUMENTS, str(library)]
     assert inspection["environment"] == GUARD.ANDROID_SYMBOL_ENVIRONMENT
-    assert report["native_method_count"] == 8
+    assert report["native_method_count"] == 9
     assert not any(report[name] for name in ("native_signatures_qualified", "native_execution_qualified", "source_build_provenance_qualified"))
     for name, claim in inspection["originals"].items():
         raw = Path(claim["path"]).read_bytes()
@@ -654,7 +655,7 @@ def test_report_rejects_input_aliases_and_replaces_its_own_inode(tmp_path):
     assert not list(tmp_path.glob(".report.json.*"))
 
 
-@pytest.mark.parametrize("index", range(6))
+@pytest.mark.parametrize("index", range(len(release_methods()[PRIVACY])))
 @pytest.mark.parametrize("mutation", ("missing", "return", "managed", "instance"))
 def test_privacy_class_contract_rejects_every_native_declaration_drift(index, mutation):
     methods = list(release_methods()[PRIVACY])

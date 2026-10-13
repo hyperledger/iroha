@@ -394,7 +394,7 @@ impl Default for ChainParams {
             payload_retry_interval: 5_000,
             e_max: 4_000,
             a_max: 1_000,
-            max_block_bytes: 4 * 1024 * 1024,
+            max_block_bytes: 16 * 1024 * 1024,
             epoch_length: 3_600,
         }
     }
@@ -787,7 +787,7 @@ mod tests {
         let params = ChainParams::default();
         assert_eq!(params.block_time, 1_000);
         assert_eq!(params.payload_retry_interval, 5_000);
-        assert_eq!(params.max_block_bytes, 4 << 20);
+        assert_eq!(params.max_block_bytes, 16 << 20);
         assert_eq!((params.e_max, params.a_max), (4_000, 1_000));
     }
 

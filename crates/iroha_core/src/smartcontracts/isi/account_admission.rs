@@ -385,7 +385,9 @@ mod tests {
         let custom = policy.into_custom_parameter();
         let mut params = Parameters::default();
         params.custom.insert(custom.id.clone(), custom);
-        world.parameters = mv::cell::Cell::new(params);
+        world.parameters = mv::cell::Cell::new(
+            crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+        );
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         State::new_for_testing(world, kura, query)

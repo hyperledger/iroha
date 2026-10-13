@@ -381,7 +381,47 @@ impl Core {
             &bh,
             &result,
         );
-        let sig = self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?;
+        let sig = if kind == VoteKind::Prepare {
+            let expected = self
+                .proposal
+                .as_ref()
+                .filter(|held| held.bh == bh)
+                .and_then(|held| held.expected);
+            let locked = self
+                .high_pqc
+                .as_ref()
+                .filter(|qc| {
+                    qc.kind == VoteKind::Prepare
+                        && qc.instance == self.instance
+                        && qc.epoch == self.cfg.epoch.id
+                        && qc.height == self.height
+                        && qc.block_hash == bh
+                })
+                .map(|qc| qc.result);
+            let certified = (expected.is_some() || locked.is_some())
+                && expected.is_none_or(|expected| expected == result)
+                && locked.is_none_or(|locked| locked == result);
+            // MS67: a durable local reservation is not an authenticated PrepareQC.
+            let certified = certified
+                || (cfg!(sumeragi_mutation = "MS67")
+                    && self
+                        .safety
+                        .as_ref()
+                        .and_then(|safety| safety.prepare)
+                        .is_some());
+            let context = crate::crypto::PrepareSigningContext::new(
+                &preimage,
+                self.instance,
+                self.cfg.epoch.id,
+                self.height,
+                bh,
+                result,
+                certified,
+            );
+            self.sign_prepare(me.slot, self.view, &context)?
+        } else {
+            self.sign(me.slot, signing_kind, self.height, self.view, &preimage)?
+        };
         let vote = Vote {
             kind,
             instance: self.instance,

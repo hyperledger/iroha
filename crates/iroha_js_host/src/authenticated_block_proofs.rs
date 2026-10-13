@@ -267,7 +267,7 @@ fn verify_raw_v1(
         Some(
             finality_verifier
                 .export_checkpoint(&finality)
-                .and_then(|checkpoint| checkpoint.encode_canonical())
+                .and_then(|checkpoint| checkpoint.encode_canonical().map_err(Into::into))
                 .map_err(|error| {
                     VerificationError::new(
                         VerificationErrorCode::FinalityRejected,
@@ -659,6 +659,11 @@ mod tests {
         .unwrap();
         assert!(verified.valid);
         assert_eq!(
+            verified.checkpoint_norito.as_deref(),
+            Some(second.checkpoint.as_slice()),
+            "checkpoint promotion must retain the exact verified successor"
+        );
+        assert_eq!(
             SumeragiFinalityCheckpoint::decode_canonical(
                 verified.checkpoint_norito.as_ref().unwrap()
             )
@@ -824,14 +829,14 @@ mod tests {
             ),
             VerificationErrorCode::NonCanonicalBlockProofs
         );
-        let deframed =
-            iroha_data_model::block::deframe_versioned_signed_block_bytes(&wire).unwrap();
+        let mut headerless = vec![wire[0]];
+        headerless.extend_from_slice(&wire[1 + norito::core::Header::SIZE..]);
         assert_eq!(
             run(
                 &fixture.checkpoint,
                 fixture.block_proofs.entry_hash.as_ref(),
                 &finality,
-                deframed.bare_versioned.as_ref(),
+                &headerless,
                 &proofs
             ),
             VerificationErrorCode::NonCanonicalBlockWire

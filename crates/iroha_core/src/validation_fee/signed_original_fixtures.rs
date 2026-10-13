@@ -257,6 +257,7 @@ pub(crate) fn sign_paid_fixture(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         created_ms,
         crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

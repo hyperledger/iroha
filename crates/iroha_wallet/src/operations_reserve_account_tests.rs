@@ -561,7 +561,7 @@ fn component_fee_and_canonical_plan_bounds_reject_before_publication() {
         vec![changed.policy.economics.rent_rates[0].clone(); MAX_POLICY_BYTES];
     variants.push(changed);
     let mut changed = request.clone();
-    changed.options.deadline = Instant::now() - Duration::from_secs(1);
+    changed.options.deadline = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     variants.push(changed);
     let mut changed = request.clone();
     changed

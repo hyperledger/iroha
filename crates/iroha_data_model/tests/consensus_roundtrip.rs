@@ -7,7 +7,7 @@ use iroha_data_model::{
         consensus::{
             ConsensusGenesisModeParams, ConsensusGenesisParams, Evidence, EvidenceAttribution,
             EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord, ExecKv, ExecWitness,
-            ExecWitnessMsg, NposGenesisParams,
+            ExecWitnessMsg, NposGenesisParams, RecordedEvidenceV1,
         },
         consensus::{SumeragiGenesisContextParameters, ValidatorPower},
     },
@@ -247,13 +247,8 @@ fn rng_evidence(rng: &mut DeterministicRng) -> Evidence {
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
-                    .unwrap(),
-            )
-            .payload()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .unwrap(),
         );
         vote
     };
@@ -346,7 +341,7 @@ fn validator_generations_and_epoch_authorizations_roundtrip() {
 fn rng_evidence_record(rng: &mut DeterministicRng, evidence: Evidence) -> EvidenceRecord {
     EvidenceRecord {
         attribution: fixture_attribution(&evidence),
-        evidence,
+        evidence: RecordedEvidenceV1::Native(evidence.clone()),
         recorded_at_height: rng.next_u64(),
         recorded_at_view: rng.next_u64(),
         recorded_at_ms: rng.next_u64(),
@@ -435,7 +430,7 @@ fn consensus_persistence_norito_roundtrip() {
     let evidence = rng_evidence(&mut DeterministicRng::new(0xE1D3_0002));
     let evidence_record = EvidenceRecord {
         attribution: fixture_attribution(&evidence),
-        evidence: evidence.clone(),
+        evidence: RecordedEvidenceV1::Native(evidence.clone()),
         recorded_at_height: 44,
         recorded_at_view: 8,
         recorded_at_ms: 1_702_000_123,
@@ -491,7 +486,7 @@ fn evidence_record_rejects_shortened_pre_release_binary_layouts() {
     let evidence = rng_evidence(&mut DeterministicRng::new(0xE1D3_0084));
     let record = EvidenceRecord {
         attribution: fixture_attribution(&evidence),
-        evidence,
+        evidence: RecordedEvidenceV1::Native(evidence.clone()),
         recorded_at_height: 84,
         recorded_at_view: 9,
         recorded_at_ms: 1_702_000_456,
@@ -499,7 +494,7 @@ fn evidence_record_rejects_shortened_pre_release_binary_layouts() {
     };
     assert_roundtrip(&record);
     let shortened_record = PreReleaseEvidenceRecord {
-        evidence: record.evidence.clone(),
+        evidence: evidence.clone(),
         recorded_at_height: record.recorded_at_height,
         recorded_at_view: record.recorded_at_view,
         recorded_at_ms: record.recorded_at_ms,
@@ -520,7 +515,7 @@ fn evidence_record_rejects_shortened_pre_release_binary_layouts() {
     };
     assert_roundtrip(&pending_record);
     let omitted_nullable_slots = PreReleaseEvidenceRecordWithoutNullableSlots {
-        evidence: pending_record.evidence.clone(),
+        evidence: evidence.clone(),
         recorded_at_height: pending_record.recorded_at_height,
         recorded_at_view: pending_record.recorded_at_view,
         recorded_at_ms: pending_record.recorded_at_ms,

@@ -3,30 +3,31 @@
 //! ```text
 //! R_vote(x; sk, i)  <=>  0 <= i < S
 //!                   and  C_i = SHAKE256("PCR1" || P16 || sk || B,     1024 bits)
-//!                   and  nf  = SHAKE256("PNF1" || P16 || sk || scope,  512 bits)
+//!                   and  auth_v = SHAKE256("PAV1" || P16 || sk || D_v, 512 bits)
+//!                   and  nf  = SHAKE256("PNF1" || P16 || sk || scope, 1024 bits)
 //! ```
 //!
 //! A statement holds exactly the fields of
 //!
 //! ```text
 //! F_VOTE = Frame("PARL/MU/VOTE/v1";
-//!     B, scope, R, u16_le(S), concat(L), nf, u8(vote), policy_hash)
+//!     B, scope, R, u16_le(S), concat(L), nf, auth_v, u8(vote), policy_hash)
 //! ```
 //!
 //! Public validation, before any proof work on either side: the vote byte is 0,
 //! 1 or 2; `3 <= S <= 1000`; the list has exactly `S` entries in strictly
 //! increasing unsigned bytewise order; `R` is the recomputed list digest. The
-//! caller authenticates the expected body and the sealed list. The proof shows
-//! that the prover knows the secret behind one list entry and that `nf` is that
+//! caller authenticates the expected body and the sealed list. The proof establishes
+//! that a secret opens one list entry and that `nf` is that
 //! secret's nullifier for `scope`; it hides which entry. The vote value, the
 //! policy hash and the whole list are bound through `mu`. Double-vote detection
 //! (nullifier uniqueness) is a check of the caller.
 //!
-//! Witness (35,904 bits): pad, secret, the eleven committed states of the
-//! commitment permutation, the eleven of the nullifier permutation, the selector
-//! vectors `a` and `b`. Constraints after Booleanity (36,803): the selector
+//! Witness (53,504 bits): pad, secret, the eleven committed states of the
+//! commitment permutation, the eleven of the nullifier and vote authorization permutations, the selector
+//! vectors `a` and `b`. Constraints after Booleanity (55,427): the selector
 //! constraints, commitment transitions, commitment output through the public
-//! multiplexer (VC), nullifier transitions, nullifier output (VN).
+//! multiplexer (VC), nullifier transitions, nullifier output (VN), vote authorization transitions and output (VA).
 
 use iroha_zkp_vole::{
     field::Gf256,
@@ -35,14 +36,14 @@ use iroha_zkp_vole::{
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
-    credential::{COMMITMENT_TAG, CredentialSecret, NULLIFIER_TAG},
-    framing::{COMMITMENT_BYTES, Commitment, Digest64, frame_bytes},
+    credential::{COMMITMENT_TAG, CredentialSecret, NULLIFIER_TAG, VOTE_AUTHORIZATION_TAG},
+    framing::{COMMITMENT_BYTES, Commitment, Digest64, Nullifier, frame_bytes, frame_digest},
     keccak_relation::{STATE_BYTES, Scratch, bit_of, emit_transitions, public_block},
     layout::{
-        COMMITMENT_BITS, PERMUTATION_OFFSETS, SELECTOR_A_OFFSET, TAG_BITS,
+        COMMITMENT_BITS, NULLIFIER_BITS, PERMUTATION_OFFSETS, SELECTOR_A_OFFSET, TAG_BITS,
         VOTE_RELATION_CONSTRAINTS, VOTE_WITNESS_BITS,
     },
-    profile::{Profile, Role, Row},
+    profile::{P16, Profile, Role, Row},
     proving::{
         MU_BYTES, PAD_BYTES, ProveError, ProvingTape, StatementError, VerifyError, build_witness,
         check_proof_length, message_digest, prove_relation, verify_relation,
@@ -101,7 +102,9 @@ pub struct VoteStatement {
     /// `L`, the list entries in order.
     pub list: Vec<Commitment>,
     /// `nf`, the nullifier.
-    pub nullifier: Digest64,
+    pub nullifier: Nullifier,
+    /// `auth_v`, authorization of the complete statement by the credential secret.
+    pub auth_v: Digest64,
     /// The vote byte: 0 = Aye, 1 = Nay, 2 = Abstain.
     pub vote: u8,
     /// `policy_hash`.
@@ -118,7 +121,8 @@ impl VoteStatement {
         body_digest: Digest64,
         scope: Digest64,
         list: &SealedList,
-        nullifier: Digest64,
+        nullifier: Nullifier,
+        auth_v: Digest64,
         vote: Vote,
         policy_hash: Digest64,
     ) -> Result<Self, StatementError> {
@@ -129,9 +133,63 @@ impl VoteStatement {
             size: u16::try_from(list.size()).unwrap_or(u16::MAX),
             list: list.entries().to_vec(),
             nullifier,
+            auth_v,
             vote: vote.byte(),
             policy_hash,
         })
+    }
+
+    /// Build a statement and authorize its complete public contents with `secret`.
+    ///
+    /// A stateful caller must log the complete statement and authorization digest
+    /// before disclosing this result, including if subsequent proving fails.
+    ///
+    /// # Errors
+    /// [`StatementError`] if a public frame cannot be built.
+    pub fn for_secret(
+        profile: &Profile,
+        secret: &CredentialSecret,
+        body_digest: Digest64,
+        scope: Digest64,
+        list: &SealedList,
+        vote: Vote,
+        policy_hash: Digest64,
+    ) -> Result<Self, StatementError> {
+        let mut statement = Self::new(
+            body_digest,
+            scope,
+            list,
+            secret.nullifier(&scope),
+            Digest64([0; 64]),
+            vote,
+            policy_hash,
+        )?;
+        statement.auth_v = secret.vote_authorization(&statement.authorization_digest(profile)?);
+        Ok(statement)
+    }
+
+    /// Recompute `D_v` from the descriptor and every statement field except `auth_v`.
+    /// No digest supplied by an untrusted sender is accepted.
+    ///
+    /// # Errors
+    /// [`StatementError::Framing`] if a frame field exceeds its length bound.
+    pub fn authorization_digest(&self, profile: &Profile) -> Result<Digest64, StatementError> {
+        Ok(frame_digest(
+            b"PARL/VOTE-AUTH/v1",
+            &[
+                &P16,
+                b"VOTE",
+                profile.descriptor_digest().as_bytes(),
+                self.body_digest.as_bytes(),
+                self.scope.as_bytes(),
+                self.list_digest.as_bytes(),
+                &self.size.to_le_bytes(),
+                &sealed_list::concat(&self.list),
+                self.nullifier.as_bytes(),
+                &[self.vote],
+                self.policy_hash.as_bytes(),
+            ],
+        )?)
     }
 
     /// The public validation of the record.
@@ -171,6 +229,7 @@ impl VoteStatement {
                 &self.size.to_le_bytes(),
                 &sealed_list::concat(&self.list),
                 self.nullifier.as_bytes(),
+                self.auth_v.as_bytes(),
                 &[self.vote],
                 self.policy_hash.as_bytes(),
             ],
@@ -192,8 +251,13 @@ impl VoteStatement {
         let public = VotePublic {
             commitment_block: public_block(COMMITMENT_TAG, self.body_digest.as_bytes()),
             nullifier_block: public_block(NULLIFIER_TAG, self.scope.as_bytes()),
+            authorization_block: public_block(
+                VOTE_AUTHORIZATION_TAG,
+                self.authorization_digest(profile)?.as_bytes(),
+            ),
             list: sealed_list::concat(&self.list),
             nullifier: self.nullifier,
+            auth_v: self.auth_v,
         };
         let mu = message_digest(profile, Role::Vote, &self.frame()?)?;
         Ok(VoteInstance { public, mu })
@@ -207,9 +271,12 @@ pub struct VotePublic {
     commitment_block: [u8; STATE_BYTES],
     /// The public part of the nullifier permutation's initial state (`scope`).
     nullifier_block: [u8; STATE_BYTES],
+    /// The public initial state of the vote authorization permutation (`D_v`).
+    authorization_block: [u8; STATE_BYTES],
     /// `concat(L)`.
     list: Vec<u8>,
-    nullifier: Digest64,
+    nullifier: Nullifier,
+    auth_v: Digest64,
 }
 
 impl VotePublic {
@@ -291,11 +358,23 @@ impl Relation<Gf256> for VoteRelation {
             &mut scratch,
             &public.nullifier_block,
             PERMUTATION_OFFSETS[1],
-            TAG_BITS,
+            NULLIFIER_BITS,
         );
         // (VN): O_N[t] + nf[t].
-        for t in 0..TAG_BITS {
+        for t in 0..NULLIFIER_BITS {
             let constraint = cs.add_bit(scratch.state()[t], bit_of(public.nullifier.as_bytes(), t));
+            cs.constrain(constraint);
+        }
+        emit_transitions(
+            cs,
+            &mut scratch,
+            &public.authorization_block,
+            PERMUTATION_OFFSETS[2],
+            TAG_BITS,
+        );
+        // (VA): O_V[t] + auth_v[t], tied to the complete statement by D_v.
+        for t in 0..TAG_BITS {
+            let constraint = cs.add_bit(scratch.state()[t], bit_of(public.auth_v.as_bytes(), t));
             cs.constrain(constraint);
         }
     }
@@ -304,8 +383,9 @@ impl Relation<Gf256> for VoteRelation {
 /// The extended witness of `secret` at list position `index` for `public` with
 /// the pad `pad`, in the frozen layout. **Secret**; erased on drop.
 ///
-/// It is a valid witness exactly if entry `index` of the list is the commitment
-/// of `secret` and the statement's nullifier is the secret's. A position of
+/// It is a valid witness exactly if entry `index` is the commitment of `secret`,
+/// the nullifier is the secret's for this scope, and `auth_v` authorizes the
+/// complete statement under this profile. A position of
 /// 1,024 or more has no selector encoding and gives an invalid witness.
 pub fn witness(
     public: &VotePublic,
@@ -317,7 +397,11 @@ pub fn witness(
         VOTE_WITNESS_BITS,
         pad,
         secret,
-        [&public.commitment_block, &public.nullifier_block],
+        [
+            &public.commitment_block,
+            &public.nullifier_block,
+            &public.authorization_block,
+        ],
     );
     let mut words = selector_words(index);
     let selectors = witness.iter_mut().skip(SELECTOR_A_OFFSET / 8);
@@ -329,16 +413,19 @@ pub fn witness(
 }
 
 /// Prove that `secret` is the secret behind entry `index` of the statement's
-/// list and that the statement's nullifier is its nullifier for the scope.
+/// list, the nullifier matches the scope, and `auth_v` authorizes the complete
+/// statement under the compiled descriptor.
 ///
 /// `index` is secret (it is the voter's anonymity): it is never compared with
 /// anything in the clear here, and a wrong position, including one of 1,024 or
 /// more, which has no selector encoding, ends in
 /// [`ProveError::WitnessRejected`] like a wrong secret.
 /// [`SealedList::position`] finds it in constant time. `tape`
-/// is 80 fresh random bytes from the caller's generator; it is consumed and
-/// erased, as are the witness and every transient copy of the secret, on success
-/// and on every error. The proof is exactly [`Row::proof_bytes`] bytes.
+/// is 112 fresh random bytes from the caller's generator; it is consumed.
+/// Owned tape, witness and secret scratch buffers are zeroized on drop,
+/// including ordinary success and error returns. Register, spill and compiler
+/// copies, process abort and cooperative cancellation are not covered by that
+/// guarantee. The proof is exactly [`Row::proof_bytes`] bytes.
 ///
 /// # Errors
 /// * [`ProveError::Statement`] if the statement fails public validation
@@ -421,11 +508,12 @@ mod tests {
         let list = SealedList::new(members.iter().map(|(entry, _)| *entry).collect())
             .expect("sorted and distinct");
         let voter = secret(members[position].1);
-        let statement = VoteStatement::new(
+        let statement = VoteStatement::for_secret(
+            &Profile::new(Row::Candidate).expect("profile"),
+            &voter,
             body,
             scope,
             &list,
-            voter.nullifier(&scope),
             Vote::Nay,
             Digest64([0x70; 64]),
         )
@@ -435,9 +523,9 @@ mod tests {
 
     #[test]
     fn the_relation_has_the_frozen_dimensions() {
-        assert_eq!(VoteRelation.witness_bits(), 35_904);
-        assert_eq!(Relation::<Gf256>::constraints(&VoteRelation), 36_803);
-        assert_eq!(total_constraints::<Gf256, _>(&VoteRelation), Ok(72_707));
+        assert_eq!(VoteRelation.witness_bits(), 53_504);
+        assert_eq!(Relation::<Gf256>::constraints(&VoteRelation), 55_427);
+        assert_eq!(total_constraints::<Gf256, _>(&VoteRelation), Ok(108_931));
         for row in Row::ALL {
             let profile = Profile::new(row).expect("tables");
             let context = profile.context(Role::Vote).expect("context");
@@ -470,11 +558,8 @@ mod tests {
         assert_eq!(statement.validate(), Ok(()));
         let frame = statement.frame().expect("frame");
         // Tag, eight fields, B.
-        assert!(frame.starts_with(b"\x0f\x00PARL/MU/VOTE/v1\x08\x00\x40\x00\x00\x00"));
-        assert_eq!(
-            frame.len(),
-            2 + 15 + 2 + 8 * 4 + 64 + 64 + 64 + 2 + 4 * 128 + 64 + 1 + 64
-        );
+        assert!(frame.starts_with(b"\x0f\x00PARL/MU/VOTE/v1\x09\x00\x40\x00\x00\x00"));
+        assert_eq!(frame.len(), 128 * 4 + 506);
         let profile = Profile::new(Row::Candidate).expect("tables");
         let instance = statement.instance(&profile).expect("valid");
         assert_eq!(instance.public().size(), 4);
@@ -559,7 +644,7 @@ mod tests {
             let instance = statement.instance(&profile).expect("valid");
             let index = u16::try_from(position).expect("small");
             let honest = witness(instance.public(), &voter, index, &[0x11; 32]);
-            assert_eq!(honest.len(), 4488);
+            assert_eq!(honest.len(), 6688);
             assert_eq!(
                 honest[SELECTOR_A_OFFSET / 8..SELECTOR_B_OFFSET / 8],
                 1u32.to_le_bytes()
@@ -581,7 +666,7 @@ mod tests {
         }
     }
 
-    /// One full proof: `mu` alone binds the list, its order, `S` and `R`, also
+    /// One full proof: the transcript and authorization bind list order, `S` and `R`, also
     /// when the public validation of the list is skipped (a test-only path; the
     /// verifier of this crate always validates).
     #[test]
@@ -594,7 +679,7 @@ mod tests {
             &statement,
             &voter,
             1,
-            ProvingTape::from_bytes(&[0x5a; 80]),
+            ProvingTape::from_bytes(&[0x5a; 112]),
         )
         .expect("honest proof");
         let check = |statement: &VoteStatement| {
@@ -611,7 +696,7 @@ mod tests {
         assert_eq!(check(&statement), Ok(()));
         let is_rejected = |result: Result<(), VerifyError>| result == Err(VerifyError::Rejected);
         // Two non-member entries swapped, R stale: the multiplexer selects the
-        // same entry, only mu differs.
+        // same entry; mu and the authorization digest differ.
         let mut swapped = statement.clone();
         swapped.list.swap(0, 2);
         assert!(swapped.validate().is_err());
@@ -627,6 +712,91 @@ mod tests {
     }
 
     #[test]
+    fn authorization_digest_binds_all_statement_fields_and_excludes_auth_v() {
+        use sha3::Digest;
+        let profile = Profile::new(Row::Candidate).expect("profile");
+        let (statement, voter) = case(3, 1);
+        let fields: [&[u8]; 11] = [
+            &P16,
+            b"VOTE",
+            profile.descriptor_digest().as_bytes(),
+            statement.body_digest.as_bytes(),
+            statement.scope.as_bytes(),
+            statement.list_digest.as_bytes(),
+            &statement.size.to_le_bytes(),
+            &sealed_list::concat(&statement.list),
+            statement.nullifier.as_bytes(),
+            &[statement.vote],
+            statement.policy_hash.as_bytes(),
+        ];
+        // Independent complete frame encoding, including every field length.
+        let mut frame = 17u16.to_le_bytes().to_vec();
+        frame.extend_from_slice(b"PARL/VOTE-AUTH/v1");
+        frame.extend_from_slice(&11u16.to_le_bytes());
+        for field in fields {
+            frame.extend_from_slice(&u32::try_from(field.len()).expect("bounded").to_le_bytes());
+            frame.extend_from_slice(field);
+        }
+        assert_eq!(frame.len(), 128 * 3 + 536);
+        let expected = Digest64(sha3::Sha3_512::digest(&frame).into());
+        assert_eq!(statement.authorization_digest(&profile), Ok(expected));
+        assert_eq!(statement.auth_v, voter.vote_authorization(&expected));
+        let mut other = statement.clone();
+        other.auth_v.0[0] ^= 1;
+        assert_eq!(other.authorization_digest(&profile), Ok(expected));
+        for field in 0..8 {
+            let mut other = statement.clone();
+            match field {
+                0 => other.body_digest.0[0] ^= 1,
+                1 => other.scope.0[0] ^= 1,
+                2 => other.list_digest.0[0] ^= 1,
+                3 => other.size += 1,
+                4 => other.list[0].0[0] ^= 1,
+                5 => other.nullifier.0[127] ^= 1,
+                6 => other.vote = 2,
+                _ => other.policy_hash.0[0] ^= 1,
+            }
+            assert_ne!(other.authorization_digest(&profile), Ok(expected));
+        }
+        assert_ne!(
+            statement.authorization_digest(&Profile::new(Row::Comparator).expect("profile")),
+            Ok(expected)
+        );
+    }
+
+    #[test]
+    fn all_halves_of_nullifier_and_vote_authorization_are_constrained() {
+        use iroha_zkp_vole::quicksilver::violated_constraints;
+        let profile = Profile::new(Row::Candidate).expect("profile");
+        let (statement, voter) = case(3, 1);
+        for (auth, start, len, constraint_start) in [
+            (true, 0usize, 32usize, 108_419usize),
+            (true, 32, 32, 108_675),
+            (false, 0, 64, 89_795),
+            (false, 64, 64, 90_307),
+        ] {
+            let mut altered = statement.clone();
+            if auth {
+                for byte in &mut altered.auth_v.0[start..start + len] {
+                    *byte ^= 0xff;
+                }
+            } else {
+                for byte in &mut altered.nullifier.0[start..start + len] {
+                    *byte ^= 0xff;
+                }
+                altered.auth_v =
+                    voter.vote_authorization(&altered.authorization_digest(&profile).expect("D_v"));
+            }
+            let instance = altered.instance(&profile).expect("publicly valid");
+            let witness = witness(instance.public(), &voter, 1, &[7; 32]);
+            assert_eq!(
+                violated_constraints::<Gf256, _>(&VoteRelation, instance.public(), &witness),
+                Ok((constraint_start..constraint_start + 8 * len).collect())
+            );
+        }
+    }
+
+    #[test]
     fn a_public_input_of_another_shape_emits_nothing() {
         let profile = Profile::new(Row::Candidate).expect("tables");
         let (statement, voter) = case(3, 0);
@@ -639,8 +809,8 @@ mod tests {
             assert_eq!(
                 is_satisfied::<Gf256, _>(&VoteRelation, &public, &honest),
                 Err(QuickSilverError::ConstraintCount {
-                    expected: 72_707,
-                    actual: 35_904
+                    expected: 108_931,
+                    actual: 53_504
                 })
             );
         }

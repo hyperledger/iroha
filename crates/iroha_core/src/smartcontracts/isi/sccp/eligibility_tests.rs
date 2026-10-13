@@ -160,11 +160,13 @@ fn parent() -> Parent {
         {
             let mut stx = block.transaction();
             // Fee quoting needs the explicit immutable root scope of the network.
-            stx.world.parameters.get_mut().set_parameter(
-                crate::sumeragi::lanes::routing::test_support::metadata(
+            stx.world
+                .parameters
+                .get_mut()
+                .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
                     iroha_data_model::block::consensus::SumeragiRootScope::Global,
-                ),
-            );
+                ))
+                .expect("fixture global metadata");
             install_value_route(
                 &mut stx,
                 ETH,
@@ -204,6 +206,63 @@ fn parent() -> Parent {
         at_fee,
         shortfall,
     }
+}
+
+#[test]
+fn reconciliation_self_claim_eligibility_uses_original_rate_and_refund_reserve() {
+    use super::{reconciliation, reconciliation_store};
+    use iroha_data_model::sccp::native::SccpQuarantineV1;
+
+    let parent = parent();
+    let transaction = signed(
+        &ed25519(RECIPIENT),
+        vec![SettleSccpV1::inbound(parent.settleable).into()],
+    );
+    {
+        let mut block = parent.state.block(header(2));
+        let mut stx = block.transaction();
+        let mut route = store::routes::get(&*stx.world, &ETH).cloned().unwrap();
+        route.revisions.get_mut(&1).unwrap().quarantine = Some(SccpQuarantineV1 {
+            certificate_id: [1; 32],
+            since_height: 2,
+        });
+        store::routes::insert(&mut stx, ETH, route).unwrap();
+        reconciliation::open(&mut stx, ETH, 1, 1).unwrap();
+        stx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+    }
+    {
+        let mut block = parent.state.block(header(3));
+        let mut stx = block.transaction();
+        assert!(reconciliation::end_one(&mut stx, ETH, 1).unwrap());
+        assert_eq!(
+            fees::exempt_class(&*stx.world, transaction.payload(), None),
+            Some(SccpExemptClassV1::SelfClaim),
+            "the closed rate has positive payout despite permanent quarantine"
+        );
+        assert_eq!(
+            fees::exempt_class_in_block(&stx, transaction.payload()).unwrap(),
+            None,
+            "same-block close cannot exempt a claim held in the original parent"
+        );
+        stx.apply();
+        block.commit_world_overlay_for_testing().unwrap();
+    }
+    let mut block = parent.state.block(header(4));
+    let mut stx = block.transaction();
+    // Test data reserves all remaining backing; the production classifier reads the
+    // indexed sum without scanning or copying the pending-refund history.
+    reconciliation_store::add_pending_refund(&mut stx, (ETH, 1), 100 * ONE_XOR).unwrap();
+    assert_eq!(
+        fees::exempt_class(&*stx.world, transaction.payload(), None),
+        None,
+        "a zero payout is not an exempt self-claim"
+    );
+    assert_eq!(
+        fees::exempt_class_in_block(&stx, transaction.payload()).unwrap(),
+        Some(SccpExemptClassV1::SelfClaim),
+        "execution uses the original parent's rate and refund reserve"
+    );
 }
 
 fn signed(signer: &KeyPair, instructions: Vec<InstructionBox>) -> SignedTransaction {
@@ -454,6 +513,7 @@ fn every_inbound_shape_and_authority_is_classified_quoted_counted_and_executed_a
             world,
             &nexus,
             &pipeline,
+            &view.zk().gas,
             payload,
             0,
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -605,6 +665,7 @@ fn a_relayer_proof_is_charged_once_and_owes_no_self_claim_fee() {
         view.world(),
         &nexus,
         &iroha_config::parameters::actual::Pipeline::default(),
+        &view.zk().gas,
         transaction.payload(),
         0,
         crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -640,10 +701,7 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
     );
     let admits = |instructions: Vec<InstructionBox>| {
         let transaction = signed(&ed25519(KEEPER), instructions);
-        let sccp = admission::allows_unregistered_authority(
-            transaction.instructions(),
-            transaction.authority(),
-        );
+        let sccp = admission::allows_unregistered_authority(transaction.instructions());
         // The SCCP rule is the only one that can admit these shapes.
         assert_eq!(
             crate::tx::allows_unregistered_authority(
@@ -702,6 +760,7 @@ fn self_claim_pause_eligibility_uses_parent_time_not_fee_observation_horizon() {
                 world,
                 &nexus(),
                 &iroha_config::parameters::actual::Pipeline::default(),
+                &stx.zk.gas,
                 payload,
                 fee_observation_ms,
                 parent_time,
@@ -787,7 +846,6 @@ fn charged_parent_self_claim_is_not_reclassified_by_expired_executing_world() {
 #[test]
 fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
     use super::eligibility::{BlockParent, Current, TransactionParent};
-    use iroha_data_model::sccp::outbound::SccpStatusHeightV1;
     let parent = parent();
     let budget = parent.state.view().execution_budget();
     let transaction = signed(
@@ -845,7 +903,7 @@ fn original_eligibility_preimages_survive_siblings_rollback_and_replacement() {
         tx.sccp_inbound_messages
             .get_mut(&parent.settleable)
             .unwrap()
-            .status = SccpInboundStatusV1::Released(SccpStatusHeightV1 { height: 2 });
+            .status = SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 { height: 2, payout: 1 });
         let pause = super::pause_record::RetainedSccpFastPause::admit(
             &super::test_support::sample_fast_pause(1),
             &budget,

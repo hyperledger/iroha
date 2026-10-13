@@ -34,7 +34,7 @@
 //!   the frozen witness and constraint tables.
 //! * [`registration`], [`vote`]: statements, witness generation, the relations,
 //!   `prove` and `verify`.
-//! * [`proving`]: the 80-byte proving tape and the error types.
+//! * [`proving`]: the 112-byte proving tape and the error types.
 //! * [`test_codec`]: a **test-only** statement and record codec; not a
 //!   production schema.
 //!
@@ -44,7 +44,7 @@
 //! them nor knows the typed node values behind them: canonical encodings,
 //! authentication of the body, of the sealed list and of the registration
 //! authority, eligibility, freshness and nullifier uniqueness are the caller's.
-//! The prover takes its 80 random bytes from the caller; there is no fallback.
+//! The prover takes its 112 random bytes from the caller; there is no fallback.
 //!
 //! # Determinism and secrets
 //!
@@ -55,10 +55,12 @@
 //! this crate's own code: that covers the credential secret, the tape and the
 //! voter's list position, which [`sealed_list::SealedList::position`] finds by a
 //! full masked scan and [`vote::prove`] takes as a `u16` without comparing it
-//! with anything. The tape, the pad, the witness and transient secrets are
-//! erased on every path out of a prover. The constant-time and
-//! erasure properties of a complete proof are those of the backend as well and
-//! have not been measured or audited.
+//! with anything. Owned tape, pad, witness and secret scratch buffers are
+//! zeroized on drop. This does not establish erasure of register, spill or
+//! compiler-generated copies, or cleanup after process abort. The prover is
+//! synchronous and provides no cooperative cancellation API. Complete-proof
+//! constant-time and erasure properties also depend on the backend and have
+//! not been independently audited.
 
 #![forbid(unsafe_code)]
 

@@ -63,6 +63,7 @@ fn source(
     LanePayload {
         bytes,
         range: 0..encoded.len(),
+        delta_range: encoded.len()..encoded.len(),
         network,
         height: record.created_at,
         carrier: HashOf::from_untyped_unchecked(Hash::new(b"original creation carrier")),
@@ -216,6 +217,7 @@ fn custody_source(
     LanePayload {
         bytes,
         range: 0..encoded.len(),
+        delta_range: encoded.len()..encoded.len(),
         network,
         height,
         carrier: HashOf::from_untyped_unchecked(Hash::new(height.to_le_bytes())),

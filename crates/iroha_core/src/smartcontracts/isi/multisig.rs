@@ -5626,7 +5626,16 @@ mod tests {
                 Register::account(Account::new(old_account.clone()))
                     .execute(&old_account, &mut tx)
                     .expect("register current identity");
-                let settlement_id = "immutable_receipt".parse().expect("id");
+                let settlement_id = iroha_data_model::isi::SettlementId::new(
+                    details
+                        .movements()
+                        .next()
+                        .expect("receipt movement")
+                        .source
+                        .account()
+                        .clone(),
+                    "immutable_receipt".parse().expect("reference"),
+                );
                 let receipt = SettlementReceipt {
                     authority: sponsor.clone(),
                     metadata: Metadata::default(),

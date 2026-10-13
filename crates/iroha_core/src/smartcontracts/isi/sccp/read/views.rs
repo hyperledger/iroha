@@ -806,7 +806,7 @@ mod tests {
         let void = SccpVoidStatusV1 {
             kind: SccpVoidKindV1::Expired,
             proven_at_height: 20,
-            refund_pending: true,
+            refund_pending: Some(iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred),
         };
         record.status = SccpOutboundStatusV1::Voided(void);
         store::outbound_messages::insert(&mut stx, id, record.clone()).expect("void");
@@ -831,6 +831,7 @@ mod tests {
         let mut bounced = view.record.clone();
         bounced.status = SccpInboundStatusV1::Bounced(SccpBounceStatusV1 {
             bounce_message_id: [0x45; 32],
+            payout: 1,
         });
         store::inbound_messages::insert(&mut stx, [0x44; 32], bounced).expect("bounce");
         assert!(message_status(&*stx.world, &[0x44; 32]).is_final());

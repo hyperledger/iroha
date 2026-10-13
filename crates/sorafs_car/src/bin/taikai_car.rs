@@ -1330,7 +1330,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn write_summary_json_rejects_socket_output() {
-        let (_temp, temp_path) = canonical_tempdir();
+        // Unix socket addresses have a small fixed byte limit, independent of PATH_MAX.
+        // A caller's TMPDIR can exceed it; keep this real socket fixture under /tmp.
+        let socket_root = tempfile::tempdir_in("/tmp").expect("short Unix socket directory");
+        let temp_path = socket_root
+            .path()
+            .canonicalize()
+            .expect("canonical socket root");
         let summary_path = temp_path.join("summary.sock");
         let _listener =
             std::os::unix::net::UnixListener::bind(&summary_path).expect("bind Unix socket");

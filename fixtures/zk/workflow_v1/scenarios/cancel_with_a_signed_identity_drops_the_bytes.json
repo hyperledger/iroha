@@ -1,0 +1,112 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_with_a_signed_identity_drops_the_bytes",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "A signed transaction that was provably never admitted is cancelled before submission. Its bytes are dropped from the journal and are never dispatched.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "cancel-with-a-signed-identity-drops-the-bytes",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

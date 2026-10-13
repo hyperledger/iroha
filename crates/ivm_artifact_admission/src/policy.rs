@@ -2239,10 +2239,10 @@ mod tests {
             );
         }
         let mut forged = page;
-        if let T::Struct { fields, .. } = &mut forged {
-            if let T::List { capacity, .. } = &mut fields[0].ty {
-                *capacity = 63;
-            }
+        if let T::Struct { fields, .. } = &mut forged
+            && let T::List { capacity, .. } = &mut fields[0].ty
+        {
+            *capacity = 63;
         }
         assert!(validate_declared_state_type(&forged).is_err());
     }

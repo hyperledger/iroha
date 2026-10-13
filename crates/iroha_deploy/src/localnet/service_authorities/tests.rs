@@ -339,8 +339,7 @@ fn managed_authority_genesis_registers_grants_funds_and_keeps_services_disabled(
             }
         }
     }
-    let metadata =
-        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(&block).unwrap();
+    let metadata = iroha_genesis::signed_genesis_consensus_metadata(&block).unwrap();
     for peer in &prepared.peers {
         let bytes = iroha_fs::read_private(&peer.config_path, 1024 * 1024).unwrap();
         let config = parse_localnet_peer_config(

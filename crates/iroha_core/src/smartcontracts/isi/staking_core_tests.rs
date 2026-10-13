@@ -83,9 +83,11 @@ fn setup_state() -> State {
     .expect("staking test dataspace catalog should match its lanes");
     let world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(Parameter::Custom(
-        SumeragiNposParameters::default().into_custom_parameter(),
-    ));
+    parameters
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters::default().into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     State::new_with_nexus_for_testing(world, nexus, LiveQueryStore::start_test())
 }
@@ -248,16 +250,18 @@ fn set_epoch_length(state: &mut State, epoch_length_blocks: u64) {
     let mut wb = state.world.block();
     {
         let params = wb.parameters.get_mut();
-        params.set_parameter(Parameter::Custom(
-            SumeragiNposParameters {
-                epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)
-                    .expect("staking test epoch length must be non-zero"),
-                evidence_horizon_blocks: 1,
-                slashing_delay_blocks: 1,
-                ..SumeragiNposParameters::default()
-            }
-            .into_custom_parameter(),
-        ));
+        params
+            .set_parameter(Parameter::Custom(
+                SumeragiNposParameters {
+                    epoch_length_blocks: NonZeroU64::new(epoch_length_blocks)
+                        .expect("staking test epoch length must be non-zero"),
+                    evidence_horizon_blocks: 1,
+                    slashing_delay_blocks: 1,
+                    ..SumeragiNposParameters::default()
+                }
+                .into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
     }
     wb.commit();
 }
@@ -279,7 +283,8 @@ fn set_test_npos_penalty_windows(
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(parameters.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(parameters.into_custom_parameter()))
+        .expect("valid fixture parameters");
 }
 fn set_fixture_xor_identity(stx: &mut StateTransaction<'_, '_>, asset: &AssetDefinitionId) {
     let parameters = stx
@@ -532,8 +537,7 @@ fn genesis_monetary_context_requires_initial_height_and_exact_expiry() {
     stx.world
         .parameters
         .get_mut()
-        .custom
-        .remove(&SumeragiNposParameters::parameter_id());
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id());
     assert!(
         stx.world
             .sumeragi_npos_parameters()
@@ -604,8 +608,7 @@ fn genesis_staking_requires_committed_xor_and_preserves_exact_transfer_and_custo
         .world
         .parameters
         .get_mut()
-        .custom
-        .remove(&SumeragiNposParameters::parameter_id())
+        .remove_custom_parameter(&SumeragiNposParameters::parameter_id())
         .expect("fixture pins the actual network XOR definition");
     assert!(
         stx.world
@@ -666,7 +669,8 @@ fn genesis_staking_requires_committed_xor_and_preserves_exact_transfer_and_custo
     stx.world
         .parameters
         .get_mut()
-        .set_parameter(Parameter::Custom(committed_parameters));
+        .set_parameter(Parameter::Custom(committed_parameters))
+        .expect("valid fixture parameters");
     let mut invalid_expiry = registration.clone();
     invalid_expiry.monetary_plan.valid_until_height = 2;
     let mut invalid_amount = registration.clone();

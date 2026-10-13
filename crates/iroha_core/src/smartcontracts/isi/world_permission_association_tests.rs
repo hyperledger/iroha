@@ -61,6 +61,7 @@ mod permission_association_tests {
     fn fee_sponsor_and_settlement_permissions_follow_their_exact_accounts() {
         let sponsor = account();
         let debited = account();
+        let settlement_owner = account();
         let unrelated = account();
         let settlement_domain = domain("settlement", "universal");
         let other_domain = domain("other", "universal");
@@ -86,10 +87,14 @@ mod permission_association_tests {
         }
         let consent = Permission::from(CanExecuteSettlement {
             debited_asset: AssetId::new(cash.clone(), debited.clone()),
-            settlement_id: "cleanup_consent".parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                settlement_owner.clone(),
+                "cleanup_consent".parse().expect("settlement reference"),
+            ),
             intent_hash: Hash::new(b"cleanup-bound settlement consent"),
         });
         assert!(account_associated(&consent, &debited));
+        assert!(account_associated(&consent, &settlement_owner));
         assert!(!account_associated(&consent, &unrelated));
         assert!(domain_associated(
             &consent,

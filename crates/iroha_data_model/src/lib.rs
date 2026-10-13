@@ -150,6 +150,10 @@ pub mod parliament_types;
 pub mod peer;
 /// Permission token and grant model.
 pub mod permission;
+/// Provider-backed phone-control challenge, credential and provider policy.
+pub mod phone_control;
+/// Committed execution-limit policy: the typed chain parameter, its protocol default and validation.
+pub mod pipeline_validity_policy;
 /// Canonical protocol-bound privacy proof and activation types.
 pub mod privacy;
 /// Opaque certified private-root anchors with owner-authorized parent registration.
@@ -222,6 +226,8 @@ pub mod verification;
 pub mod wire_schema;
 /// Zero-knowledge proof payload types.
 pub mod zk;
+/// Committed ZK validity policy: the typed chain parameter, its protocol default and validation.
+pub mod zk_validity_policy;
 /// Helpers for constructing and accessing instruction registries used by the IVM.
 pub mod instruction_registry {
     pub use crate::isi::{InstructionRegistry, registry::default};

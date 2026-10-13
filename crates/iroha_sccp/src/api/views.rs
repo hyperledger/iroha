@@ -43,8 +43,8 @@ pub const MAX_CONTROLS_PAGE: usize = 64;
 
 /// Payload of [`SccpOutboundStateV1::Recorded`].
 ///
-/// TODO: Torii work package (TT-A1): add `provable`, set once a certificate covers the record
-/// height (§6).
+/// TODO: Torii work package (TT-A1): add `provable` once the request-funded native proof
+/// producer can serve a certificate covering the record height (§6).
 #[derive(
     Debug,
     Clone,
@@ -68,9 +68,6 @@ pub struct SccpRecordedStateV1 {
 }
 
 /// Wallet-facing state of an outbound record (§6, §7.1 step 4, §7.3).
-///
-/// Codec index 1 belonged to the attested state of the attestation transport and stays
-/// unassigned.
 #[derive(
     Debug,
     Clone,
@@ -95,15 +92,15 @@ pub enum SccpOutboundStateV1 {
     #[norito(rename = "recorded")]
     Recorded(SccpRecordedStateV1),
     /// Voided on the destination and proven on Taira.
-    #[codec(index = 2)]
+    #[codec(index = 1)]
     #[norito(rename = "voided")]
     Voided(SccpVoidStatusV1),
     /// Refunded to the sender.
-    #[codec(index = 3)]
+    #[codec(index = 2)]
     #[norito(rename = "refunded")]
     Refunded(SccpStatusHeightV1),
     /// Moved to the route's stranded balance.
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     #[norito(rename = "stranded")]
     Stranded(SccpStatusHeightV1),
 }
@@ -825,7 +822,7 @@ mod tests {
             SccpOutboundStateV1::Voided(SccpVoidStatusV1 {
                 kind: SccpVoidKindV1::Frozen,
                 proven_at_height: 30,
-                refund_pending: true,
+                refund_pending: Some(iroha_data_model::sccp::inbound::SccpPendingReasonV1::RefundDeferred),
             }),
             SccpOutboundStateV1::Refunded(SccpStatusHeightV1 { height: 31 }),
             SccpOutboundStateV1::Stranded(SccpStatusHeightV1 { height: 32 }),
@@ -907,7 +904,11 @@ mod tests {
         assert!(!SccpMessageStatusV1::Unknown.is_final());
         assert!(!SccpMessageStatusV1::Inbound(inbound()).is_final());
         let mut released = inbound();
-        released.record.status = SccpInboundStatusV1::Released(SccpStatusHeightV1 { height: 21 });
+        released.record.status =
+            SccpInboundStatusV1::Released(iroha_data_model::sccp::inbound::SccpInboundSettledV1 {
+                height: 21,
+                payout: 1,
+            });
         let released = SccpMessageStatusV1::Inbound(released);
         assert!(released.is_final());
         assert!(released.inbound().is_some() && released.outbound().is_none());
@@ -916,12 +917,11 @@ mod tests {
     }
 
     #[test]
-    fn outbound_state_keeps_its_codec_indices_and_has_no_attested_state() {
-        // Index 1 was the attested state; it stays unassigned and the survivors do not shift.
-        for (state, index) in states().iter().zip([0_u32, 2, 3, 4]) {
+    fn outbound_state_has_four_contiguous_indices_and_no_attested_state() {
+        for (state, index) in states().iter().zip([0_u32, 1, 2, 3]) {
             assert!(state.encode().starts_with(&index.encode()), "{state:?}");
         }
-        for index in [1_u32, 5, u32::MAX] {
+        for index in [4_u32, 5, u32::MAX] {
             let mut encoded = index.encode();
             encoded.extend_from_slice(&[0x11; 64]);
             assert!(
@@ -936,7 +936,41 @@ mod tests {
     }
 
     #[test]
+    fn held_pending_status_is_closed_nonfinal_data_in_every_codec() {
+        let mut held = inbound();
+        held.record.status = SccpInboundStatusV1::pending(SccpPendingReasonV1::Held);
+        let held = SccpMessageStatusV1::Inbound(held);
+        assert!(held.inbound().unwrap().record.status.is_pending());
+        assert!(
+            !held.is_final(),
+            "a hold is not an immutable terminal status"
+        );
+        roundtrip(&held);
+        roundtrip(&SccpRecentMessagesV1 {
+            messages: vec![held.clone()],
+            next_before: Some("20:02".to_owned()),
+        });
+        assert!(
+            SccpPendingReasonV1::Held
+                .encode()
+                .starts_with(&6_u32.encode())
+        );
+        for index in [8_u32, u32::MAX] {
+            assert!(SccpPendingReasonV1::decode_all(&mut index.encode().as_slice()).is_err());
+        }
+        let json = norito::json::to_json(&held).expect("held JSON");
+        assert!(json.contains(r#""reason":"held""#), "{json}");
+        for replacement in [r#""reason":"Held""#, r#""reason":"unknown""#] {
+            let hostile = json.replace(r#""reason":"held""#, replacement);
+            assert!(norito::json::from_json::<SccpMessageStatusV1>(&hostile).is_err());
+        }
+    }
+
+    #[test]
     fn views_roundtrip_in_every_codec() {
+        let recorded = SccpRecordedStateV1 { deadline_ms: 99 };
+        roundtrip(&recorded);
+        assert_closed(&recorded, "deadline_ms");
         for state in states() {
             roundtrip(&state);
             roundtrip(&SccpMessageStatusV1::Outbound(outbound(state)));

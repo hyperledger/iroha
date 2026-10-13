@@ -17,7 +17,7 @@ throughout, and quantities that depend on the dimensions are recomputed and
 marked. **Every statement is [R] unless labelled otherwise**; the labels are
 those of the profile record.
 
-Sources not read by us:
+Sources not read in the original consolidation pass:
 
 - FIPS 202.
 - The FAEST v3.0 specification outside the parts listed in profile record
@@ -35,6 +35,15 @@ Sources not read by us:
   Carolan–Majenz). Every statement about them is the review's reading.
 - The reading status of every other paper named below is that of profile
   record section 13.
+
+The later [B6 arithmetic and source-hypothesis
+review](parliament_ballot_b6_security_review.md) records the specific primary
+statements inspected on 2026-10-13, the executable ledger and new applicability
+gaps. Historical reading-status statements below refer to the original pass;
+the B6 check is not an independent human cryptographic review and supplies no
+missing primitive bound or owner acceptance. Passages expressly attributed to
+that B6 check are later implementer observations, not second-opinion-review
+claims under the default **[R]** label.
 
 **This file selects no profile and qualifies nothing.** No property of the
 gate is established by it, and the security contract is not met.
@@ -60,7 +69,7 @@ Each part has one of three statuses:
 
 | Part | Status |
 | --- | --- |
-| 1. Protocol the arguments are about | Frozen for investigation: both relations, the witness layouts, the ordered constraints, the backend rows and CRT tables, the role prefixes, the 112-byte tape, the salt, the counter rule, the salted `H5`, the 112-byte leaf commitments, the proof layout, `SUITE` and the descriptor. The descriptor digests are computed here **[D]** and await cross-checking. No implementation of the frozen construction is reported in this file (section 9.3). Production encodings and envelopes are later obligations |
+| 1. Protocol the arguments are about | Frozen for investigation: both relations, the witness layouts, the ordered constraints, the backend rows and CRT tables, the role prefixes, the 112-byte tape, the salt, the counter rule, the salted `H5`, the 112-byte leaf commitments, the proof layout, `SUITE` and the descriptor. The descriptor digests are computed here and independently recomputed **[D]**; that check covers transcription and arithmetic only. The standalone implementation is described in section 9.3; it is not integrated with Core. Production encodings and envelopes are later obligations |
 | 2. Encoding equivalence | Complete (awaiting review). The review's proof covers the commitment and nullifier permutations and the selector; its extension to the pad, the two authorization permutations and the 1,024-bit nullifier output is the implementers' **[D]**. The soundness argument uses it as a premise |
 | 3. Universal-hash bounds at the final dimensions | Complete (awaiting review); values recomputed **[D]** |
 | 4. Soundness for false instances, response-graph experiment | Complete (awaiting review); it is not a Fiat–Shamir theorem, not adaptive and not a knowledge theorem |
@@ -72,7 +81,7 @@ Each part has one of three statuses:
 | Property 5, joint zero knowledge | Conditional chain (CRT-layer simulation argument, then the outer composition with the salt, the `2^20` counter limit and the salted `H5`), giving `Z ≤ ε_P1 + T·e_gen + K_sim + σ`. The generator terms `e_gen` are unquantified, the chain is unreviewed, and the review has not restated the CRT-layer argument in full for the extended backend |
 | Property 5, anonymity | Conditional on `Z` and `P`; the same bound (88) |
 | Property 6, concrete security | Incomplete. The ledger is assembled (section 8.5) with its unknown terms symbolic. Under an explicitly hypothetical nominal substitution every game bound is below 1/2. That is not a certificate, and the written bounds that contain `Z` cannot certify `2^-64` for any values of the unknown terms |
-| Property 7, deterministic bounded verification | Conditional: a design argument whose premises are a completed verifier for the frozen construction and, for production, the envelope and Norito mappings, which are not written |
+| Property 7, deterministic bounded verification | Conditional: the standalone verifier implements the frozen construction, with component conformance and development-machine measurements; complete work and allocation bounds, production envelopes and Norito mappings, and hardware qualification remain open |
 | Property 8, registration authorization | Conditional on adaptive soundness, `U` at registration-origin targets, registration-frame collision resistance, `Z` and `P`. Bound (90) |
 | Knowledge extraction (section 10) | Not required by the design. The review's analysis is kept as analysis; no efficient extractor is established |
 
@@ -150,16 +159,18 @@ public inputs, and the test-only statement codec.
   and 3 still fail. Production Norito mappings, production envelopes and
   authenticated integration remain later obligations, and their absence must
   not be hidden by claiming that the standalone verifier validates node-level
-  canonicality. Implementation, resource measurements and qualification
-  remain unfinished, and the feature stays disabled.
+  canonicality. Standalone implementation, component conformance and
+  development-machine measurements are now present; full resource accounting
+  and qualification remain unfinished, and the feature stays disabled.
 
-**[C]** The working-tree crate `crates/iroha_parliament_ballot_proof`
-compiles a 72-byte suite string that ends in `/NS-PREFIX77` and a 229-byte
-descriptor (`src/profile.rs`, read on 2026-10-13; no build was run). That is
-neither the suite nor the descriptor of section 1.1: the crate does not
-contain the frozen construction. The implementation state is in section 9.3.
-The constraint order and the byte layouts below are protocol choices, not
-descriptions of implemented behaviour.
+**[C]** The standalone crate `crates/iroha_parliament_ballot_proof` now
+compiles the frozen 129-byte suite and 286-byte descriptor of section 1.1,
+the strengthened relations and the extended backend. The earlier source read
+found the retired 72-byte suite and 229-byte descriptor; that observation
+described the implementation before this revision. Current source-bound
+conformance and measurement evidence is in section 9.3. It supports the
+implemented constraint order and byte layouts, not the cryptographic arguments
+or production qualification.
 
 ### 1.1 Functions, relations and public validation
 
@@ -370,14 +381,16 @@ D (small row) =
 ```
 
 **[D]** Both values are `SHA3-512(DESC)` computed here with Python `hashlib`
-from the serialisation above; the review gives no digest values. The same
-script, given the suite and the dimensions that the ballot crate compiles
-(the 72-byte suite ending in `/NS-PREFIX77` and dimensions
-`(35840, 72576, 35904, 72707)` in
-`crates/iroha_parliament_ballot_proof/src/profile.rs` **[C]**), reproduces
-that file's two descriptor digest constants; that checks the serialisation
-and not the new values. **The new values have not been cross-checked against
-a second implementation; that check is outstanding.** Because `D` changes,
+from the serialisation above; the review gives no digest values. **[D]** A separately written Python `struct`/`hashlib`
+calculation independently rebuilt the 129-byte suite and both 286-byte
+descriptors from the definitions above and reproduced both printed values of
+`D`. It also reproduced the four proof-size totals and the revised candidate
+ledger's `Q`, soundness, batch soundness, challenge-1, `K_sim`, `D_sw` and
+nominal `Z` values. This checks transcription and arithmetic only, not the
+security arguments, imported theorem hypotheses or compiled implementation.
+The separate final-construction Rust tests pin both digests, and all eight
+fixed-tape cases across both rows match the full proof bytes from the
+independently implemented Python prototype (section 9.3). Because `D` changes,
 both role namespaces, both `mu` values, every authorization value and every
 proof byte change. All retired ballot descriptors are rejected without
 compatibility handling.
@@ -3387,9 +3400,11 @@ index calculation, constraint evaluation and comparison has prescribed
 semantics and a finite bound. Induction over that operation sequence proves
 identical acceptance results on all conforming hardware.
 
-Premises not yet met: a completed verifier for the frozen construction. The
-working-tree crate does not compile the descriptor of section 1.1 **[C]**
-(section 1).
+The standalone verifier now implements the frozen construction **[C]**, with
+the component checks and development-machine measurements of section 9.3.
+Premises still open include complete implementation-derived work and allocation
+bounds, production parsing and authentication, cross-architecture conformance
+and qualification on the named hardware baselines.
 
 **Descriptor contents.** The descriptor is `DESC` of section 1.1, with digest
 `D`. It carries:
@@ -3576,20 +3591,22 @@ tree traversal is needed. The subtotal is not a complete allocation
 certificate: decoder metadata, alignment, provider scratch space, stack and
 the exact public-input schema are not inventoried.
 
-**Omitted pending measurement or implementation.**
+**Accounting still incomplete.**
 
 - The small-VOLE conversion byte-XOR count. The review states a figure with
   no operation model; the fit `2 × 6,367 × l^/8` would give 57,175,660
   (registration) and 85,292,332 (vote) **[D]**, not recorded as a bound.
-- A registration buffer table, small-row work, hash-input and buffer figures,
-  and every time figure. None was given by the review at the final
-  dimensions.
+- A registration buffer table and small-row work, hash-input and buffer
+  figures. None was given by the review at the final dimensions. Final
+  development-machine timings now exist separately in the validation record;
+  they do not complete these analytical bounds.
 
 Remaining evidence: the production envelope and Norito mappings; the
-implemented frozen construction; a completed parser and verifier; complete
-arena and work accounting; independent field and CRT checks and backend
-conformance vectors; scalar, x86 and ARM parity; malformed-input and
-late-failure tests; cold-context measurements at `S = 3`, 500 and 1,000. The
+production parser and authenticated verifier integration; complete arena and
+work accounting; independent field and CRT checks; scalar, x86 and ARM parity;
+bounded parser fuzzing and expanded late-failure coverage; cold-context and
+late-invalid measurements at `S = 3`, 500 and 1,000. Standalone malformed-input,
+relation and backend conformance checks are recorded in section 9.3. The
 250 ms requirement is a separate measurement on the validator baseline;
 boundedness alone does not establish it.
 
@@ -3740,8 +3757,10 @@ awaits review.
 
 **Literature on the credential functions.** The review's assessment of what
 published sponge results give for assumptions `P` and `U`. **None of these
-papers was read by us**; every entry, including each number, is the review's
-reading. None is imported as a premise of an argument in this file.
+papers was read in the original consolidation pass**; the table records the
+review's reading. The later B6 source-hypothesis review linked above identifies
+the statements subsequently inspected and their limits. No concrete primitive
+bound is imported from this table.
 
 | Source, as cited by the review | Result and numerical consequence, as the review reads it | Applicability |
 | --- | --- | --- |
@@ -4128,10 +4147,16 @@ are about the concrete functions.
 
 The four games keep shared-IV and cross-role PRG correlations and use the
 actual query counts and lengths. The adversary in each game includes the
-entire surrounding reduction. Even for ideal AES permutations the direct
-generator-to-uniform formulation incurs the switching distances `D_sw` of
-section 8.5; if PRP-native accounting is used instead, the factor `ρ_PRP` of
-(59) is kept. Quantum pseudorandomness of the actual generators is an
+entire surrounding reduction. Even ideal AES permutations require switching
+accounting in the direct generator-to-uniform formulation. The recorded
+`D_sw` of section 8.5 has an unresolved leaf-query applicability gap; the
+PRP-native alternative retains the conditional factor `ρ_PRP` of (59).
+The later [B6 generator-interface analysis](parliament_ballot_b6_generator_interface.md)
+pins the implemented leaf call matrix, defines reference multiquery games,
+and lists the missing IV, key, auxiliary-state and query-mode embedding.
+It establishes the conditional affine postprocessing bijection and an
+IV/tweak alias, not a new accepted assumption or a completed leaf reduction.
+Quantum pseudorandomness of the actual generators is an
 assumption, not established by conformance vectors. The outer composition
 has no primitive game of its own.
 
@@ -4257,9 +4282,9 @@ Fiat–Shamir soundness.
 Z ≤ ε_P1 + T·e_gen + K_sim + σ
 ```
 
-**The switching subtotal.** Direct generator-to-uniform accounting must
-still include the permutation-switching distances. With the block counts
-5, 4, 9 and 419 of the four generator games,
+**The recorded switching subtotal (applicability unresolved).** Direct
+generator-to-uniform accounting must include appropriate permutation-switching
+distances. The review's expression uses block counts 5, 4, 9 and 419:
 
 ```text
 D_sw = T · [ 10 + 396·6 + 33·(36 + binom(419, 2)) ] / 2^128
@@ -4267,17 +4292,24 @@ D_sw = T · [ 10 + 396·6 + 33·(36 + binom(419, 2)) ] / 2^128
 ```
 
 (reproduced **[D]**; `10`, `6` and `36` are `binom(5, 2)`, `binom(4, 2)` and
-`binom(9, 2)`). The known subtotal, including switching and before the
-computational generator advantages, is
+`binom(9, 2)`). The [B6 source-hypothesis check](parliament_ballot_b6_security_review.md)
+found that the published leaf game uses `N_0` queries, whereas (96) charges
+one nine-block call. A precise correlated-game interface and a justified
+single-query reduction are required before accepting this smaller charge.
+Substituting the classical `binom(9·N_0, 2)` charge gives a separate arithmetic
+diagnostic of `4.67579748963 × 10^-18`; neither substitution establishes the
+quantum correlated experiment. With the recorded (96), the arithmetic
+subtotal before computational generator advantages is
 
 ```text
 ε_P1 + K_sim + D_sw + σ ≈ 3.3343363838 × 10^-16
 ```
 
 **`D_sw` must not be relabelled as a computational assumption.** With the
-alternative PRP-native proof the factor is
+alternative, still conditional PRP-native argument the factor is
 `ρ_PRP = exp(1.2650301513 × 10^-17)` at these dimensions (reproduced **[D]**
-from (59)); the two formulations must not be mixed.
+from (59)); the two formulations must not be mixed. Reproducing either
+expression does not verify its reduction hypotheses.
 
 **The six game inequalities**, deployment-wide:
 
@@ -4309,17 +4341,26 @@ verification work. The accounting behind it:
   validation work outside the backend.
 
 With the declared nominal conditions `q_pub ≤ 2^64`,
-`q_direct,primitive ≤ 2^64` and `N_public requests ≤ 2^64`, the pooled
-inventory of AES blocks and Keccak permutations is
+`q_direct,primitive ≤ 2^64` and `N_public requests ≤ 2^64`, the recorded pooled
+subtotal of AES blocks and Keccak permutations is
 
 ```text
-W ≤ q_direct,primitive + ((2,750,672 + 2^16)/740)·q_pub + 2^12·N_public requests
-    + 2·2,764,797·T + 4·M_ctr·T + 2^16·T + final-comparison allowance
-  < 2^77                                                                (97)
+W_known = 2^64 + ((2,750,672 + 2^16)/740)·2^64 + 2^12·2^64
+          + 2·2,764,797·T + 4·M_ctr·T + 2^16·T
+        = 27000944741207686661537792 / 185 < 2^77                       (97)
 ```
 
-The displayed subtotal has `log2 W ≈ 76.95` (reproduced **[D]** without the
-final-comparison allowance, which the review does not quantify).
+The displayed subtotal has `log2 W_known = 76.9498307985590493` **[D]**.
+It leaves `955464837380613003542528 / 185 ≈ 2^72.1291675` below `2^77`.
+The final-comparison allowance and all omitted primitive work need a justified
+bound smaller than that headroom before asserting the complete `W < 2^77`.
+They are not zero. The [B6 inventory](parliament_ballot_b6_security_review.md)
+also keeps relation, transcript, credential/context processing, sampler work,
+memory/coherent access, preprocessing/advice and elementary-gate conversion
+unquantified. The bounded simulator can require another `M_ctr·T` admissibility
+trials after normal counter attempts: at most `2^65` 256-bit draws/checks in
+total, with `2^73` random bits for those draws. Those extra trials do not
+program additional challenge-oracle entries.
 
 What `Q* = 2^77` does and does not mean:
 
@@ -4344,6 +4385,13 @@ each of the four CRT generator terms:   Q*^2 · 2^-256 = 2^-102, plus D_sw
 frame collision terms  ≤  64·Q*^3·2^-512 = 2^-275
 ```
 
+The frame entry is hypothetical, not a checked consequence of the cited
+ideal-permutation theorem. Accounting for ordinary XOR queries as two swap
+queries and for two maximum standalone output frames gives the separate
+ideal diagnostic approximately `2^-273`, as detailed in the
+[B6 review](parliament_ballot_b6_security_review.md). Neither number is an
+established bound for concrete SHA3-512.
+
 The uniqueness substitutions are assumptions, not derived adaptive SHAKE
 bounds. Under these values `T·e_gen` is
 `463 · 2^44 · 2^-102 = 1.6063539388 × 10^-15` (`463 = 1 + 396 + 33 + 33`
@@ -4367,6 +4415,11 @@ construction.** The numerical premises that remain unknown are `e_gen`,
 the complete resource vectors, together with the concrete justification of
 the backend oracle model.
 
+The required four generator advantages, `P`, all three restrictions of `U`,
+three concrete frame bounds, complete resource vectors and reviewed protocol
+embeddings remain missing in the executable B6 ledger. Its qualification mode
+fails closed; nominal values cannot populate those entries.
+
 **Crossing conditions.** Put `C = ε_P1 + K_sim + σ`, so `Z ≤ C + T·e_gen`.
 Each written upper bound reaches 1/2 when:
 
@@ -4388,9 +4441,16 @@ simultaneous allocations**.
 
 **The `2^-64` threshold.** Even with every unknown computational term set to
 zero, the written bounds that contain `Z` cannot certify `2^-64`:
-challenge-1 programming alone, `2^-51.415`, exceeds it. This is a limitation
-of the written upper bounds, not an attack establishing that the actual
-advantage exceeds `2^-64`.
+challenge-1 programming alone, `2^-51.415`, exceeds it at the ceiling.
+More strongly, at fixed `T = 2^44` even `q = 0` gives
+`ε_P1(0) = (3/2)·2^44·sqrt(2^44/2^256) = 3·2^-63 = 6·2^-64` **[D]**.
+Since this expression increases with `q`, there is no nonnegative query
+cutoff for this written `Z` bound at that target; zero would not be a valid
+cutoff. This is a limitation of the upper bound, not an attack establishing
+that the actual advantage exceeds `2^-64`. The B6 checker reports exact
+crossings for the conditional soundness polynomial only. Complete-construction
+thresholds at `1/2` remain unknown until the primitive terms are justified as
+functions of the complete resources.
 
 ### 8.6 Status of the total
 
@@ -4404,9 +4464,12 @@ advantage exceeds `2^-64`.
   game has a written inequality whose unknown terms have no established
   value. No design decision gives a missing term a numerical value, and the
   nominal table is a hypothetical substitution.
-- The conformance results and timings reported for the earlier relation
+- The final strengthened-relation conformance results and timings in the
+  [standalone validation record](../docs/validation/parliament_ballot_standalone.md)
   (section 9.3) are implementation evidence. They discharge none of these
-  assumptions.
+  assumptions. The B6 source-hypothesis and arithmetic check also leaves the
+  independent cryptographic review, attack-cost assessment and owner
+  acceptance outstanding.
 - The owner's eventual record must say that knowledge extraction has been
   removed, that authorization is instead established by the separate
   origin-security reductions, and that `P` and `U` are additional
@@ -4477,9 +4540,11 @@ longer requires it (section 10). The review's instruction stands: the launch
 gate stays false until these obligations and independent review are
 completed.
 
-### 9.3 Evidence still required
+### 9.3 Implementation evidence and remaining qualification
 
-**Implementer evidence, in the review's priority order.**
+**Evidence categories, in the review's priority order.** Current completed
+checks and their precise scope are recorded below; the remaining work in each
+category is not discharged by those checks.
 
 1. **Exact Rust relation conformance.** Source-bound fixed-tape comparisons
    with the Python prototype for both relations and rows, including
@@ -4501,35 +4566,44 @@ completed.
    lengths. Exact dossier-level framing and accounting, without prematurely
    implementing the production schemas and integration.
 
-**Implementation state.** As reported by the implementers; none of it is
-evidence for the frozen construction.
+**Implementation state [C][E].** The source-bound commands, coverage, vectors,
+build flags, measurement method and results are maintained in
+[the standalone validation record](../docs/validation/parliament_ballot_standalone.md).
+That record is the authority for completed row and roster coverage; the
+cryptographic arguments above remain unreviewed.
 
-- The Rust backend reproduces all twelve official FAEST v3.0.2 signatures.
-  That is conformance of **reference mode** only.
-- The Rust relations and the reviewed Python prototype implement the earlier
-  two-permutation vote relation on the prefix-only backend. The crate's
-  compiled suite and descriptor confirm that it is not the frozen
-  construction **[C]** (section 1).
-- A prototype of the strengthened relation and an extended backend mode are
-  being built. No result from either is recorded in this file.
-- First measurements exist **only for the earlier relation, on a
-  development machine that is not a qualification baseline** (Apple M2
-  Ultra, one thread, release build). Candidate row: proving about 215 ms and
-  verification about 105 ms with hardware AES, about 390 ms and 270 ms
-  portable, about 3 MiB peak heap. Comparator row: about 390 ms and 275 ms
-  with hardware AES, about 2.0 s and 1.9 s portable. They measure neither
-  the three-permutation vote relation nor the extended backend, they are not
-  measurements on the validator or phone baselines, and they establish
-  nothing about the limits of property 7.
-- The prototype evidence that the review records as completed on the
-  implementers' report (conformance, proof sizes and digests, exhaustive bit
-  flips, semantic faults, 103 detected mutations, an independent evaluator)
-  was produced for the earlier construction. The review states that it
-  establishes neither quantum simulation nor knowledge extraction. Because
-  the descriptor digest, the vote relation and the backend change, every
-  proof byte changes, and the evidence has to be produced again **[E]**.
-- The descriptor digests of section 1.1 await cross-checking against a
-  second implementation.
+- Rust now implements the strengthened registration and three-permutation
+  vote relations, the 1,024-bit nullifier, vote authorization, the final
+  descriptor, the 112-byte tape and all four backend extensions. The ballot
+  verifier accepts only the final construction.
+- All eight full-proof cases match the independently implemented Python
+  prototype: registration and votes at `S = 3`, 500 and 1,000 on both rows.
+  Rust tests pin both row descriptors and all four naked proof lengths.
+  Exact coverage and provenance are tracked in the validation record.
+- Portable and accelerated standalone ballot and backend suites cover
+  relation constraints, semantic substitutions, malformed inputs, retired
+  descriptors, bounded counters and tape error handling. The backend also
+  reproduces all twelve official FAEST v3.0.2 signatures; those official
+  vectors check conformance of **reference mode** only. Final-construction
+  Python guard and differential checks have been rerun separately.
+- Seven-repetition development-machine measurements now cover both rows,
+  registration and votes at `S = 3`, 500 and 1,000, on portable and accelerated
+  release builds. Verification starts from decoded statements. Reported heap
+  is incremental requested allocation and excludes existing inputs, stack,
+  allocator overhead and RSS. These runs are neither complete allocation
+  bounds nor cold-process, late-invalid, validator or phone qualification.
+- The descriptor transcription/arithmetic check in section 1.1 and the new
+  implementation comparisons have different scopes. Neither is an independent
+  review of a security argument or an attack-cost assessment. Earlier review
+  reports about the retired relation remain historical provenance; they are
+  not substituted for final-construction evidence.
+
+Selection condition 4 now has standalone component-conformance evidence.
+Parser fuzzing, cross-architecture checks and independent implementation review
+remain open. Condition 5 remains unmet: complete envelopes, implementation-derived
+work and allocation bounds, cold and late-invalid measurements and named-hardware
+qualification are not supplied by the development-machine runs. Conditions 2
+and 3 remain unmet independently of these implementation results.
 
 The decisions the review asked to be confirmed are confirmed and are not
 outstanding: the pad bit order, the rejection of an inconsistent supplied

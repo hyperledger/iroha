@@ -57,7 +57,7 @@ fn the_honest_registration_witness_is_accepted() {
 fn honest_votes_are_accepted(size: usize) {
     for index in [0, size / 2, size - 1] {
         let (instance, witness) = vote_instance(&vote_case(Row::Candidate, size, index));
-        assert_eq!(witness.len() * 8, 35_904);
+        assert_eq!(witness.len() * 8, 53_504);
         assert_eq!(instance.public().size(), size);
         assert_eq!(
             is_satisfied::<Gf256, _>(&VoteRelation, instance.public(), &witness),
@@ -100,10 +100,16 @@ fn expected_flip(
     let commitment_output = output(Permutation::Commitment);
     let kinds: Vec<BlockKind> = match interval.part {
         WitnessPart::Pad => vec![],
-        WitnessPart::Secret => vec![
-            transition(Permutation::Commitment, 1),
-            transition(second, 1),
-        ],
+        WitnessPart::Secret => {
+            let mut kinds = vec![
+                transition(Permutation::Commitment, 1),
+                transition(second, 1),
+            ];
+            if role == Role::Vote {
+                kinds.push(transition(Permutation::VoteAuthorization, 1));
+            }
+            kinds
+        }
         WitnessPart::State { permutation, group } => vec![
             transition(permutation, group),
             if group < 11 {
@@ -194,7 +200,7 @@ fn vote_flips(range: core::ops::Range<usize>) {
     }
 }
 
-// The layouts have 24 (registration) and 26 (vote) intervals: pad, secret,
+// The layouts have 24 (registration) and 37 (vote) intervals: pad, secret,
 // eleven states of each permutation, and the two selector vectors. The flips are
 // split so that the harness runs the slices in parallel.
 
@@ -256,12 +262,12 @@ fn flips_in_the_vote_nullifier_states_violate_exactly_their_blocks_2() {
 
 #[test]
 fn every_flip_of_selector_a_violates_exactly_its_blocks() {
-    vote_flips(24..25);
+    vote_flips(35..36);
 }
 
 #[test]
 fn every_flip_of_selector_b_violates_exactly_its_blocks() {
-    vote_flips(25..26);
+    vote_flips(36..37);
 }
 
 #[test]
@@ -285,7 +291,7 @@ fn vote_faults_violate_exactly_their_blocks(part: usize) {
     let case = vote_case(Row::Candidate, 3, 1);
     let profile = Profile::new(case.row).expect("tables");
     let faults = vote_faults(&case);
-    assert_eq!(faults.len(), 14);
+    assert_eq!(faults.len(), 18);
     for fault in faults.into_iter().skip(part).step_by(2) {
         let instance = fault.statement.instance(&profile).expect("valid");
         assert_eq!(
@@ -305,4 +311,9 @@ fn every_vote_fault_violates_exactly_its_blocks_even() {
 #[test]
 fn every_vote_fault_violates_exactly_its_blocks_odd() {
     vote_faults_violate_exactly_their_blocks(1);
+}
+
+#[test]
+fn flips_in_vote_authorization_states_violate_exactly_their_blocks() {
+    vote_flips(24..35);
 }

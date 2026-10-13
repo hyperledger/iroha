@@ -21,7 +21,8 @@ fn digest(seed: u8) -> [u32; 8] {
     limbs(iroha_crypto::Hash::new([seed; 33]).as_ref())
 }
 
-fn fixture() -> (PublicStatement, PhysicalSmtWitness) {
+/// One complete satisfiable public fixture, shared with the frozen-transcript tests.
+pub(super) fn fixture() -> (PublicStatement, PhysicalSmtWitness) {
     let siblings = core::array::from_fn(|level| digest(u8::try_from(level + 17).unwrap()));
     let path = 0xa59c_71e3;
     let first = digest(1);

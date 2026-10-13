@@ -497,3 +497,45 @@ fn creation_tip_is_pending_until_the_authenticated_activation_height() {
             .is_some()
     );
 }
+
+#[test]
+fn state_view_failure_preserves_terminal_typed_cause_without_retry_authority() {
+    use crate::state::{LaneLifecycleError, StateViewError};
+    for original in [
+        StateViewError::Changed,
+        StateViewError::Poisoned,
+        StateViewError::Runtime(LaneLifecycleError::RuntimeCatalog(
+            "invalid original catalog".into(),
+        )),
+    ] {
+        let expected = original.to_string();
+        let Attempt::Rejected(error) = state_view_error(original) else {
+            panic!("terminal original cause")
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let retained = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<StateViewError>()
+            .unwrap();
+        assert_eq!(retained.to_string(), expected);
+        assert!(!matches!(retained, StateViewError::Busy(_)));
+    }
+}
+
+#[test]
+fn state_view_runtime_capacity_preserves_original_execution_refusal() {
+    use crate::state::{LaneLifecycleError, StateViewError};
+    let budget = iroha_allocation::AllocationBudget::new(1);
+    let held = budget.try_reserve_bytes(1).unwrap();
+    let original = budget.try_reserve_bytes(1).unwrap_err();
+    let Attempt::Deferred(retained) = state_view_error(StateViewError::Runtime(
+        LaneLifecycleError::NposPolicy(Attempt::Deferred(original.clone().into())),
+    )) else {
+        panic!("original runtime execution refusal")
+    };
+    assert_eq!(retained.allocation_refusal(), Some(&original));
+    assert_eq!(budget.reserved_bytes(), 1);
+    drop(held);
+    assert_eq!(budget.reserved_bytes(), 0);
+}

@@ -6,30 +6,21 @@
 //! detail, history paths) live in [`views`]; history paths go through the validated `O(log n)`
 //! node cache of `history`.
 //!
-//! The certificate projection borrows an authenticated native Global receipt and preserves
-//! its original finality header, result-body digest, Sumeragi `CommitQC` and historical keys
-//! under the caller's original allocation pool. The message producer joins that original
-//! receipt to payload, block and history paths with one complete request admission. Durable
-//! history nodes retain their separate original cache pool; no process-global cache exists.
-//!
-//! TODO(TT-A2): close request-funded native receipt acquisition before connecting message
-//! HTTP selectors to these producers. Current control records retain the exact authenticated
-//! effect cause; record presence alone is never proof authority.
+//! Native proof queries acquire compact original Global receipts through the caller's
+//! request-funded source reader and preserve the original finality header, result-body
+//! digest, Sumeragi `CommitQC` and historical keys. Message and control proofs bind their
+//! recorded inputs to that receipt's block and history commitments under one retained
+//! response admission. Control causes retain the exact governance certificate and effect;
+//! record presence alone is never proof authority. Durable history nodes retain their
+//! separate original cache pool; no process-global cache exists.
 
-mod certificate;
 mod committee;
-mod control;
 mod history;
-mod membership;
-mod message;
+pub mod native;
 mod views;
 
-pub use certificate::{RetainedSccpCertificate, SccpCertificateReadError, certificate_from_native};
 pub use committee::{RetainedSccpGenerationView, committee, current_committee};
-pub use control::{RetainedSccpControlProof, control_proof_from_native};
 pub use history::funded::{RetainedSccpHistoryPath, SccpHistoryNodeCache, SccpHistoryReadError};
-pub use membership::SccpProofReadError;
-pub use message::{RetainedSccpMessageProof, message_proof_from_native};
 pub use views::*;
 
 use super::{light_clients, store};
@@ -57,8 +48,8 @@ pub enum SccpReadError {
 
 /// Assemble `GET /v1/sccp/capabilities` (§6).
 ///
-/// TODO: Torii work package (TT-A1): the coalition floor, forgery-hold summary, seated panel
-/// ids and launch-gate state of §6 still need their committed owners.
+/// TODO: Torii work package (TT-A1): the coalition floor still needs its authoritative
+/// stake calculation. All reported gates and summaries below read their actual owners.
 #[must_use]
 pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 {
     let world = view.world();
@@ -86,6 +77,16 @@ pub fn capabilities(view: &(impl StateReadOnly + ?Sized)) -> SccpCapabilitiesV1 
             deadline_ms: generation.deadline_ms,
         }),
         liability_clock: *store::liability_clock::get(world),
+        forgery_max_generation: store::forgery_max_generation(world),
+        pause_panel_ids: store::pause_panel::get(world).as_ref().map(|panel| {
+            api::SccpPausePanelIdsV1 {
+                primary: panel.primary_id,
+                backup: panel.backup_id,
+            }
+        }),
+        parliament_binding_ballot_available:
+            super::parliament_iface::parliament_binding_ballot_available(),
+        reconciliation_available: super::governance::sccp_reconciliation_available(),
         parameters: *store::parameters::get(world),
         committed_height,
         light_client_profiles: light_client_profiles(world, committed_height.saturating_add(1)),
@@ -225,6 +226,10 @@ mod tests {
         assert_eq!(empty.network_id, *stx.network_id().as_bytes());
         assert_eq!(empty.current_generation, None);
         assert_eq!(empty.liability_clock, 0);
+        assert_eq!(empty.forgery_max_generation, None);
+        assert_eq!(empty.pause_panel_ids, None);
+        assert!(!empty.parliament_binding_ballot_available);
+        assert!(!empty.reconciliation_available);
         assert_eq!(empty.finality, api::SccpFinalityConstantsV1::current());
         assert_eq!(
             empty.consensus_instance,
@@ -240,6 +245,15 @@ mod tests {
         let json = norito::json::to_value(&empty).unwrap();
         assert!(json.get("domain_separator").is_none());
         assert_eq!(empty.limits, SccpReadLimitsV1::v1());
+        let encoded = norito::codec::Encode::encode(&empty);
+        assert_eq!(
+            <SccpCapabilitiesV1 as norito::codec::Decode>::decode(&mut encoded.as_slice()).unwrap(),
+            empty
+        );
+        assert_eq!(
+            norito::json::from_value::<SccpCapabilitiesV1>(json).unwrap(),
+            empty
+        );
         store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
         let reported = capabilities(&stx);
         assert_eq!(reported.parameters, Some(SccpParametersV1::taira_default()));
@@ -252,6 +266,30 @@ mod tests {
             SCCP_LC_PROFILE_NETWORKS_V1.len(),
             "one compiled profile per external network"
         );
+    }
+
+    #[test]
+    fn capabilities_report_only_the_retained_panel_identities() {
+        use crate::smartcontracts::isi::sccp::{
+            pause_record::RetainedSccpPausePanel, test_support::sample_pause_panel,
+        };
+        let state = blank_state();
+        let budget = state.ivm_execution_budget();
+        let mut block = state.block(header(30));
+        let mut stx = block.transaction();
+        let panel = sample_pause_panel(7);
+        let retained = RetainedSccpPausePanel::admit(&panel, &budget).unwrap();
+        store::pause_panel::set(&mut stx, Some(retained));
+        let view = capabilities(&stx);
+        assert_eq!(
+            view.pause_panel_ids,
+            Some(api::SccpPausePanelIdsV1 {
+                primary: panel.primary_id,
+                backup: panel.backup_id
+            })
+        );
+        assert!(!view.parliament_binding_ballot_available);
+        assert!(!view.reconciliation_available);
     }
 
     #[test]

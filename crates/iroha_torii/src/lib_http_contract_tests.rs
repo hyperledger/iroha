@@ -1374,6 +1374,56 @@ mod typed_error_contract_tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn query_settlement_receipt_absence_preserves_exact_selector_in_both_formats() {
+        use iroha_data_model::{
+            ValidationFail,
+            isi::SettlementId,
+            query::error::{FindError, QueryExecutionFail},
+        };
+        let id = SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "missing-payment".parse().unwrap(),
+        );
+        for format in [ResponseFormat::Norito, ResponseFormat::Json] {
+            let failure = ValidationFail::QueryFailed(QueryExecutionFail::Find(
+                FindError::SettlementReceipt(id.clone()),
+            ));
+            let response = utils::with_current_response_format(format, async {
+                Error::Query(failure).into_response()
+            })
+            .await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let body = body_bytes(response).await;
+            let decoded = match format {
+                ResponseFormat::Norito => norito::decode_canonical::<ErrorEnvelope>(&body).unwrap(),
+                ResponseFormat::Json => norito::json::from_slice::<ErrorEnvelope>(&body).unwrap(),
+            };
+            assert_eq!(decoded.code(), "query_settlement_receipt_not_found");
+            let details = decoded.details.unwrap();
+            assert_eq!(details.query_settlement_receipt_not_found, Some(id.clone()));
+            assert!(details.query_asset_not_found.is_none());
+        }
+        for failure in [
+            ValidationFail::QueryFailed(QueryExecutionFail::NotFound),
+            ValidationFail::NotPermitted("query denied".into()),
+        ] {
+            let envelope =
+                public_validation_fail_envelope(&failure, Error::query_status_code(&failure));
+            assert!(
+                envelope
+                    .details
+                    .as_ref()
+                    .is_none_or(|details| details.query_settlement_receipt_not_found.is_none())
+            );
+        }
+        let failure =
+            ValidationFail::QueryFailed(QueryExecutionFail::Find(FindError::SettlementReceipt(id)));
+        let wrong_status = public_validation_fail_envelope(&failure, StatusCode::BAD_REQUEST);
+        assert_eq!(wrong_status.code(), "query_validation_failed");
+        assert!(wrong_status.details.is_none());
+    }
     #[tokio::test]
     async fn query_asset_absence_is_not_inferred_from_other_validation_failures() {
         use iroha_data_model::{
@@ -1504,6 +1554,55 @@ mod typed_error_contract_tests {
                     .details
                     .and_then(|details| details.query_asset_not_found),
                 preserved.then(|| asset.clone())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn canonical_error_response_keeps_settlement_receipt_absence_only_for_exact_contract() {
+        let id = iroha_data_model::isi::SettlementId::new(
+            iroha_test_samples::ALICE_ID.clone(),
+            "missing-payment".parse().unwrap(),
+        );
+        for (status, code, preserved) in [
+            (
+                StatusCode::NOT_FOUND,
+                "query_settlement_receipt_not_found",
+                true,
+            ),
+            (
+                StatusCode::GONE,
+                "query_settlement_receipt_not_found",
+                false,
+            ),
+            (StatusCode::NOT_FOUND, "query_validation_failed", false),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "query_settlement_receipt_not_found",
+                false,
+            ),
+        ] {
+            let (parts, _) = Response::builder()
+                .status(status)
+                .body(Body::empty())
+                .unwrap()
+                .into_parts();
+            let response = canonical_error_response(
+                parts,
+                ErrorEnvelope::new(code, "receipt lookup failed").with_details(ErrorDetails {
+                    query_settlement_receipt_not_found: Some(id.clone()),
+                    ..Default::default()
+                }),
+                ResponseFormat::Norito,
+                false,
+            );
+            let envelope: ErrorEnvelope =
+                norito::decode_canonical(&body_bytes(response).await).unwrap();
+            assert_eq!(
+                envelope
+                    .details
+                    .and_then(|details| details.query_settlement_receipt_not_found),
+                preserved.then(|| id.clone())
             );
         }
     }

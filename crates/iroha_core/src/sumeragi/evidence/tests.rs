@@ -204,7 +204,7 @@ fn original_carrier_admits_then_finality_terminalizes_exact_parent_evidence() {
                 &view,
                 chain.state().state_view_generation(),
                 4,
-                &[record.evidence.clone()]
+                &[record.native_evidence().unwrap().clone()]
             )
             .is_err()
         );
@@ -355,13 +355,8 @@ pub(super) fn vote_pair(
             sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
         };
         vote.sig = Signature(
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
-                    .unwrap(),
-            )
-            .payload()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };
@@ -444,14 +439,18 @@ fn lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_in
     // Predicate-only records: raw proof bytes and claimed attribution grant no admission.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let original = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [0x31; 32],
@@ -479,7 +478,9 @@ fn lane_terminal_replay_fence_uses_immutable_retirement_deadline_and_original_in
         admission_parent_result: [0x34; 32],
     };
     let mut record = EvidenceRecord {
-        evidence: Evidence { native: Vec::new() },
+        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(Evidence {
+            native: Vec::new(),
+        }),
         attribution: EvidenceAttribution {
             scope: EvidenceScope::Lane(scope),
             instance: original.instance,
@@ -644,14 +645,18 @@ fn local_lane_observations_use_inclusive_retirement_and_never_a_native_height_cl
     // Local queue predicates only: these deliberately raw frames grant no proposal authority.
     let source = World::new();
     let mut world = source.block();
-    world.parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            evidence_horizon_blocks: 7,
-            slashing_delay_blocks: 3,
-            ..SumeragiNposParameters::default()
-        }
-        .into_custom_parameter(),
-    ));
+    world
+        .parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                evidence_horizon_blocks: 7,
+                slashing_delay_blocks: 3,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     let row = SumeragiLaneCustody {
         lane: LaneId::new(7),
         incarnation: [31; 32],
@@ -1078,4 +1083,43 @@ fn global_verified_offender_graph_retains_original_pool_through_closed_move() {
     drop(attribution);
     assert_eq!(budget.reserved_bytes(), baseline);
     assert_eq!(preparation.reserved_bytes(), preparation_baseline);
+}
+
+#[test]
+fn unsupported_generation_scope_is_neither_native_pruning_clock_nor_admission() {
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    let chain = chain();
+    let view = chain.state().view();
+    // A standalone canonical claim is DATA; no supported World owner admits it.
+    let mut record = EvidenceRecord {
+        evidence: RecordedEvidenceV1::Native(Evidence { native: Vec::new() }),
+        attribution: EvidenceAttribution {
+            scope: EvidenceScope::SccpGeneration { generation: 1 },
+            instance: [1; 32],
+            height: 1,
+            epoch: 0,
+            context_id: [2; 32],
+            authority_generation: [3; 32],
+            offenders: Vec::new(),
+            safety_violation: false,
+        },
+        recorded_at_height: 2,
+        recorded_at_view: 0,
+        recorded_at_ms: 2000,
+        penalty_status: EvidencePenaltyStatus::Pending,
+    };
+    assert!(
+        !committed_evidence_record_is_prunable(view.world(), &record, u64::MAX).unwrap(),
+        "pending claim must not lose its fence"
+    );
+    record.penalty_status = EvidencePenaltyStatus::Applied { height: 4 };
+    assert!(
+        matches!(committed_evidence_record_is_prunable(view.world(), &record, u64::MAX), Err(EvidenceAdmissionError::Invalid(reason)) if reason == "retained evidence material and lifecycle scope differ")
+    );
+    let pool = iroha_allocation::AllocationBudget::new(1 << 20);
+    assert!(matches!(
+        crate::state::RetainedEvidenceRecord::from_fixture(record, &pool),
+        Err(record::EvidenceRecordRestoreError::UnsupportedSccp)
+    ));
+    assert_eq!(pool.reserved_bytes(), 0);
 }

@@ -8,7 +8,7 @@ use super::*;
 use iroha_config::parameters::actual::{Nexus, Queue as QueueConfig};
 use iroha_core::{
     executor::quote_nexus_fee_admission_draft,
-    state::{World, WorldStateSnapshot as _},
+    state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_crypto::Algorithm;
@@ -216,6 +216,7 @@ fn quoted(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         builder.payload(),
         view.authenticated_query_ledger_time_ms().unwrap(),
         iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

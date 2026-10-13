@@ -596,21 +596,11 @@ pub(super) fn verify_vega_release_production_envelope_v1(
     let statement_digest = typed_statement
         .digest()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::VegaExistingCredentialZkV1(PrivacyProofBytesV1::new(proof.to_vec())),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::VegaExistingCredentialZkV1(PrivacyProofBytesV1::new(proof.to_vec())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::ProductionEnvelopeRejected)?;
     let limits = PrivacyConsensusLimitsV1::taira_default();
     let effects = verify_privacy_envelope_v1(
         &envelope,

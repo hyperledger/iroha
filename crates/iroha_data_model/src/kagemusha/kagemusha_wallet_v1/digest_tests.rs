@@ -18,7 +18,7 @@ use crate::kagemusha::kagemusha_wallet_v1::poseidon::{
 /// Payment, lineage, credit-opening, credit-status and credited digests, every signing message,
 /// the trees and the quota-usage array) is a Poseidon value, not a SHA role (owner answers Q1,
 /// Q2, Q9, A1, A3 and B1).
-const ROLE_LABELS: [&str; 20] = [
+const ROLE_LABELS: [&str; 21] = [
     "scheme",
     "relation",
     "provider-contract",
@@ -36,6 +36,7 @@ const ROLE_LABELS: [&str; 20] = [
     "verifying-key-set",
     "output",
     "marker",
+    "capsule-body",
     "capsule",
     "completion",
     "fold",
@@ -290,7 +291,7 @@ fn kagemusha_wallet_v1_signing_domains_are_pinned_and_distinct() {
     for domain in KagemushaWalletObjectDigestDomainV1::ALL {
         assert!(words.insert(domain.domain()), "{}", domain.as_str());
     }
-    assert_eq!(words.len(), 59);
+    assert_eq!(words.len(), 60);
 }
 
 #[test]
@@ -340,7 +341,7 @@ fn kagemusha_wallet_v1_object_digest_domains_are_pinned_and_distinct() {
     for (name, word) in KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1 {
         assert!(words.insert(word), "{name}");
     }
-    assert_eq!(words.len(), 10 + 16 + 33);
+    assert_eq!(words.len(), 10 + 16 + 34);
 }
 
 #[test]

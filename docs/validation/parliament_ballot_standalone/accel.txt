@@ -1,0 +1,25 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-ballot
+[cargo-fast] CARGO_BUILD_JOBS=cargo-default
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] CARGO_INCREMENTAL=1
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo run --release -p iroha_parliament_ballot_proof --features accel --example measure
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+    Finished `release` profile [optimized] target(s) in 0.51s
+     Running `target/cargo-fast/parliament-ballot/release/examples/measure`
+EXPERIMENTAL ballot proofs: no row is selected or qualified. 7 proofs per line, one thread, accel feature on, build profile: release.
+Measured on the machine running this example; not a validator or phone baseline.
+Heap is incremental requested allocation above entry: excludes existing inputs, stack, allocator overhead and RSS.
+Verification starts from decoded statements; no fresh wire decoding, cold-process or late-invalid-input qualification.
+row        relation         S   proof B  prove min  prove med verify min verify med  prove heap verify heap
+                                                ms         ms         ms         ms    MiB peak    MiB peak
+candidate  registration     -    160148      225.7      226.7      109.7      110.4        2.95        2.21
+candidate  vote             3    233012      329.5      330.1      157.6      158.5        4.10        3.29
+candidate  vote           500    233012      344.7      345.7      162.2      164.1        4.16        3.35
+candidate  vote          1000    233012      355.8      357.8      167.3      168.7        4.22        3.41
+comparator registration     -    109498      418.6      422.1      300.4      303.4        7.94        5.74
+comparator vote             3    158074      567.0      569.4      391.3      393.9        9.07        5.74
+comparator vote           500    158074      578.4      580.7      396.9      397.6        9.13        5.80
+comparator vote          1000    158074      593.0      594.8      402.3      403.5        9.19        5.86

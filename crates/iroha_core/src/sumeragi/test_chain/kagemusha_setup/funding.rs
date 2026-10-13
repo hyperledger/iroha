@@ -258,7 +258,7 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> norito::json::Value {
         .collect();
     norito::json!({
         "height": (block.height()),
-        "result_preimage_hex": (hex::encode(block.commitment().preimage().unwrap())),
+        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
         "result_hash_hex": (hex::encode(block.result().0)),
         "commit_vote_preimage_hex": (hex::encode(qc.preimage())),
         "qc_bitmap_hex": (hex::encode(qc.signers.as_bytes())),
@@ -359,7 +359,7 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
     object.insert(
         "load".into(),
         norito::json!({
-            "result_preimage_hex": (hex::encode(at.block().commitment().preimage().unwrap())),
+            "result_preimage_hex": (hex::encode(at.block().block().commit_certificate().unwrap().result_preimage())),
             "receipt_frame_hex": (hex::encode(&receipt_frame)),
             "receipt_transcript_hex": (hex::encode(receipt.transcript().unwrap())),
             "receipt_digest_hex": (hex::encode(receipt.receipt_digest().unwrap())),
@@ -387,6 +387,33 @@ fn capture(setup: &ExecutedKagemushaSetup, input: &Inputs, output: &Path) {
         .unwrap()
         .sync_all()
         .unwrap();
+}
+
+#[test]
+fn block_capture_preserves_original_certified_result_envelope() {
+    use iroha_data_model::sumeragi_finality::{
+        result_of_preimage, test_fixtures::NativeFinalityFixture,
+    };
+    let fixture = NativeFinalityFixture::new();
+    let block = fixture
+        .verifier()
+        .verify_retained_decision(fixture.latest())
+        .unwrap();
+    let row = block_capture(&block);
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        preimage,
+        block
+            .block()
+            .commit_certificate()
+            .unwrap()
+            .result_preimage()
+    );
+    assert_eq!(result_of_preimage(&preimage), Some(block.result()));
+    assert_eq!(
+        result_of_preimage(&block.commitment().preimage().unwrap()),
+        None
+    );
 }
 
 #[test]

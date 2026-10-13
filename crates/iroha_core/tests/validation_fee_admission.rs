@@ -1124,7 +1124,8 @@ fn install_canonical_post_enactment_validation_fee_state(
         .world
         .parameters_mut_for_testing()
         .get_mut()
-        .set_parameter(Parameter::Custom(registry.into_custom_parameter()));
+        .set_parameter(Parameter::Custom(registry.into_custom_parameter()))
+        .expect("valid fixture parameters");
     state_transaction.apply();
     block
         .commit_world_overlay_for_testing()

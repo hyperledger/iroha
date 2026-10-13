@@ -26,7 +26,17 @@ impl From<&'_ base::Root> for Configuration {
             network: value.into(),
             queue: (&value.queue).into(),
             consensus: Consensus::from(&value.sumeragi),
-            confidential_gas: (&value.confidential.gas).into(),
+            // The verification gas schedule is chain policy, not node
+            // configuration: this is the protocol default, and the service that
+            // owns State replaces it with the committed schedule before serving.
+            confidential_gas: (&base::ConfidentialGas {
+                proof_base: crate::parameters::defaults::confidential::gas::PROOF_BASE,
+                per_public_input: crate::parameters::defaults::confidential::gas::PER_PUBLIC_INPUT,
+                per_proof_byte: crate::parameters::defaults::confidential::gas::PER_PROOF_BYTE,
+                per_nullifier: crate::parameters::defaults::confidential::gas::PER_NULLIFIER,
+                per_commitment: crate::parameters::defaults::confidential::gas::PER_COMMITMENT,
+            })
+                .into(),
             transport: Transport::from(&value.torii.transport),
             nexus: Nexus::from(&value.nexus),
         }

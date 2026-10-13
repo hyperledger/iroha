@@ -714,6 +714,7 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         lane_authorities,
     ));
     let mut executor = StateExecutor::spawn(ExecutorContext {
+        time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(&state),
         native_context_archive: Arc::new(
             crate::query::native_context_archive::NativeContextArchive::open(
@@ -923,6 +924,10 @@ impl Prepared {
         );
         let signer =
             KeyPairSigner::new(&key_pair).map_err(|error| NodeError::Key(error.to_string()))?;
+        let signer = super::crypto::prepare_clock::NativePrepareSigner::new(
+            signer,
+            executor.prepare_clock(),
+        );
         let (_, beacon_key) = key_pair
             .public_key()
             .try_to_bytes()
@@ -2561,6 +2566,7 @@ mod tests {
             availability,
         );
         let mut executor = StateExecutor::spawn(ExecutorContext {
+            time_source: iroha_primitives::time::TimeSource::new_system(),
             state: Arc::clone(&state),
             native_context_archive: Arc::new(
                 crate::query::native_context_archive::NativeContextArchive::open(

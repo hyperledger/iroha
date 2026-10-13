@@ -59,13 +59,23 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
         &self,
         height: u64,
     ) -> Result<AuthenticatedExecutionBlock, ExecutionAttemptError<ChainReadError>> {
-        if height != GENESIS_HEIGHT {
-            return self
-                .certified(height)?
-                .into_authenticated_execution()
-                .map_err(Into::into);
+        if height == GENESIS_HEIGHT {
+            self.authenticated_genesis_execution()
+        } else {
+            self.authenticated_successor_execution(height)
         }
-        self.authenticated_genesis_execution()
+    }
+
+    // Ordinary-height certificate return slots must not remain on the genesis
+    // branch's active stack while it decodes and authenticates the H1/H2 prefix.
+    #[inline(never)]
+    fn authenticated_successor_execution(
+        &self,
+        height: u64,
+    ) -> Result<AuthenticatedExecutionBlock, ExecutionAttemptError<ChainReadError>> {
+        self.certified(height)?
+            .into_authenticated_execution()
+            .map_err(Into::into)
     }
 
     // The complete H1/H2 prefix owners belong to the genesis read only. Keep them

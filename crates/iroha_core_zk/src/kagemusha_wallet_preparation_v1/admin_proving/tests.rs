@@ -26,9 +26,9 @@ fn capsule() -> KagemushaWalletRecoveryCapsuleV1 {
 #[test]
 fn admin_statement_binds_exact_all_fields_and_operation() {
     let capsule = capsule();
-    let statement = capsule.statement;
+    let statement = capsule.body().statement;
     let original = fields::<26>(statement.field_items().unwrap()).unwrap();
-    assert!(bind_statement(capsule.kind, &original, &statement).is_ok());
+    assert!(bind_statement(capsule.body().kind, &original, &statement).is_ok());
     for kind in [
         KagemushaWalletOperationKindV1::Bootstrap,
         KagemushaWalletOperationKindV1::Load,
@@ -45,7 +45,7 @@ fn admin_statement_binds_exact_all_fields_and_operation() {
         let mut wrong = original;
         wrong[i] += Fp::ONE;
         assert_eq!(
-            bind_statement(capsule.kind, &wrong, &statement),
+            bind_statement(capsule.body().kind, &wrong, &statement),
             Err(Error::Authority)
         );
     }
@@ -96,23 +96,27 @@ fn original_match_requires_every_descriptor_and_key_byte() {
 #[test]
 fn proof_result_requires_single_exact_derived_statement_instance() {
     let capsule = capsule();
-    let digest = fields::<1>(vec![capsule.statement.statement_digest().unwrap()]).unwrap()[0];
+    let digest =
+        fields::<1>(vec![capsule.body().statement.statement_digest().unwrap()]).unwrap()[0];
     let proof = AdminSigmaProof {
-        bytes: capsule.step_proof.bytes.clone(),
+        bytes: capsule.body().step_proof.bytes.clone(),
         instances: [vec![digest]],
     };
     // This helper only frames the result. admin_result must still verify it
     // against the installed original; the fixture's stand-in is never accepted.
     assert_eq!(
-        bind_result(&capsule.statement, proof.clone()).unwrap(),
-        capsule.step_proof
+        bind_result(&capsule.body().statement, proof.clone()).unwrap(),
+        capsule.body().step_proof
     );
     for instances in [vec![], vec![digest + Fp::ONE], vec![digest, digest]] {
         let mut wrong = proof.clone();
         wrong.instances[0] = instances;
-        assert_eq!(bind_result(&capsule.statement, wrong), Err(Error::Proof));
+        assert_eq!(
+            bind_result(&capsule.body().statement, wrong),
+            Err(Error::Proof)
+        );
     }
     let mut wrong = proof;
     wrong.bytes.clear();
-    assert!(bind_result(&capsule.statement, wrong).is_err());
+    assert!(bind_result(&capsule.body().statement, wrong).is_err());
 }

@@ -41,10 +41,10 @@ pub(super) struct Transport {
 impl HttpTransport for Transport {
     fn send_blocking(&self, request: TransportRequest) -> Result<Response<Vec<u8>>> {
         self.requests.fetch_add(1, Ordering::SeqCst);
-        if let Some((path, signal)) = self.cancel_on_path.lock().unwrap().as_ref() {
-            if request.url.path() == path.as_str() {
-                signal.store(true, Ordering::Release);
-            }
+        if let Some((path, signal)) = self.cancel_on_path.lock().unwrap().as_ref()
+            && request.url.path() == path.as_str()
+        {
+            signal.store(true, Ordering::Release);
         }
         let (status, body) = match request.url.path() {
             "/v1/node/capabilities" => (
@@ -854,7 +854,7 @@ fn wallet_deadline_view_keeps_identity_cancellation_and_signed_journal_after_dro
     );
     assert!(source.with_deadline(std::time::Instant::now()).is_err());
     let shorter = source
-        .with_deadline(deadline - Duration::from_secs(10))
+        .with_deadline(deadline.checked_sub(Duration::from_secs(10)).unwrap())
         .unwrap();
     signal.store(true, Ordering::Release);
     assert!(

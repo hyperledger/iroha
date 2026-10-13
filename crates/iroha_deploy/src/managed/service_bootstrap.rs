@@ -345,6 +345,19 @@ impl ManagedServiceBootstrap {
         })
     }
 
+    /// Consume the authorized startup owner into the separately locked renderer.
+    /// The native creator freshly closes the original profile on entry and ordinary exit;
+    /// only immutable constructor material is shared, never authorization or current state.
+    /// Consuming `self` releases Bootstrap on success and error before catalog preparation
+    /// can reopen that purpose. Active decode budgets and owned profiles cold-open as usual.
+    pub(super) fn into_generated_runtime(
+        self,
+    ) -> Result<super::generated_service_runtime::GeneratedServiceRuntime> {
+        super::generated_service_runtime::GeneratedServiceRuntime::open_from_original(
+            &self.authority,
+        )
+    }
+
     /// Open only an existing bootstrap purpose through the parent's original profile.
     /// This retains fresh profile, native directory and lock admission; active decode budgets
     /// and owned profiles still use the complete standalone capture recipe.

@@ -281,6 +281,18 @@ authorization. The generated parent's live capability authorizes any permitted u
 status, recovery, maintenance and daemon restart cannot create that capability. Cancellation is
 checked at the wallet's preparation, signing and submission boundaries, including after HTTP
 preflight. Native interruption and whole-worker qualification remain required.
+A generated first reserve policy or provider Configure may carry its actual fresh native
+absence proof through its own successful Original publication into the first unsigned
+reservation. The sole transition requires an inactive decoder, the same native operation
+owner and exact Original bytes, and a genuinely empty history before its own ordinal-one
+reservation. Existing intents, recovery, replacement and enrollment keep independent native
+acquisition. The receipt grants only unsigned request retention; fresh finality and current
+native prerequisites are still acquired after wallet inspection before payload preparation.
+An outage or state change between initial selection and unsigned retention may therefore
+leave a recoverable unsigned request, but cannot authorize signing or dispatch. The eligible
+path no longer probes the same immutable original evidence endpoint a second time. Profile,
+source, authorization, wallet, fee and finite-clock fences remain independent; no receipt
+survives the call or replaces current signing authority.
 Managed environments likewise publish keys, signed genesis, final-path configurations
 and their sole generation manifest together. Only an unpublished stage may be discarded
 under exclusive operation ownership. A published incomplete generation fails closed;
@@ -359,6 +371,63 @@ scope and epoch-reference construction reuse the exact selection and reservation
 produced for its successor. Each use rechecks active admission; absent successors and active
 budgets retain the original hash computations. All native rereads, source exits and wallet
 callbacks remain mandatory. The original deep-history latency gate remains outstanding.
+One Finish invocation now owns a lazy immutable wallet account and at most 64 heap-backed
+terminal-record readers across its canonical reparses. Each callback reacquires the native
+journal lock, reads the complete inventory and exact record bytes, and constructs and compares
+the caller's expected Plan and fees. Only unchanged retired Request/Retirement images and their
+pure retained Plan timestamp can avoid repeated decoding and signature checks. These values
+carry no live authorization, source-currentness or deadline verdict. A changed record or any
+inspection/reparse error clears the readers; the workspace ends before Finish returns. Standalone
+reads and inherited or late active decoders preserve their original validation recipe. The
+unchanged 64-body expiry test still requires successful native qualification.
+After an exact successful local body publication, the inactive body owner consumes a private
+write receipt into a freshly admitted head. Receipts come only from the original native
+anchor, reservation, retirement, activation and signed-Original writers and their exact readback;
+they cannot be loaded from a path, reconstructed from a digest or used for signing or dispatch.
+This path preserves held immutable selection/body values after fresh byte, identity, permission
+and complete namespace checks, avoiding another cold checkpoint/signature reconstruction of
+that already authenticated prefix. A newly supplied mutable head and complete snapshot chain
+replace the previous scope; no historical active flag or snapshot-pass coverage is carried forward.
+Only an already closed History may share its immutable parsed record owner into that new scope.
+The existing fresh current-body census still runs before its first wallet callback, and every
+canonical wallet inspection, callback closure, native-effect absence, selected epoch/claim read
+and full parser exit remains. Ordinary epoch-reference errors also close current source custody
+before returning. These are ownership handoffs after successful writes, not retained freshness
+or authorization verdicts. They remove recovery-only reconstruction/parse observations, including
+those parsers' redundant native record acquisitions; a source mutation restored wholly within
+those removed observations may be unobserved. The remaining original-source checks protect every
+real effect and successful return, and immutable-prefix source substitution refuses even when
+its new bytes would independently form a valid cold image. Simultaneous failures keep the existing
+profile, snapshot, retained-owner, epoch and current-source precedence. A failed or uncertain
+write yields no receipt; startup, external mutations, ineligible parsed-record owners, and active decode
+budgets use the canonical recovery parser. Existing 64-body/dispatch, cumulative byte, descriptor,
+stack and finite authorization bounds remain; this change supplies no latency qualification.
+The native unsigned-closure transition now uses sealed read phases whose only inspector
+reopens and authenticates existing wallet journals; account construction and effects remain outside.
+Each phase borrows only its exact immutable snapshot and closes the complete predecessor/current
+graph, original native handles and enclosing snapshot on every ordinary result before publication,
+retirement or a returned receipt. Successful inactive phases retain both predecessor entry
+directions, both current-head exit checks and the complete reverse predecessor exit; only the
+duplicate forward predecessor exit is omitted. Exact retained scope ownership binds the prefix.
+Any optimized exit error performs the original full exit before returning, and failed reads or
+active decoders use the original sequence. Both native wallet inspections and current-body
+callback checks remain fresh. Only an exact completed predecessor receipt and a consumed current-read token can
+share adjacent pure binding and wallet-entry checks. Persistent older-sibling failures close the
+phase, while a sibling changed and restored wholly between its observations may be unobserved.
+No phase conveys an atomic snapshot, currentness or signing authority. Generic inspectors, foreign
+owners and inherited or late active decode budgets retain the original validation recipe.
+The unchanged ten-second body and 64-body campaign gates still require native qualification.
+The concrete generated enrollment worker likewise groups only its empty current-body read
+prefix. Its three original wallet-verification entries cannot call a wallet while the body
+has no attempt, and both canonical rereads remain. Exact predecessor and immutable snapshot
+coverage ends before reservation, claim, retirement or any callback. A reread discovering an
+attempt closes all source custody and resumes the original algorithm at that same wallet entry;
+it does not restart or replay an earlier transition. Existing attempts, fixed bodies, first
+bodies without a predecessor, generic workers and inherited decode budgets keep their original
+sequence. A late active decoder cannot borrow predecessor coverage. Persistent source failure
+wins an ordinary phase error; a sibling changed and restored wholly between observations may
+be unobserved. The live origin, authorization checks, term selection and effects retain their
+original positions. This structural reduction does not establish the unchanged latency gates.
 Within an inactive native tree read, each local operation census groups its adjacent inventory,
 Original hash and metadata reads into one scope, and its reverse checks into a second scope.
 Every mutable record read, decoder and full graph check remains independent of wallet or write operations.

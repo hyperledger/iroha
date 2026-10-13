@@ -6,11 +6,47 @@
 //! through one immutable World record body. TODO(S8): native proof decoding and BLS/context
 //! scratch retain their existing owners; the funded body grants none of that scratch custody.
 use super::*;
+use crate::state::RetainedEvidenceRecord;
 use crate::sumeragi::{
     evidence_history::LaneEvidenceRead, runtime_availability::history::HistoryCapture,
 };
 use iroha_data_model::block::consensus::LaneEvidenceScope;
 use iroha_data_model::sumeragi_lanes::SumeragiLaneStakeBinding;
+
+// SCCP records have their own generation/activation dedup and penalty owner.
+// A closed DATA record must never become a native signer replay fence.
+fn require_native_replay_record(
+    record: &RetainedEvidenceRecord,
+) -> Result<&Evidence, EvidenceAdmissionError> {
+    if matches!(
+        record.attribution.scope,
+        iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
+    ) {
+        return Err(invalid(
+            "SCCP records cannot enter native evidence replay admission",
+        ));
+    }
+    record
+        .native_evidence()
+        .ok_or_else(|| invalid("SCCP records cannot enter native evidence replay admission"))
+}
+
+// Skip only an exact retained SCCP owner. Neither its peer list nor its permanent
+// offence key enters the Native horizon/count/signer fences.
+fn native_replay_record<'a>(
+    key: &Hash,
+    record: &'a RetainedEvidenceRecord,
+) -> Result<Option<&'a Evidence>, EvidenceAdmissionError> {
+    if native_lifecycle_evidence(record)?.is_some() {
+        return require_native_replay_record(record).map(Some);
+    }
+    if record.sccp_evidence_id().map(Hash::prehashed).as_ref() != Some(key) {
+        return Err(invalid(
+            "retained SCCP evidence identity differs from its table key",
+        ));
+    }
+    Ok(None)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct OriginalSigner {
@@ -190,14 +226,28 @@ impl AdmissionRead {
                 execution_budget: execution_budget.clone(),
             });
         }
-        let count = view.world().consensus_evidence().iter().count();
+        let count =
+            view.world()
+                .consensus_evidence()
+                .iter()
+                .try_fold(0_usize, |sum, (key, record)| {
+                    if native_replay_record(key, record)?.is_none() {
+                        return Ok(sum);
+                    }
+                    sum.checked_add(1)
+                        .ok_or_else(|| invalid("retained record count overflows"))
+                })?;
         let mut fences =
             ChargedBuffer::new(count, budget).map_err(EvidencePreparationError::from)?;
         let signer_count =
             view.world()
                 .consensus_evidence()
                 .iter()
-                .try_fold(0_usize, |sum, (_, record)| {
+                .try_fold(0_usize, |sum, (key, record)| {
+                    if native_replay_record(key, record)?.is_none() {
+                        return Ok(sum);
+                    }
+                    require_native_replay_record(record)?;
                     let count = record.attribution.offenders.len();
                     if count > iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
                         return Err(invalid("retained offender geometry is noncanonical"));
@@ -210,10 +260,13 @@ impl AdmissionRead {
         let mut retained_count = 0;
         let mut retained_bytes = 0;
         for (key, record) in view.world().consensus_evidence().iter() {
+            let Some(proof) = native_replay_record(key, record)? else {
+                continue;
+            };
             let retained = !committed_evidence_record_is_prunable(view.world(), record, carrier)?;
             if retained {
                 retained_count += 1;
-                retained_bytes += evidence_encoded_len(&record.evidence);
+                retained_bytes += evidence_encoded_len(proof);
             }
             fences
                 .try_push(ReplayFence::new(
@@ -245,7 +298,10 @@ impl AdmissionRead {
             if previous.is_some_and(|previous| previous >= key) {
                 return Err(invalid("evidence keys must be strictly increasing"));
             }
-            if fences.as_slice().iter().any(|fence| fence.key == key) {
+            // Hash identity is table-wide even though Native signer fences are not.
+            if fences.as_slice().iter().any(|fence| fence.key == key)
+                || view.world().consensus_evidence().get(&key).is_some()
+            {
                 return Err(invalid("evidence is already committed"));
             }
             let mut frame = ChargedBuffer::new(evidence_encoded_len(proof), budget)
@@ -475,6 +531,11 @@ pub(super) fn retryable(error: &EvidenceAdmissionError) -> bool {
             // is pending, never evidence of corruption or a reason to blame the proof.
             | QueryExecutionFail::CanonicalHistory(CanonicalHistoryError::BodyUnavailable { .. })
         )) => true,
+        EvidenceAdmissionError::Storage(crate::state::sccp_forgery_custody::ForgeryStorageError::Storage(
+            mv::storage::AdmittedStorageError::Busy { .. }
+            | mv::storage::AdmittedStorageError::Allocation(AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. })
+            | mv::storage::AdmittedStorageError::Allocator { .. }
+        ) | crate::state::sccp_forgery_custody::ForgeryStorageError::Codec(_)) => true,
         EvidenceAdmissionError::Preparation(
             EvidencePreparationError::Admission(AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. })
             | EvidencePreparationError::Allocator { .. }

@@ -1151,8 +1151,7 @@ pub(super) fn validate_signed_profile(
     #[cfg(all(test, sumeragi_deploy_mutation = "DEP7"))]
     let metadata = {
         let _ = metadata;
-        iroha_data_model::sumeragi_finality::signed_genesis_consensus_metadata(block)
-            .map_err(|_| invalid())?
+        iroha_genesis::signed_genesis_consensus_metadata(block).map_err(|_| invalid())?
     };
     if metadata.sumeragi_context.root_scope.dataspace_id().as_u64() != prepared.context.dataspace_id
         || (metadata.sumeragi_context.root_scope == SumeragiRootScope::Global
@@ -1467,11 +1466,14 @@ pub(crate) fn count_profile_validations<T>(action: impl FnOnce() -> T) -> (T, us
 
 // Exact original role allocation: one canonical XOR mint of the owner-derived quantity.
 // Requiring a matching mint alone would permit a second oversized mint to hide the mismatch.
-fn validate_genesis_funding<'a>(
+fn validate_genesis_funding<'a, Instructions>(
     expected: &std::collections::BTreeMap<AccountId, Quantity>,
     reserves: &StreamTokenReserveAccounts,
-    instructions: impl IntoIterator<Item = &'a InstructionBox>,
-) -> crate::managed::Result<()> {
+    instructions: Instructions,
+) -> crate::managed::Result<()>
+where
+    Instructions: IntoIterator<Item = &'a InstructionBox>,
+{
     let invalid = || Error::Invalid("invalid original service genesis funding".into());
     let mut funded = BTreeSet::new();
     for instruction in instructions {

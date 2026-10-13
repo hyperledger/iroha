@@ -1,6 +1,6 @@
 # KAGEMUSHA verification checklist
 
-Status: working checklist, 2026-10-09, for the split-lineage proposal and its
+Status: working checklist, 2026-10-11, for the split-lineage proposal and its
 accepted native BLS Load-finality amendment. This document records useful checks for
 [the single protocol](kagemusha_single_design_proposal.md). It is not an
 approval process and does not block use, production integration or deployment.
@@ -445,14 +445,194 @@ Starting points, not evidence that this protocol has passed:
 - Android: `kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/` (the Android `Advance` adapter, payment-key and backup rules) and `kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaP256Codec.kt`. Generate and inspect keys even when feature flags are negative. The old KeyMint single-use probes of the retired protocol were deleted.
 - Apple: `IrohaSwift/Sources/IrohaSwift/KagemushaWalletApplePlatformV1.swift` and `KagemushaWalletAppleAppAttestV1.swift` in the same directory (Secure Enclave payment key and App Attest enrollment evidence of step E5). The old `examples/ios/KagemushaAppAttestProbe/` app of the retired protocol was deleted.
 - Attestation: `kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/crypto/keystore/attestation/` and `python/iroha_app_attestation/src/iroha_app_attestation/`.
-- Arithmetic certificates: [Pasta prime, auxiliary-curve and SWU cover checks](../formal/kagemusha_pasta/README.md) verify the exact native constants; the combined checker and sixteen controls pass. The [regularity argument](../formal/kagemusha_pasta/REGULARITY.md) separately applies cited geometric theorems to those checked hypotheses. The [focused CI workflow](../.github/workflows/pasta_certificates.yml) runs the source-bound checker and controls with Python site packages disabled; those commands and the action-pin guard pass locally, while hosted CI remains unobserved. These results do not constitute a protocol model or close the privacy argument. The retired `formal/kagemusha_v1/` model is deleted. The [provider publication model](../formal/kagemusha_protocol/README.md) exhausts 484 states and 2,792 transitions for one old head, two competing capsules and two-copy custody, rejects all seven unsafe rule mutations, and passes 14 controls. It checks selected-head irreversibility, redundant completion, exact replay, and unavailable/absent/lost distinctions. The separate [conditional accounting model](../formal/kagemusha_protocol/ACCOUNTING.md) passes 23 schedule and mutation checks, including A → B → C → Unload, split and cyclic histories, deferred burns, Archive no-ops, exact-once claims, retained fee originals and retirement/Load races. Eight invalid-state mutations are rejected. Its induction preserves disjoint reserve categories under authentic funding, ownership, provider and proof premises; it distinguishes real burned backing from rejected unbacked input. All 37 controls and the action-pin guard pass with unchanged retained sources (`target/qualification/formal-accounting-model-1/result.json`, SHA `5486c7fc8ef372e1bc12128ab811c9c41aaaa0001bf66b029b312a233ff127ab`). The new finite schedule explorer preserves the uncached graph while sharing immutable action lists and checking each distinct immutable world once. The two-wallet fee graph exhausts 56,910 states and 508,958 permitted transitions; the zero-funded unbacked-input graph exhausts 289 states. Four faulty transition rules have reachable shortest counterexamples. The current captured combined suite passes all 45 tests with unchanged source and interpreter pins (`accounting-exhaustion-capture-1/result.json`, SHA `3b3f2635c699dd7afe5127c48c5f94fb8b3f0542199c1c6d4097d773bb7d8ceb`). The current larger search exhausts the three-wallet/two-payment graph: 4,146,534 states and 57,063,475 permitted transitions, with no invariant violation. All four declared bounded profiles complete; their output hash is `da154622e3cb128dd8292f8df2c96d943322d6cc6532ad81b4ca71a20d39068b`, and the source-bound root review is `accounting-exhaustion-capture-1/full-graph-outcome-review.json` (SHA `6298876ff59003717659b8e044106008208e6389d55761d0df8ff77ba48341ba`). Earlier 500,000- and 2,000,000-state cutoff failures remain retained. The focused workflow now runs all four profiles and retains partial failure logs. A separate one-Send provider/accounting product now exhausts 3,076 states and 25,836 transitions: two competing capsules, uncertain selection, signing and storage interruption, exact original delivery, payer/carrier loss, first credit and both Receive fold outcomes. All four composition mutations are rejected, and the expanded combined suite passes 55 tests with unchanged source/interpreter/workflow pins (`publication-accounting-capture-1/result.json`, SHA `04c547d983898b5d9fd12ed8833818eee32d0eff8f2dcc02943ebd882a557d33`). Prior authentic funding, the receiver's own durable operation and successful fold verification remain premises. Composition across all operations and multiple provider heads, concrete proof/implementation refinement, larger or unbounded monetary vocabularies and the complete protocol argument remain open. Independent model review and hosted CI remain unobserved.
+- Arithmetic certificates: [Pasta prime, auxiliary-curve and SWU cover checks](../formal/kagemusha_pasta/README.md) verify the native constants; the checker and sixteen controls pass. The [regularity argument](../formal/kagemusha_pasta/REGULARITY.md) applies cited geometric theorems to those hypotheses. The [focused workflow](../.github/workflows/pasta_certificates.yml), local commands and action-pin guard pass; hosted CI remains unobserved. These checks do not establish the protocol or its privacy argument. The retired `formal/kagemusha_v1/` model is deleted.
+- The [provider publication model](../formal/kagemusha_protocol/README.md) exhausts484 states and2,792 transitions, with14 controls and seven unsafe-rule counterexamples. It covers irreversible selection, redundant completion, exact original replay and unavailable/absent/lost distinctions. The [conditional accounting model](../formal/kagemusha_protocol/ACCOUNTING.md) tracks disjoint reserve liabilities, core versus folded balance, authentic burned backing, unbacked rejection, fees, Archive and retirement races. The corrected model permits Archive and collection of a burned first credit while retaining unpaid fee originals. Ordinary Receive remains exact replay; a separate post-commit defensive duplicate operation adds equal optimistic balance and deferred burn, retaining the first credit's digest and flag. Original identity is the opaque pair `(credit key, digest)`, not an implemented hash. Repeated use of any such original, including an alternate digest, must retain its amount. A negative mutation changes amount, balance and burn together and is rejected despite preserving aggregate value; a maximal-value case reaches the core overflow guard.
+- All 65 current provider/accounting/schedule/composition controls pass, along with the provider and one-Send product commands (`accounting-original-amendments-application-1/result.json`, SHA `c42745714671d86c0b3ab37eb1e374692c421c484d823d8826f0739201dbe98c`). Final-source finite graphs complete with 6,789 single-unit states, 68,190 fee states and 289 unbacked states. The three-wallet/two-payment graph exhausts 4,649,058 states and 63,751,915 permitted transitions without a violation, under the unchanged 5,000,000-state cap (`accounting-final-originals-graph-validation-1/result.json`, SHA `947c26f4ccdef1edba14f9a6d1eafe16c8f25792742d32c432e6442be63c11ca`). This run includes the final amount invariant, completes in 591.577 s and retains unchanged model/interpreter pins. Independent review confirms that the alternate-original amount and overflow-coverage gaps are closed (`accounting-containment-final-independent-review-1/review.json`, SHA `6148ea68dcae341491651fddeb7991acd6e053e515bd8f06cb3d40e3863789d9`). Four unsafe transition rules have reachable shortest counterexamples. Earlier cutoffs and superseded results remain retained. This is conditional model evidence; a complete independent protocol proof remains open.
+- The one-Send provider/accounting product exhausts3,076 states and25,836 transitions and rejects four composition mutations. It covers competing capsules, uncertain selection, signing/storage interruption, retained-original delivery, payer/carrier loss, first credit and both fold outcomes. The explicit defensive duplicate operation is excluded from the ordinary finite graph inventory and the one-Send product; its focused schedules and mutations are separate. Authentic prior funding, receiver durable commit and successful fold verification remain premises. All-operation/multi-head composition, concrete native/circuit refinement, unrestricted monetary histories, hosted CI and the complete protocol argument remain open.
 - Evidence records: §8 below. The old physical-evidence record of the retired hardware protocol and its verifier script were deleted; record new device results here with their provider assumptions.
 - [Pinned AOSP characteristics](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/common/src/tag.rs), [operations](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/ta/src/operation.rs) and [upgrades](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/ta/src/keys.rs): reference behavior, not vendor-firmware evidence.
 - [Android attestation](https://developer.android.com/privacy-and-security/security-key-attestation), [Apple validation](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server) and [Apple fraud-risk guidance](https://developer.apple.com/documentation/devicecheck/assessing-fraud-risk): capture the exact statements and their limits in each evidence record.
 
 ## 8. Recorded results
 
-### Current implementation checkpoint (2026-10-10)
+### Current implementation checkpoint (2026-10-12)
+
+The measured lookup-mask candidate reuses two dead quotient-workspace columns for
+public lookup-mask weights, without changing proof bytes, random draws or the
+MSM ceiling. Current native Pasta/PLONK validation passes 427 tests with nine
+explicit ignores, and strict library/test lint passes. The compiled x86 library
+run under Rosetta passes 389 tests with seven explicit ignores. These are
+correctness checks, not physical-x86 or performance qualification; checked source
+pins remain unchanged (`m3-preweight-current-engine-validation-1` and
+`m3-preweight-current-parity-harness-validation-1`). The preceding current-source
+baseline diagnostic verifies two 7,936-byte real-Q proofs, with slower CPU
+26.8131 seconds and kernel peak RSS 661,602,304 bytes
+(`m3-lookup-mask-preweight-baseline-real-q-diagnostic-1`). It precedes this
+optimization and is neither its measurement nor a full M3 verdict. The new
+captured candidate changes only the three reviewed prover files in its consumed
+source set; all four workload descriptors, compiler flags and feature sets match
+the baseline. Its separate same-seed diagnostic verifies both proofs with slower
+CPU 26.37372 seconds and kernel peak RSS 601,030,656 bytes; source/binary and all
+probes remain valid (`m3-lookup-mask-preweight-real-q-diagnostic-1/result.json`,
+SHA `ffd51919a5ba70c1678adbf5f9a9ca88713516dbb61a2a70bac56d18b2246c06`).
+These two single-process observations do not establish a causal speedup or gate
+verdict. All eight ordinary M3 harness controls and strict lint pass. The full
+unchanged eight-configuration schedule completes against the immutable
+captured executable in `m3-lookup-mask-preweight-current-1`: 76 attempts,
+72 valid measured processes and 144 verified measured proofs. All valid
+measurements meet their hard limits; seven configurations pass. The one-thread
+real-Q configuration is **borderline**, with block CPU medians 26.151054,
+27.588369 and 26.425610 seconds. The second block exceeds the required
+27-second margin despite meeting the 30-second hard limit. All four invalid
+attempts remain retained. Terminal review independently reconstructs the
+schedule, thresholds, source and binary joins (`m3-lookup-mask-preweight-terminal-review-1/review.json`,
+SHA `d8e8b8dcc82d084f13470c284eb7290d75cbd489ae475e3cd371d30a1ccc5e3f`).
+No full M3 pass follows.
+
+The subsequent reviewed selector-factor candidate is applied. It factors only
+consecutive gate-only products within the original eight-root chunks, preserves
+lookup and shared consumers, and compacts the remaining public expression DAG.
+The real-Q descriptor removes 38 field multiplications per row; this arithmetic
+count is not a measured speedup. Five new controls compare both fields, filter
+order, chunk boundaries and the complete quotient against the unchanged oracle.
+Current native engine validation passes all 432 non-ignored tests, with nine
+explicit experimental ignores, and strict library/test lint. The five new tests,
+both curves' fixed proof vectors, worker-count parity, workspace reuse and
+cancellation controls all pass. The initial lint failure and its narrow repair
+remain recorded. Checked owned sources do not drift during the successful run
+(`m3-gate-selector-factor-engine-validation-2/verification.json`,
+SHA `426610ef9b166966989dd3ce120282f7f792268002dbf20e7210b523d9ad581a`).
+The emulated-x86 library run passes 394 tests with seven explicit ignores;
+all nine ordinary measurement-harness controls and strict harness lint also pass
+(`m3-gate-selector-factor-parity-harness-validation-1/verification.json`,
+SHA `5337c040f30e92b747c6231e262bb544d48f7dd1b46295c2d8b5e4f4c4750f9c`).
+The fresh candidate capture pins the actual compiler-input closure and an
+immutable executable. Its separate diagnostic verifies both 7,936-byte real-Q
+proofs; the slower sample uses 26.478967 seconds of process CPU and kernel peak
+RSS is 667,451,392 bytes. Independent review confirms the source, binary and probe
+records (`m3-gate-selector-factor-real-q-independent-review-1/terminal-review.json`,
+SHA `ceb0dbc39a90cae92bf5adac21a00e6641010349bda819b864281dd9e4d52981`).
+This is a diagnostic, not a qualification or causal speedup result. The
+unchanged eight-configuration campaign in
+`m3-gate-selector-factor-current-capture-1` stopped naturally when its provenance
+check detected a changed `irohad` development-dependency manifest. The executable
+remained unchanged, but the source identity did not. Its partial samples and
+invalid attempts remain retained; every configuration is incomplete and
+inconclusive. The fresh capture in `m3-gate-selector-factor-current-capture-2`
+has the same executable, workload descriptors and consumed-file closure; its
+updated Cargo metadata was captured without source drift. Its fresh campaign
+inherited no samples from the interrupted run. The first four-thread synthetic-Q
+block contains a valid 11.276027125-second sample, exceeding the 10-second hard
+limit. The campaign subsequently stopped naturally at sequence 30 when its
+source identity changed; its executable remained unchanged. The valid hard
+failure, partial configurations and invalid attempts remain retained. This
+incomplete campaign cannot qualify the candidate. Independent raw-record review confirms
+four workers, passing calibration and host probes, and unchanged selected source
+and executable identities (`m3-gate-selector-factor-capture2-hard-failure-review-1`,
+manifest SHA `b65b942228bf18ae14f7345a609a76b8b80307d00f096e19d7d1f8477e755ae5`).
+The preceding campaign cannot qualify these changed sources.
+
+The current ordinary gadget and recursion run passes 286 gadget and 27 recursion
+unit tests, with eight and two explicit ignores respectively. Its compact
+component test fails on an obsolete Glue row-count expectation (19 versus the
+implemented 16), and that failure remains recorded. The reviewed test-only repair
+is applied; both component tests now pass with zero failures or ignores and an
+unchanged source interval (`recursion-compact-current-terminal-review-1/review.json`,
+SHA `ed3c9c751d015c32190f513e8963efa73053bbd89e7510dd6bab87dac50f9031`).
+A separate continuation passes the eight
+remaining ordinary integration tests, with three explicit expensive ignores,
+and both explicitly selected k16 native full-fold adversarial tests. These are
+component checks, not complete circuit, catalog or timing qualification
+(`m3-preweight-current-gadgets-recursion-1`,
+`m3-current-recursion-remainder-1`).
+
+Twelve wallet files now preserve original resource-refusal errors through
+retained choices, policy/blacklist custody and activation/unload recovery;
+the subsequent reviewed repair preserves these origins in all 36 remaining
+model-decoder calls in the state module, four nested mappings and native Unload
+decision verification. The next reviewed repair covers 33 preparation readers,
+two intake readers, the retained proof Request reader and nested quota checks.
+One opaque original resource refusal now survives state, proof, intake and native
+error conversion through the bridge's RESOURCE result. Invalid-input verdicts
+and source-read order are retained. The earlier seven new controls and the
+successor's eleven new controls are applied; runtime validation remains pending
+(`kagemusha-wallet-model-read-family-application-1` and
+`kagemusha-preparation-intake-read-family-applied-1/application.json`,
+SHA `f0e747a7a4a7e5b86f3415d3c556382e8ef269ff222bc6f342565dfcb3eff303`).
+The native checkpoint readers now retain the same original refusal at all eight
+A-operation decoder sites and the Q reader. Seven native error families own
+the refusal through the wallet mapping to RESOURCE. Exact-length, malformed
+input, source/key binding and cancellation checks retain their order. Independent
+review found no blocker, and formatting checks pass. Ten new tests cover actual
+enclosing sequence/allocation limits, identical-byte retry, observer identity
+and unchanged invalid-input verdicts; compilation and execution remain pending
+(`kagemusha-native-checkpoint-resource-applied-1/application.json`,
+SHA `d085342ae8ad9619e3ff620df9faaf05de47463984817ceed14b3d4f15c40d43`).
+The reviewed test-only mask checker now covers Omega, all sixteen sigma roles
+and every distinct private Q/A/W original after strict import. Its boundary
+closure includes arbitrary advice rotations and the actual rotated fixed-table
+cells. Thirteen unit controls and current strict-key import remain unexecuted.
+An independent-data scan of 488 retained historical private keys passes 711,481
+symbolic checks and the opening-rank checks for their eleven descriptor shapes;
+this does not grant current-key authority or close C12
+(`c12-private-mask-checker-application-1`). The soundness memo links the
+[independently reviewed local ZK derivation](kagemusha_local_zk_v1.md), including
+the joint final-response and residual-oracle law, explicit 255-bit bounded
+sampling and unconditioned failure bounds. A coherent local Omega-H proof over
+a genuine fixed-Poseidon witness needs no all-H private ancestry. C12 remains
+open: erasing Omega leaves the exported F-derived P/V and target public sigma
+law to be compared, or an alternative coherent source/valid-cut argument to be
+supplied. The total public-only proof simulator, actual current-key M(K) reports
+and concrete randomness bounds remain required. Reverse dependency order alone
+does not supply that comparison; the
+[current blocker record](kagemusha_recursion_soundness_v1.md) distinguishes this
+privacy obligation from the accepted recursive soundness heuristic.
+Retirement source guards pass. The reviewed streaming Core restart
+restoration is applied. Its inventory writer and 31 readback controls pass.
+After repairing the typed-array and obsolete snapshot-restoration fixtures, all
+48 tests in the first consumer group pass. The original broad source gate still
+rejected that attempt for nine concurrent, unconsumed Deploy edits; that verdict
+is retained. A fresh combined run now holds conservative dependency namespaces
+from their first use, checks emitted input containment, and includes Deploy
+before its consuming groups. That run passes the 48 recovery, four signed-network
+and nine payload-forgery controls, then stops at four resource-contract fixtures:
+their genesis block budgets violate current transaction/privacy coherence.
+The failure and unchanged consumed-source evidence are retained in
+`sccp-forgery-streaming-scoped-validation-1`. The reviewed fixture repair now
+uses coherent signed-genesis limits, individual cap+1 rejection, aggregate
+packing-window acceptance and residual-capacity rescue. All four repaired tests
+pass in the next run, alongside 83 other tests. That run stops before the next
+group at an exact-inventory check because merged tests changed the selection.
+Review of the complete current Core inventory adds 18 tests and removes one
+test of retired GenerationStorage code; every command and count guard remains
+unchanged. The next run records 212 passes and nine failures through group17:
+network fixtures changed node-local limits after genesis although execution
+reads committed policy. The reviewed four-file repair installs these limits
+through signed genesis and preserves all original assertions. The subsequent
+run records 220 passes and one failure, including 75 of 76 network tests passing.
+Its sealed-reveal fixture advanced height without publishing the preceding
+commitments. The reviewed correction now publishes a genuine certified height-2
+block before executing the height-3 reveal, preserving the quota, hash-ranking,
+pending-count and effect assertions. Targeted and complete validation remain
+required (`sccp-forgery-streaming-scoped-validation-4`,
+`network-sealed-reveal-certified-fixture-application-1`). The reviewed clone-only catalog transport and
+fresh-write limit are applied; their Rust controls and current catalog execution
+remain pending. The guarded native bridge and complete Swift host suite pass
+2,242 tests with no skips (`swift-current-preweight-terminal-review-1`). The
+Kotlin/JVM and Java consumer run records 1,897 fresh test cases with two failures:
+an obsolete lane-proof encoding expectation and two missing canonical instruction
+IDs. It also refuses a retained stale report from a deleted test class; that
+report contributes no current coverage. The reviewed codec/fixture repairs are applied; the rebuilt Rust generator
+round-trips all sixteen optional-tail/length-layout vectors. The fresh full
+Kotlin/JVM and Java consumer suite now passes 1,899 tests in 214 suites, with no
+failures, errors or skips. Source, rebuilt generator and admitted native bridge
+checks pass before and after execution; terminal review reconciles every raw
+XML case (`kotlin-current-core-jvm-terminal-review-4/review.json`, SHA
+`cd3291693fbaf0ecbb7324c1de9f06a766f4ea6676dee148d306f57409252c38`).
+The failed run and stale report remain retained. Current full-catalog,
+native-finality network, Android and physical-device qualification remain open. Results retained
+below apply only to their named captured candidates and do not transfer across
+the merge or these edits.
 
 The approved first-release Load design verifies Sumeragi BLS evidence natively
 before signing Advance under the released-app/uncompromised-OS profile. The
@@ -559,8 +739,47 @@ in `native-funded-send-retry-1`, result SHA
 `09c5c90a6cbcf439c2196769db4c574e2462bdf20b24c2e43ffb646f7d6e7ce8`.
 All five A/four W stages, exact original/checkpoint replay and the original
 mutation assertions complete. The failed case remains retained. This repairs
-case8. The current remaining-component campaign has passed case9, the genuine
-nondeciding incoming Omega correction check; cases10–21 remain in progress.
+case8. The retained remaining-component campaign passes cases9–14: nondeciding
+incoming Omega correction, four-obligation acceptance, exact payer/receiver
+heads, and corrected burn/credit/consumed-root checks. Case15 (ReceiveRenewed)
+fails with `RowOutOfRange` after955.202 s: its copied ordinary-Receive partition
+requires65,675 A1 rows against65,529 usable rows. The production renewed schedule
+already places the credit-effects task in A8. The fixture now binds the shared
+`OperationSchedule::for_variant`, preserving every assertion and all hard caps
+(`receive-renewed-stale-fixture-correction-1/result.json`, SHA
+`3edaca55ca0a46df4cbde776daa910918abbcd6dfcfd50b277625532656dd0c8`).
+All six requested proof targets rebuild successfully in915.557 s, with no compiler
+diagnostics or source/tool/metadata drift (`load-q-public-inverse-proof-capture-4/result.json`,
+SHA `b97c3a63dcd25554e9d44c6b5997f539d8abc739bcdbc6c213c3d8bdf8f7960d`).
+The capture preserves339 artifacts,38 generators and14,825 compiler inputs;
+its3,311 inherited external inputs lack prior compile-time byte pins, a retained
+limitation. Independent compiler-input closure review admits the captured component
+execution. Corrected case15 passes with all original assertions intact
+(`native-funded-remaining-components-2/case-15/result.json`, SHA
+`d7c17ed07ebc3fea2a5e90a313752b2d985911edb32557b057280887d7e7e5ea`);
+its executable SHA is `12cac9c1078633bd199c43ed98698b5e44683181937b5d1a0dbe10578cf52139`.
+The original failure stays retained. Case16 Archive acceptance now passes all ten A and
+nine W stages, including nineteen restored canonical checkpoints and retained-owner
+checks (`native-funded-remaining-components-2/case-16/result.json`, SHA
+`c18808a7bd0537a7bff409c0317794f9ee96ebc34d8478afcb4d92a3655477b1`).
+Its executable SHA is `d31045854f9efc0c78251cbdcb660971a03c074034455072a5d0f39d82326f19`.
+Case17 full-envelope-tail no-op also passes all ten A and nine W stages, restoring
+all nineteen canonical checkpoints and preserving the adjusted pending state with
+`valid=false` (`native-funded-remaining-components-2/case-17/result.json`, SHA
+`25874944071dfbe5da781d723088e6b925ab2dd67d8f8d4476f9f572c9f29376`).
+Its source/binary custody checks pass before and after execution. Case18
+invalid-proof no-op also passes all ten A and nine W stages and restores all
+nineteen checkpoints, preserving the adjusted pending state with `valid=false`
+(`native-funded-remaining-components-2/case-18/result.json`, SHA
+`5c5b6199533a42b6007946d3e973211f73efd5c13102ca2213df2234747ed73d`).
+The same executable and source custody pass before and after its natural exit0.
+Case19 stopped with exit101 at the fixture predecessor-root assertion before consuming
+stages: the Unload helper rebuilt a different synthetic receipt instead of the
+authenticated Load original. The failed result and passing source/binary checks
+are retained (`native-funded-remaining-components-2/case-19/result.json`, SHA
+`23daefa2ce932cef4741fe11660feee7eccf0b17fe338060bc34fe9fda739953`).
+The fixture correction is in progress; cases20–21 remain unrun. These are genuine
+component checks, not final Omega admission or complete payment-envelope measurements.
 The fifteen unit fixtures alone test bindings, not signature authenticity or
 complete proof admission.
 The analogous hard-own-tape checks are applied to Receive, Archive and consuming
@@ -570,7 +789,10 @@ Receive/Archive also join their own sigma and statement to Q0. The current nativ
 new DATA controls, with four heavy cases explicitly ignored
 (`native-own-original-q-controls-1/result.json`, SHA
 `bd90f95970735f57bc2442e7e1f9627bf0f8f691e8307987a1e2420a2c1ebf3b`).
-The remaining genuine tests are running from the same admitted proof capture. Incoming soft tapes are excluded from these hard checks; circuit
+The original remaining campaign stopped at the case15 failure. Its source-bound
+successor passes that corrected case, Archive acceptance and both invalid-proof
+and full-envelope-tail no-ops, then stops on the case19 fixture failure; no terminal
+pass is inferred for the failed or unrun consuming cases. Incoming soft tapes are excluded from these hard checks; circuit
 owners and native Q verification retain their existing responsibilities. The
 21-case component campaign has no ArchiveStatus case, but the ignored complete
 wallet A→B→C test already contains its positive genuine CreditStatus route;
@@ -585,9 +807,11 @@ Five additional funded cases are registered under `a_archive_recursive` and
 no-ops, plus Unload/Retiring all-owner composition and installed-native checkpoint
 replay. They use the same verified receipt and fresh predecessor originals.
 The five existing composition/mutation function bodies are unchanged. These
-registrations compile in the same capture but remain unrun; compilation grants
-no proof or catalog acceptance.
-Current local release-profile checks pass all14 compact certificate/checkpoint
+registrations compile in the same capture. Archive acceptance and both no-op
+branches pass; the consuming replay case fails during fixture construction and the
+all-owner case remains unrun. Neither compilation nor these component passes grant
+complete catalog, network or performance acceptance.
+Pre-migration local release-profile checks pass all14 compact certificate/checkpoint
 tests and258 ordinary KAGEMUSHA model tests, with five explicit tests ignored.
 The four vector checks are a subset of those258 and match the current shared
 fixture without regeneration. The codec retirement guard also passes all five
@@ -595,7 +819,299 @@ checks. Logs, commands, numeric exits and the model executable hash are retained
 in `native-compact-validation-1/model-results.json`, SHA
 `53ca638376618d1c9852f768cbd92571521e3e153f2b7bc6eb2bea55a1a274a5`.
 These are ordinary component checks, not a complete release compiler-provenance
-capture. The current CoreZK14 shared-wallet capture passes all739 ordinary tests,
+capture. The coherent recovery-body/opening and bounded-retry migration is now
+applied across119 paths with every prepared after-hash matched
+(`capsule-coherent-aggregate-application-2/result.json`, SHA
+`cb3546a4f3b887a311d73d1c72de55eb04c9d9aa50adeb4271da55755bd9999c`).
+The first integrated compile exposed a missing DTO slice-decoder implementation;
+the owner now delegates to Norito's canonical prefix decoder, retaining nested
+validation and exact consumption, with an added trailer/truncation control.
+The failed build is retained. The maintained Rust vector writer then passes its
+one exact test (`capsule-coherent-model-fixture-write-2/step-01/result.json`, SHA
+`9a218bebe713f4c5b3689837f7e998359c7b24f7a377c65cbf2a464b3ef17475`).
+The regenerated fixture SHA is
+`85a03f75943c6b6f6796dc8e2c4ca8ae23958808ac667e71b4bac42b3308708d`:
+29 frame contracts,21 digest roles and60 Poseidon domains. A fresh recompilation
+then inventories229 wallet model tests, zero ignored, and passes all229 with the
+fixture unchanged (`capsule-coherent-model-validation-1/step-04/result.json`, SHA
+`275180ce7ba72eefe407b6c0ca7b8bf05ea2152c0d9ea6a50365cf185677f626`).
+Before the subsequent integration merge, the first native bridge build passed
+compilation but failed provenance admission
+because `manifest.rs` changed during compilation; that refusal is retained.
+After preserving its required generic type annotation and removing two unused
+preparation wrappers, the fresh native build passes compilation and guarded
+source/ABI28 admission with345 exports and no source drift
+(`kotlin-current-native-abi28-2/capture/pins.json`). The first current CoreZK
+test build exposed 16 test-only migration errors. The reviewed nine-file repair
+updates fixture ownership/accessors and retained Request decoding. Its compiled
+inventory then exposed the incorrectly selected freeze test module. An explicit
+`freeze/tests.rs` path now selects all six intended tests instead of seven
+parent duplicates. Those six controls, the six Omega mask-boundary controls and
+the complete-route descriptor-capacity control pass in the subsequent suites.
+The preceding Kotlin run reports 1,906 tests and two stale-expectation failures;
+its source, generator and native postchecks pass. Those failures remain retained.
+
+After the integration merge, the fresh ABI 29 capture passes guarded admission
+with 345 exports, 499 artifacts and 499 depfiles, with no source/identity/tool
+errors (`kotlin-current-native-abi29-2/admitted-review.json`). The earlier ABI 29
+attempt correctly refused a concurrent test-source edit despite successful
+compilation. The current generator capture and 31 focused Kotlin tests pass,
+then the unfiltered JVM suite passes 1,882 tests in 211 fresh XML suites, with
+zero failures, errors or skips and clean provenance postchecks
+(`kotlin-current-core-jvm-2/result.json`). Its 1,906→1,882 selector change is
+reconciled against the incoming enrollment migration; this execution does not
+claim retirement completeness. This SDK receipt predates the three test/vector
+corrections below. Current Swift uses a fresh guarded rebuild after them. The
+first run passes 2,240 of 2,241 tests and fails one stale negative selector
+assertion: selector 20 is now the valid AbandonLedgerInstruction. The correction
+moves only that negative assertion to unsupported selector 21 and retains the
+positive selector-20 assertion. The maintained rerun passes all 2,241 tests
+(4 + 2,165 + 72), with zero failures or skips and successful native verification
+after the suite; source and fixture postchecks remain unchanged
+(`swift-current-abi29-launch-2/result.json`, elapsed 1,693.741 s). The failed
+first run and exact correction remain in `swift-current-abi29-launch-1` and
+`swift-enrollment-selector-test-repair-1`. This is host/simulator evidence,
+not physical-phone qualification.
+
+The merged main fixture
+`fb58fa5336515cb18f804c732feb6aa413455c8b6524e44cabff3159969a413b`
+passes all 233 current wallet model tests, with zero ignored and unchanged bytes
+(`capsule-coherent-model-validation-2/step-04/result.json`). The first ordinary
+wallet run reports 794 passes, three failures and 25 explicit ignores. Two
+private enrollment-worker vectors retained the prior provider-bound scheme;
+the maintained Rust writers regenerate both from the current scheme. Their
+readbacks and the actual Rust-to-Python exchange pass; all 67 selected Python
+policy/worker tests pass. The recovery regression now separates loss of private
+W from loss of the authenticated StepEntry index: the former preserves exact
+Complete bytes, while the latter returns WitnessLost; neither path re-signs.
+This is a test correction to the existing bounded retry implementation.
+The rebuilt follow-up inventories 822 tests and passes all 797 ordinary cases,
+with 25 explicit ignores and zero failures in 339.545 s
+(`capsule-coherent-corezk-validation-4/step-07/result.json`, SHA
+`f25dc44956f622c53154c81662521febb4881fe1b55313e246eace8997a0b3ef`).
+The failed run and correction receipts remain in
+`capsule-coherent-corezk-validation-3` and
+`capsule-corezk-three-failures-repair-1`. Ordinary component tests do not supply
+release compiler closure, proof performance or physical-phone qualification.
+
+The current two-target proof capture compiles and passes independent emitted-
+input custody review (`c12-load-q-capture6-independent-review-1/closure-review.json`).
+All three actual-original consuming controls and genuine cases 19–21 pass.
+Case 21 verifies oversized-envelope rejection with real proof inputs in
+842.45 s; the complete serial component job exits naturally with zero failures
+(`native-funded-remaining-components-4/result.json`, SHA
+`4d67bae8d1c64b876fe5086b269179e68ef5f7ca36e9c1f5726d301b149c2374`).
+Case 19 retains the Unload/Retiring differential,
+checkpoint replay and hard-owner rejection controls; case 20 retains both
+all-owner circuit chains. Receipts are in
+`native-funded-remaining-components-4/case-{19,20,21}/result.json`. Historical
+external-input provenance limits remain explicit. Core replaces retired
+attestation/roster state with native committee generations, liability time and
+original anchors. The storage, hook and consumer migration compiles and passes
+223 SCCP tests plus all three public-boundary tests
+(`sccp-native-core-validation-5/result.json`, natural exit 0, unchanged captured
+Core sources). These include snapshot, fee, routing and block callers. The prior
+incoming 206-error build, repair attempts and earlier 176-test component pass
+remain retained. The first inventory selector matched zero tests and provides
+no coverage. The corrected selector ran 29 cases: 26 passed, two stale expected
+source/classification assertions failed, and the explicit regeneration case was
+ignored (`sccp-native-consumer-validation-6`). The repaired suite passes all
+28 ordinary cases with the explicit regeneration case ignored, unchanged captured
+sources and natural exit 0 (`sccp-native-consumer-validation-7/inventory/result.json`).
+Codec and retired-prover source guards also pass
+(`kagemusha-retirement-guards-20261012-1/result.json`). The five retired Torii
+proof/roster routes are removed while all 14 current routes remain. The first Torii
+consumer build stopped on 12 Rust SDK references to the removed API; that failed
+attempt is retained (`sccp-native-consumer-validation-7`). After removing the obsolete
+SDK methods, the next source-stable run passes all 3 focused SDK tests, 15 Torii
+SCCP tests and 101 route-catalog tests, with natural exit 0
+(`sccp-native-consumer-validation-8/result.json`). This does not qualify the pending
+native proof/committee API or its CLI and wallet consumers. The coordinated
+153-file certified-result producer/reader switch is applied
+(`sccp-certified-result-coherent-candidate-1/application.json`). After repairing
+its missed model projection and Core consumers, 26 certified-result tests,
+10 private-dataspace model tests and 231 Core SCCP tests pass. The three ordinary
+Load fixtures are regenerated by their Rust writers and all three readbacks
+pass (`sccp-ordinary-load-fixtures-regeneration-1`). The captured matching model
+binary subsequently passes all 275 KAGEMUSHA tests with five explicit ignores;
+its source, binary and fixtures remain unchanged
+(`kagemusha-model-after-certified-result-1/result.json`). The new terminal-scope
+coverage first exposed a private fixture missing its signed SNS fee policy;
+that failed attempt and the following test-only enum-name compile failure are
+retained. The corrected terminal-scope and genuine private-export selections
+pass all 12 tests (`sccp-certified-result-current-validation-5`). The publication
+suite first reports 46 passes and one pool-accounting failure; the unchanged
+single test passes in isolation. A test-only epoch pin prevents unrelated
+reclamation during its exact refund assertions. The current rerun passes all
+47 publication tests with unchanged sources
+(`sccp-certified-result-current-validation-6/result.json`). This does not
+qualify eventual epoch reclamation. The same binary exports an actual H1/H2
+ledger setup (`kagemusha-executed-setup-after-certified-result-2`); its signed
+genesis, network identity and asset incarnation differ from the prior catalog,
+so that catalog cannot yet supply the current monetary acceptance inputs.
+
+The separate native consumer candidate passes 179 isolated library cases,
+including all 15 TON cell cases and the complete committee DATA decoding
+controls, plus 17 wallet EVM integration cases
+(`sccp-native-committee-ton-isolated-validation-2`). The initial committee
+missing-field test failure is retained; required optional fields are now explicit. Authenticated
+EVM artifacts pass all 297 candidate fixture runtime tests on Prague and Osaka
+(`sccp-native-evm-runtime-validation-2/result.json`). The first runtime attempt's
+reporter-count refusal and earlier isolated compilation failures remain retained.
+The combined 120-file Core, Torii, SDK, CLI and evidence consumer migration is
+applied with its original index preserved
+(`sccp-native-consumers-coherent-candidate-1/application.json`). Its model fixture readback passes 336 tests with six explicit ignores, the
+consensus schema controls pass two with one explicit ignore, and the SCCP model
+selection passes 149 with two explicit ignores
+(`sccp-native-consumers-model-validation-4`). The grouped evidence codec and
+consensus roundtrip selections pass eight and nine tests respectively. A later
+standalone test exposed a misplaced native import; that failure is retained and
+the import is corrected. The subsequent focused run passes all 487 tests:
+28 standalone roundtrip, 43 governance, three event-filter, 344 native SCCP
+library, 52 wallet-library and 17 EVM signing cases, with zero failures or
+ignores and unchanged captured sources
+(`sccp-native-retirement-runtime-validation-1`). Combined Core/Torii/SDK/CLI
+consumer validation remains in progress.
+
+The retired SCCP modules and fixtures are removed while ordinary Ethereum
+signing remains. The maintained Rust writer, both Rust readbacks, TON renderer
+and drift check, and two independent Python tree/history tests pass
+(`sccp-native-retirement-fixture-generation-3`). The tree uses native 199-byte
+controls; payload and native EVM calldata bytes remain exact. The two prior
+compile failures are retained: missing new-event filter arms and a missing
+scalar `Copy` derive. The filter repair includes a regression for global
+evidence versus route-specific holds. No contract or network qualification
+follows from fixture generation.
+
+The combined Core selection now compiles and executes: 277 of 284 tests pass
+(`sccp-native-core-integration-validation-3`). Its seven retained failures
+include two genuine-certificate signature failures: production Core/model
+consensus used the w3f transcript while the native SCCP verifier requires
+the accepted allowlisted `ConsensusDigest`/`DST_SIG` path. The signature check
+is not relaxed. The other failures cover missing forgery Execute registration,
+canonical-time fixture assumptions, an invariant-error assertion and a malformed
+control fixture. Original World journal/publication checks pass 21 tests in the
+separate continuing tail selection; no failed group is counted as passed.
+The subsequent source-stable tail passes 77 checks before the public-boundary
+test fails compilation on its missing root-scope argument; that call is repaired.
+Permanent forgery custody and exact current/undo snapshot joins are applied.
+Their first compile exposes seven type, fixture and refusal-classification
+errors; the reviewed repair preserves original resource categories. Native
+consensus production and genuine fixture consumers are now migrated to the
+unchanged allowlisted suite, with explicit old-suite rejection controls.
+The first combined native run passes 397 tests in its first eight groups,
+including all 117 certified-chain cases. Its next custody group passes seven
+and fails one test whose predecessor-cell fixture encodes the undo value as a
+scalar instead of the required object; that test-only repair preserves both
+mixed-cut rejection assertions (`sumeragi-native-consensus-current-validation-1`).
+The subsequent explicit-feature model selection passes 188 with one failure
+and one explicit fixture-writer ignore: a test compares Debug strings containing
+distinct per-attempt resource-owner identities. The repaired test compares exact
+refusal fields and origin classification and rejects reuse under a later owner;
+the current explicit-feature rerun passes all 189 ordinary cases with its one
+fixture-writer ignore. That fresh attempt passes 324 tests across six groups,
+then Core test compilation exposes 14 fixture API errors (MV cell/storage writers
+and a nonexistent JSON macro), with unchanged sampled sources
+(`sccp-native-consumer-combined-validation-3`). The two-file repair uses actual
+block writers and supported Norito value construction, retaining all assertions;
+the first focused compile retains one missed MV type namespace error. After its
+single-path correction, the fresh focused run passes all 21 cases: custody 8,
+shared hold predicate 2, liability 6 and staking 5, with unchanged sampled sources
+(`sccp-hold-liability-custody-focused-validation-2`). No failed group is counted
+as passed. The shared forgery/quarantine value-path predicate, closed Held
+status and original-registration liability guards are applied with consumer and
+adversarial tests. A second unchanged-source selection passes all 26 outbound,
+settlement and self-claim cases (6/17/3), including held proof/fee/value, pending
+refund and bounce guards (`sccp-held-value-flow-focused-validation-1`). These
+47 focused checks do not replace the incomplete combined consumer qualification.
+The coherent submission, current-parent selection, direct signed-source execution
+and delayed-penalty paths are now applied across 45 files. The candidate preserves
+the original Queue rows when skipping stale claims, checks forgery validity before
+spending block quota, and refuses late execution-output failures before publication.
+Independent source reviews found no remaining scoped blocker. The first 77-group
+combined attempt passes the six model/crypto groups (324 checks, two fixture-writer
+ignores), then exposes nine Core compile errors in imports and one migrated Queue
+test helper (`sccp-forgery-focused-validation-1`). Those errors are repaired; a
+subsequent compile catches the unsupported anonymous lifetime in a generic control
+argument. The verifier now takes its actual control enum directly. The repaired
+Core test binary compiles and lists all 28 expected forgery cases; runtime passes
+19 and fails nine (`sccp-forgery-archive-validation-3`). The failing fixtures repeat
+the SCCP clock transition already owned by `State::block`; the missing-clock
+negative also mistakenly assumes that block creation omits it. Production checks
+remain unchanged; the fixture repair removes the duplicate transitions and
+explicitly removes only the local child-clock effect in the missing-S0 negative.
+The mandatory sixth archive
+field now retains the exact SCCP delta, joins its sole synthetic write and original
+certified root, and rejects the retired layout. Its separate diagnostics pass all
+45 archive checks and the original Queue owner check, then fail all four signed
+Network cases (`sccp-archive-network-diagnostics-1`). Source inspection identifies
+BLS consensus keys incorrectly used for ordinary transaction envelopes and a
+missing global-trigger permission in the callback's signed genesis. The repaired
+fixtures retain the original ordinary account key and grant the exact trigger
+capability; they preserve BLS committee verification and all rollback assertions.
+The fresh combined rerun passes all 28 direct forgery cases and three of the four
+Network cases, including original-pool retry and the exact callback output boundary
+(`sccp-forgery-archive-validation-4`). Its duplicate case stops at the new diagnostic
+assertion: the outer rejection displays only "Validation failed", hiding its
+instruction cause. The terminal-cause diagnostic repair retains the exact duplicate
+assertion; the next combined rerun is pending. Later groups are not counted as run.
+The committed-view verifier supplies no reusable execution grant,
+and authenticated historical record/lifecycle restoration remains incomplete. SCCP
+and current node/network readiness remain open.
+
+The ten native TON unit suites and the first-release committee journal label
+are migrated. The original 141/145 run and full diagnostics remain in
+`sccp-native-ton-validation-2` and `sccp-native-ton-emulator-diagnostics-1`.
+Three failed trace assertions now check the exact typed raw out-messages;
+compiler placement annotations resolve the measured storage overrun without
+changing function bodies, ABIs or limits. Minter code is 140 cells/72,824 bits;
+the n31/three-checkpoint/four-retry state is 204 cells/101,322 bits against
+205/102,000. This sampled case does not bound arbitrary retry history.
+The maintained current-source `--offline all` run passes 145 tests, vector and
+wrapper freshness, and independently agrees on StateInit in Tolk and Python
+(`sccp-native-ton-validation-3`). Its 34 measured gas rows form the initial
+baseline; the subsequent fresh full run passes the 1.1× comparison and all hard
+limits with unchanged sources (`sccp-native-ton-validation-4`). A fresh full run
+after correcting stale fee comments also passes all 145 cases, the unchanged
+34-row baseline and independent StateInit check (`sccp-native-ton-validation-5`).
+The builder now
+refuses a missing baseline while retaining measurements; all 49 builder tests
+pass. Deployment and current node/network qualification remain open.
+
+The complete 52-route catalog passes its exact engineering test with zero
+failures in 9,661.205 s (`corezk-native-full52-current-reuse-1/result.json`).
+It performs 4,798 strict original reads, 16 active sigma imports, 89 active Q
+imports and three active seal-acquisition cases; cancelled imports open no
+source and the unavailable-source retry succeeds. The source and executable
+remain unchanged through completion. Independent terminal review verifies the
+retained outputs, original source closure and authorized raw-source hard links
+(`corezk-native-full52-terminal-independent-review-1/review.json`, SHA
+`e3b9502a3e49726ce9bbf48b50a416b6c9d8302dde93d769f25bbd74648a4539`).
+This is engineering catalog construction and strict source qualification for
+the captured pre-migration source. It supplies no deployment authority, genuine
+receipt, native wallet-open result or C12 closure. Current node/network, actual
+Payment envelopes, real-proof monetary exchange and phone qualification remain
+open.
+
+A later optimized wallet component capture passes strict emitted-input review
+(`corezk-native-network-capture16-independent-review-1/review.json`) and all
+14 source-locator, output-separation and native storage tests
+(`kagemusha-sealed-originals-current-validation-1/result.json`). The test
+harness can reopen the same sealed originals while repeating authentication
+and qualification; it does not copy retained wallet authority or skip proof
+checks. This evidence covers its recorded source boundary before the combined
+120-file migration, and does not establish an actual catalog requalification
+or monetary exchange.
+
+The owner has explicitly accepted the current Pasta/Poseidon recursive
+Fiat–Shamir security-preservation assumption for the first release, as recorded
+in the [soundness memo](kagemusha_recursion_soundness_v1.md#selected-recursive-fiatshamir-assumption).
+This resolves the design choice to retain the construction. It does not supply
+a privacy premise or close C12's shared-oracle source/composition argument.
+C12 does not require a simulator executable against the unmodified fixed hash;
+the remaining argument and candidate acceptance tests are still required.
+
+The preceding CoreZK14 shared-wallet capture passes all739 ordinary tests,
 with zero failures and25 explicit ignored cases, in188.357 s. It includes the
 current own-original proof bindings, native BLS Load admission, durable epoch
 publication/restart, exact retries and custody failures. The copied executable
@@ -612,8 +1128,15 @@ consumed production inputs in `iroha_deploy` changed during compilation, along
 with four package test files. The original failure, copied binaries,102 local
 compiler-artifact inventories and13 build-output records are retained under
 `native-finality-stock-capture-4`. Tools and Cargo metadata remain unchanged.
-No source closure or current monetary-network admission follows; focused
-recovery is pending before the harness and four-validator route can start.
+No source closure or current monetary-network admission follows. The successor
+stock5 and harness4 builds also exit zero, but their captures both refuse
+current-candidate qualification: `native_genesis_policy.rs` changed during
+compilation, and the daemon startup refactor adds further consumed-input drift.
+Their binaries and original capture/preservation/closure exits (1/0/1) remain
+in `native-finality-stock-capture-5` and `native-finality-harness-capture-4`.
+The next coherent candidate must include the resolved startup changes and the
+pending recovery-capsule migration before network admission; no four-validator
+monetary result is inferred from either build.
 The typed Kotlin enrollment transport now covers PreKey, Evidence, Issue and
 Deliver with fresh direct-account authentication, exact original recovery, typed
 Pending and action-bound responses. Its focused 42-test run passes, including
@@ -963,7 +1486,46 @@ required after the implementation and harness are fixed. The availability
 inventory is `target/qualification/resume-20261008/retention.json`; it records
 filesystem observations, not replacement test evidence.
 
-**Recursive privacy argument.** Independent source review accepts the final-salt
+**Recursive privacy argument.** C12 remains open. The ideal-mask local lemma
+supports a coherent endpoint-H Omega proof over a genuine fixed-Poseidon witness;
+all-H private ancestry is unnecessary for that local comparison. After Omega is
+simulated, the exported P/V and original public sigma proofs retain their
+F-derived joint law. The fresh-H fold lemma and reverse dependency order do not
+supply the comparison of that surviving law under the common query interface.
+Existing domain tags preserve address separation; they do not authorize changing
+answers on publication or replay. The independently agreeing source reviews are
+`c12-endpoint-outer-first-quotient-review-1` and
+`c12-endpoint-only-rom-boundary-1` under `target/qualification`.
+
+Native-H producers with genuine fixed-Pow5 Q consumers still fail the
+no-incoming Load/Send round-cell binding; forcing H to F answers changes the
+fresh-oracle law and later public sigma prefixes expose those addresses. These
+are gaps in those proof adapters, not a production attack or impossibility
+result. The retained `c12-logical-source-game-boundary-1` and
+`c12-primary-theorem-intake-1` records identify those failures and the limits of
+the primary theorems reviewed. The selected recursive-FS soundness heuristic
+adds no privacy premise.
+
+Closure requires the surviving-carrier comparison or an alternative coherent
+source/valid-cut argument and the total public-only simulator specified in the
+[soundness memo](kagemusha_recursion_soundness_v1.md), including observable
+outcomes, durable order and exact replay, plus current-key M(K) and concrete
+randomness justification. Any chosen revision of the recursive relation needs
+implementation, re-keying and its own proof. No review above executes proofs or
+grants C12 qualification.
+
+The applied coefficient-MSM change uses the existing full-width secret path in
+both halves of `create_fold`, because its transcript may remain private inside
+an outer proof. It retains the process-wide 64 MiB scratch cap and adds secret
+scratch wiping; bucket operations and other fold branches remain variable-time.
+Both-curve k16 full-fold goldens and 27 ordinary recursion cases pass in the
+retained run, but the post-test guard then rejects changed source identity.
+The three transcript cases, eight Pasta regressions and strict lint were not
+reached; current component qualification requires a fresh source-bound run.
+No whole-fold constant-time, performance or privacy claim is made (`c12-fold-secret-msm-applied-1/application.json` under
+`target/qualification`).
+
+Earlier diagnostic evidence follows. Independent source review accepts the final-salt
 trace for all wallet owner families and the conditional honest-fold abort bound
 in the [soundness memo](kagemusha_recursion_soundness_v1.md). The bound's
 small-field falsification checks pass; its relation-finding and fresh-oracle
@@ -1181,7 +1743,7 @@ independent review SHA
 Column/value budgets still reject before scalar inspection or entropy; exact
 failure replay, changed bindings and explicit large-mode opt-in remain covered.
 The simulator is a failing sentinel: these checks execute no proof or entropy.
-The full maintained suite now passes all 100 controls and 14 small k6 reference
+The preceding maintained suite passes all 100 controls and 14 small k6 reference
 proofs, with no failures, errors or skips and unchanged source/interpreter pins
 (142.45 s; `setup-current-source-controls-2/result.json`, SHA
 `3a1d68c6ea2f92aabce9a109ab3812c58171e6da27bc2e74bffbdacfb6845efd`).
@@ -1190,9 +1752,15 @@ review then refreshed that pin for the bounded-prefix helper, its test module
 and test-only observation changes, with every existing non-probe body unchanged
 (`setup-bounded-commit-source-refresh-2/review.json`, SHA
 `6a4e1c9adda7a1afe8e1f054464331a087368806d6e22e02ac9d404a12daac49`).
-The original refusal and both source originals remain retained. No native or
-large proof ran; actual A1 chosen-setup construction, coherent recursive setup,
-adaptive privacy and C12 remain open.
+The original refusal and both source originals remain retained. The current
+zero-grouping successor passes all 101 controls with no failures, errors or
+skips in 148.60 s. It retains fourteen ordinary fixed-RP57 k6 proofs and records
+two test-adapted x1=0 proofs separately; both curves exercise public-last,
+masked-last and R-last groups through the actual simulator. Source pins remain
+unchanged (`c12-x1-zero-maintained-validation-1/result.json`, SHA
+`aa3d3efb56768593b08080257b52180a76668e48adc67ab188749268f90a3e6c`).
+No native or large proof ran; actual A1 chosen-setup construction, coherent
+recursive setup, adaptive privacy and C12 remain open.
 The independently reviewed A1 local law additionally gives an explicit total
 response/residual-oracle bound in the normalized-prefix ROM, conditional on the
 audited tables, valid source/witness, coherent known-log setup and fresh coins
@@ -1245,14 +1813,15 @@ admits this component capture; inherited external-input provenance limitations
 remain explicit. These identical-input checks do not prove different-history
 privacy, actual OS entropy, current complete catalog authority or full C12.
 
-Separate strict proof lib/tests Clippy fails. The keep-going run reaches library
-cfg(test) and17 integration targets and reports93 distinct locations in21 files
-(`native-proof-strict-lint-keep-going-1/result.json`, SHA
-`3b1ca450438f5b6e41b48cb3943a296aa4dc924602d9d3b5151a7c9b4647c881`).
-The reviewed repair retains every assertion and source-admission call, including
-deliberately malformed ranges; no lint suppression is added. It is held while
-current-source campaigns run and has not been applied or compiler-validated.
-The original failing commands/logs remain retained.
+Strict proof lib/tests Clippy now passes with `--release --locked --keep-going
+--no-deps -- -D warnings`, natural exit0 in184.012 s and no diagnostics
+(`native-proof-strict-lint-after-reviewed-repairs-2/result.json`, SHA
+`f43f9eae14e994c4e73ccb927f51d14d0da385f25d10ef0c44bd39f65d35b73a`).
+The reviewed 21-file repair retains every assertion and source-admission call,
+including deliberately malformed ranges, and adds no lint suppression. All20,193
+sampled source files, tools and helpers remain unchanged across the run. This
+establishes lint only; it executes no tests. The original keep-going failure
+with93 locations and its raw logs remain retained.
 
 The exact outer Eq16 A1 constructor draft passes 14 bounded controls with
 unchanged source/tool pins and numeric child exit zero
@@ -1311,6 +1880,30 @@ recorded in `c12-private-cargo-materializer-controls-1/integration-independent-o
 No actual setup, package materialization, Cargo, parameter decoding or native
 proof ran. The historical source plan remains provisional and refuses admission;
 it must be reconciled with the approved native-finality source before use.
+
+A fixed-parameter outer IPA simulation now has an independently reviewed
+conditional argument for `k >= 1`: solve the final R point from the verifier
+equation, retain `c = 0` on rank collapse, and preserve point/zero-challenge
+failures without a retry or setup-log assumption. An exact finite-group check
+matches the complete joint outcomes and oracle-table effects in 152 cases
+(839,112 samples), including nonuniform challenge maps. This is a local lemma;
+the mask/prefix and operational premises remain conditional. The recursive
+model, composition and instantiation boundary remains open: ordinary transcript
+ROM simulation does not alone supply the next honest Send's constrained Pow5
+witness. Reverse-order erasure could avoid that witness demand, but its contextual
+comparison must preserve Receive outcomes, newly signed originals, failures and
+exact retries. This is neither an impossibility result nor a demand for an
+unconditional security proof of fixed Poseidon. The concrete continuation and
+primary-source model review are retained in
+`c12-total-erasure-continuation-cut-1` and
+`c12-recursive-transcript-oracle-primary-research-1`; no additional oracle or
+recursive-security assumption has been adopted.
+The root review is `c12-fixed-parameter-oracle-root-review-1/review.json`, SHA
+`71bfa1d8100f6663f02c3a3c25642acb4a7d155bb60547c55c9aeba3219b58e2`;
+the frozen argument and controls are in
+`c12-fixed-parameter-oracle-continuation-1` and
+`c12-final-ipa-one-shot-finite-controls-1`. No Pasta runtime or full C12
+qualification follows from the finite model.
 
 **Resumed component validation.** The retained engine capture passes 94 Pasta
 units, 266 Plonk units and the separately selected large GLV differential case.
@@ -2031,16 +2624,87 @@ kernel peak RSS is 666,812,416 bytes. Probe and source checks pass. This meets t
 borderline single-process diagnostic, not a qualification or improvement claim.
 Evidence is `m3-quotient-real-q-diagnostic-1/result.json`, SHA
 `7dd79121d0d2514f4010f5ed2a46a983361ebef3c84a169c3e3005a9c84a24e8`.
-The current full campaign `m3-quotient-gate-fold-1` has completed block1 of3
-for every configuration. All24 valid processes meet hard limits; Q-chips/one
-worker has CPU median27.490747 s, exceeding the27 s margin. One Q-exact/four
-worker calibration-invalid attempt remains retained. The schedule continues;
-no overall pass follows. A separate profile uses the exact retained candidate
-and verifies two7,936-byte proofs, with unchanged source/binary/helper pins.
-Its timings are diagnostic only and are excluded from the qualification ledger.
-FFT and expression evaluation dominate the sampled quotient work. Reviewed
-optimization proposals remain unapplied and unmeasured. Complete M3, full-wallet
-and phone qualification remain open.
+The full campaign `m3-quotient-gate-fold-1` completes all three blocks for all
+eight configurations, retaining72 valid processes and one calibration-invalid
+Q-exact/four-worker attempt. All valid runs meet hard time and peak-RSS limits;
+all memory margins pass. Seven configurations pass. Real-Q/one-worker remains
+**borderline** because its first block exceeds the required27 s margin; later
+blocks do not erase that miss. The unchanged independent summarizer exits1,
+matching the retained verdict (`m3-quotient-gate-fold-independent-terminal-review-1/review.json`,
+SHA `5f6814cfc45fa98b39ceef871f8bd95b031305a4c3730d23eb9081034dcff852`).
+
+| Workload | Workers / time metric | Three block medians (seconds) | Verdict |
+| --- | --- | --- | --- |
+| Real Q | 1 / process CPU | 27.490747,26.771704,26.309914 | Borderline |
+| Real Q | 4 / observed elapsed | 8.239941,8.158571,8.130607 | Pass |
+| Synthetic Q | 1 / process CPU | 22.270702,20.702939,20.675619 | Pass |
+| Synthetic Q | 4 / observed elapsed | 6.136633,6.087077,6.009022 | Pass |
+| Real A | 1 / process CPU | 31.042974,30.599958,30.116041 | Pass |
+| Real A | 4 / observed elapsed | 8.730354,8.602614,8.605501 | Pass |
+| Synthetic A | 1 / process CPU | 27.751751,27.172252,26.526616 | Pass |
+| Synthetic A | 4 / observed elapsed | 7.956877,7.760658,7.633341 | Pass |
+
+The retained219 measurement/calibration processes verify438 proof samples,
+including144 measured samples. Source/binary seals and all original invalid
+records remain intact. This is a historical component result:30 selected paths
+have since changed, including dependency sources and the new quotient edits.
+No result transfers to the current checkout. A separate excluded profile of the
+same retained binary identifies FFT and expression evaluation as major quotient
+costs. Reviewed lookup-mask factoring and fixed-width tile evaluation are now
+applied, with both-field serial-oracle coverage extended to challenge0 and1.
+Selected engine/gadget strict lint and refreshed correctness/proof-byte checks
+pass:425 native and387 compiled-x86 cases, with9 and7 explicit ignores. All380
+selected source pins remain unchanged through those runs
+(`quotient-tile-focused-validation-1/result.json`, SHA
+`371dc273b8246df258385ab5ff4c23553f23a94939dc433c3fbf0b4a45a168ac`).
+The retained native binary emits four straight-line field operations for the
+fixed-width arithmetic; this is code-generation evidence, not a measured speedup.
+Subsequent formatter changes only line wrapping and one optional trailing comma;
+all24 owned Rust files pass formatting checks. A workspace check also finds an
+unrelated `kaigi.rs` formatting difference, which is retained without editing it.
+The new candidate retains the same four workload descriptors and hard limits.
+Its separate real-Q one-worker diagnostic verifies both 7,936-byte proofs, with
+26.599858/26.588303 s process CPU and kernel peak RSS 661,340,160 B. All probe
+and source checks pass (`m3-quotient-tile-real-q-diagnostic-1/result.json`, SHA
+`39045afbae3a6b0cb5154fe5361980badd6d71850b98665c5a3aaada83512ddc`).
+This single process is diagnostic. The fresh eight-configuration, three-block
+campaign finishes naturally with exit1 and a **borderline** verdict under the
+unchanged method in `m3-quotient-tile-lookup-1`, with binary SHA
+`7d6f33271e3b8ced1e5e112441331052916aa9be61b7ea0daa570d61311827ed`.
+Independent review joins all raw logs and the ledger, recomputes the exact
+schedule/seeds and confirms72 valid processes across24 three-process blocks,
+144 verified measured proofs and three retained invalid attempts. Including
+calibration and invalid-attempt processes,225 processes exit0 and450 proof
+samples verify. All150 per-attempt source/binary checks and the final component
+recheck match; this is component custody, not whole-workspace qualification.
+The review is `m3-quotient-tile-lookup-terminal-review-1/review.json`, SHA
+`fa96688941310d76d79c80cce058e3d1f6628752d8afbf1b6ffe7423dee98c3d`.
+
+Seven configurations pass. All valid processes meet their hard time and memory
+limits, but real-Q one-worker block CPU medians are26.584335/27.124422/26.236431 s:
+the second exceeds the unchanged27 s margin below the30 s hard cap. Its peak
+RSS is708,624,384 B. The three invalid attempts retain their original calibration
+drift or compression/pageout reasons; none becomes a valid sample. No prior or
+diagnostic attempts count toward this schedule, and the better final block does
+not erase the miss. Complete M3, full-wallet and phone qualification remain open.
+
+A separate current-binary stack diagnostic then completes with both7,936-byte
+proofs verified, one worker, unchanged source/helper/binary and unchanged cached
+parameters. Its result is `m3-quotient-tile-q1-profile-1/result.json`, SHA
+`81bf91f27cb62c7e594f82d10a7689e230ccd11d4c41771c714bb3e73e6e44d5`.
+Sampling covers the whole process; there are no exact live phase timestamps.
+All sampled timings remain outside gate qualification.
+
+A bounded reconstruction-loop comparison rejects the proposed serial block
+reordering: all 192 algebra controls, 48 pre-cancellation pairs and three timing
+equality checks pass, but paired CPU medians regress by 3.073%, 2.583% and 2.641%
+at synthetic widths 1, 4 and 16. The benchmark's kernel peak RSS is 81,412,096 B;
+all source/artifact pins remain unchanged. No production change follows from
+this experiment. Its 36 timing rows describe isolated synthetic kernels, not
+the real Q opening plan or a gate result. The raw execution is retained in
+`m3-multiopen-serial-block-micro-preparation-1/execution-1`; root review is
+`m3-multiopen-serial-block-micro-result-review-1/review.json`, SHA
+`a5820cadcffc79271cf3cdc01217c7082bf9a4559c86d3f06d8c4b66c77f5da7`.
 
 The earlier installed quotient scratch change reuses three dead gate-stage coset
 buffers for streamed lookup transforms. Eight focused ARM correctness cases
@@ -2127,9 +2791,9 @@ corrected Omega catalog, installed wallet or performance gates.
 | G1 revision-4 σ and controls | Native proof crate release suite: 90 passed, 41 intentionally ignored; statement gadget 5 unit and 8 integration cases passed. Shared Rust vectors, all 8 Send masks and both Receive selectors are pinned. Fixed64 usage, recorded blacklist, share expiry and time-span checks have negative tests. Real k14 proofs for masks 2 and 7 verify at 3,456 B; other descriptor lengths are 3,296 B at k12. | The same suite and real k12/k14 cases pass after PIPA-R migration. Authenticated artifacts, cross-language rebuilt consumers and exhaustive ignored sweeps remain open. Native wallet preparation, verification and folding consume σ through the installed source owners. Acceptance under the complete authenticated 52-route catalog remains open; the component results do not establish that release boundary. |
 | Envelope arithmetic | Canonical fixed Payment overhead is 1,723 B; largest current σ_send is 3,456 B, leaving at most 4,821 B for Ω. The earlier 4,736 B Ω was an estimate, not an implemented proof. The first generic Ω frame descriptor requires 11,392 B transport; bounded foreign arithmetic and direct S6 reduce it to 10,944 B. | Both generic Ω descriptors fail the hard cap. Compact layout work remains necessary. Actual complete Norito Payment/Status encodings must establish frozen bounds; no stand-in proof establishes a completed payment. |
 | M3b carry/range binding | [Carry memo](kagemusha_ff_carry_v1.md#current-fused-leaf-review-2026-10-09) records two current source reviews of the measured fused leaf, its exact descriptor, range/copy/shared-table premises and eight fresh numbered clarifications. The original four-item wording checklist is unrecovered; no historical item-by-item match is claimed. The retained matching-source logs contain 22 FF and four Q-layout passes, with three expensive FF cases ignored. | Scoped engineering review, with no new test run. The whole historical gadget suite had 284 passes, one failure and eight ignored cases; selected passes and current positive M3 proofs do not establish complete proof-engine qualification or an external cryptographic audit. |
-| M3 consuming witness / MSM budget | The prover consumes witnesses, releases lookup/quotient evaluations after their last use, and shares nonblocking process-wide MSM reservations across both Pasta kernels and complete-MSM callers. The 64 MiB MSM ceiling is unchanged. Its caller-owned quotient workspace reuses field columns and wipes every retained row on success, error and unwind. The current prepared-coset implementation fills one shared powers column per coset only when at least one owned FFT is needed; that column is charged to the same explicit workspace ceiling. Cached fixed-only keys retain zero field scratch. MSM reduction uses exact complete-curve gap weighting for sparse windows and linear summation at density at least one occupied position per 32. Affine and overflow occupancy both count; every lower position keeps its original weight. Independent review accepted the algebra, existing variable-time scope and unchanged scratch reservation. Full-width secret planning, constant-time secret inversion and buffer clearing are preserved. The integrated cancellation engine with shared public parameter tables passes **92 Pasta units**, **250 Plonk units** (one explicit ignored case and three timing/working-set cases excluded), and **45 independent native/vendored non-measurement oracle tests**, including proof-byte parity and mutation cases. The latter includes 37 ordinary cases and all eight intentionally ignored non-timing golden cases; its sole timing case remains excluded. The same 45 cases also pass in a captured x86_64 Mach-O executable under Rosetta (37 ordinary and eight non-timing ignored cases). Actual Cargo dep-info binds 2,762 consumed inputs, with no source/tool drift through execution; binary SHA `770b6200da9ca901877fde7bbd60880b79ead7e57a376eb6c0dbbc74ab742789` and the earlier missing-spec-input refusal are retained in `target/qualification/oracle-x86-rosetta`. This is emulated x86 instruction-path parity, not physical x86 timing or device qualification. Both instruction targets additionally pass all **73 companion oracle tests**: library 18, curve/parameter/FFT/MSM parity 37, KATs 13 and constraint systems 5, including every ignored large correctness case and k15/k16 parameter vector. Actual compiler and runtime inputs and tools remain unchanged; the x86 companion receipt separately records the non-consumed README update during execution. Records are retained at `target/qualification/oracle-m1a-current/{arm,x86}/summary.json`. A further independently reviewed succinct corpus passes four live-original oracle tests and two native-only replay tests on both ARM and compiled x86 under Rosetta, covering eight Sigma/Wide cases, all challenges, exact G/xi, final decisions and 40 mutations. Both captures have zero consumed source/tool/runtime drift (`target/qualification/snark-succinct-parity/{arm-tape,x86-tape}`); strict lint passes. The frozen native replay remains usable after oracle deletion. The original invalid-equation panic and trailing-prefix acceptance remain explicit observations, while native mutations reject normally. This does not claim parity of the distinct PIPA-AS fold transcript or the current full KAGEMUSHA catalog. The new path-filtered CI job requires all five actual compiled harnesses, active oracle-mode cases, complete nonempty pass counts and zero ignored correctness tests; the named timing measurement and maintenance-only reference-fixture printer are excluded, and hosted CI execution remains unobserved. Private IPA generator tables now use immutable shared ownership, so cloning parameters retains their public points without duplicating either table. Independent decoding still validates every point and allocates separate tables; no global cache, mutable table access or interning of untrusted inputs is introduced. Independent review and both-curve tests cover clone lifetime, exact serialized bytes, and malformed points at every encoded position. Initial Vec-to-Arc conversion may allocate; this change alone establishes no peak-RSS or timing improvement. All-target Pasta/Plonk strict Clippy passes. Explicit operation tokens now reach synthesis, original-key loading, commitment kernels, quotient construction, IPA, complete verification and native recursive decisions. Rayon work joins before cancellation returns; secret polynomials, blind arrays, canonical lookup-key buffers and leased quotient columns are guarded across early returns. Cancellation remains a typed hard result and cannot authorize a burn or correction. Actual cancellation/retry tests cover both curves, 1/4-worker proving, scratch release, witness assignment that flattens inner errors, fresh transcript/randomness and exact retry bytes. Both-curve tests cover empty/neighboring windows, sparse overflow-only cancellation, identity running sums, both sides of the exact density cutoff, positional weighting, negative centered carries and the randomized GLV/unsigned verifier-MSM comparison. Large polynomial evaluation uses fixed Horner subtrees, multiopen reconstructs disjoint coefficient blocks in unchanged slot order, and grand-product inversions use constant-time worker-sized batches with total scratch no larger than the original column. New tests compare both fields on 1/4 workers across empty, threshold and odd-sized inputs, zeros and negative challenges. Focused all-target Pasta/Plonk strict Clippy also passes for this engine. Actual fixed-only proofs cover eager zero-buffer and OnDemand two-column storage, exact one-byte-short refusal, both curves, and 1/4/1 worker reuse. Independent k13 comparisons exercise the parallel branches inside complete proofs on both curves and 1/4 workers: all 4,064 bytes match the vendored prover and both complete verifiers accept them. Existing owned/borrowed, row-wise quotient and transcript/RNG parity cases also pass. The subsequent four-row evaluator candidate preserves node/constraint order and reserves at most16MiB extra scratch through the same64MiB process budget, with immediate scalar fallback. Its normal binary passes261 ordinary tests plus the explicit large GLV case; strict Plonk lib/tests Clippy passes. Its independently captured oracle binary passes42 ordinary and eight explicit large correctness cases, including complete proof-byte equality, verification and mutations. Consumed build sources/tools and runtime sources/binary are unchanged. The retained wrapper initially rejected its stale expected counts and included one maintenance printer; `target/qualification/quotient-tiles-oracle-capture-1/oracle-runtime/count-scope-review.json` records the actual compiled inventory and excludes that extra maintenance case from the50 correctness passes. The interrupted eight-configuration M3 campaign is no longer running and its directory is unavailable; no completed qualification is established. The corrected harness prospectively binds the specified memory-activity policy, requires a fresh candidate/schedule and preserves recorded invalidity and hard failures. Its114 script tests pass after the local source-closure and Cargo-configuration repairs. Microkernel speedups and correctness passes do not qualify the M3 gate. Current original-checkout shared-table commands, results, retained binary hashes and source observations are in `target/qualification/params-arc-sharing/correctness-observed.json` (1,623 selected engine/oracle source and Cargo inputs unchanged); the earlier cancellation integration evidence remains in `target/qualification/prover-cancellation-integration/correctness-observed.json`; earlier immutable pre-cancellation captures remain separately retained under `m3-msm-gap-production`. Earlier captured independent-caller and complete-MSM contention tests establish the existing shared budget mechanism; these component correctness results do not establish a timing or phone pass. | All eight synthetic/real Q/A worker configurations require nine valid fresh processes in three blocks. The sparse-window candidate is **superseded/incomplete/inconclusive**, with binary SHA `57bb694fa697493201bd6bda82acfc7c2556f695a4651cabcc1ca3d16f251aaa` and source SHA `b1db82c35b1e392795b20724ef0ce0d3057363b6684e18152a90ffd64624c831`. Completed first-block real Q4/A1 medians are **9.664976959 s elapsed / 33.664216 s CPU**, above the required 9/32.4 s margins despite meeting hard limits. Historical real A4 records three valid processes from ten attempts: diagnostic elapsed median **10.167093875 s**, maximum **11.784894917 s**, and peak **834,682,880 B**. G3.7 specifies no A4 elapsed-time limit; its four-worker time is diagnostic and its RSS cap still applies. Synthetic A4 has three valid processes with median **8.761906417 s**. Real Q1 has one valid **29.300507 s CPU** process, above the 27 s margin but below 30 s; subsequent memory-pressure/compression/pageout brackets are invalid and remain retained. That campaign recorded its ledger, candidate, two proofs per process, calibrations and terminal summary under `target/qualification/m3-component-20261007-msm-gaps-current-lock`. The directory is unavailable in the current checkout, so those historical figures cannot supply newly verified evidence; no partial configuration is a qualification pass. Its predecessor gap capture was invalidated by recorded lockfile drift. Earlier completed candidates retain hard failures: parallel polynomials Q1 **30.013863 s CPU** against 30 s; prepared cosets Q4 **12.266209583 s** against 10 s; empty-prefix Q4 **10.107276125 s** against 10 s. Their raw valid/invalid samples, exact binaries and terminal verdicts remain under the corresponding `m3-component-20261007-*` directories. The batched-FFT capture is separately **interrupted/inconclusive**, with no surviving runner and an incomplete final calibration bracket. Hard limits, the 10% time margin and 5% memory margin remain unchanged. The runner stopped naturally at Q1 attempt15 when its post-attempt provenance check observed the genuine cancellation integration; that attempt also retained invalid host-pressure readings. `superseded-capture.json` records the refusal without turning it into a valid hard failure or a pass. The newly integrated cancellation engine has the scoped correctness evidence in this row; all eight performance configurations still require qualification under the unchanged accepted method. The RAM plan’s required source-bound VK-to-PK reconstruction without repeated commitment MSMs is not yet in the maintained engine. The held implementation has not been compiled or executed; per-stage wallet integration and proving-buffer release still require qualification. Physical-phone results remain separate. |
+| M3 consuming witness / MSM budget | The prover consumes witnesses, releases lookup/quotient evaluations after their last use, and shares nonblocking process-wide MSM reservations across both Pasta kernels and complete-MSM callers. The 64 MiB MSM ceiling is unchanged. Its caller-owned quotient workspace reuses field columns and wipes every retained row on success, error and unwind. The current prepared-coset implementation fills one shared powers column per coset only when at least one owned FFT is needed; that column is charged to the same explicit workspace ceiling. Cached fixed-only keys retain zero field scratch. MSM reduction uses exact complete-curve gap weighting for sparse windows and linear summation at density at least one occupied position per 32. Affine and overflow occupancy both count; every lower position keeps its original weight. Independent review accepted the algebra, existing variable-time scope and unchanged scratch reservation. Full-width secret planning, constant-time secret inversion and buffer clearing are preserved. The integrated cancellation engine with shared public parameter tables passes **92 Pasta units**, **250 Plonk units** (one explicit ignored case and three timing/working-set cases excluded), and **45 independent native/vendored non-measurement oracle tests**, including proof-byte parity and mutation cases. The latter includes 37 ordinary cases and all eight intentionally ignored non-timing golden cases; its sole timing case remains excluded. The same 45 cases also pass in a captured x86_64 Mach-O executable under Rosetta (37 ordinary and eight non-timing ignored cases). Actual Cargo dep-info binds 2,762 consumed inputs, with no source/tool drift through execution; binary SHA `770b6200da9ca901877fde7bbd60880b79ead7e57a376eb6c0dbbc74ab742789` and the earlier missing-spec-input refusal are retained in `target/qualification/oracle-x86-rosetta`. This is emulated x86 instruction-path parity, not physical x86 timing or device qualification. Both instruction targets additionally pass all **73 companion oracle tests**: library 18, curve/parameter/FFT/MSM parity 37, KATs 13 and constraint systems 5, including every ignored large correctness case and k15/k16 parameter vector. Actual compiler and runtime inputs and tools remain unchanged; the x86 companion receipt separately records the non-consumed README update during execution. Records are retained at `target/qualification/oracle-m1a-current/{arm,x86}/summary.json`. A further independently reviewed succinct corpus passes four live-original oracle tests and two native-only replay tests on both ARM and compiled x86 under Rosetta, covering eight Sigma/Wide cases, all challenges, exact G/xi, final decisions and 40 mutations. Both captures have zero consumed source/tool/runtime drift (`target/qualification/snark-succinct-parity/{arm-tape,x86-tape}`); strict lint passes. The frozen native replay remains usable after oracle deletion. The original invalid-equation panic and trailing-prefix acceptance remain explicit observations, while native mutations reject normally. This does not claim parity of the distinct PIPA-AS fold transcript or the current full KAGEMUSHA catalog. The new path-filtered CI job requires all five actual compiled harnesses, active oracle-mode cases, complete nonempty pass counts and zero ignored correctness tests; the named timing measurement and maintenance-only reference-fixture printer are excluded, and hosted CI execution remains unobserved. Private IPA generator tables now use immutable shared ownership, so cloning parameters retains their public points without duplicating either table. Independent decoding still validates every point and allocates separate tables; no global cache, mutable table access or interning of untrusted inputs is introduced. Independent review and both-curve tests cover clone lifetime, exact serialized bytes, and malformed points at every encoded position. Initial Vec-to-Arc conversion may allocate; this change alone establishes no peak-RSS or timing improvement. All-target Pasta/Plonk strict Clippy passes. Explicit operation tokens now reach synthesis, original-key loading, commitment kernels, quotient construction, IPA, complete verification and native recursive decisions. Rayon work joins before cancellation returns; secret polynomials, blind arrays, canonical lookup-key buffers and leased quotient columns are guarded across early returns. Cancellation remains a typed hard result and cannot authorize a burn or correction. Actual cancellation/retry tests cover both curves, 1/4-worker proving, scratch release, witness assignment that flattens inner errors, fresh transcript/randomness and exact retry bytes. Both-curve tests cover empty/neighboring windows, sparse overflow-only cancellation, identity running sums, both sides of the exact density cutoff, positional weighting, negative centered carries and the randomized GLV/unsigned verifier-MSM comparison. Large polynomial evaluation uses fixed Horner subtrees, multiopen reconstructs disjoint coefficient blocks in unchanged slot order, and grand-product inversions use constant-time worker-sized batches with total scratch no larger than the original column. New tests compare both fields on 1/4 workers across empty, threshold and odd-sized inputs, zeros and negative challenges. Focused all-target Pasta/Plonk strict Clippy also passes for this engine. Actual fixed-only proofs cover eager zero-buffer and OnDemand two-column storage, exact one-byte-short refusal, both curves, and 1/4/1 worker reuse. Independent k13 comparisons exercise the parallel branches inside complete proofs on both curves and 1/4 workers: all 4,064 bytes match the vendored prover and both complete verifiers accept them. Existing owned/borrowed, row-wise quotient and transcript/RNG parity cases also pass. The subsequent four-row evaluator candidate preserves node/constraint order and reserves at most16MiB extra scratch through the same64MiB process budget, with immediate scalar fallback. Its normal binary passes261 ordinary tests plus the explicit large GLV case; strict Plonk lib/tests Clippy passes. Its independently captured oracle binary passes42 ordinary and eight explicit large correctness cases, including complete proof-byte equality, verification and mutations. Consumed build sources/tools and runtime sources/binary are unchanged. The retained wrapper initially rejected its stale expected counts and included one maintenance printer; `target/qualification/quotient-tiles-oracle-capture-1/oracle-runtime/count-scope-review.json` records the actual compiled inventory and excludes that extra maintenance case from the50 correctness passes. The interrupted eight-configuration M3 campaign is no longer running and its directory is unavailable; no completed qualification is established. The corrected harness prospectively binds the specified memory-activity policy, requires a fresh candidate/schedule and preserves recorded invalidity and hard failures. Its114 script tests pass after the local source-closure and Cargo-configuration repairs. Microkernel speedups and correctness passes do not qualify the M3 gate. Current original-checkout shared-table commands, results, retained binary hashes and source observations are in `target/qualification/params-arc-sharing/correctness-observed.json` (1,623 selected engine/oracle source and Cargo inputs unchanged); the earlier cancellation integration evidence remains in `target/qualification/prover-cancellation-integration/correctness-observed.json`; earlier immutable pre-cancellation captures remain separately retained under `m3-msm-gap-production`. Earlier captured independent-caller and complete-MSM contention tests establish the existing shared budget mechanism; these component correctness results do not establish a timing or phone pass. | All eight synthetic/real Q/A worker configurations require nine valid fresh processes in three blocks. The sparse-window candidate is **superseded/incomplete/inconclusive**, with binary SHA `57bb694fa697493201bd6bda82acfc7c2556f695a4651cabcc1ca3d16f251aaa` and source SHA `b1db82c35b1e392795b20724ef0ce0d3057363b6684e18152a90ffd64624c831`. Completed first-block real Q4/A1 medians are **9.664976959 s elapsed / 33.664216 s CPU**, above the required 9/32.4 s margins despite meeting hard limits. Historical real A4 records three valid processes from ten attempts: diagnostic elapsed median **10.167093875 s**, maximum **11.784894917 s**, and peak **834,682,880 B**. G3.7 specifies no A4 elapsed-time limit; its four-worker time is diagnostic and its RSS cap still applies. Synthetic A4 has three valid processes with median **8.761906417 s**. Real Q1 has one valid **29.300507 s CPU** process, above the 27 s margin but below 30 s; subsequent memory-pressure/compression/pageout brackets are invalid and remain retained. That campaign recorded its ledger, candidate, two proofs per process, calibrations and terminal summary under `target/qualification/m3-component-20261007-msm-gaps-current-lock`. The directory is unavailable in the current checkout, so those historical figures cannot supply newly verified evidence; no partial configuration is a qualification pass. Its predecessor gap capture was invalidated by recorded lockfile drift. Earlier completed candidates retain hard failures: parallel polynomials Q1 **30.013863 s CPU** against 30 s; prepared cosets Q4 **12.266209583 s** against 10 s; empty-prefix Q4 **10.107276125 s** against 10 s. Their raw valid/invalid samples, exact binaries and terminal verdicts remain under the corresponding `m3-component-20261007-*` directories. The batched-FFT capture is separately **interrupted/inconclusive**, with no surviving runner and an incomplete final calibration bracket. Hard limits, the 10% time margin and 5% memory margin remain unchanged. The runner stopped naturally at Q1 attempt15 when its post-attempt provenance check observed the genuine cancellation integration; that attempt also retained invalid host-pressure readings. `superseded-capture.json` records the refusal without turning it into a valid hard failure or a pass. The newly integrated cancellation engine has the scoped correctness evidence in this row; all eight performance configurations still require qualification under the unchanged accepted method. Source-bound VK-to-PK reconstruction without commitment MSMs and its staged wallet consumers are implemented, with the focused proof-byte and admission checks recorded above. Current complete-catalog per-stage execution and proving-buffer release still require qualification. Physical-phone results remain separate. |
 | Independent full-proof reference | The standard-library Python verifier derives complete PLONK, multiopen and IPA equations from the specification and independently decides the generator. All **46 genuine proofs** pass across both Pasta curves, three transcript profiles and ten pinned parameter sets at k6–k10. The final adversarial suite passes **169/169** in 114.22 s with unchanged verifier/test/fixture hashes, including exact parser and instance shapes, parameter/descriptor identities, typed-instance boundaries, metadata aliases and six constructive false claims that preserve the soft IPA equation but fail generator decision. Independent read-only mathematical/parser review accepted the final scoped implementation. A fresh original-checkout Rust oracle recomputes the complete frozen fixture exactly: **1/1** in 9.99 s, executable `ecc02d13…894b9a`, 2,743 actual compiler inputs and zero source/tool/runtime drift (`target/qualification/python-reference/current2/runtime-observed.json`). Strict oracle fixture lint and all ten CI admission/shipping-source tests pass. The frozen fixture SHA is `6a3e07aeec1c7bdaef42ca3cd72771fee90cbe38e681ac48cd3b38e7e4384e55`. CI requires the genuine fixture comparison, isolated standard-library replay and adversarial suite. | Individual proofs and canonical generator claims only: no batch-weight, encoded-accumulator, k16, recursive PIPA-AS, full-catalog or physical-phone qualification. No production fallback decoder is added. Hosted CI execution remains unobserved; vendor/oracle retirement still requires every remaining M7 gate. |
-| Retained native consumers | SoraFS PoP uses native PIPA-R with consuming witnesses, full opening verification and new pinned circuit/key identities. All 38 proof and 25 Node PoP consumer tests pass; canonical fixtures, signed inventory and strict lint pass. Native Kaigi passes 23 library tests, seven Core_zk Kaigi tests, two descriptor/key-carrier tests and 48 verifier/admission/guardrail tests. Both libraries now generate unchanged RP56 parameters with native Grain and compare all 201 field elements against dev-only independent oracles. Their normal dependency graphs contain no `poseidon-primitives`; the immutable 23/38-case capture has no source/binary drift (`target/qualification/retained-rp56-native-20261007`). Focused all-target strict Clippy passes; the dependency-inclusive run retains 570 existing gadget diagnostics. The rebuilt JavaScript host passes all 22 Kaigi tests. All three rebuilt Core Kaigi lifecycle/admission integration tests pass. The rebuilt Core real-proof release builder and native policy/gas/guardrail components pass; current Torii native-policy, exact-identity, allowlist and KAGEMUSHA route/finality tests pass. The key carrier binds the complete compiled descriptor and processed Vesta key; old keys and labels reject. The native development vote fixture passes reproducibility and adversarial checks; the native confidential host hash passes 35 regression tests. The confidential production implementation now uses consuming native PIPA-R with three new exact circuit/key identities and one native public column. Its activated Rust confidential suite passes 50 tests, including all three production-depth real proofs at 3,680 B each; the independent relation corpus passes ten host/adversarial cases. The first-release engine retirement is now installed: only Native PIPA-R=0 and STARK=1 remain, with seven exact registry profiles; the generic Halo2 parser, dispatch, key reader, runtime configuration selectors and obsolete fixtures are deleted. Current Core_zk/IVM test targets compile. Focused current SDK checks pass: Kotlin registry/model/Java consumers 53, C# registry 96, Python confidential/client/registry 262, isolated Swift registry 10 and JavaScript OpenVerify codec 4. The retained RAM-LFE circuit corpus is ported to the native engine. All ten native Poseidon tests pass, including genuine proofs at ordinary and maximum inputs plus round/S-box/copy/padding attacks. The complete first run passed 26 cases and found a stale degree11/20 key expectation; the corrected byte suite proves degrees5/8/9 and rejects the larger degrees under the unchanged cap. The old test adapter and its vendored dev-dependencies are deleted; the complete rebuilt 27-case corpus passes. The original 218-case both-field Poseidon oracle corpus is captured and passes native replay plus independent Python rederivation and six mutation controls. All eleven shared-backend inventory checks and the three retirement source guards pass. The actual rebuilt JavaScript confidential addon passes six original nonskipping tests; the installed sealed Python wheels pass all five original nonskipping native wallet tests (150.88 s), including full-65,536-tree proofs, change redemption, adversarial rejection and GIL progress. Python installed admission passes before and after execution. The source-admitted ABI-26 CloseLoads host passes the combined C# suite **536/536**, zero failed/skipped/not-run (592.36 s): 482 registry/query/event/receipt cases, seven managed owner cases, six native confidential cases and 41 Kaigi cases. Real native cases cover both full-tree evidence formats, retained change redemption, owner disposal and invalid inputs. The matching original-source Swift package passes 133/133 cases (19 confidential, 114 wallet/load/platform/vectors), with unchanged SDK sources and producer pins; actual JNI and managed wallet suites pass 4/4 and 86/86. Runtime observation confirms the exact `3b51ff55…` dylib; selected source and binary pins have zero drift. Original logs, wheel and host receipts, source manifests and earlier natural failures remain under `target/qualification/native-sdk/{python-current-source,csharp-native-migration}`. These are captured local native component results; subsequent source edits, installed release-package admission and physical devices remain outside their scope. | Packaged SDK and network qualification and final consumer execution remain open. Shared retired vendor dependencies and the temporary oracle are now deleted after the migrated consumers' replacement reference checks; current post-retirement validation remains open. The rebuilt full Core_zk library baseline finished with 489 passing tests and two stale negative expectations; both expectations are repaired and all seven focused verifier tests pass. JavaScript registry tests reject the stale native artifact source fingerprint. Kotlin client baseline tests passed 33/93; native address validation requires a rebuilt source-admitted ABI-26 artifact; earlier ABI-25 captures are historical. The registry fixture has now been regenerated by Rust: its canonical 182-byte native instruction matches Kotlin byte for byte. Its status field is the canonical u32 enum payload; the inconsistent one-byte Rust slice decoder and SDK encoder are removed. These are not qualification passes. The reviewed dependency-budget baseline includes the promoted native confidential dependencies and passes; the release source seal predates substantial concurrent work and still fails, so release packaging is not qualified. An attempted broad C# run (the MTP runner ignored its filter) failed 1,518 of 3,595 tests; inspected failures include the unavailable rebuilt native address validator. The correctly filtered source-level tests above do not establish native SDK qualification. |
+| Retained native consumers | SoraFS PoP uses native PIPA-R with consuming witnesses, full opening verification and new pinned circuit/key identities. All 38 proof and 25 Node PoP consumer tests pass; canonical fixtures, signed inventory and strict lint pass. Native Kaigi passes 23 library tests, seven Core_zk Kaigi tests, two descriptor/key-carrier tests and 48 verifier/admission/guardrail tests. Both libraries now generate unchanged RP56 parameters with native Grain and compare all 201 field elements against dev-only independent oracles. Their normal dependency graphs contain no `poseidon-primitives`; the immutable 23/38-case capture has no source/binary drift (`target/qualification/retained-rp56-native-20261007`). Focused all-target strict Clippy passes; the dependency-inclusive run retains 570 existing gadget diagnostics. The rebuilt JavaScript host passes all 22 Kaigi tests. All three rebuilt Core Kaigi lifecycle/admission integration tests pass. The rebuilt Core real-proof release builder and native policy/gas/guardrail components pass; current Torii native-policy, exact-identity, allowlist and KAGEMUSHA route/finality tests pass. The key carrier binds the complete compiled descriptor and processed Vesta key; old keys and labels reject. The native development vote fixture passes reproducibility and adversarial checks; the native confidential host hash passes 35 regression tests. The confidential production implementation now uses consuming native PIPA-R with three new exact circuit/key identities and one native public column. Its activated Rust confidential suite passes 50 tests, including all three production-depth real proofs at 3,680 B each; the independent relation corpus passes ten host/adversarial cases. The first-release engine retirement is now installed: only Native PIPA-R=0 and STARK=1 remain, with seven exact registry profiles; the generic Halo2 parser, dispatch, key reader, runtime configuration selectors and obsolete fixtures are deleted. Current Core_zk/IVM test targets compile. Focused current SDK checks pass: Kotlin registry/model/Java consumers 53, C# registry 96, Python confidential/client/registry 262, isolated Swift registry 10 and JavaScript OpenVerify codec 4. The retained RAM-LFE circuit corpus is ported to the native engine. All ten native Poseidon tests pass, including genuine proofs at ordinary and maximum inputs plus round/S-box/copy/padding attacks. The complete first run passed 26 cases and found a stale degree11/20 key expectation; the corrected byte suite proves degrees5/8/9 and rejects the larger degrees under the unchanged cap. The old test adapter and its vendored dev-dependencies are deleted; the complete rebuilt 27-case corpus passes. Two unused production receipt helpers are also removed; their consumers use the retained signed-HKDF receipt validators. The rebuilt Core selections pass all 38 tests (15 RAM-LFE, four identifier proof-refusal and 19 ordinary identifier cases), with zero failed or ignored and all three edited source hashes unchanged (`ram-lfe-retirement-focused-validation-1` and `ram-lfe-retirement-identifier-validation-1`). This is focused component evidence, without a whole-dependency provenance claim. The original 218-case both-field Poseidon oracle corpus is captured and passes native replay plus independent Python rederivation and six mutation controls. All eleven shared-backend inventory checks and the three retirement source guards pass. The actual rebuilt JavaScript confidential addon passes six original nonskipping tests; the installed sealed Python wheels pass all five original nonskipping native wallet tests (150.88 s), including full-65,536-tree proofs, change redemption, adversarial rejection and GIL progress. Python installed admission passes before and after execution. The source-admitted ABI-26 CloseLoads host passes the combined C# suite **536/536**, zero failed/skipped/not-run (592.36 s): 482 registry/query/event/receipt cases, seven managed owner cases, six native confidential cases and 41 Kaigi cases. Real native cases cover both full-tree evidence formats, retained change redemption, owner disposal and invalid inputs. The matching original-source Swift package passes 133/133 cases (19 confidential, 114 wallet/load/platform/vectors), with unchanged SDK sources and producer pins; actual JNI and managed wallet suites pass 4/4 and 86/86. Runtime observation confirms the exact `3b51ff55…` dylib; selected source and binary pins have zero drift. Original logs, wheel and host receipts, source manifests and earlier natural failures remain under `target/qualification/native-sdk/{python-current-source,csharp-native-migration}`. These are captured local native component results; subsequent source edits, installed release-package admission and physical devices remain outside their scope. | Packaged SDK and network qualification and final consumer execution remain open. Shared retired vendor dependencies and the temporary oracle are now deleted after the migrated consumers' replacement reference checks; current post-retirement validation remains open. The rebuilt full Core_zk library baseline finished with 489 passing tests and two stale negative expectations; both expectations are repaired and all seven focused verifier tests pass. JavaScript registry tests reject the stale native artifact source fingerprint. Kotlin client baseline tests passed 33/93; native address validation requires a rebuilt source-admitted ABI-26 artifact; earlier ABI-25 captures are historical. The registry fixture has now been regenerated by Rust: its canonical 182-byte native instruction matches Kotlin byte for byte. Its status field is the canonical u32 enum payload; the inconsistent one-byte Rust slice decoder and SDK encoder are removed. These are not qualification passes. The reviewed dependency-budget baseline includes the promoted native confidential dependencies and passes; the release source seal predates substantial concurrent work and still fails, so release packaging is not qualified. An attempted broad C# run (the MTP runner ignored its filter) failed 1,518 of 3,595 tests; inspected failures include the unavailable rebuilt native address validator. The correctly filtered source-level tests above do not establish native SDK qualification. |
 | Measurement controls | Fallible direct CPU/kernel RSS probes; verified 1/4-worker pools; two separately verified owned-witness proofs; source/binary and actual descriptor binding. All 75 Python runner tests pass with Python 3.12 and the pinned script dependencies. The candidate binds the prospective memory-activity policy; changed policy requires a fresh schedule and preserves previously recorded invalid attempts. The ledger retains and rechecks raw output, process exits, environmental probes, both calibrations, candidate boundaries and declared execution order, including the 18-attempt ceiling. Descriptor inventory must retain the completed build's executable hash. Component preparation derives local dependency roots and cross-crate inputs from actual Cargo artifacts and depfiles, binds Cargo/toolchain/build inputs, and rejects in-scope source drift while separately recording whole-checkout changes. Missing probes, launch failures, altered calibration and scoped source drift invalidate retained attempts. RSS headroom uses each block median while every valid process must meet the hard cap. CLI run/summary returns failure for failed, borderline or inconclusive qualification. The current driver retains a caller-owned quotient workspace with a 256 MiB field-buffer ceiling across both proofs; reports must show empty initial storage and exact reuse on the second proof. Its allocation is included in kernel RSS, with no adjustment to the hard RSS or MSM limits. | All eight synthetic/chip-filled Q/A worker configurations still require the complete nine-process, three-block qualification. The DAG-release component retained three invalid Q four-worker attempts, then a valid calibrated hard failure: slower proof 35.1231 s observed elapsed against 10 s, kernel peak 722,059,264 B, both 7,936 B proofs verified (`target/qualification/m3-component-20261007-dag-release`). The canonical-key candidate has unchanged workload descriptors and a stable 1,998-file compiled dependency scope. Under the same predeclared seed 20261007 it retains four invalid calibration brackets, followed by a valid Q four-worker hard failure: slower observed elapsed 21.1679 s against 10 s, kernel peak 728,170,496 B, both 7,936 B proofs verified. Its binary SHA is `362e2ca429ead3253d7945b3d11c8203528b7ea4c95c275487dbc7f6988f09fb`; source/build/raw-attempt/summary evidence is retained in `target/qualification/m3-component-20261007-canonical-lookup`. The configured early stop preserves this failed partial schedule; it cannot produce a pass for any incomplete configuration. The workspace candidate has the same four workload descriptors and stable 1,999-file dependency scope. Its Q four-worker configuration exhausted the declared 18-attempt ceiling with no valid calibration bracket and is inconclusive. The next scheduled A real-chip one-worker process had valid calibration but failed its CPU hard cap: 36.203590 s against 36 s, kernel peak 830,881,792 B within the 0.85 GiB cap, both 7,584 B proofs verified. The partial schedule stopped as declared; binary SHA `f7f6947efb876fa7709037c15f97ee8ab90d69abda0ca8e3a8ade8d353d37c70` and all evidence remain in `target/qualification/m3-component-20261007-workspace`. The per-column workspace candidate retains the same four descriptors and stable 1,999-file scope. Its five invalid Q four-worker brackets were followed by a valid hard failure: slower observed elapsed 19.701137292 s against 10 s and kernel peak 814,596,096 B against 805,306,368 B, with both 7,936 B proofs verified. The declared early stop preserves this failed partial schedule; binary SHA `8926d09d25c6460c7cf42700e8850827949be4bd3b367716889319b2a853189d` and raw/source/summary evidence are in `target/qualification/m3-component-20261007-columns`. The streamed lookup candidate has unchanged descriptor digests and layout records, with binary SHA `a5d2e1577d7212bc441f9152523343a7864497f44b52540c1b8d20ca554f24ac`. Its five invalid brackets and three valid processes are retained in `target/qualification/m3-component-20261007-streamed-lookups`. Valid slower times are 9.721029833/9.651365542/14.434622416 s; the last fails 10 s and ends the partial schedule. Valid kernel peaks are 785,907,712/667,402,240/725,827,584 B, all within 805,306,368 B. The first block RSS median 725,827,584 B meets its headroom target; its time median 9.721029833 s misses the 9 s target. Every valid-process proof verifies at 7,936 B. Neither the nine-process Q configuration nor the other seven configurations is qualified. Invalid attempts remain recorded; elapsed-time failures are never normalized. Component results do not qualify a frozen whole-release candidate or a phone. |
 | PIPA-R / recursion | Native PIPA-R typed transcripts/proofs and PIPA-AS folds pass both-curve tests. The complete succinct circuit interpreter matches real source proofs. Total soft accumulator decoding, malformed-claim → burn → Trivial replacement → hard fold, and exceptional identity-correction rejection pass on both curves. Obligation tests cover the branch truth table and all 14 unsplit schedules, with four fixed Vesta fold slots including explicit trivial fillers. The [soundness argument](kagemusha_recursion_soundness_v1.md) records assumptions and outstanding review. | A genuine Q → A → Ω composition, full key continuity, operation relations and recursive mutations remain open. Component proofs do not establish unbounded-PCD soundness or a joint simulator. |
 | Q signature relation | Five integration tests pass for exact ten-word slot binding, fixed/variable keys, malformed raw256 inputs, low-S and verdict rules, and witness-independent layout. The 5V/1F shape reaches 64,238 rows / 747,364 cells. A real one-slot native proof is 8,576 B and its opening decides. Raw256 bridge cell tampering and shared-table audits pass. | Signed-object semantics, issuer-role authorization and complete operation composition remain required. Q proofs are local, not the transported Ω. |

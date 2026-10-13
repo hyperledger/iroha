@@ -4216,7 +4216,7 @@ mod tests {
         let mut low = 0;
         let mut high = key_payload_len;
         while low < high {
-            let middle = (low + high + 1) / 2;
+            let middle = (low + high).div_ceil(2);
             if bytes_state_value_record(&vec![fill; middle]).len() <= key_payload_len {
                 low = middle;
             } else {

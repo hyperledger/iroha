@@ -81,7 +81,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let package: KagemushaWalletPackageV1 = archive::decode(&retained.record.output)?;
         if package.receipt != retained.record.receipt
             || package.receipt.operation_id != operation
-            || package.receipt.capsule_digest != capsule
+            || Some(package.receipt.capsule_commitment) != entry.capsule_commitment
         {
             return Err(Error::WitnessLost("Unload package binding"));
         }
@@ -131,17 +131,24 @@ fn compose(
     let charge = match (charge, beneficiary_original) {
         (None, None) => KagemushaWalletUnloadChargeV1::None,
         (Some(originals), Some(bytes)) => {
-            let quote = valid(KagemushaWalletChargeQuoteV1::decode_canonical(
-                &originals.quote,
-                &scheme.scheme_id(),
-            ))?;
+            let quote = read_model_original(
+                || {
+                    KagemushaWalletChargeQuoteV1::decode_canonical(
+                        &originals.quote,
+                        &scheme.scheme_id(),
+                    )
+                },
+                Error::Invalid("G1 validation"),
+            )?;
             let set: KagemushaWalletCertificateSetV1 = archive::decode(&originals.certificates)?;
             selected.push(*valid(set.certificate(
                 &quote.body.signer_certificate,
                 KagemushaWalletSignerRoleV1::RegulatoryPolicy,
             ))?);
-            let beneficiary: AccountId = archive::decode(bytes)
-                .map_err(|_| Error::Invalid("Unload beneficiary canonical original"))?;
+            let beneficiary: AccountId = archive::decode(bytes).map_err(|error| match error {
+                Error::DecodeResource(_) => error,
+                _ => Error::Invalid("Unload beneficiary canonical original"),
+            })?;
             KagemushaWalletUnloadChargeV1::Quoted { quote, beneficiary }
         }
         _ => return Err(Error::Invalid("Unload charge beneficiary presence")),

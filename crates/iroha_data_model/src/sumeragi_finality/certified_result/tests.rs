@@ -153,6 +153,50 @@ fn result_hex(result: Hash32) -> String {
     format!("0x{}", hex::encode(result.0))
 }
 
+// Local errors are move-only. Compare every deterministic variant and its fields without
+// manufacturing equality for an original decoder attempt.
+fn assert_certified_error(actual: &CertifiedResultError, expected: &CertifiedResultError) {
+    use CertifiedResultError as C;
+    match (actual, expected) {
+        (C::PreimageLength(a), C::PreimageLength(b)) => assert_eq!(a, b),
+        (C::Header(a), C::Header(b)) => assert_eq!(a, b),
+        (C::HeightMismatch { header: a, body: b }, C::HeightMismatch { header: c, body: d }) => {
+            assert_eq!((a, b), (c, d))
+        }
+        (C::NetworkMismatch, C::NetworkMismatch)
+        | (C::CommitteeRootMismatch, C::CommitteeRootMismatch)
+        | (C::RotationMismatch, C::RotationMismatch)
+        | (C::ActiveOutsideGlobal, C::ActiveOutsideGlobal)
+        | (C::BlockMismatch, C::BlockMismatch) => (),
+        (C::Body(a), C::Body(b)) => {
+            use CommitmentError as B;
+            match (a, b) {
+                (B::MissingResult, B::MissingResult)
+                | (B::CertifiedBlock, B::CertifiedBlock)
+                | (B::NativeLaneState, B::NativeLaneState) => (),
+                (B::InvalidOutputs(a), B::InvalidOutputs(b))
+                | (B::Schedule(a), B::Schedule(b))
+                | (B::Beacon(a), B::Beacon(b))
+                | (B::Encoding(a), B::Encoding(b)) => assert_eq!(a, b),
+                (B::WireLength(a), B::WireLength(b)) => assert_eq!(a, b),
+                (B::PreimageLength(a), B::PreimageLength(b)) => assert_eq!(a, b),
+                _ => panic!("expected deterministic body verdict {b:?}, got {a:?}"),
+            }
+        }
+        _ => panic!("expected deterministic result verdict {expected:?}, got {actual:?}"),
+    }
+}
+
+macro_rules! assert_certified_eq {
+    ($actual:expr, $expected:expr $(, $message:expr)* $(,)?) => {{
+        match (&$actual, &$expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected $(, $message)*),
+            (Err(actual), Err(expected)) => assert_certified_error(actual, expected),
+            (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
+        }
+    }};
+}
+
 #[test]
 fn finality_header_layout_offsets_are_frozen() {
     let fields = SccpFinalityHeaderFieldsV1 {
@@ -1028,13 +1072,13 @@ fn max_result_body_bytes_is_preimage_bound_minus_header() {
     let x = header(&non_rotation_example());
     let mut preimage = x.as_bytes().to_vec();
     preimage.resize(MAX_RESULT_PREIMAGE_BYTES + 1, 0);
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal),
         Err(CertifiedResultError::PreimageLength(
             MAX_RESULT_PREIMAGE_BYTES + 1
         ))
     );
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(x.as_bytes(), CertifiedResultScope::TairaGlobal),
         Err(CertifiedResultError::PreimageLength(X_LEN))
     );
@@ -1262,7 +1306,7 @@ impl Stored {
                     result_of_preimage(&self.preimage(&x)).unwrap()
                 );
             }
-            (Err(error), Err(expected)) => assert_eq!(error, expected, "{fields:?}"),
+            (Err(error), Err(expected)) => assert_certified_error(&error, &expected),
             (decoded, verdict) => panic!("{fields:?}: expected {verdict:?}, decoded {decoded:?}"),
         }
     }
@@ -1296,11 +1340,49 @@ fn context_committee_root_hashes_the_context_keys_in_order() {
     let mut empty = context.clone();
     empty.committee.clear();
     assert_eq!(context_committee_root(&empty), None);
+    // The raw count contract is 1..=255 even for structurally unvalidated contexts.
+    let mut largest = context.clone();
+    largest.committee.resize(255, context.committee[0].clone());
+    let largest_keys: Vec<[u8; 48]> = largest
+        .committee
+        .iter()
+        .map(|member| {
+            member
+                .validator
+                .public_key()
+                .try_to_bytes()
+                .unwrap()
+                .1
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        context_committee_root(&largest),
+        committee_root(&largest_keys)
+    );
+    largest.committee.push(context.committee[0].clone());
+    assert_eq!(context_committee_root(&largest), None);
     // A member that is not a BLS-normal key has no committee root.
     let mut foreign = context;
     let ed25519 = KeyPair::try_from_seed(vec![9; 32], Algorithm::Ed25519).unwrap();
     foreign.committee[0].validator = PeerId::new(ed25519.public_key().clone());
     assert_eq!(context_committee_root(&foreign), None);
+}
+
+#[test]
+fn context_root_streaming_preserves_the_entire_count_domain() {
+    let mut context = fixture(4);
+    let member = context.committee[0].clone();
+    let (_, bytes) = member.validator.public_key().try_to_bytes().unwrap();
+    let key: [u8; 48] = bytes.try_into().unwrap();
+    for count in [1, 4, 31, 254, 255, 256] {
+        context.committee = vec![member.clone(); count];
+        assert_eq!(
+            context_committee_root(&context),
+            committee_root(&vec![key; count])
+        );
+    }
 }
 
 #[test]
@@ -1322,7 +1404,7 @@ fn certified_result_decode_checks_c1_to_c4_and_scope() {
 
     // Scope: an active `X` belongs to the global chain only, whatever else holds.
     assert!(plain.decode(&header(&active), TairaGlobal).is_ok());
-    assert_eq!(
+    assert_certified_eq!(
         plain.decode(&header(&active), NonGlobal),
         Err(CertifiedResultError::ActiveOutsideGlobal)
     );
@@ -1330,7 +1412,7 @@ fn certified_result_decode_checks_c1_to_c4_and_scope() {
     // C1: the header must parse, and name the body's height.
     let mut unparseable = plain.preimage(&inactive);
     unparseable[0] ^= 0x20;
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&unparseable, TairaGlobal),
         Err(CertifiedResultError::Header(FinalityHeaderError::X1))
     );
@@ -1428,11 +1510,11 @@ fn certified_result_check_order_is_pinned() {
     let other_root = [0x5a; 32];
 
     // 1. The preimage length, before the header is read.
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&[0; X_LEN], NonGlobal),
         Err(CertifiedResultError::PreimageLength(X_LEN))
     );
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&vec![0; MAX_RESULT_PREIMAGE_BYTES + 1], NonGlobal),
         Err(CertifiedResultError::PreimageLength(
             MAX_RESULT_PREIMAGE_BYTES + 1
@@ -1445,7 +1527,7 @@ fn certified_result_check_order_is_pinned() {
         ..active
     };
     let preimage = [reserved.to_bytes().as_slice(), &stored.bytes].concat();
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&preimage, NonGlobal),
         Err(CertifiedResultError::Header(FinalityHeaderError::X1))
     );
@@ -1453,7 +1535,7 @@ fn certified_result_check_order_is_pinned() {
     // 3. The scope rule, before the body is decoded: an active header over bytes that are no
     //    body.
     let no_body = [header(&active).as_bytes().as_slice(), &[0xff; 40]].concat();
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&no_body, NonGlobal),
         Err(CertifiedResultError::ActiveOutsideGlobal)
     );
@@ -1475,7 +1557,7 @@ fn certified_result_check_order_is_pinned() {
     let mut invalid = body.clone();
     invalid.execution.executed_block_wire_len = 0;
     let invalid_bytes = norito::encode_canonical(&invalid).unwrap();
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(
             &[wrong_height.as_bytes().as_slice(), &invalid_bytes].concat(),
             NonGlobal
@@ -1483,11 +1565,11 @@ fn certified_result_check_order_is_pinned() {
         Err(CertifiedResultError::Body(CommitmentError::WireLength(0)))
     );
     // `new` runs the same order from the scope rule on.
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::new(wrong_height, invalid.clone(), NonGlobal),
         Err(CertifiedResultError::Body(CommitmentError::WireLength(0)))
     );
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::new(header(&active), invalid, NonGlobal),
         Err(CertifiedResultError::ActiveOutsideGlobal)
     );
@@ -1536,13 +1618,13 @@ fn certified_result_new_applies_the_reader_checks() {
             assert_eq!(value.commitment(), &body);
         })
     };
-    assert_eq!(bind(&active, TairaGlobal), Ok(()));
-    assert_eq!(bind(&inactive_for(&body).fields(), NonGlobal), Ok(()));
-    assert_eq!(
+    assert_certified_eq!(bind(&active, TairaGlobal), Ok(()));
+    assert_certified_eq!(bind(&inactive_for(&body).fields(), NonGlobal), Ok(()));
+    assert_certified_eq!(
         bind(&active, NonGlobal),
         Err(CertifiedResultError::ActiveOutsideGlobal)
     );
-    assert_eq!(
+    assert_certified_eq!(
         bind(
             &SccpFinalityHeaderFieldsV1 {
                 height: 4,
@@ -1552,7 +1634,7 @@ fn certified_result_new_applies_the_reader_checks() {
         ),
         Err(CertifiedResultError::HeightMismatch { header: 4, body: 5 })
     );
-    assert_eq!(
+    assert_certified_eq!(
         bind(
             &SccpFinalityHeaderFieldsV1 {
                 network_id: [0x11; 32],
@@ -1562,7 +1644,7 @@ fn certified_result_new_applies_the_reader_checks() {
         ),
         Err(CertifiedResultError::NetworkMismatch)
     );
-    assert_eq!(
+    assert_certified_eq!(
         bind(
             &SccpFinalityHeaderFieldsV1 {
                 committee_root: [0x5a; 32],
@@ -1572,7 +1654,7 @@ fn certified_result_new_applies_the_reader_checks() {
         ),
         Err(CertifiedResultError::CommitteeRootMismatch)
     );
-    assert_eq!(
+    assert_certified_eq!(
         bind(&rotating_fields(&body, [0x5a; 32]), TairaGlobal),
         Err(CertifiedResultError::RotationMismatch)
     );
@@ -1626,20 +1708,24 @@ fn certified_result_assembles_without_checks_and_validates_afterwards() {
         let assembled = CertifiedResultV1::from_parts_unvalidated(header(&fields), body.clone());
         assert_eq!(assembled.header(), &header(&fields));
         assert_eq!(assembled.commitment(), &body);
-        assert_eq!(assembled.validate(scope), verdict);
-        assert_eq!(
+        assert_certified_eq!(assembled.validate(scope), verdict);
+        assert_certified_eq!(
             assembled.validate_with_validation(scope, &mut EpochValidationScope::new()),
             verdict
         );
         // `new` is the assembler followed by the check, and returns the same value.
-        assert_eq!(
+        match (
             CertifiedResultV1::new(header(&fields), body.clone(), scope),
-            verdict.clone().map(|()| assembled.clone())
-        );
+            &verdict,
+        ) {
+            (Ok(value), Ok(())) => assert_eq!(value, assembled),
+            (Err(actual), Err(expected)) => assert_certified_error(&actual, expected),
+            (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
+        }
         // A value that validates is the one `decode` reads back from its preimage.
         if verdict.is_ok() {
             let preimage = assembled.preimage().unwrap();
-            assert_eq!(CertifiedResultV1::decode(&preimage, scope), Ok(assembled));
+            assert_certified_eq!(CertifiedResultV1::decode(&preimage, scope), Ok(assembled));
         }
     }
 
@@ -1652,7 +1738,7 @@ fn certified_result_assembles_without_checks_and_validates_afterwards() {
         assembled.validate(TairaGlobal),
         Err(CertifiedResultError::Body(_))
     ));
-    assert_eq!(
+    assert_certified_eq!(
         assembled.validate(NonGlobal),
         Err(CertifiedResultError::ActiveOutsideGlobal)
     );
@@ -1660,7 +1746,7 @@ fn certified_result_assembles_without_checks_and_validates_afterwards() {
     let mut validation = EpochValidationScope::new();
     for _ in 0..2 {
         let assembled = CertifiedResultV1::from_parts_unvalidated(header(&active), body.clone());
-        assert_eq!(
+        assert_certified_eq!(
             assembled.validate_with_validation(TairaGlobal, &mut validation),
             Ok(())
         );
@@ -1671,15 +1757,15 @@ fn certified_result_assembles_without_checks_and_validates_afterwards() {
 fn certified_result_body_bound_is_checked_before_a_value_is_accepted() {
     // The bound itself: `MAX_RESULT_BODY_BYTES` is the largest body, and the error names the
     // preimage length the body would give.
-    assert_eq!(check_body_len(0), Ok(()));
-    assert_eq!(check_body_len(MAX_RESULT_BODY_BYTES), Ok(()));
-    assert_eq!(
+    assert_certified_eq!(check_body_len(0), Ok(()));
+    assert_certified_eq!(check_body_len(MAX_RESULT_BODY_BYTES), Ok(()));
+    assert_certified_eq!(
         check_body_len(MAX_RESULT_BODY_BYTES + 1),
         Err(CertifiedResultError::PreimageLength(
             MAX_RESULT_PREIMAGE_BYTES + 1
         ))
     );
-    assert_eq!(
+    assert_certified_eq!(
         check_body_len(usize::MAX),
         Err(CertifiedResultError::PreimageLength(usize::MAX))
     );
@@ -1688,7 +1774,7 @@ fn certified_result_body_bound_is_checked_before_a_value_is_accepted() {
     let value =
         CertifiedResultV1::new(header(&active_fields(&body)), body.clone(), TairaGlobal).unwrap();
     let body_len = norito::canonical_frame_len(&body).unwrap();
-    assert_eq!(value.body_len(), Ok(body_len));
+    assert_certified_eq!(value.body_len(), Ok(body_len));
     assert_eq!(value.preimage().unwrap().len(), X_LEN + body_len);
     assert!(body_len <= MAX_RESULT_BODY_BYTES);
 }
@@ -1714,14 +1800,14 @@ fn certified_result_decode_rejects_malformed_bodies_and_keeps_local_refusals() {
     let mut invalid = stored.body.clone();
     invalid.execution.executed_block_wire_len = 0;
     let invalid_bytes = norito::encode_canonical(&invalid).unwrap();
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(
             &[x.as_bytes().as_slice(), &invalid_bytes].concat(),
             NonGlobal
         ),
         Err(CertifiedResultError::Body(CommitmentError::WireLength(0)))
     );
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::new(x, invalid, NonGlobal),
         Err(CertifiedResultError::Body(CommitmentError::WireLength(0)))
     );
@@ -1737,7 +1823,8 @@ fn certified_result_decode_rejects_malformed_bodies_and_keeps_local_refusals() {
             value.commitment().height
         },
     );
-    assert_eq!((height, calls), (Ok(5), 1));
+    assert_certified_eq!(height, Ok(5));
+    assert_eq!(calls, 1);
     let wrong_height = SccpFinalityHeaderV1::inactive(network_of(&stored.body), 6, T0).unwrap();
     let rejected = CertifiedResultV1::decode_with_validation_into(
         &stored.preimage(&wrong_height),
@@ -1745,7 +1832,7 @@ fn certified_result_decode_rejects_malformed_bodies_and_keeps_local_refusals() {
         &mut EpochValidationScope::new(),
         |_| calls += 1,
     );
-    assert_eq!(
+    assert_certified_eq!(
         rejected,
         Err(CertifiedResultError::HeightMismatch { header: 6, body: 5 })
     );
@@ -1766,7 +1853,7 @@ fn certified_result_decode_rejects_malformed_bodies_and_keeps_local_refusals() {
         refused,
         Err(CertifiedResultError::Body(CommitmentError::Resource(_)))
     ));
-    assert_eq!(CertifiedResultV1::decode(&preimage, NonGlobal), Ok(decoded));
+    assert_certified_eq!(CertifiedResultV1::decode(&preimage, NonGlobal), Ok(decoded));
 }
 
 #[test]
@@ -1781,7 +1868,7 @@ fn certified_result_preimage_and_result_round_trip() {
         norito::encode_canonical(&body).unwrap()[..]
     );
     assert!(preimage.len() <= MAX_RESULT_PREIMAGE_BYTES);
-    assert_eq!(
+    assert_certified_eq!(
         CertifiedResultV1::decode(&preimage, TairaGlobal),
         Ok(value.clone())
     );
@@ -1789,7 +1876,11 @@ fn certified_result_preimage_and_result_round_trip() {
     let result = value.result().unwrap();
     assert_eq!(Some(result), result_of_preimage(&preimage));
     assert_eq!(result, outer_result(&x, &body_digest(&preimage[X_LEN..])));
-    // The only public result hash refuses retired body-only preimages.
+    // The public R function accepts only X ‖ body; there is no body-only result path.
+    assert_eq!(
+        crate::sumeragi_finality::result_of_preimage(&preimage),
+        Some(result)
+    );
     assert_eq!(
         crate::sumeragi_finality::result_of_preimage(&preimage[X_LEN..]),
         None
@@ -1804,10 +1895,10 @@ fn certified_result_check_block_enforces_c5() {
     let body = body_at(5, None);
     for x in [inactive_for(&body), header(&active_fields(&body))] {
         let value = CertifiedResultV1::new(x, body.clone(), TairaGlobal).unwrap();
-        assert_eq!(value.check_block(5, T0), Ok(()));
+        assert_certified_eq!(value.check_block(5, T0), Ok(()));
         // The block height and the block time are both bound, to the millisecond.
         for (height, timestamp_ms) in [(4, T0), (6, T0), (5, T0 - 1), (5, T0 + 1), (0, 0)] {
-            assert_eq!(
+            assert_certified_eq!(
                 value.check_block(height, timestamp_ms),
                 Err(CertifiedResultError::BlockMismatch),
                 "block {height} at {timestamp_ms}"

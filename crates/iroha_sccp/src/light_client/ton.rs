@@ -15,7 +15,7 @@
 //! back-link from such a block to an older masterchain block; the shard block the masterchain
 //! block registers for the minter's shard; at most 32 predecessor links (both predecessors
 //! after a merge, the parent shard after a split) down to the event block; and in it the
-//! minter's successful transaction and its `sccp_transfer_to_taira` or `sccp_voided`
+//! minter's successful transaction and its transfer, finalized-mint or void
 //! external-out message (§5.3.3). A transfer's payload must carry the event's amount, nonce and
 //! sender. Shard-link and transaction proofs may prune the block's `state_update`. TON keeps no
 //! checkpoints (stride or Parliament-installed): old masterchain blocks stay reachable through
@@ -232,7 +232,7 @@ pub struct TonShardLinkV1 {
     pub header_proof: Vec<u8>,
 }
 
-/// TON inbound or void proof.
+/// TON inbound, finalized-mint or void proof.
 #[derive(
     Clone,
     Debug,
@@ -711,7 +711,7 @@ fn check_event_payload(
     }
 }
 
-/// Verify a TON inbound or void proof.
+/// Verify a TON inbound, finalized-mint or void proof.
 pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
     profile: &TonChainProfileV1,
     view: &V,
@@ -767,6 +767,13 @@ pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
         index_in_block: u32::from(proof.message_index),
     };
     let event = match event {
+        TonSccpEventV1::Finalized { message_id, nonce } => SccpNormalizedEventV1::Finalized {
+            emitter,
+            message_id,
+            nonce,
+            amount: None,
+            locator,
+        },
         TonSccpEventV1::TransferToTaira {
             message_id,
             nonce,

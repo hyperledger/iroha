@@ -27,7 +27,10 @@ struct Fixture {
     qc: Qc,
 }
 fn fixture() -> Fixture {
-    let fixture = NativeFinalityFixture::new();
+    fixture_from_native(&NativeFinalityFixture::new())
+}
+
+fn fixture_from_native(fixture: &NativeFinalityFixture) -> Fixture {
     let parent = fixture
         .verifier()
         .verify_retained_decision(fixture.genesis_proof())
@@ -1017,3 +1020,53 @@ fn changed_merged_execution_suffix_cannot_use_the_original_result_certificate() 
     f.store.kura.store_block(changed).unwrap();
     assert!(f.store.committed_body(2).is_err());
 }
+
+/// Kura's structural execution check rejects retired bodies and X/carrier substitutions.
+#[test]
+fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
+    use iroha_data_model::sumeragi_finality::{
+        CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+    };
+    let f = fixture();
+    execution::validate(&f.executed, f.store.root_scope).unwrap();
+    let certificate = f.executed.commit_certificate().unwrap();
+    for mutation in 0..3 {
+        let (header, body) = CertifiedResultV1::decode(
+            certificate.result_preimage(),
+            CertifiedResultScope::TairaGlobal,
+        )
+        .unwrap()
+        .into_parts();
+        let preimage = if mutation == 0 {
+            body.preimage().unwrap()
+        } else {
+            let mut fields = header.fields();
+            if mutation == 1 {
+                fields.timestamp_ms += 1;
+            } else {
+                fields.network_id[0] ^= 1;
+            }
+            CertifiedResultV1::from_parts_unvalidated(
+                SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+                body,
+            )
+            .preimage()
+            .unwrap()
+        };
+        let changed = f.executed.as_ref().clone().with_commit_certificate(Some(
+            iroha_data_model::block::CommitCertificate::from_untrusted_parts(
+                certificate.consensus_header().to_vec(),
+                certificate.commit_qc().to_vec(),
+                preimage,
+                certificate.availability().to_vec(),
+            ),
+        ));
+        assert!(
+            matches!(execution::validate(&changed, f.store.root_scope), Err(Attempt::Rejected(error)) if error.kind() == io::ErrorKind::InvalidData),
+            "mutation {mutation}"
+        );
+    }
+}
+
+#[path = "replay_output_tests.rs"]
+mod replay_outputs;

@@ -835,43 +835,27 @@ pub mod isi {
                 )
             })
     }
-    fn verify_execution_proof(
-        proof: &iroha_data_model::proof::ProofBox,
-        execution: &RamLfeExecutionReceiptPayload,
-        verifier: &iroha_crypto::RamLfeProofVerifierMetadata,
-        guardrails: crate::zk::ZkVerifyGuardrails,
-    ) -> Result<(), Error> {
-        crate::smartcontracts::isi::ram_lfe::verify_execution_proof(
-            proof, execution, verifier, guardrails,
-        )
-        .map_err(|err| Error::InvariantViolation(err.into()))
-    }
     #[cfg(test)]
     mod proof_tests {
         use super::*;
         use iroha_crypto::RamLfeProofVerifierMetadata;
         use iroha_data_model::{
             proof::{ProofBox, VerifyingKeyBox},
-            ram_lfe::{RamLfeExecutionReceiptPayload, RamLfeProgramId},
             zk::{BackendTag, OpenVerifyEnvelope},
         };
-        use std::str::FromStr as _;
-        fn sample_proof_payload() -> RamLfeExecutionReceiptPayload {
-            RamLfeExecutionReceiptPayload {
-                program_id: RamLfeProgramId::from_str("identifier_proof_program")
-                    .expect("program id"),
-                program_digest: Hash::new(b"program"),
-                backend: RamLfeBackend::BfvProgrammedV1,
-                verification_mode: RamLfeVerificationMode::Proof,
-                input_ciphertext_hash: Hash::new(b"input-ciphertext"),
-                output_ciphertext_hash: Hash::new(b"output-ciphertext"),
-                parameter_digest: Hash::new(b"parameters"),
-                evaluation_key_digest: Hash::new(b"evaluation-keys"),
-                output_hash: Hash::new(b"output"),
-                associated_data_hash: Hash::new(b"associated-data"),
-                executed_at_ms: 100,
-                expires_at_ms: None,
-            }
+        /// Start from an admitted signed HKDF receipt, then test the proof-mode refusal.
+        fn validate_proof_mode_identifier_receipt(
+            proof: &ProofBox,
+            guardrails: crate::zk::ZkVerifyGuardrails,
+        ) -> Result<(), Error> {
+            let (policy, mut program, mut receipt, network, _) =
+                super::tests::current_owner_prf_receipt_fixture();
+            validate_program_receipt(&receipt, &policy, &program, &network, 1_001, guardrails)
+                .expect("signed HKDF control must pass the actual identifier receipt boundary");
+            program.verification_mode = RamLfeVerificationMode::Proof;
+            receipt.payload.execution.verification_mode = RamLfeVerificationMode::Proof;
+            receipt.attestation = RamLfeReceiptAttestation::Proof(proof.clone());
+            validate_program_receipt(&receipt, &policy, &program, &network, 1_001, guardrails)
         }
         fn sample_proof_verifier() -> RamLfeProofVerifierMetadata {
             RamLfeProofVerifierMetadata {
@@ -897,19 +881,8 @@ pub mod isi {
                 test_guardrails(),
             )
             .expect("control is a valid native public-input binding proof");
-            let verifier = RamLfeProofVerifierMetadata {
-                proof_backend: proof.backend.to_string(),
-                circuit_id: format!("{}:public-binding-demo", crate::zk::ZK_BACKEND_STARK_FRI_V1),
-                public_inputs_schema_hash: Hash::new(&fixture.public_inputs),
-                verifying_key_bytes: key.bytes,
-            };
-            let error = verify_execution_proof(
-                &proof,
-                &sample_proof_payload(),
-                &verifier,
-                test_guardrails(),
-            )
-            .expect_err("a valid binding proof cannot establish hidden program execution");
+            let error = validate_proof_mode_identifier_receipt(&proof, test_guardrails())
+                .expect_err("a valid binding proof cannot establish hidden program execution");
             assert!(
                 error
                     .to_string()
@@ -953,13 +926,11 @@ pub mod isi {
         #[test]
         fn identifier_verify_execution_proof_rejects_noncanonical_envelope_metadata() {
             let verifier = sample_proof_verifier();
-            let execution = sample_proof_payload();
             let bad_backend = sample_proof_box(&verifier, |envelope| {
                 envelope.backend = BackendTag::Stark;
             });
-            let err =
-                verify_execution_proof(&bad_backend, &execution, &verifier, test_guardrails())
-                    .expect_err("wrong envelope backend tag must reject before proof parsing");
+            let err = validate_proof_mode_identifier_receipt(&bad_backend, test_guardrails())
+                .expect_err("wrong envelope backend tag must reject before proof parsing");
             let message = err.to_string();
             assert!(
                 message.contains("no compiled program-execution proof relation"),
@@ -978,13 +949,10 @@ pub mod isi {
                 let mut backend_verifier = verifier.clone();
                 backend_verifier.proof_backend = backend.to_owned();
                 let backend_proof = sample_proof_box(&backend_verifier, |_| {});
-                let err = verify_execution_proof(
-                    &backend_proof,
-                    &execution,
-                    &backend_verifier,
-                    test_guardrails(),
-                )
-                .expect_err("unexpected RAM-LFE verifier backend must reject before proof parsing");
+                let err = validate_proof_mode_identifier_receipt(&backend_proof, test_guardrails())
+                    .expect_err(
+                        "unexpected RAM-LFE verifier backend must reject before proof parsing",
+                    );
                 let message = err.to_string();
                 assert!(
                     message.contains(expected_message),
@@ -994,7 +962,7 @@ pub mod isi {
             let aux = sample_proof_box(&verifier, |envelope| {
                 envelope.aux = b"unbound-identifier-proof-metadata".to_vec();
             });
-            let err = verify_execution_proof(&aux, &execution, &verifier, test_guardrails())
+            let err = validate_proof_mode_identifier_receipt(&aux, test_guardrails())
                 .expect_err("non-empty auxiliary bytes must reject before proof parsing");
             let message = err.to_string();
             assert!(
@@ -1004,9 +972,8 @@ pub mod isi {
             let zero_vk_hash = sample_proof_box(&verifier, |envelope| {
                 envelope.vk_hash = [0u8; Hash::LENGTH];
             });
-            let err =
-                verify_execution_proof(&zero_vk_hash, &execution, &verifier, test_guardrails())
-                    .expect_err("zero verifier-key hash must reject before proof parsing");
+            let err = validate_proof_mode_identifier_receipt(&zero_vk_hash, test_guardrails())
+                .expect_err("zero verifier-key hash must reject before proof parsing");
             let message = err.to_string();
             assert!(
                 message.contains("no compiled program-execution proof relation"),
@@ -1015,9 +982,8 @@ pub mod isi {
             let schema_drift = sample_proof_box(&verifier, |envelope| {
                 envelope.public_inputs.extend_from_slice(b":schema-drift");
             });
-            let err =
-                verify_execution_proof(&schema_drift, &execution, &verifier, test_guardrails())
-                    .expect_err("public-input schema drift must reject before proof parsing");
+            let err = validate_proof_mode_identifier_receipt(&schema_drift, test_guardrails())
+                .expect_err("public-input schema drift must reject before proof parsing");
             let message = err.to_string();
             assert!(
                 message.contains("no compiled program-execution proof relation"),
@@ -1026,9 +992,8 @@ pub mod isi {
             let wrong_vk_hash = sample_proof_box(&verifier, |envelope| {
                 envelope.vk_hash = [0xA5; Hash::LENGTH];
             });
-            let err =
-                verify_execution_proof(&wrong_vk_hash, &execution, &verifier, test_guardrails())
-                    .expect_err("wrong verifier-key hash must reject before proof parsing");
+            let err = validate_proof_mode_identifier_receipt(&wrong_vk_hash, test_guardrails())
+                .expect_err("wrong verifier-key hash must reject before proof parsing");
             let message = err.to_string();
             assert!(
                 message.contains("no compiled program-execution proof relation"),
@@ -1038,7 +1003,6 @@ pub mod isi {
         #[test]
         fn identifier_verify_execution_proof_rejects_alternate_norito_layout() {
             let verifier = sample_proof_verifier();
-            let execution = sample_proof_payload();
             let canonical = sample_proof_box(&verifier, |_| {});
             let envelope = norito::decode_canonical::<OpenVerifyEnvelope>(&canonical.bytes)
                 .expect("decode canonical identifier proof envelope");
@@ -1051,7 +1015,7 @@ pub mod isi {
             };
             assert_ne!(alternate_bytes, canonical.bytes);
             let alternate = ProofBox::new(canonical.backend, alternate_bytes);
-            let err = verify_execution_proof(&alternate, &execution, &verifier, test_guardrails())
+            let err = validate_proof_mode_identifier_receipt(&alternate, test_guardrails())
                 .expect_err("alternate-layout identifier proof envelope must reject");
             assert!(
                 err.to_string()
@@ -1062,12 +1026,12 @@ pub mod isi {
         #[test]
         fn identifier_verify_execution_proof_refuses_even_when_backend_is_disabled() {
             let verifier = sample_proof_verifier();
-            let execution = sample_proof_payload();
             let proof = sample_proof_box(&verifier, |_| {});
             let mut guardrails = test_guardrails();
             guardrails.pipa_r_enabled = false;
-            let err = verify_execution_proof(&proof, &execution, &verifier, guardrails)
-                .expect_err("identifier claim verification must honor disabled native PIPA-R");
+            let err = validate_proof_mode_identifier_receipt(&proof, guardrails).expect_err(
+                "unavailable proof-mode receipt must refuse even with native PIPA-R disabled",
+            );
             assert!(
                 err.to_string()
                     .contains("no compiled program-execution proof relation"),

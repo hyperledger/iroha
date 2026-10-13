@@ -36,7 +36,7 @@ fn original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_ex
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
             panic!("the actual available body must execute before certification refusal");
         };
         let qc = chain.commit_qc(
@@ -166,6 +166,8 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
                 block.header(),
                 block.payload().as_slice(),
                 worker.state,
+                None,
+                None,
             )
             .unpack(|_| {})
             .map(|_| ())
@@ -180,7 +182,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity
         );
         assert!(matches!(
-            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash)),
+            norito::with_decode_limits_scope(limits, || worker.execute(&block, hash, false)),
             Some(ExecOutcome::Failed(_))
         ));
         assert_eq!(
@@ -211,7 +213,7 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
                 .unwrap()
         );
         assert!(matches!(
-            worker.execute(&block, hash),
+            worker.execute(&block, hash, false),
             Some(ExecOutcome::Valid(_))
         ));
         let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase else {
@@ -242,7 +244,7 @@ fn prepared_certificate_busy_retries_same_execution_after_original_reader_releas
     publication_tests::with_worker(|chain, worker, _blocks, events| {
         let block = publication_tests::proposal(chain, worker);
         let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
             panic!("the actual signed body must execute before reader contention");
         };
         let qc = chain.commit_qc(
@@ -550,6 +552,7 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: Default::default(),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -563,7 +566,7 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
             let mut reached_lane_finalizer = false;
             for probe in 0..128 {
                 budget.set_limit_bytes(ceiling);
-                let outcome = worker.run_execution(&block, hash);
+                let outcome = worker.run_execution(&block, hash, false);
                 eprintln!(
                     "native finalizer capacity probe {probe}: ceiling={ceiling}, reserved={}, decoded={}, finishing={}, live={}, outcome={outcome:?}",
                     budget.reserved_bytes(),
@@ -699,7 +702,7 @@ fn original_lane_finalizer_refusal_returns_same_graph_before_seal_and_publishes_
                 reached_lane_finalizer,
                 "native capacity probes reached the real late lane step"
             );
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
                 panic!("the same original proposal retries after local capacity is restored");
             };
             let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase
@@ -760,6 +763,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 decoded: None,
                 returned_refusal: None,
                 amx_legs: None,
+                parent_service: Default::default(),
             };
             let entries = attempt
                 .original_decoded(&budget)
@@ -795,6 +799,8 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 block.header(),
                 block.payload().as_slice(),
                 worker.state,
+                None,
+                None,
             )
             .unpack(|event| recorded_events.push(event.into()))
             .expect("actual available proposal seals its real execution and witness");
@@ -831,6 +837,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 overlay,
                 committee,
                 recorded_events,
+                None, // This isolated handoff test does not return an execution verdict.
             );
             if fault == 0 {
                 assert!(outcome.unwrap().is_some());
@@ -846,7 +853,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
                 original.witness.verify_source_binding().unwrap();
                 assert!(worker.recovery.is_none());
                 assert!(worker.signature_decode.is_none());
-                let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+                let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
                     panic!("ordinary witness handoff completes the same actual execution");
                 };
                 let qc = chain.commit_qc(
@@ -894,7 +901,7 @@ fn validated_witness_guard_failure_requires_recovery_without_reexecuting_origina
             let decoder = std::ptr::from_ref(&original_decode.decoder);
             let expected = PublicationError::RecoveryRequired(reason.clone()).to_string();
             assert!(matches!(
-                worker.execute(&block, hash),
+                worker.execute(&block, hash, false),
                 Some(ExecOutcome::Failed(report)) if report == expected
             ));
             assert_eq!(worker.recovery.as_deref(), Some(reason.as_str()));
@@ -961,7 +968,7 @@ fn prepared_certificate_uses_bounded_signed_root_without_rewalking_execution_his
             assert_eq!(chain.validators().len(), 4);
             let block = publication_tests::proposal(chain, worker);
             let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
-            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash) else {
+            let Some(ExecOutcome::Valid(result)) = worker.execute(&block, hash, false) else {
                 panic!("the genuine successor executes under its original native parent");
             };
             let qc = chain.commit_qc(block.header().height, hash, result, Signers::Quorum);

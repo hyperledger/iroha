@@ -316,3 +316,36 @@ fn interrupted_directory_creation_repairs_every_ancestor_on_retry() {
         assert_eq!(*existing.0.lock().unwrap(), repaired);
     }
 }
+
+struct RemoveExistingBeforeSync(AtomicBool);
+impl Faults for RemoveExistingBeforeSync {
+    fn before(&self, step: FsStep, path: &Path) -> io::Result<()> {
+        if step == FsStep::SyncFile && self.0.swap(false, Ordering::SeqCst) {
+            fs::rename(path, path.with_file_name("original-frame"))?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn late_existing_artifact_loss_is_not_reclassified_as_initial_absence() {
+    let dir = Directory::new();
+    publish(&NoFaults, &dir.0, "frame", b"original").unwrap();
+    let faults = RemoveExistingBeforeSync(AtomicBool::new(true));
+    assert_eq!(
+        publish(&faults, &dir.0, "frame", b"original")
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::NotFound
+    );
+    assert!(!faults.0.load(Ordering::SeqCst));
+    assert!(
+        !dir.0.join("frame").exists(),
+        "late source loss cannot silently publish a new frame"
+    );
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+    assert_eq!(fs::read(dir.0.join("original-frame")).unwrap(), b"original");
+    fs::rename(dir.0.join("original-frame"), dir.0.join("frame")).unwrap();
+    publish(&NoFaults, &dir.0, "frame", b"original").unwrap();
+    check_exact(&dir.0.join("frame"), b"original").unwrap();
+}

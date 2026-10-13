@@ -14,12 +14,14 @@
 //! attempt creation and enactment.
 
 use super::{
-    deployment::{SccpCommitteePinV1, SccpDeploymentV1},
+    deployment::SccpCommitteePinV1,
+    deployment::SccpDeploymentV1,
     light_client::{
         SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcBootstrapV1,
         SccpLcCheckpointDataV1, SccpLcInitExpectationV1, SccpLightClientParamsError,
         SccpLightClientParamsV1,
     },
+    native::SccpNativeDataError,
     params::{SccpParametersError, SccpParametersV1},
 };
 use crate::{
@@ -83,12 +85,108 @@ pub enum SccpGovernanceSubjectV1 {
     #[codec(index = 3)]
     #[norito(rename = "parameters")]
     Parameters,
+    /// Permanent evidence holds, destination progress and quarantine of one network.
+    #[codec(index = 5)]
+    #[norito(rename = "forgery_hold")]
+    ForgeryHold(SccpNetworkV1),
+}
+
+/// Destination fact attested by Parliament to raise a revision's forgery floor.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito(tag = "at", content = "detail")]
+#[norito_schema(name = "iroha_data_model::sccp::governance::SccpDeploymentProgressV1")]
+pub enum SccpDeploymentProgressV1 {
+    /// The deployment reached this genuine retained committee generation.
+    #[codec(index = 0)]
+    #[norito(rename = "generation")]
+    Generation {
+        /// Generation reached by the deployment.
+        generation: u64,
+        /// Exact root of the retained original generation.
+        committee_root: [u8; 32],
+    },
+    /// The deployment is permanently frozen at a genuine generation.
+    #[codec(index = 1)]
+    #[norito(rename = "frozen")]
+    Frozen,
+}
+
+/// Parliament's authenticated destination-progress attestation (§4.10).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sccp::governance::SccpAttestDeploymentProgressActionV1")]
+pub struct SccpAttestDeploymentProgressActionV1 {
+    /// External destination network.
+    pub network: SccpNetworkV1,
+    /// Registered revision whose floor is raised.
+    pub revision: u32,
+    /// Fact certified by the Parliament effect; not a destination proof by itself.
+    pub at: SccpDeploymentProgressV1,
+}
+
+/// Open the sole forged-mint proof window of a quarantined revision (§4.10 R2).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Decode,
+    Encode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::sccp::governance::SccpOpenReconciliationActionV1")]
+pub struct SccpOpenReconciliationActionV1 {
+    /// External destination network.
+    pub network: SccpNetworkV1,
+    /// Permanently quarantined route revision.
+    pub revision: u32,
+    /// Nonzero proof-window duration, added with overflow checking at enactment.
+    pub window_ms: u64,
 }
 
 /// `RegisterRoute`: stage a new revision bound to one destination deployment.
 ///
-/// The required pin is checked against authenticated retained generations at enactment.
-/// Static checks validate only its shape; Core keeps registration fail-closed until P0–P5 are complete.
+/// The pin is mandatory DATA. Core must authenticate it against retained generations, every
+/// intervening deadline, resolved membership and the destination deployment (§4.14.3 P0–P5).
 #[derive(
     Debug,
     Clone,
@@ -116,7 +214,7 @@ pub struct SccpRegisterRouteActionV1 {
     pub revision: u32,
     /// Deployed destination contract.
     pub deployment: SccpDeploymentV1,
-    /// Immutable committee pin of the deployed destination; authenticated at enactment.
+    /// Required native committee installed by the actual destination deployment.
     pub initial_committee: SccpCommitteePinV1,
     /// Supply cap in Taira units (equal to token units); equals the contract cap.
     #[norito(json = "crate::json_helpers::u128_string")]
@@ -500,6 +598,18 @@ pub enum SccpGovernanceActionV1 {
     #[codec(index = 14)]
     #[norito(rename = "activate_light_client_profile")]
     ActivateLightClientProfile(SccpActivateLightClientProfileActionV1),
+    /// Raise a revision's monotone forgery floor (subject `ForgeryHold`).
+    #[codec(index = 15)]
+    #[norito(rename = "attest_deployment_progress")]
+    AttestSccpDeploymentProgress(SccpAttestDeploymentProgressActionV1),
+    /// Permanently quarantine a captured revision (subject `ForgeryHold`).
+    #[codec(index = 16)]
+    #[norito(rename = "quarantine_revision")]
+    QuarantineSccpRevision(SccpRouteRevisionActionV1),
+    /// Open a quarantined revision's only reconciliation window (subject `ForgeryHold`).
+    #[codec(index = 17)]
+    #[norito(rename = "open_reconciliation")]
+    OpenSccpReconciliation(SccpOpenReconciliationActionV1),
 }
 
 /// One entry of `base_revisions`: a subject and the `rev(s)` the proposer saw.
@@ -604,12 +714,6 @@ pub enum SccpGovernanceStaticError {
         /// Index of the offending action.
         action: usize,
     },
-    /// `RegisterRoute` carries a zero generation, root, start height or trust deadline.
-    #[error("action {action} registers a malformed initial_committee")]
-    InvalidInitialCommittee {
-        /// Index of the offending action.
-        action: usize,
-    },
     /// A TON `RegisterRoute` carries `max_wrapped_supply ≥ 2^96`.
     #[error("action {action} registers a TON max_wrapped_supply of 2^96 or more")]
     TonMaxWrappedSupplyTooLarge {
@@ -621,6 +725,14 @@ pub enum SccpGovernanceStaticError {
     DeploymentNetworkMismatch {
         /// Index of the offending action.
         action: usize,
+    },
+    /// `RegisterRoute` carries a malformed native committee pin.
+    #[error("action {action} has an invalid native committee pin: {error}")]
+    InvalidCommitteePin {
+        /// Index of the offending action.
+        action: usize,
+        /// Violated state-independent pin rule.
+        error: SccpNativeDataError,
     },
     /// Two `RegisterRoute` actions of the proposal share a destination word.
     #[error("action {action} repeats the destination word registered by action {first}")]
@@ -710,6 +822,18 @@ pub enum SccpGovernanceStaticError {
         /// Violated parameter rule.
         error: SccpParametersError,
     },
+    /// An attestation carries generation zero or a zero committee root.
+    #[error("action {action} has an invalid destination progress generation or root")]
+    InvalidDeploymentProgress {
+        /// Index of the offending action.
+        action: usize,
+    },
+    /// An opening must allow a nonempty proof window.
+    #[error("action {action} has a zero reconciliation window")]
+    ZeroReconciliationWindow {
+        /// Index of the offending action.
+        action: usize,
+    },
     /// `base_revisions` does not list exactly `S(P)` in ascending order.
     #[error("base_revisions must list exactly the proposal's subjects in ascending order")]
     BaseRevisionsMismatch,
@@ -750,6 +874,15 @@ impl SccpGovernanceActionV1 {
                 ..
             }) => SccpGovernanceSubjectV1::LightClient(*network),
             Self::SetParameters(_) => SccpGovernanceSubjectV1::Parameters,
+            Self::AttestSccpDeploymentProgress(action) => {
+                SccpGovernanceSubjectV1::ForgeryHold(action.network)
+            }
+            Self::QuarantineSccpRevision(action) => {
+                SccpGovernanceSubjectV1::ForgeryHold(action.network)
+            }
+            Self::OpenSccpReconciliation(action) => {
+                SccpGovernanceSubjectV1::ForgeryHold(action.network)
+            }
         }
     }
 
@@ -759,7 +892,8 @@ impl SccpGovernanceActionV1 {
         match self.subject() {
             SccpGovernanceSubjectV1::Route(network)
             | SccpGovernanceSubjectV1::RouteControl(network)
-            | SccpGovernanceSubjectV1::LightClient(network) => Some(network),
+            | SccpGovernanceSubjectV1::LightClient(network)
+            | SccpGovernanceSubjectV1::ForgeryHold(network) => Some(network),
             SccpGovernanceSubjectV1::Parameters => None,
         }
     }
@@ -769,6 +903,8 @@ impl SccpGovernanceActionV1 {
     pub fn first_json_u64_violation(&self) -> Option<&'static str> {
         let maximum = SCCP_JSON_SAFE_U64_MAX_V1;
         match self {
+            Self::OpenSccpReconciliation(action) => (action.window_ms > maximum)
+                .then_some("reconciliation window_ms exceeds the exact JSON u64 bound"),
             Self::InitializeLightClient(action) => action.params.first_json_u64_violation(maximum),
             Self::InstallTrustedCheckpoint(action) => {
                 action.checkpoint.first_json_u64_violation(maximum)
@@ -777,18 +913,23 @@ impl SccpGovernanceActionV1 {
             Self::RegisterRoute(action) => {
                 let pin = action.initial_committee;
                 if pin.generation > maximum {
-                    Some("SCCP initial_committee.generation exceeds the exact JSON integer maximum")
+                    Some("initial_committee.generation exceeds the exact JSON u64 bound")
                 } else if pin.start_height > maximum {
-                    Some(
-                        "SCCP initial_committee.start_height exceeds the exact JSON integer maximum",
-                    )
+                    Some("initial_committee.start_height exceeds the exact JSON u64 bound")
                 } else if pin.until_ms > maximum {
-                    Some("SCCP initial_committee.until_ms exceeds the exact JSON integer maximum")
+                    Some("initial_committee.until_ms exceeds the exact JSON u64 bound")
                 } else {
                     None
                 }
             }
+            Self::AttestSccpDeploymentProgress(action) => match action.at {
+                SccpDeploymentProgressV1::Generation { generation, .. } if generation > maximum => {
+                    Some("attested generation exceeds the exact JSON u64 bound")
+                }
+                _ => None,
+            },
             Self::ActivateRevision(_)
+            | Self::QuarantineSccpRevision(_)
             | Self::SwitchRevision(_)
             | Self::DeactivateOutbound(_)
             | Self::RetireRevision(_)
@@ -815,11 +956,22 @@ impl SccpGovernanceActionV1 {
             }
         };
         match self {
+            Self::OpenSccpReconciliation(open) => {
+                nonzero(open.revision)?;
+                if open.window_ms == 0 {
+                    return Err(SccpGovernanceStaticError::ZeroReconciliationWindow { action });
+                }
+                Ok(())
+            }
             Self::RegisterRoute(register) => {
                 nonzero(register.revision)?;
-                if !register.initial_committee.is_well_formed() {
-                    return Err(SccpGovernanceStaticError::InvalidInitialCommittee { action });
-                }
+                register
+                    .initial_committee
+                    .validate_shape()
+                    .map_err(|error| SccpGovernanceStaticError::InvalidCommitteePin {
+                        action,
+                        error,
+                    })?;
                 if register.max_wrapped_supply == 0 {
                     return Err(SccpGovernanceStaticError::ZeroMaxWrappedSupply { action });
                 }
@@ -833,7 +985,20 @@ impl SccpGovernanceActionV1 {
                 }
                 Ok(())
             }
+            Self::AttestSccpDeploymentProgress(progress) => {
+                nonzero(progress.revision)?;
+                if let SccpDeploymentProgressV1::Generation {
+                    generation,
+                    committee_root,
+                } = progress.at
+                    && (generation == 0 || committee_root == [0; 32])
+                {
+                    return Err(SccpGovernanceStaticError::InvalidDeploymentProgress { action });
+                }
+                Ok(())
+            }
             Self::ActivateRevision(target)
+            | Self::QuarantineSccpRevision(target)
             | Self::DeactivateOutbound(target)
             | Self::RetireRevision(target)
             | Self::RemoveStaged(target) => nonzero(target.revision),

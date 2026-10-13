@@ -10,10 +10,12 @@ JSON value and complete root, `Vec` and `Option` Norito frames: 75 values and
 225 frames in total.
 
 The fixture SHA-256 is
-`eb120ac68e8a96bd0739424347fb6e6045e312a02edcc46e996cbe48b60c56a1`.
+`5bd5a2c0db18dd7176bdcf22af981e18c37a395b53c2072005ca14c0db0fe6cc`.
 The `BridgeEventSet` and `ConfigurationEventSet` full-set cases were re-derived
 on 2026-09-28 for the current event sets; every other value and frame is the
-original capture.
+original capture except `AccountRecoveryEventSet`'s full-set case, re-derived
+on 2026-10-13 to include the implemented `CancellationApproved` event. Its
+identity and empty/first-event frames are unchanged.
 The nominal names and both directional schema hashes also match the controlled
 model capture described in [the schema identity specification](../../../../specs/norito_schema_identity.md),
 whose report SHA-256 is

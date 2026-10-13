@@ -566,6 +566,7 @@ fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
     assert_eq!(budget.reserved_bytes(), prefix_bytes);
     let admitted = &mut slot.as_mut_slice()[0];
     assert_eq!(admitted.instance(), owned.instance());
+    assert_eq!(admitted.root_scope, owned.root_scope);
     assert_eq!(
         admitted.current_epoch_context(),
         owned.current_epoch_context()

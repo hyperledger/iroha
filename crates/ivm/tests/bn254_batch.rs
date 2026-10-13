@@ -1,5 +1,8 @@
 //! Caller-owned BN254 parity, malformed-input and explicit hardware controls.
 
+/// Exact completion increases required by these native parity tests.
+#[path = "support/cuda_completion_increase.rs"]
+mod cuda_completion_increase;
 /// Shared exact-owner CUDA completion controls.
 #[path = "support/cuda_completions.rs"]
 pub mod cuda_completions;
@@ -33,7 +36,7 @@ fn check_parity(batch: Batch, relation: Relation, native: Option<ivm::CudaKernel
         assert!(batch(&left[..count], &right[..count], &mut output[..count]));
         if let Some(kernel) = native.filter(|_| count != 0) {
             assert!(
-                cuda_completions::increased(dispatches.as_ref().unwrap(), kernel),
+                cuda_completion_increase::increased(dispatches.as_ref().unwrap(), kernel),
                 "native parity requires actual completed dispatches"
             );
         }

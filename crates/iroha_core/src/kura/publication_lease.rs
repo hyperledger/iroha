@@ -111,13 +111,24 @@ impl Kura {
 
     /// Acquire prune, canonical, geometry and sidecar ownership without waiting.
     ///
-    /// Every refusal releases all earlier guards before returning. The release
-    /// observation belongs only to the failed lock; unwinding earlier successful
-    /// probes therefore cannot wake this attempt itself. Retry must perform all
-    /// exact storage checks again. The lease alone does not admit publication.
+    /// Every refusal releases all earlier guards before returning. Callers with
+    /// enclosing physical owners use the retained publication slot instead.
     pub(crate) fn try_publication_lease(
         &self,
     ) -> Result<KuraPublicationLease<'_>, KuraPublicationPreparationError> {
+        let mut fences = AcquiredKuraPublicationFences::new();
+        let pending_canonical_bytes = self.prepare_publication_fences(&mut fences)?;
+        Ok(KuraPublicationLease {
+            kura: self,
+            pending_canonical_bytes,
+            fences,
+        })
+    }
+
+    fn prepare_publication_fences<'kura>(
+        &'kura self,
+        fences: &mut AcquiredKuraPublicationFences<'kura>,
+    ) -> Result<u64, KuraPublicationPreparationError> {
         fn acquire<'kura>(
             field: &'static str,
             lock: &'kura PublicationMutex,
@@ -129,7 +140,6 @@ impl Kura {
         // lock-release dependency, even when another physical owner is busy.
         self.ensure_canonical_storage_not_poisoned()
             .map_err(KuraPublicationPreparationError::Storage)?;
-        let mut fences = AcquiredKuraPublicationFences::new();
         fences.prune = Some(acquire("prune_lock", &self.prune_lock)?);
         // Active pruning also sets this flag while it owns prune_lock. Only
         // classify it as restart-required after acquiring that actual owner.
@@ -144,11 +154,7 @@ impl Kura {
             .map_err(KuraPublicationPreparationError::Storage)?;
         self.ensure_canonical_storage_not_poisoned()
             .map_err(KuraPublicationPreparationError::Storage)?;
-        Ok(KuraPublicationLease {
-            kura: self,
-            pending_canonical_bytes,
-            fences,
-        })
+        Ok(pending_canonical_bytes)
     }
 }
 
@@ -208,3 +214,6 @@ impl KuraPublicationLease<'_> {
 #[cfg(test)]
 #[path = "publication_lease_tests.rs"]
 mod tests;
+
+mod retained;
+pub(crate) use retained::KuraPublicationSlot;

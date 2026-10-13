@@ -54,11 +54,13 @@ fn resource_contract_state(max_block_bytes: u32) -> State {
     let world = world_with_test_domains();
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
-            iroha_data_model::parameter::system::SumeragiParameter::MaxBlockBytes(
-                std::num::NonZeroU32::new(max_block_bytes).expect("nonzero payload limit"),
-            ),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(
+                iroha_data_model::parameter::system::SumeragiParameter::MaxBlockBytes(
+                    std::num::NonZeroU32::new(max_block_bytes).expect("nonzero payload limit"),
+                ),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut state = State::new(
@@ -215,16 +217,29 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
         push(at_limit.clone()).expect("the bound itself is includable");
         assert_eq!(queue.active_len(), 1);
         // The proposer selects what the queue admitted, within the same budget.
-        let selected = crate::sumeragi::payload::select(&state, &queue, budget, 0).unwrap();
+        let selected = crate::sumeragi::payload::select(
+            &state.view(),
+            &queue,
+            budget,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now(),
+        )
+        .unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(
             selected[0].hash_as_entrypoint(),
             at_limit.hash_as_entrypoint()
         );
         assert!(
-            crate::sumeragi::payload::select(&state, &queue, budget - 1, 0)
-                .unwrap()
-                .is_empty(),
+            crate::sumeragi::payload::select(
+                &state.view(),
+                &queue,
+                budget - 1,
+                &crate::sumeragi::payload::MergeProposal::default(),
+                iroha_primitives::time::TimeSource::new_system().now()
+            )
+            .unwrap()
+            .is_empty(),
             "one byte less budget cannot carry the transaction"
         );
     }
@@ -238,14 +253,26 @@ fn queue_admission_and_proposer_selection_share_the_includable_bound() {
         .push(one_over.clone(), roomy.view())
         .expect("one more payload byte admits one more transaction byte");
     assert!(
-        crate::sumeragi::payload::select(&roomy, &queue, budget, 0)
-            .unwrap()
-            .is_empty()
+        crate::sumeragi::payload::select(
+            &roomy.view(),
+            &queue,
+            budget,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .is_empty()
     );
     assert_eq!(
-        crate::sumeragi::payload::select(&roomy, &queue, budget + 1, 0)
-            .unwrap()
-            .len(),
+        crate::sumeragi::payload::select(
+            &roomy.view(),
+            &queue,
+            budget + 1,
+            &crate::sumeragi::payload::MergeProposal::default(),
+            iroha_primitives::time::TimeSource::new_system().now()
+        )
+        .unwrap()
+        .len(),
         1
     );
 }
@@ -371,7 +398,8 @@ fn includable_bound_follows_the_route_and_an_unreadable_policy_defers() {
         world
             .parameters
             .get_mut()
-            .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+            .set_parameter(Parameter::Custom(policy.into_custom_parameter()))
+            .expect("valid fixture parameters");
         world.commit();
     }
     assert_eq!(check(&state), Err(ExecutionAttemptError::Rejected(never)));
@@ -517,7 +545,14 @@ fn default_limits_admit_and_select_the_largest_includable_transaction() {
         .expect("the largest includable transaction is admitted");
     // The proposer's budget is the committed payload limit less the reserve.
     let budget = usize::try_from(includable).unwrap();
-    let selected = crate::sumeragi::payload::select(&state, &queue, budget, 0).unwrap();
+    let selected = crate::sumeragi::payload::select(
+        &state.view(),
+        &queue,
+        budget,
+        &crate::sumeragi::payload::MergeProposal::default(),
+        iroha_primitives::time::TimeSource::new_system().now(),
+    )
+    .unwrap();
     assert_eq!(selected.len(), 1);
     assert_eq!(
         selected[0].hash_as_entrypoint(),
@@ -532,6 +567,9 @@ struct DeferredInclusionAccess(crate::execution_attempt::ExecutionDeferred);
 
 impl QueueAdmissionStateAccess for DeferredInclusionAccess {
     fn authority_exists(&mut self, _authority: &AccountId) -> bool {
+        panic!("admission continued after a deferred includable assessment")
+    }
+    fn verification_gas(&mut self) -> iroha_config::parameters::actual::ConfidentialGas {
         panic!("admission continued after a deferred includable assessment")
     }
     fn check_includable_transaction(
@@ -549,8 +587,9 @@ impl QueueAdmissionStateAccess for DeferredInclusionAccess {
     }
     fn sccp_exempt_admission(
         &mut self,
+        _queue: &Queue,
         _transaction: &SignedTransaction,
-    ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
+    ) -> Result<Option<SccpAdmissionKeysV1>, Error> {
         panic!("admission continued after a deferred includable assessment")
     }
     fn manifest_authority_eligible_lanes(
@@ -644,4 +683,147 @@ fn deferred_includable_assessment_defers_queue_admission_without_custody() {
         .push(transaction, state.view())
         .expect("the completed assessment admits the same transaction");
     assert_eq!(queue.active_len(), 1);
+}
+
+/// A queue fixture whose chain commits `policy` and whose node installed `node`.
+fn committed_zk_policy_state(
+    policy: &iroha_data_model::zk_validity_policy::ZkValidityPolicyV1,
+    node: Option<iroha_config::parameters::actual::Zk>,
+) -> State {
+    let world = world_with_test_domains();
+    {
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                policy.clone().into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
+        parameters.commit();
+    }
+    let mut state = State::new(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    if let Some(node) = node {
+        state
+            .install_node_zk(node)
+            .expect("node ZK resources install");
+    }
+    state
+}
+
+/// Queue admission prices a proof-bearing instruction with the verification gas schedule of
+/// the committed ZK validity policy its admission view holds: not with the protocol default,
+/// and not with a schedule the node installed.
+#[test]
+fn queue_admission_prices_a_proof_instruction_with_the_committed_gas_schedule() {
+    use iroha_data_model::{
+        isi::zk::VerifyProof,
+        proof::{ProofAttachment, VerifyingKeyId},
+        zk_validity_policy::ZkValidityPolicyV1,
+    };
+    let mut policy = ZkValidityPolicyV1::protocol_default();
+    policy.gas.proof_base += 17;
+    policy.gas.per_public_input += 5;
+    policy.gas.per_proof_byte += 3;
+    policy
+        .validate()
+        .expect("a policy that differs in gas is valid");
+    let committed = iroha_config::parameters::actual::ConfidentialGas {
+        proof_base: policy.gas.proof_base,
+        per_public_input: policy.gas.per_public_input,
+        per_proof_byte: policy.gas.per_proof_byte,
+        per_nullifier: policy.gas.per_nullifier,
+        per_commitment: policy.gas.per_commitment,
+    };
+    // A node that installed another schedule: admission must not read it.
+    let mut divergent = crate::state::default_zk_config();
+    divergent.gas.proof_base = 1;
+    divergent.gas.per_proof_byte = 1_000;
+
+    let fixture = crate::zk::test_utils::native_framing_fixture_envelope(
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID,
+        [0u8; 32],
+    );
+    let proof_box = fixture.proof_box("pipa-r/pasta");
+    let attachment = ProofAttachment::new_ref(
+        proof_box.backend.clone(),
+        proof_box,
+        VerifyingKeyId::new("pipa-r/pasta", "vk-queue-admission"),
+    );
+    let proof_bytes = attachment.proof.bytes.len() as u64;
+    // The outer field identifies the schema; the native proof owns the public column.
+    let envelope: iroha_data_model::zk::OpenVerifyEnvelope =
+        norito::decode_canonical(&fixture.proof_bytes).expect("native outer frame");
+    let proof: iroha_data_model::zk::NativePipaRProofV1 =
+        norito::decode_canonical(&envelope.proof_bytes).expect("native public column");
+    let public_inputs = proof.public_inputs.len() as u64;
+    assert_eq!(public_inputs, 9);
+    let instruction: InstructionBox = VerifyProof::new(attachment).into();
+    let delta = 17 + 5 * public_inputs + 3 * proof_bytes;
+    assert_eq!(
+        gas::meter_instruction(&instruction, &committed)
+            - gas::meter_instruction(&instruction, &gas::DEFAULT_ZK_GAS),
+        delta
+    );
+
+    for node in [None, Some(divergent)] {
+        let state = committed_zk_policy_state(&policy, node);
+        let (_, time_source) = TimeSource::new_mock(Duration::default());
+        let queue = Arc::new(Queue::test(config_factory(), &time_source));
+        let tx = accepted_tx_with(
+            AccountId::new(ALICE_KEYPAIR.public_key().clone()),
+            &ALICE_KEYPAIR,
+            &time_source,
+            vec![instruction.clone()],
+            Metadata::default(),
+        );
+        let hash = tx.hash_as_entrypoint();
+        let under_default = Queue::compute_proposal_gas_cost(&tx, &gas::DEFAULT_ZK_GAS)
+            .expect("the default schedule prices the transaction");
+        let under_committed = Queue::compute_proposal_gas_cost(&tx, &committed)
+            .expect("the committed schedule prices the transaction");
+        assert_eq!(under_committed - under_default, delta);
+        // The TEU weight of the same transaction follows the schedule too.
+        assert_eq!(
+            Queue::compute_teu_weight(&tx, &committed)
+                - Queue::compute_teu_weight(&tx, &gas::DEFAULT_ZK_GAS),
+            delta
+        );
+        queue
+            .push(tx, state.view())
+            .expect("the proof-bearing transaction is admitted");
+        assert_eq!(
+            *queue
+                .tx_gas_cost
+                .get(&hash)
+                .expect("admission stored a cost"),
+            under_committed,
+            "admission priced the proof with the committed schedule"
+        );
+    }
+    // A chain that commits no policy prices the same transaction with the protocol default.
+    let state = State::new(
+        world_with_test_domains(),
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let (_, time_source) = TimeSource::new_mock(Duration::default());
+    let queue = Arc::new(Queue::test(config_factory(), &time_source));
+    let tx = accepted_tx_with(
+        AccountId::new(ALICE_KEYPAIR.public_key().clone()),
+        &ALICE_KEYPAIR,
+        &time_source,
+        vec![instruction],
+        Metadata::default(),
+    );
+    let hash = tx.hash_as_entrypoint();
+    let under_default = Queue::compute_proposal_gas_cost(&tx, &gas::DEFAULT_ZK_GAS)
+        .expect("the default schedule prices the transaction");
+    queue.push(tx, state.view()).expect("admitted");
+    assert_eq!(
+        *queue.tx_gas_cost.get(&hash).expect("stored"),
+        under_default
+    );
 }

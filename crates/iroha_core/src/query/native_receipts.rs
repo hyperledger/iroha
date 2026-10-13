@@ -7,11 +7,26 @@
 //! remaining native proof graph and
 //! receipt/tree scratch before allocation; this scoped write owner does not fund those graphs.
 
+mod amx_begins;
+pub use amx_begins::{
+    NativeAmxBeginRelayErrorV1, NativeAmxBeginRelayPollV1, NativeAmxBeginRelayReadV1,
+    begin_amx_relay,
+};
+mod amx_decisions;
+mod amx_discovery;
+pub use amx_discovery::{
+    NativeAmxRelayDiscoveryErrorV1, NativeAmxRelayDiscoveryPollV1, NativeAmxRelayDiscoveryReadV1,
+    amx_relays,
+};
 mod amx_intents;
+pub use amx_decisions::{
+    NativeAmxDecisionRelayErrorV1, NativeAmxDecisionRelayPollV1, NativeAmxDecisionRelayReadV1,
+    decision_amx_relay,
+};
 mod amx_read;
 pub use amx_intents::{
     NativeAmxPreparedRelayErrorV1, NativeAmxPreparedRelayPollV1, NativeAmxPreparedRelayReadV1,
-    prepared_amx_relays,
+    NativeAmxRelayDescriptorV1, NativeAmxRelayIntentV1, prepared_amx_relays,
 };
 mod ordinary_writes;
 mod reward_history;
@@ -176,7 +191,7 @@ pub fn private_dataspace_record_proof(
         .ok_or("private-root record carrier lacks a native certificate")?;
     let result =
         iroha_data_model::sumeragi_finality::result_of_preimage(certificate.result_preimage())
-            .ok_or("malformed certified native result")?;
+            .ok_or("private-root carrier has a malformed native result preimage")?;
     let proof = PrivateDataspaceRecordProof::from_writes(
         *view.network_id(),
         height,

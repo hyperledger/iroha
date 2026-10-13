@@ -89,7 +89,7 @@ fn malformed_binding_identity_policy_and_utc_refuse_before_http_or_custody() {
     let (service, transport) = service();
     let original = request(&service.config, current_unix_ms().unwrap());
     let root = tempfile::tempdir().unwrap();
-    let changes: [fn(&mut MusubiNamespaceBindingRequest); 9] = [
+    let mutations: [fn(&mut MusubiNamespaceBindingRequest); 9] = [
         |r| r.selection.chain_id.push('x'),
         |r| {
             r.selection.network_id =
@@ -105,7 +105,7 @@ fn malformed_binding_identity_policy_and_utc_refuse_before_http_or_custody() {
         |r| r.deadline_unix_ms = 1,
         |r| r.deadline_unix_ms = u64::MAX,
     ];
-    for (index, change) in changes.into_iter().enumerate() {
+    for (index, change) in mutations.into_iter().enumerate() {
         let mut selected = original.clone();
         change(&mut selected);
         let path = root.path().join(index.to_string());
@@ -144,7 +144,7 @@ fn original_fields_fee_limits_and_wire_survive_503_once_only_reopen() {
         .encode_versioned();
     let original = std::fs::read(path.join("operation.json")).unwrap();
     let calls = transport.requests.load(Ordering::SeqCst);
-    let changes: [fn(&mut MusubiNamespaceBindingRequest); 8] = [
+    let mutations: [fn(&mut MusubiNamespaceBindingRequest); 8] = [
         |r| r.selection.binding.generation += 1,
         |r| r.selection.binding.home_dataspace = DataSpaceId::new(7),
         |r| {
@@ -164,7 +164,7 @@ fn original_fields_fee_limits_and_wire_survive_503_once_only_reopen() {
                 .insert(XOR_ASSET_DEFINITION.parse().unwrap(), Quantity::from(1u32));
         },
     ];
-    for change in changes {
+    for change in mutations {
         let mut changed = selected.clone();
         change(&mut changed);
         assert!(

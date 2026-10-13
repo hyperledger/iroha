@@ -3078,6 +3078,7 @@ include!("tests/sorafs_pop_contracts.rs");
 include!("tests/vpn_da.rs");
 include!("tests/sumeragi_lanes_contract.rs");
 mod catalog_and_contracts;
+mod sccp_native_contract;
 
 #[test]
 fn openapi_uint64_bounds_keep_exact_integer_tokens_recursively() {

@@ -106,14 +106,14 @@ fn append_block_to_chain_roundtrip_decodes() {
     let len: usize = length.try_into().expect("block length fits in usize");
     let mut bytes = vec![0u8; len];
     block_store.read_block_data(start, &mut bytes).unwrap();
-    let versioned = block.encode_versioned();
-    let mut payload_cursor = std::io::Cursor::new(&versioned[1..]);
+    let wire = block.canonical_wire().expect("canonical stored wire");
+    let mut payload_cursor = std::io::Cursor::new(wire.payload());
     let decoded_inline =
         SignedBlock::decode(&mut payload_cursor).expect("decode adaptive payload for inline bytes");
     assert_eq!(decoded_inline.hash(), block.hash());
-    assert_eq!(bytes[0], versioned[0]);
+    assert_eq!(bytes[0], wire.version());
     assert!(bytes[1..].starts_with(MAGIC.as_slice()));
-    assert_eq!(&bytes[1 + Header::SIZE..], &versioned[1..]);
+    assert_eq!(&bytes[1 + Header::SIZE..], wire.payload());
     let decoded = decode_framed_signed_block(&bytes).expect("decode stored block");
     assert_eq!(decoded.hash(), block.hash());
 }

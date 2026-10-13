@@ -1799,9 +1799,12 @@ def check(overrides: dict[str, str] | None = None) -> None:
             rust_model,
             (
                 "TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1: u32 = 9 * 1024 * 1024",
-                "TAIRA_PRIVACY_MAX_ACTION_BYTES_V1: u32 = 9 * 1024 * 1024",
-                "TAIRA_PRIVACY_MAX_BYTES_PER_TRANSACTION_V1: u32 = 9 * 1024 * 1024",
-                "TAIRA_PRIVACY_MAX_BYTES_PER_BLOCK_V1: u32 = 18 * 1024 * 1024",
+                "TAIRA_PRIVACY_MAX_ACTION_BYTES_V1: u32 = TAIRA_PRIVACY_MAX_PROOF_BYTES_PER_ACTION_V1",
+                "+ TAIRA_PRIVACY_MAX_STATEMENT_AND_ENCRYPTED_OUTPUT_BYTES_PER_TRANSACTION_V1",
+                "+ TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1",
+                "TAIRA_PRIVACY_PROOF_ENVELOPE_METADATA_ALLOWANCE_BYTES_V1: u32 = 512",
+                "TAIRA_PRIVACY_MAX_BYTES_PER_TRANSACTION_V1: u32 = TAIRA_PRIVACY_MAX_ACTION_BYTES_V1",
+                "16 * 1024 * 1024 - crate::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES",
             ),
         ),
         (
@@ -1809,15 +1812,15 @@ def check(overrides: dict[str, str] | None = None) -> None:
             js_source,
             (
                 "max_proof_bytes_per_action: 9 * 1024 * 1024",
-                "max_action_bytes: 9 * 1024 * 1024",
-                "max_privacy_bytes_per_transaction: 9 * 1024 * 1024",
-                "max_privacy_bytes_per_block: 18 * 1024 * 1024",
+                "max_action_bytes: 9 * 1024 * 1024 + 256 * 1024 + 512",
+                "max_privacy_bytes_per_transaction: 9 * 1024 * 1024 + 256 * 1024 + 512",
+                "max_privacy_bytes_per_block: 16 * 1024 * 1024 - 64 * 1024",
             ),
         ),
     ):
         require(
             all(marker in source for marker in markers),
-            f"{relative} must pin the first-release 9 MiB action/transaction and 18 MiB block privacy ceilings",
+            f"{relative} must pin the first-release proof, complete envelope and reserved block privacy ceilings",
             errors,
         )
 

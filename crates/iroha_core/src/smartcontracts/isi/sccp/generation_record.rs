@@ -1,10 +1,11 @@
 //! Original funded SCCP committee payload with independent lifecycle scalars.
 //!
 //! Current/undo readers share only immutable key/account allocations. No decoder or mutable
-//! body escape creates custody. Snapshot DTOs require explicit original-pool admission.
-//! TODO: fund enclosing ordinary MV map nodes and snapshot source maps at their owners.
+//! body escape creates custody. Production records are built from original borrowed members
+//! or decoded directly under the original pool; current/undo map nodes use the same admitted
+//! committee storage owner. Test DTO fixtures exercise the borrowed-member constructor.
 
-use std::{alloc::Layout, fmt, ops::Deref};
+use std::{alloc::Layout, fmt, mem::ManuallyDrop, ops::Deref};
 
 use iroha_allocation::{
     AllocationBudget, AllocationCharge, AllocationRefusal, AllocationReservation, ChargedBuffer,
@@ -38,9 +39,25 @@ pub enum GenerationRecordError {
         /// Exact requested size.
         bytes: usize,
     },
-    /// Canonical account cloning failed; logical resource failures remain identifiable.
+    /// Canonical account cloning or snapshot decoding failed; local resource failures remain identifiable.
     #[error(transparent)]
     Account(#[from] norito::core::Error),
+}
+
+/// Canonical archive decoding preserves its original local scope after that scope retires.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum GenerationRecordReadError {
+    /// Original pool, allocator or structural refusal of the existing retained owner.
+    #[error(transparent)]
+    Record(#[from] GenerationRecordError),
+    /// Actual decoder outcome captured before enclosing admission scopes retire.
+    #[error(transparent)]
+    Decode(#[from] norito::core::DecodeAttemptError),
+}
+impl From<AllocationRefusal> for GenerationRecordReadError {
+    fn from(original: AllocationRefusal) -> Self {
+        Self::Record(GenerationRecordError::Admission(original))
+    }
 }
 
 /// Borrowed immutable registration fields, before any funded copy.
@@ -54,11 +71,59 @@ pub(super) struct MemberRef<'a> {
 /// World value retaining original committee allocations through COW, undo and publication.
 #[derive(Clone)]
 pub struct RetainedSccpGeneration {
-    body: ChargedShared<RetainedPayload<SccpCommitteeGenerationV1>>,
+    body: ChargedShared<GenerationBody>,
     /// First authenticated destination clearance; copied independently in each MV version.
     pub dest_cleared_lc: Option<u64>,
     /// Original transition end; copied independently in each MV version.
     pub end: Option<SccpGenerationEndV1>,
+}
+
+// Snapshot decoding retains the original cumulative Norito allowance, while ordinary
+// construction retains exact allocation charges. Both publish the same immutable body.
+enum GenerationBody {
+    Constructed(RetainedPayload<SccpCommitteeGenerationV1>),
+    Decoded(DecodedGeneration),
+}
+struct DecodedGeneration {
+    record: ManuallyDrop<SccpCommitteeGenerationV1>,
+    allowance: ManuallyDrop<AllocationReservation>,
+}
+impl Drop for DecodedGeneration {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        // SAFETY: private immutable fields never escape. Retire the graph before refunding
+        // its original allowance; a destructor unwind conservatively retains that allowance.
+        unsafe {
+            ManuallyDrop::drop(&mut self.record);
+            ManuallyDrop::drop(&mut self.allowance);
+        }
+    }
+}
+impl GenerationBody {
+    fn get(&self) -> &SccpCommitteeGenerationV1 {
+        match self {
+            Self::Constructed(payload) => payload.get(),
+            Self::Decoded(payload) => &payload.record,
+        }
+    }
+}
+fn snapshot_decode_error(error: norito::core::Error) -> GenerationRecordError {
+    if error.decode_resource_error().is_some() {
+        GenerationRecordError::Account(error)
+    } else {
+        GenerationRecordError::Invalid("snapshot record")
+    }
+}
+
+fn shared_error(error: PrepaidSharedError) -> GenerationRecordError {
+    match error {
+        PrepaidSharedError::Reservation(_) => {
+            GenerationRecordError::Invalid("original shared reservation mismatch")
+        }
+        PrepaidSharedError::Allocator { requested_bytes } => GenerationRecordError::Allocator {
+            bytes: requested_bytes,
+        },
+    }
 }
 
 #[derive(Default)]
@@ -70,8 +135,7 @@ impl Demand {
     fn total_bytes(&self) -> Result<usize, GenerationRecordError> {
         let ledger = Layout::array::<AllocationCharge>(self.charges)
             .map_err(|_| AllocationRefusal::DemandOverflow)?;
-        let shell =
-            ChargedShared::<RetainedPayload<SccpCommitteeGenerationV1>>::allocation_layout();
+        let shell = ChargedShared::<GenerationBody>::allocation_layout();
         self.bytes
             .checked_add(ledger.size())
             .and_then(|n| n.checked_add(shell.size()))
@@ -224,21 +288,143 @@ impl<'a, T> Construction<'a, T> {
 }
 
 impl RetainedSccpGeneration {
-    /// Admit a snapshot/test DTO as a new graph in the original pool, without granting authority.
+    /// Observe both actual pool identities in constructed and decoded custody tests.
+    #[cfg(test)]
+    pub(crate) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.body.belongs_to(budget)
+            && match &*self.body {
+                GenerationBody::Constructed(payload) => payload.belongs_to(budget),
+                GenerationBody::Decoded(payload) => payload.allowance.belongs_to(budget),
+            }
+    }
+
+    /// Decode one exact snapshot record from borrowed lower-case hex under the
+    /// original map pool. The surrounding snapshot JSON owner remains separate.
+    /// No canonical DTO or intermediate map is created before admission.
+    pub(crate) fn decode_snapshot_hex(
+        source: &str,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GenerationRecordError> {
+        Self::decode_snapshot_hex_checked(source, budget, true)
+    }
+    /// Decode intentionally malformed claims only for snapshot-rejection fixtures.
+    #[cfg(test)]
+    pub(crate) fn decode_snapshot_hex_for_fixture(
+        source: &str,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GenerationRecordError> {
+        Self::decode_snapshot_hex_checked(source, budget, false)
+    }
+    fn decode_snapshot_hex_checked(
+        source: &str,
+        budget: &AllocationBudget,
+        validate: bool,
+    ) -> Result<Self, GenerationRecordError> {
+        if source.len() % 2 != 0 {
+            return Err(GenerationRecordError::Invalid("snapshot record"));
+        }
+        let byte_count = source.len() / 2;
+        let mut bytes = ChargedBuffer::new(byte_count, budget)
+            .map_err(|e| prepaid_error(PrepaidBufferError::Allocation(e)))?;
+        let nibble = |b: u8| match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            _ => None,
+        };
+        for pair in source.as_bytes().chunks_exact(2) {
+            bytes.push_reserved(
+                (nibble(pair[0]).ok_or(GenerationRecordError::Invalid("snapshot record"))? << 4)
+                    | nibble(pair[1]).ok_or(GenerationRecordError::Invalid("snapshot record"))?,
+            );
+        }
+        Self::decode_canonical_checked(bytes.as_slice(), budget, validate).map_err(|error| {
+            match error {
+                GenerationRecordReadError::Record(original) => original,
+                GenerationRecordReadError::Decode(original) => {
+                    snapshot_decode_error(original.into_error())
+                }
+            }
+        })
+    }
+
+    /// Decode exact canonical archive bytes under this original map pool. The immutable
+    /// owner is DATA until its caller authenticates the containing original archive.
+    pub(crate) fn decode_canonical(
+        source: &[u8],
+        budget: &AllocationBudget,
+    ) -> Result<Self, GenerationRecordReadError> {
+        Self::decode_canonical_checked(source, budget, true)
+    }
+    fn decode_canonical_checked(
+        source: &[u8],
+        budget: &AllocationBudget,
+        validate: bool,
+    ) -> Result<Self, GenerationRecordReadError> {
+        use norito::codec::DecodeAll as _;
+        let control = ChargedShared::<GenerationBody>::allocation_layout()
+            .size()
+            .checked_add(norito::core::DecodeBudgetContext::allocation_layout().size())
+            .ok_or(AllocationRefusal::DemandOverflow)?;
+        let mut control = budget.try_reserve_bytes(control)?;
+        let shell =
+            ChargedShared::<GenerationBody>::reserve_from(&mut control).map_err(shared_error)?;
+        // Admit an upper allowance before decode. A concurrent limit/usage change
+        // can refuse this original attempt; it cannot replenish an outer scope.
+        let available = budget.limit_bytes().saturating_sub(budget.reserved_bytes());
+        let allowance = budget.try_reserve_bytes(available)?;
+        let limits =
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, available, usize::MAX);
+        let context = norito::core::DecodeBudgetContext::from_reservation(limits, &mut control)
+            .map_err(shared_error)?;
+        // Record is declared after its allowance, so all partial decode paths
+        // free owned data first. Every active outer scope still observes decode.
+        let record = context.with(|| {
+            norito::core::classify_decode_attempt(|| {
+                SccpCommitteeGenerationV1::decode_all(&mut &*source)
+            })
+        })?;
+        let record = DecodedGeneration {
+            record: ManuallyDrop::new(record),
+            allowance: ManuallyDrop::new(allowance),
+        };
+        context.with(|| {
+            norito::core::classify_decode_attempt(|| {
+                norito::codec::verify_exact_payload(&*record.record, source)
+            })
+        })?;
+        if validate && !record.record.is_well_formed() {
+            return Err(GenerationRecordError::Invalid("snapshot record").into());
+        }
+        let used = usize::try_from(context.consumed_allocated_bytes())
+            .map_err(|_| AllocationRefusal::DemandOverflow)?;
+        let mut record = record;
+        let retained = record
+            .allowance
+            .try_partition_bytes(used)
+            .map_err(|_| GenerationRecordError::Invalid("snapshot record"))?;
+        // Replace only unused pre-admitted allowance, after exact successful decode.
+        let unused = std::mem::replace(&mut *record.allowance, retained);
+        drop(unused);
+        // Lifecycle is local to each MV version; the shared immutable body carries none.
+        let end = record.record.end.take();
+        let dest_cleared_lc = record.record.dest_cleared_lc.take();
+        Ok(Self {
+            body: shell.initialize(GenerationBody::Decoded(record)),
+            end,
+            dest_cleared_lc,
+        })
+    }
+
+    /// Build a test DTO fixture through the production borrowed-member constructor.
+    /// This performs no snapshot restoration and grants no committee authority.
     ///
     /// # Errors
     /// Invalid structure, original capacity refusal or fallible physical/account allocation.
+    #[cfg(test)]
     pub(crate) fn admit(
         source: &SccpCommitteeGenerationV1,
         budget: &AllocationBudget,
     ) -> Result<Self, GenerationRecordError> {
-        let mut reservation = budget.try_reserve_bytes(Self::admission_demand(source)?)?;
-        Self::admit_prepaid(source, budget, &mut reservation)
-    }
-
-    fn snapshot_members(
-        source: &SccpCommitteeGenerationV1,
-    ) -> Result<[Option<MemberRef<'_>>; 31], GenerationRecordError> {
         if !source.is_well_formed() {
             return Err(GenerationRecordError::Invalid("record structure"));
         }
@@ -250,30 +436,11 @@ impl RetainedSccpGeneration {
                 activation_height: member.activation_height,
             });
         }
-        Ok(members)
-    }
-
-    /// Exact complete snapshot payload demand; decoding remains a claim, not authority.
-    pub(crate) fn admission_demand(
-        source: &SccpCommitteeGenerationV1,
-    ) -> Result<usize, GenerationRecordError> {
-        let members = Self::snapshot_members(source)?;
-        Self::allocation_demand(&source.keys, &members[..source.members.len()])
-    }
-
-    /// Restore one DTO from its partition of an aggregate original snapshot reservation.
-    pub(crate) fn admit_prepaid(
-        source: &SccpCommitteeGenerationV1,
-        budget: &AllocationBudget,
-        reservation: &mut AllocationReservation,
-    ) -> Result<Self, GenerationRecordError> {
-        let members = Self::snapshot_members(source)?;
-        Self::from_members_prepaid(
+        Self::from_members(
             source,
             &source.keys,
             &members[..source.members.len()],
             budget,
-            reservation,
         )
     }
 
@@ -385,21 +552,21 @@ impl RetainedSccpGeneration {
         let (payload, mut reservation) = construction.into_payload()?;
         #[cfg(test)]
         construction_checkpoint(ConstructionCheckpoint::BeforeSharedShell);
-        let body = ChargedShared::from_reservation(payload, &mut reservation).map_err(
-            |(payload, error)| {
-                drop(payload);
-                match error {
-                    PrepaidSharedError::Allocator { requested_bytes } => {
-                        GenerationRecordError::Allocator {
-                            bytes: requested_bytes,
+        let body =
+            ChargedShared::from_reservation(GenerationBody::Constructed(payload), &mut reservation)
+                .map_err(|(payload, error)| {
+                    drop(payload);
+                    match error {
+                        PrepaidSharedError::Allocator { requested_bytes } => {
+                            GenerationRecordError::Allocator {
+                                bytes: requested_bytes,
+                            }
+                        }
+                        PrepaidSharedError::Reservation(_) => {
+                            GenerationRecordError::Invalid("shared shell reservation")
                         }
                     }
-                    PrepaidSharedError::Reservation(_) => {
-                        GenerationRecordError::Invalid("shared shell reservation")
-                    }
-                }
-            },
-        )?;
+                })?;
         if reservation.remaining_bytes() != 0 {
             return Err(GenerationRecordError::Invalid("unused generation demand"));
         }
@@ -428,7 +595,9 @@ impl RetainedSccpGeneration {
     #[must_use]
     pub fn is_well_formed(&self) -> bool {
         self.body.get().is_well_formed()
-            && self.dest_cleared_lc.is_none_or(|lc| lc >= self.start_lc)
+            && self
+                .dest_cleared_lc
+                .is_none_or(|lc| self.end.is_some() && lc >= self.start_lc)
             && self.end.is_none_or(|end| {
                 end.end_height >= self.start_height
                     && end.end_timestamp_ms >= self.start_timestamp_ms
@@ -581,9 +750,10 @@ mod tests {
             start_lc: 100,
             validity_ms: 10,
             deadline_ms: 110,
-            grace_ms: 5,
+            grace_ms: iroha_data_model::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
             progress_cap_ms: 10,
-            liable_until_lc: 115,
+            liable_until_lc: 110
+                + iroha_data_model::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
             dest_cleared_lc: None,
             end: None,
         }
@@ -637,6 +807,13 @@ mod tests {
         let budget = AllocationBudget::new(1024 * 1024);
         let previous = RetainedSccpGeneration::admit(&source, &budget).unwrap();
         let bytes = budget.reserved_bytes();
+        let mut premature = previous.clone();
+        premature.dest_cleared_lc = Some(source.start_lc);
+        assert!(
+            !premature.is_well_formed(),
+            "clearance requires an ended generation"
+        );
+        drop(premature);
         let mut next = previous.clone();
         next.end = Some(SccpGenerationEndV1 {
             end_height: 2,
@@ -660,9 +837,10 @@ mod tests {
             norito::json::to_json(&expected).unwrap()
         );
         assert_eq!(budget.reserved_bytes(), bytes);
-        assert!(next.is_liable(2, 123));
-        assert!(!next.is_liable(2, 124));
-        assert!(previous.is_liable(2, 125));
+        let cleared_deadline = next.dest_cleared_lc.unwrap() + source.grace_ms;
+        assert!(next.is_liable(2, cleared_deadline));
+        assert!(!next.is_liable(2, cleared_deadline + 1));
+        assert!(previous.is_liable(2, source.liable_until_lc + source.progress_cap_ms));
         let restored = RetainedSccpGeneration::admit(&decoded, &budget).unwrap();
         assert_eq!(restored, next);
         assert!(!ChargedShared::ptr_eq(&restored.body, &next.body));
@@ -705,14 +883,36 @@ mod tests {
     fn aggregate_generation_reservation_moves_exact_credit_and_rejects_foreign_or_short_source() {
         let source = claim();
         let budget = AllocationBudget::new(1024 * 1024);
-        let bytes = RetainedSccpGeneration::admission_demand(&source).unwrap();
+        let mut members = [None; 31];
+        for (slot, member) in members.iter_mut().zip(&source.members) {
+            *slot = member.as_ref().map(|member| MemberRef {
+                lane_id: member.lane_id,
+                validator: &member.validator,
+                activation_height: member.activation_height,
+            });
+        }
+        let members = &members[..source.members.len()];
+        let bytes = RetainedSccpGeneration::allocation_demand(&source.keys, members).unwrap();
         let mut original = budget.try_reserve_bytes(bytes * 2).unwrap();
         assert_eq!(budget.reserved_bytes(), bytes * 2);
-        let first = RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut original).unwrap();
+        let first = RetainedSccpGeneration::from_members_prepaid(
+            &source,
+            &source.keys,
+            members,
+            &budget,
+            &mut original,
+        )
+        .unwrap();
         assert_eq!(original.remaining_bytes(), bytes);
         assert_eq!(budget.reserved_bytes(), bytes * 2);
-        let second =
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut original).unwrap();
+        let second = RetainedSccpGeneration::from_members_prepaid(
+            &source,
+            &source.keys,
+            members,
+            &budget,
+            &mut original,
+        )
+        .unwrap();
         assert_eq!(original.remaining_bytes(), 0);
         drop(original);
         assert_eq!(budget.reserved_bytes(), bytes * 2);
@@ -723,7 +923,13 @@ mod tests {
         let other = AllocationBudget::new(1024 * 1024);
         let mut foreign = other.try_reserve_bytes(bytes).unwrap();
         assert!(matches!(
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut foreign),
+            RetainedSccpGeneration::from_members_prepaid(
+                &source,
+                &source.keys,
+                members,
+                &budget,
+                &mut foreign
+            ),
             Err(GenerationRecordError::Invalid(
                 "foreign original reservation"
             ))
@@ -732,7 +938,13 @@ mod tests {
         assert_eq!(budget.reserved_bytes(), 0);
         let mut short = budget.try_reserve_bytes(bytes - 1).unwrap();
         assert!(matches!(
-            RetainedSccpGeneration::admit_prepaid(&source, &budget, &mut short),
+            RetainedSccpGeneration::from_members_prepaid(
+                &source,
+                &source.keys,
+                members,
+                &budget,
+                &mut short
+            ),
             Err(GenerationRecordError::Invalid(
                 "incomplete original reservation"
             ))
@@ -798,3 +1010,7 @@ mod tests {
         partial_unwind(ConstructionCheckpoint::BeforeSharedShell);
     }
 }
+
+#[cfg(test)]
+#[path = "generation_record/snapshot_tests.rs"]
+mod snapshot_tests;

@@ -1,0 +1,136 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "foreign_journal_is_a_binding_mismatch",
+  "category": "storage_corruption",
+  "rules": [
+    "corruption_is_reported_not_repaired"
+  ],
+  "description": "The store returns a valid journal of another workflow under this identifier. That is not corruption: it is reported as BindingMismatch, without a snapshot and without any ledger call.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "foreign-journal-is-a-binding-mismatch",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "ambiguous"
+        ],
+        "statuses": [
+          "absent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "SubmissionOutcomeUnknown",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "outcome_unknown"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "corrupt",
+      "mode": "foreign_journal",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "BindingMismatch"
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retransmit_identical_bytes": true,
+        "retry_rejected_step": true
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "load",
+          "progress": "unavailable",
+          "resumable": true
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "BindingMismatch"
+      }
+    },
+    {
+      "op": "recover",
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "BindingMismatch"
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "BindingMismatch"
+      }
+    },
+    {
+      "op": "progress",
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "load",
+          "progress": "unavailable"
+        },
+        "effects": [],
+        "journal": "unreadable",
+        "journal_error": "BindingMismatch"
+      }
+    }
+  ]
+}

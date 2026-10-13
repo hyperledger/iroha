@@ -63,6 +63,7 @@ pub mod isi {
     impl WorldTransaction<'_, '_> {
         /// Decrease a numeric asset balance; removes the asset entry if it reaches zero.
         /// Does not emit events; callers remain responsible for event emission.
+        #[cfg(test)]
         fn withdraw_numeric_asset(
             &mut self,
             network_id: &iroha_data_model::NetworkId,
@@ -464,6 +465,7 @@ pub mod isi {
         /// The balance id is canonicalized for the current scope before applying the exact
         /// checked credit. This does not emit an `Added` event; callers remain responsible for
         /// balance-change event emission.
+        #[cfg(test)]
         fn deposit_numeric_asset(&mut self, id: &AssetId, amount: &Quantity) -> Result<(), Error> {
             let (resolved_id, candidate) = self.precheck_numeric_asset_credit(id, amount)?;
             self.apply_prechecked_numeric_asset_credit_exact(&resolved_id, candidate)
@@ -4822,9 +4824,9 @@ pub mod isi {
             &record.leg,
         )
         .map_err(|error| {
-            if let iroha_data_model::sumeragi_amx::AmxError::Resource(resource) = &error {
+            if let Some(resource) = crate::sumeragi::amx::classified_decode_refusal(&error) {
                 state_transaction.arm_local_storage_refusal(
-                    crate::state::StateStorageAdmissionError::AmxDecode(*resource),
+                    crate::state::StateStorageAdmissionError::AmxDecode(resource),
                 );
             }
             InstructionExecutionError::InvariantViolation(error.to_string().into())
@@ -10298,6 +10300,9 @@ pub mod query {
         include!("asset/core_numeric_mutation_tests.rs");
         include!("asset/retail_daily_limit_tests.rs");
         include!("asset/privacy_public_reserve_tests.rs");
+        mod privacy_economic_invariant_tests {
+            include!("asset/privacy_economic_invariant_tests.rs");
+        }
         mod prepared_independent_occurrence_tests {
             include!("asset/prepared_independent_occurrence_tests.rs");
         }

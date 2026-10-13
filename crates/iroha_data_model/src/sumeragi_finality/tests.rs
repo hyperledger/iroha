@@ -367,25 +367,10 @@ pub(super) fn sign_qc(qc: &mut Qc, keys: &[KeyPair], chosen: &[u32]) {
     let signatures: Vec<_> = chosen
         .iter()
         .map(|index| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(
-                    keys[*index as usize].private_key(),
-                    &qc.preimage(),
-                )
-                .unwrap(),
-            )
+            consensus::sign_preimage(keys[*index as usize].private_key(), &qc.preimage()).unwrap()
         })
         .collect();
-    let bytes: Vec<_> = signatures
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        bls_normal_aggregate_signatures(&bytes)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
 }
 
 // Preserve the selected original epoch and use the sole fixture authoring path.
@@ -1092,6 +1077,7 @@ fn certified_beacon_pulse_requires_the_exact_committed_parent() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another committed parent"
@@ -1246,6 +1232,7 @@ fn certified_beacon_pulse_requires_exact_parent_and_native_context() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another committed parent"
@@ -1255,6 +1242,7 @@ fn certified_beacon_pulse_requires_exact_parent_and_native_context() {
             assert_eq!(
                 proof
                     .decode_checked(CertifiedResultScope::TairaGlobal)
+                    .map_err(invalid_read_error)
                     .unwrap_err()
                     .0,
                 "beacon pulse names another native consensus context"
@@ -1319,6 +1307,7 @@ fn quorum_certificate_and_control_bytes_cannot_authorize_no_work() {
         assert_eq!(
             proof
                 .decode_checked(CertifiedResultScope::TairaGlobal)
+                .map_err(invalid_read_error)
                 .unwrap_err()
                 .0,
             "empty blocks are invalid"
@@ -1611,6 +1600,7 @@ fn proof_reader_preserves_original_framing_refusals_without_a_second_frame() {
         assert_eq!(
             offered
                 .decode_checked(CertifiedResultScope::TairaGlobal)
+                .map_err(invalid_read_error)
                 .unwrap_err()
                 .0,
             original_error.to_string()
@@ -1648,7 +1638,14 @@ fn proof_reader_keeps_enclosing_decode_refusal_and_same_source_retry() {
             .decode_checked(CertifiedResultScope::TairaGlobal)
     })
     .unwrap_err();
-    assert_eq!(error.0, original_text);
+    let FinalityReadError::DecodeResource(original) = error else {
+        panic!("original enclosing refusal lost: {error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert_eq!(original.to_string(), original_text);
     assert_eq!(fixture.second.block_wire, original_wire);
     let retried = fixture
         .second
@@ -1803,4 +1800,124 @@ fn proof_crypto_accepts_only_current_consensus_suite_in_every_relation() {
         ],
         &aggregate
     ));
+}
+
+#[test]
+fn certified_readers_refuse_retired_bare_body_and_bind_original_block_time() {
+    let fixture = Fixture::new();
+    let mut proof = fixture.second.clone();
+    let mut block = decode_framed_signed_block(&proof.block_wire).unwrap();
+    let original = block.commit_certificate().unwrap();
+    let header = original.consensus_header().to_vec();
+    let availability = original.availability().to_vec();
+    let qc_bytes = original.commit_qc().to_vec();
+    let certified = CertifiedResultV1::decode(
+        original.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let bare = certified.commitment().preimage().unwrap();
+    assert_eq!(result_of_preimage(&bare), None);
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        header.clone(),
+        qc_bytes.clone(),
+        bare.clone(),
+        availability.clone(),
+    )));
+    proof.block_wire = block.encode_wire().unwrap();
+    assert!(
+        proof
+            .decode_checked(CertifiedResultScope::TairaGlobal)
+            .is_err()
+    );
+    let bare_compact = SumeragiCommitCertificateV1 {
+        consensus_header: header.clone(),
+        commit_qc: qc_bytes.clone(),
+        result_preimage: bare,
+    };
+    assert!(
+        SumeragiCommitVerifierV1::new(&fixture.verifier())
+            .unwrap()
+            .verify(&bare_compact)
+            .is_err()
+    );
+
+    // A genuine exact-quorum signature over the changed X still cannot replace the
+    // timestamp of the original result-bearing block carried by a full proof.
+    let mut fields = certified.header().fields();
+    fields.timestamp_ms = fields.timestamp_ms.checked_add(1).unwrap();
+    let changed = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        certified.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut qc: Qc = norito::decode_canonical(&qc_bytes).unwrap();
+    qc.result = changed.result().unwrap();
+    sign_qc(&mut qc, &fixture.keys, &[0, 1, 2]);
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        header,
+        norito::encode_canonical(&qc).unwrap(),
+        changed.preimage().unwrap(),
+        availability,
+    )));
+    proof.block_wire = block.encode_wire().unwrap();
+    let error = proof
+        .decode_checked(CertifiedResultScope::TairaGlobal)
+        .unwrap_err();
+    assert!(error.to_string().contains("block"), "{error}");
+    let mut verifier = fixture.verifier();
+    verifier.verify(&fixture.first).unwrap();
+    assert!(verifier.verify(&proof).is_err());
+}
+
+#[test]
+fn proof_crypto_accepts_native_suite_and_rejects_old_or_unallowlisted_messages() {
+    let fixture = Fixture::new();
+    let (crypto, committee) = ProofCrypto::new(&fixture.validators).unwrap();
+    let block = decode_framed_signed_block(&fixture.second.block_wire).unwrap();
+    let qc: Qc = norito::decode_canonical(block.commit_certificate().unwrap().commit_qc()).unwrap();
+    let message = qc.preimage();
+    let public = &committee.members()[0];
+    let key = &fixture.keys[0];
+    assert_eq!(
+        public.as_bytes(),
+        key.public_key().try_to_bytes().unwrap().1
+    );
+    let native = Signature(consensus::sign_preimage(key.private_key(), &message).unwrap());
+    let old = iroha_crypto::Signature::try_new(key.private_key(), &message).unwrap();
+    let old = Signature(old.payload().try_into().unwrap());
+    assert!(crypto.verify(public, &message, &native));
+    assert!(!crypto.verify(public, &message, &old));
+    let keys = [public];
+    assert!(crypto.verify_aggregate(&keys, &message, &AggregateSignature(native.0)));
+    assert!(!crypto.verify_aggregate(&keys, &message, &AggregateSignature(old.0)));
+    let groups = [(vec![public], message.clone())];
+    assert!(crypto.verify_aggregate_multi(&groups, &AggregateSignature(native.0)));
+    assert!(!crypto.verify_aggregate_multi(&groups, &AggregateSignature(old.0)));
+    assert!(!crypto.verify(public, b"outside consensus", &native));
+    assert!(!crypto.verify_aggregate(&keys, b"outside consensus", &AggregateSignature(native.0)));
+    assert!(!crypto.verify_aggregate_multi(
+        &[
+            (vec![public], message),
+            (vec![public], b"outside consensus".to_vec())
+        ],
+        &AggregateSignature(native.0),
+    ));
+}
+
+#[test]
+fn authenticated_height_tracks_only_verified_prefix_decisions() {
+    let mut fixture = crate::sumeragi_finality::test_fixtures::NativeFinalityFixture::start(
+        "authenticated-height",
+    );
+    let mut verifier = fixture.verifier();
+    assert_eq!(verifier.authenticated_height(), Some(1));
+    let block = fixture.block_with_submitted_work(fixture.next_header());
+    let proof = fixture.certify(block);
+    assert_eq!(verifier.authenticated_height(), Some(1));
+    verifier.verify(&proof).unwrap();
+    assert_eq!(verifier.authenticated_height(), Some(2));
+    assert!(verifier.verify(&proof).is_err());
+    assert_eq!(verifier.authenticated_height(), Some(2));
 }

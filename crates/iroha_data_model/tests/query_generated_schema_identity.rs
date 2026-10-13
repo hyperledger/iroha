@@ -323,7 +323,10 @@ fn generated_queries() -> Vec<Value> {
     )]));
     rows.push(record([query::settlement::FindFxCorridorPolicyRegistry]));
     rows.push(record([query::settlement::FindSettlementReceiptById::new(
-        "business_receipt".parse().expect("settlement identifier"),
+        iroha_data_model::isi::SettlementId::new(
+            account(),
+            "business_receipt".parse().expect("settlement reference"),
+        ),
     )]));
     rows.push(record([
         query::smart_contract::FindContractManifestByArtifactId::new(
@@ -737,6 +740,22 @@ fn print_scoped_manifest_query_identity_frame() {
     ]);
     println!(
         "SCOPED_MANIFEST_QUERY_FRAME={}",
+        json::to_json(&row).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "explicit maintenance capture of the owner-qualified settlement receipt query"]
+fn print_settlement_receipt_query_identity_frame() {
+    let _address_context = ChainDiscriminantGuard::enter(0x02f1);
+    let row = record([query::settlement::FindSettlementReceiptById::new(
+        iroha_data_model::isi::SettlementId::new(
+            account(),
+            "business_receipt".parse().expect("settlement reference"),
+        ),
+    )]);
+    println!(
+        "SETTLEMENT_RECEIPT_QUERY_FRAME={}",
         json::to_json(&row).unwrap()
     );
 }

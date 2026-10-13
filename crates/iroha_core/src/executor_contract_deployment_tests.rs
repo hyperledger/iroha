@@ -60,7 +60,8 @@ fn contract_code_management_manager_sponsors_registration_and_meters_every_instr
             Register::account(Account::new(builder.clone())).into(),
             Grant::account_permission(contract_deployment_permission(), builder.clone()).into(),
         ];
-        let expected_gas = crate::gas::meter_instructions(&instructions);
+        let expected_gas =
+            crate::gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS);
         let transaction = TransactionBuilder::new(
             state.network_id,
             manager.clone(),

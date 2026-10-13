@@ -1396,6 +1396,7 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
             &stx.world,
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(&stx)
@@ -1414,6 +1415,7 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
                 &stx.world,
                 &nexus,
                 &pipeline,
+                &crate::gas::DEFAULT_ZK_GAS,
                 &payload,
                 0,
                 crate::smartcontracts::isi::sccp::hold::committed_time_ms(&stx)
@@ -1596,9 +1598,11 @@ fn staged_fee_sponsor_activation_fixture() -> (
     // This admission component fixture requires explicit Global root metadata.
     // It does not execute signed genesis or authenticate a native history.
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
-        iroha_data_model::block::consensus::SumeragiRootScope::Global,
-    ));
+    parameters
+        .set_parameter(crate::sumeragi::lanes::routing::test_support::metadata(
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     (
         State::new_for_testing(

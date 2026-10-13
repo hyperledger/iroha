@@ -12,6 +12,7 @@ This crate hosts cross-component tests for Iroha.
   - `consensus_and_da`
   - `sumeragi`
   - `sumeragi_lanes`
+  - `sccp_lanes`
   - `sumeragi_npos_committee_transition`
   - `nexus_and_streaming`
 - Sumeragi on real peers: `cargo test -p integration_tests --test sumeragi` and
@@ -19,6 +20,9 @@ This crate hosts cross-component tests for Iroha.
   behavior are covered by the deterministic simulator
   (`cargo test -p iroha_sumeragi --features sim`, `specs/sumeragi.md` §13).
 - Target a harness directly with `cargo test -p integration_tests --test <harness>`.
+- Native SCCP genesis and finality: `cargo test -p integration_tests --test sccp_lanes -- --nocapture` requires four production validator processes, genuine NPoS registrations before SCCP initialization, an ordinary committed transaction and the same certified SCCP result on every peer, each authenticated against signed genesis with an exact quorum. It also rejects a privileged SCCP proposal while the qualified Parliament ballot is unavailable. No `parliament-test-signers` feature is used; this smoke test does not qualify an external value corridor.
+- Native payment receipt and customer credit: `cargo test -p integration_tests --test core_api native_payment_receipt:: -- --nocapture` joins actual Core execution and nonzero fees to independently genesis-pinned SDK verification and the durable bank inbox/outbox. It covers distinct carriers for one payer-owned intent, insufficient funds, rejection of the duplicate as a successful receipt, recovery after certified replay, and credit recovery at the final block without successor traffic. A separately finalized full return uses one receiver-owned identity across gateways and restart, charges once, and preserves the original successful receipt. Its four fixture validators certify execution in process; it does not qualify a deployed four-peer network.
+- Real native payment recovery: `cargo test -p integration_tests --test core_api native_payment_network:: -- --nocapture` requires four live validator processes, a funded payer and a nonzero fee. It restarts all validators and the payment/inbox owners, reauthenticates the final payment from independent genesis pins, retries from a second gateway journal and checks one monetary effect and one customer credit without producing a successor block. A skipped network startup fails this acceptance scenario.
 - The explicit KAGEMUSHA network setup exporter is
   `cargo test --locked -p integration_tests --test sumeragi kagemusha_network_setup::export_four_validator_kagemusha_setup -- --exact --ignored --nocapture --test-threads=1`.
   Select same-candidate daemon and CLI binaries with `TEST_NETWORK_BIN_IROHAD`

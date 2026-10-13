@@ -36,6 +36,45 @@ sealed class Executable {
         override fun hashCode(): Int = _ivmBytes.contentHashCode()
     }
 
+    /** Claimed execution outputs authenticated by a proof and mandatory validator replay. */
+    class IvmProved(
+        ivmBytes: ByteArray,
+        overlay: List<InstructionBox>,
+        eventsCommitment: ByteArray,
+        gasPolicyCommitment: ByteArray,
+    ) : Executable() {
+        init {
+            require(eventsCommitment.size == 32 && gasPolicyCommitment.size == 32) {
+                "proved execution commitments must contain exactly 32 bytes"
+            }
+            require((eventsCommitment[31].toInt() and 1) == 1 &&
+                (gasPolicyCommitment[31].toInt() and 1) == 1) {
+                "proved execution commitments require Iroha's marked hash encoding"
+            }
+        }
+
+        private val _ivmBytes = ivmBytes.copyOf()
+        private val _overlay = java.util.Collections.unmodifiableList(overlay.toList())
+        private val _eventsCommitment = eventsCommitment.copyOf()
+        private val _gasPolicyCommitment = gasPolicyCommitment.copyOf()
+        val ivmBytes: ByteArray get() = _ivmBytes.copyOf()
+        val overlay: List<InstructionBox> get() = _overlay
+        val eventsCommitment: ByteArray get() = _eventsCommitment.copyOf()
+        val gasPolicyCommitment: ByteArray get() = _gasPolicyCommitment.copyOf()
+
+        override fun equals(other: Any?): Boolean = other is IvmProved &&
+            _ivmBytes.contentEquals(other._ivmBytes) && _overlay == other._overlay &&
+            _eventsCommitment.contentEquals(other._eventsCommitment) &&
+            _gasPolicyCommitment.contentEquals(other._gasPolicyCommitment)
+
+        override fun hashCode(): Int {
+            var result = _ivmBytes.contentHashCode()
+            result = 31 * result + _overlay.hashCode()
+            result = 31 * result + _eventsCommitment.contentHashCode()
+            return 31 * result + _gasPolicyCommitment.contentHashCode()
+        }
+    }
+
     /** Invokes one deployed contract instance by reference. */
     class ContractCall(@JvmField val invocation: ContractInvocation) : Executable() {
         override fun equals(other: Any?): Boolean =
@@ -83,7 +122,7 @@ sealed class Executable {
     /** Whether this executable requires a signature-bound gas limit in its fee intent. */
     fun requiresTransactionGasLimit(): Boolean = when (this) {
         is Instructions -> false
-        is Ivm, is ContractCall -> true
+        is Ivm, is IvmProved, is ContractCall -> true
         is Batch -> entries.any { it is ExecutableBatchItem.ContractCall }
     }
 
@@ -94,6 +133,11 @@ sealed class Executable {
 
         @JvmStatic
         fun ivm(ivmBytes: ByteArray): Executable = Ivm(ivmBytes)
+
+        @JvmStatic
+        fun ivmProved(ivmBytes: ByteArray, overlay: List<InstructionBox>,
+                      eventsCommitment: ByteArray, gasPolicyCommitment: ByteArray): Executable =
+            IvmProved(ivmBytes, overlay, eventsCommitment, gasPolicyCommitment)
 
         @JvmStatic
         fun contractCall(invocation: ContractInvocation): Executable = ContractCall(invocation)

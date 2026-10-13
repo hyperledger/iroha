@@ -132,7 +132,8 @@ fn set_source_delta_limit(
     );
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)));
+        .set_parameter(Parameter::Block(BlockParameter::FastpqSource(profile)))
+        .expect("valid fixture parameters");
     parameters.commit();
     profile
 }
@@ -235,7 +236,10 @@ fn fixture_with_source_delta_limit(
         .expect("signed atomic settlement corpus policy");
     let instruction = SettleAtomic::new(
         chain.network_id(),
-        "overlay_atomic_business".parse().expect("id"),
+        iroha_data_model::isi::SettlementId::new(
+            movements[0].source.account().clone(),
+            "overlay_atomic_business".parse().expect("reference"),
+        ),
         AtomicSettlementMovements::try_from(movements).expect("canonical full vector"),
         nonzero!(100_u64),
         Metadata::default(),

@@ -735,6 +735,7 @@ fn checkpoint_input_requires_complete_canonical_authenticated_material_and_priva
 #[cfg(unix)]
 #[test]
 fn state_promotion_accepts_another_exact_quorum_for_the_same_certified_decision() {
+    use iroha_crypto::bls::consensus;
     use iroha_data_model::{
         block::{CommitCertificate, decode_framed_signed_block},
         sumeragi_finality::SumeragiFinalityVerifier,
@@ -756,24 +757,9 @@ fn state_promotion_accepts_another_exact_quorum_for_the_same_certified_decision(
     qc.signers = Bitmap::from_indices(4, [1, 2, 3]).expect("another exact quorum");
     let signatures: Vec<_> = keys[1..]
         .iter()
-        .map(|key| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                    .unwrap(),
-            )
-        })
+        .map(|key| consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap())
         .collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls_normal_aggregate_signatures(
-            &signatures
-                .iter()
-                .map(iroha_crypto::Signature::payload)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap()
-        .try_into()
-        .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
     let replacement = CommitCertificate::from_untrusted_parts(
         certificate.consensus_header().to_vec(),
         norito::encode_canonical(&qc).unwrap(),

@@ -108,7 +108,7 @@ fn output_geometry_refuses_before_rng_and_erases_secret_without_neighbor_writes(
         suite,
         &mut rng,
         &mut public[..100],
-        &mut secret[1..1 + MLKEM768_SECRET_KEY_BYTES],
+        &mut secret[1..=MLKEM768_SECRET_KEY_BYTES],
     )
     .unwrap_err();
     assert!(matches!(err, MlKemError::BadEncoding { kind, .. } if kind == suite.public_key_kind()));

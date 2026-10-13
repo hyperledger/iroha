@@ -16,7 +16,7 @@
 //!
 //! where `B` is always recomputed from the body context and never taken from the
 //! caller; `D_reg` is recomputed likewise with the row's descriptor digest `D`.
-//! The proof shows knowledge of a secret behind `C` and `auth`. It does not show
+//! The proof establishes existence of a secret opening `C` and `auth`. It does not show
 //! registration authority, invitation, eligibility, freshness or uniqueness;
 //! those are checks of the caller.
 //!
@@ -281,12 +281,14 @@ pub fn witness(
     )
 }
 
-/// Prove knowledge of the secret behind `statement` on `row`.
+/// Prove that the secret opens `statement` on `row`.
 ///
-/// `tape` is 80 fresh random bytes from the caller's generator; it is consumed
-/// and erased, as are the witness and every transient copy of the secret, on
-/// success and on every error. The proof is the naked proof of the record:
-/// exactly [`Row::proof_bytes`] bytes, no header.
+/// `tape` is 112 fresh random bytes from the caller's generator; it is consumed.
+/// Owned tape, witness and secret scratch buffers are zeroized on drop,
+/// including ordinary success and error returns. Register, spill and compiler
+/// copies, process abort and cooperative cancellation are not covered by that
+/// guarantee. The proof is the naked proof of the record: exactly
+/// [`Row::proof_bytes`] bytes, no header.
 ///
 /// # Errors
 /// * [`ProveError::WitnessRejected`] if `secret` is not the secret of the

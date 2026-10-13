@@ -13,7 +13,7 @@ const CAPTURE: &str = concat!(
     "/../../fixtures/kagemusha/ordinary_first_load_receipt_v1.json"
 );
 /// Read the exact separately generated first-Load capture with a finite extent.
-pub(crate) fn first_capture() -> String {
+pub fn first_capture() -> String {
     let metadata =
         fs::symlink_metadata(CAPTURE).expect("exact separately generated first-Load capture");
     assert!(metadata.file_type().is_file() && metadata.len() <= 1 << 20);
@@ -22,7 +22,7 @@ pub(crate) fn first_capture() -> String {
 
 /// Authenticate the original certificate and exact receipt event from signed genesis.
 /// This supplies fixture DATA after native BLS admission, never a catalog grant.
-pub(crate) fn verified_receipt(capture: &str) -> [u8; 282] {
+pub fn verified_receipt(capture: &str) -> [u8; 282] {
     let json: norito::json::Value = norito::json::from_str(capture).unwrap();
     let raw = |name: &str| {
         let text = json[name].as_str().unwrap();
@@ -54,8 +54,8 @@ pub(crate) fn verified_receipt(capture: &str) -> [u8; 282] {
         result_preimage: raw("result_preimage_hex"),
     };
     let mut verifier = SumeragiCommitVerifierV1::new(&native).unwrap();
-    let verified = verifier.verify(&certificate).unwrap();
-    assert_eq!(verified.height(), 2);
+    let certified_execution = verifier.verify(&certificate).unwrap();
+    assert_eq!(certified_execution.height(), 2);
     let receipt =
         iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1::decode_canonical(
             &raw("receipt_frame_hex"),
@@ -68,12 +68,18 @@ pub(crate) fn verified_receipt(capture: &str) -> [u8; 282] {
         iroha_data_model::events::data::DataEvent::KagemushaLoadCommitted(event).into(),
     );
     let path = iroha_crypto::MerkleProof::from_audit_path(0, vec![]);
-    assert!(path.verify(
-        &iroha_crypto::HashOf::new(&boxed),
-        verified.execution().event_commitment.as_ref().unwrap()
-    ));
+    assert!(
+        path.verify(
+            &iroha_crypto::HashOf::new(&boxed),
+            certified_execution
+                .execution()
+                .event_commitment
+                .as_ref()
+                .unwrap()
+        )
+    );
     let transcript = receipt.transcript().unwrap();
     assert_eq!(transcript.as_slice(), raw("receipt_transcript_hex"));
-    assert_eq!(receipt.block_height, verified.height());
+    assert_eq!(receipt.block_height, certified_execution.height());
     transcript
 }

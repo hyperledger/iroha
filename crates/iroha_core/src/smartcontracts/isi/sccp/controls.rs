@@ -8,6 +8,7 @@ use super::{Error, leaves, store};
 use crate::state::{StateReadOnly, StateTransaction};
 use iroha_data_model::{
     bridge::SccpNetworkV1,
+    governance::types::{GovernanceCertificateId, GovernanceCertificateV1},
     sccp::{
         control::{SccpControlLeafRefV1, SccpControlRecordV1, SccpLeafRefV1},
         events::{SccpControlRecordedV1, SccpEvent},
@@ -21,11 +22,57 @@ use iroha_sccp::v1::control::{ControlLeafV1, control_leaf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ControlCauseV1 {
     /// Parliament (1) or fast pause (2).
-    pub track: u8,
+    pub(super) track: u8,
     /// Identity derived from the actual enacting certificate.
-    pub certificate_id: [u8; 32],
+    pub(super) certificate_id: [u8; 32],
     /// The same certificate's canonical effect-preimage hash.
-    pub effect_hash: [u8; 32],
+    pub(super) effect_hash: [u8; 32],
+}
+
+impl ControlCauseV1 {
+    /// Bind the exact Parliament certificate selected by the due-effect executor.
+    ///
+    /// This constructor does not establish authorization by itself. Its caller must retain
+    /// the executor's exact due-height, attempt, proposal/effect and expected-head checks.
+    ///
+    /// # Errors
+    /// Refuses malformed certificates or zero native authority bindings.
+    pub(in crate::smartcontracts::isi) fn from_parliament_certificate(
+        certificate: &GovernanceCertificateV1,
+    ) -> Result<Self, Error> {
+        certificate
+            .validate()
+            .map_err(|error| refuse(format_args!("certificate: {error}")))?;
+        let cause = Self {
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+            certificate_id: *GovernanceCertificateId::derive_v1(certificate).as_bytes(),
+            effect_hash: certificate.effect_preimage_hash,
+        };
+        cause.require_supported()?;
+        Ok(cause)
+    }
+
+    fn require_supported(self) -> Result<(), Error> {
+        // TODO: implement the canonical fast-pause certificate/state/enactment owner before
+        // admitting track 2. A raw claimed certificate ID is not that authority.
+        if self.track != iroha_sccp::v1::control::TRACK_PARLIAMENT {
+            return Err(refuse("native fast-pause authority is unavailable"));
+        }
+        if self.certificate_id == [0; 32] || self.effect_hash == [0; 32] {
+            return Err(refuse("native certificate/effect binding is zero"));
+        }
+        Ok(())
+    }
+
+    /// Synthetic authority DATA for component tests; never a production certificate source.
+    #[cfg(test)]
+    pub(crate) fn for_test(certificate_id: [u8; 32], effect_hash: [u8; 32]) -> Self {
+        Self {
+            track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
+            certificate_id,
+            effect_hash,
+        }
+    }
 }
 
 fn refuse(reason: impl core::fmt::Display) -> Error {

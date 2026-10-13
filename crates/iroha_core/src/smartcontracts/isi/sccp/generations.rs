@@ -12,7 +12,8 @@ use super::{
 use crate::{
     execution_attempt::{ExecutionAttemptError, ExecutionDeferred, norito_decode_attempt_error},
     state::{
-        StateReadOnly, StateTransaction, WorldReadOnly, public_lane_validator_record_matches_key,
+        StateReadOnly, StateStorageAdmissionError, StateTransaction, WorldReadOnly,
+        public_lane_validator_record_matches_key,
     },
 };
 use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
@@ -26,7 +27,7 @@ use iroha_data_model::{
             SccpGenerationMemberUnslashableV1,
         },
         generation::{SccpCommitteeGenerationV1, SccpGenerationCauseV1, SccpGenerationEndV1},
-        params::{SCCP_MIN_EPOCH_MS_V1, SccpParametersV1},
+        params::SccpParametersV1,
         registry::SccpRouteActivationV1,
     },
     sumeragi_finality::certified_result::committee_root,
@@ -34,12 +35,6 @@ use iroha_data_model::{
 use iroha_model_base::{peer::PeerId, topology::LaneId};
 use ivm::error::ExecutionDeferral;
 use mv::storage::StorageReadOnly;
-
-/// Whether the proposed chain timing meets the SCCP generation-rate guard (§4.2.2).
-#[must_use]
-pub fn epoch_duration_is_valid(epoch_length_blocks: u64, block_cadence_ms: u64) -> bool {
-    epoch_length_blocks.saturating_mul(block_cadence_ms) >= SCCP_MIN_EPOCH_MS_V1
-}
 
 /// Distinguish fail-closed SCCP state from retryable original local resource failure.
 #[derive(Debug)]
@@ -126,7 +121,7 @@ fn member_for_peer<'a>(
         .public_lane_validators()
         .iter()
         .filter(|(key, _)| {
-            cfg!(all(test, sumeragi_core_mutation = "HC248")) || key.0 == LaneId::SINGLE
+            cfg!(all(test, sumeragi_core_mutation = "HC250")) || key.0 == LaneId::SINGLE
         })
         .filter(|(key, record)| {
             &record.peer_id == peer
@@ -332,11 +327,11 @@ fn created_events(
 pub(super) fn install_genesis(
     stx: &mut StateTransaction<'_, '_>,
     generation: RetainedSccpGeneration,
-) {
+) -> Result<(), StateStorageAdmissionError> {
     store::liability_clock::set(stx, generation.start_lc);
     store::committee_current::set(stx, generation.generation);
     created_events(stx, &generation, false);
-    publish_record(stx, generation);
+    publish_record(stx, generation)
 }
 
 /// Borrowed whole transition demand, before any new retained generation allocation.
@@ -397,22 +392,26 @@ pub(super) struct GenerationPlan {
     pub validity_ms: u64,
 }
 impl GenerationPlan {
-    pub(super) fn publish(self, stx: &mut StateTransaction<'_, '_>) {
+    pub(super) fn publish(
+        self,
+        stx: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), StateStorageAdmissionError> {
         let mut current = self.generation;
         if let Some(old) = self.old_end {
-            publish_record(stx, old);
+            publish_record(stx, old)?;
         }
         if let Some(resync) = self.resync {
             created_events(stx, &resync, true);
-            publish_record(stx, resync);
+            publish_record(stx, resync)?;
         }
         if let Some(rotation) = self.rotation {
             current = rotation.generation;
             created_events(stx, &rotation, false);
-            publish_record(stx, rotation);
+            publish_record(stx, rotation)?;
         }
         store::committee_current::set(stx, current);
         store::degraded_run::set(stx, 0);
+        Ok(())
     }
 }
 
@@ -577,38 +576,50 @@ pub(super) fn timestamp_ms(header: &BlockHeader) -> u64 {
 }
 
 /// Publish a generation and its destination-work membership in the same transaction.
-fn publish_record(stx: &mut StateTransaction<'_, '_>, generation: RetainedSccpGeneration) {
+fn publish_record(
+    stx: &mut StateTransaction<'_, '_>,
+    generation: RetainedSccpGeneration,
+) -> Result<(), StateStorageAdmissionError> {
     let id = generation.generation;
-    if generation.end.is_some() && generation.dest_cleared_lc.is_none() {
+    let pending = generation.end.is_some() && generation.dest_cleared_lc.is_none();
+    stx.world
+        .sccp_committee_generations
+        .try_insert_admitted(id, generation)
+        .map_err(|(_, error)| {
+            let original = StateStorageAdmissionError::World(error);
+            stx.arm_local_storage_refusal(original.clone());
+            original
+        })?;
+    if pending {
         stx.world
             .sccp_destination_pending_generations
             .insert(id, ());
     } else {
         stx.world.sccp_destination_pending_generations.remove(id);
     }
-    stx.world.sccp_committee_generations.insert(id, generation);
+    Ok(())
 }
 
 /// Visit the first 64 pending generations in ascending order, without traversing cleared history.
 /// Returns the number of generation records visited, including every examined historical row.
-pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) -> usize {
+pub(super) fn clear_destinations(
+    stx: &mut StateTransaction<'_, '_>,
+) -> Result<usize, StateStorageAdmissionError> {
     let mut selected = [0; 64];
     let mut count = 0;
     let mut visited = 0;
     {
-        let mut pending = stx
+        // Release the original read iterator before publishing the selected generations.
+        // Full-history traversal exists only in the deterministic mutation control.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC251")))]
+        let candidates = stx
             .world
             .sccp_destination_pending_generations
             .iter()
             .map(|(id, ())| *id)
             .take(64);
-        let mut history = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
-        let candidates: &mut dyn Iterator<Item = u64> =
-            if cfg!(all(test, sumeragi_core_mutation = "HC249")) {
-                &mut history
-            } else {
-                &mut pending
-            };
+        #[cfg(all(test, sumeragi_core_mutation = "HC251"))]
+        let candidates = store::committee_generations::iter(&*stx.world).map(|(id, _)| *id);
         for id in candidates {
             visited += 1;
             let generation = store::committee_generations::get(&*stx.world, &id)
@@ -641,7 +652,7 @@ pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) -> usize {
             .expect("selected original generation")
             .clone();
         generation.dest_cleared_lc = Some(lc);
-        publish_record(stx, generation);
+        publish_record(stx, generation)?;
         stx.world
             .emit_events(Some(SccpEvent::GenerationDestinationCleared(
                 SccpGenerationDestinationClearedV1 {
@@ -650,7 +661,7 @@ pub(super) fn clear_destinations(stx: &mut StateTransaction<'_, '_>) -> usize {
                 },
             )));
     }
-    visited
+    Ok(visited)
 }
 
 /// Pure bounded selection for §4.11; caller must supply the actual Pending-forgery owner.

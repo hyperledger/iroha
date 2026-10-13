@@ -1,5 +1,10 @@
 //! The toy AMX application of F31 and its oracle O-AMX (spec §11, §13.2, §13.3).
 //!
+//! Time expiry is a simulator candidate: the signed transaction and Begin bind an absolute
+//! expiry, and an explicit due-work transaction permits an idle Global root to Abort.
+//! Production model/wire policy and whole-node qualification remain separate work. Inputs
+//! use the existing conceptual authorized transaction registry; this is not a fee-account model.
+//!
 //! Instance [`GLOBAL`] is the global chain `G`; every other instance of the world is a
 //! dataspace `D_i` with its own committee. They run the two-phase commit of §11 as an
 //! application over the unmodified cores:
@@ -49,7 +54,7 @@ use std::{
 
 use super::{
     crypto::SimCrypto,
-    driver::{block_exec, decode_txs, encode_tx},
+    driver::{Clock, block_exec, block_time, decode_txs, encode_tx_with_due},
     world::{Inst, World},
 };
 use crate::{
@@ -68,6 +73,8 @@ pub const GLOBAL: usize = 0;
 pub const INPUT_BASE: u64 = 1 << 60;
 /// Largest distance `d − b` between a `Begin` at `b` and its deadline `d` (§11.6).
 pub const MAX_WINDOW: u64 = 200;
+/// Finite time window of the simulator candidate, not a selected production policy.
+pub const MAX_TIME_WINDOW_MS: Millis = 60_000;
 /// Interval of the application's client, relayers and oracle.
 pub const TICK: Millis = 100;
 /// Padding of an input transaction.
@@ -107,6 +114,8 @@ pub struct AmxTx {
     pub legs: Vec<Leg>,
     /// Global deadline height `d`.
     pub deadline: u64,
+    /// Absolute certified block-time expiry of this simulator candidate.
+    pub expires_at_ms: Millis,
     /// Client nonce.
     pub nonce: u64,
 }
@@ -123,6 +132,7 @@ impl AmxTx {
             put(&mut bytes, leg.amount);
         }
         put(&mut bytes, self.deadline);
+        put(&mut bytes, self.expires_at_ms);
         put(&mut bytes, self.nonce);
         Hash32(sha256(&bytes))
     }
@@ -174,6 +184,8 @@ pub enum Record {
         participants: Vec<usize>,
         /// Global deadline height `d`.
         deadline: u64,
+        /// Absolute certified block-time expiry, bound into the signed transaction id.
+        expires_at_ms: Millis,
     },
     /// `Prepared{x, D_i, vote}` (a dataspace, §11.3).
     Prepared {
@@ -209,6 +221,7 @@ impl Record {
                 x,
                 participants,
                 deadline,
+                expires_at_ms,
             } => {
                 out.push(1);
                 out.extend_from_slice(&x.0);
@@ -217,6 +230,7 @@ impl Record {
                     put(&mut out, index_u64(*participant));
                 }
                 put(&mut out, *deadline);
+                put(&mut out, *expires_at_ms);
             }
             Self::Prepared {
                 x,
@@ -436,10 +450,18 @@ pub struct GlobalEntry {
     pub participants: Vec<usize>,
     /// Deadline `d`.
     pub deadline: u64,
+    /// Absolute certified block-time expiry from the original Begin.
+    pub expires_at_ms: Millis,
     /// Participants whose verified `Yes` is recorded.
     pub yes: BTreeSet<usize>,
     /// The immutable decision.
     pub decided: Option<Outcome>,
+}
+
+impl GlobalEntry {
+    fn due(&self, height: u64, time: Millis) -> bool {
+        height > self.deadline || time >= self.expires_at_ms
+    }
 }
 
 /// `G`'s application state: a tracker per dataspace and every begun transaction.
@@ -454,11 +476,13 @@ pub struct GlobalState {
 impl GlobalState {
     /// `Begin` (§11.2): a well-formed transaction with registered participants and
     /// `b < d ≤ b + MAX_WINDOW`; a second `Begin` for `x` is rejected.
-    fn begin(&mut self, height: u64, tx: &AmxTx, records: &mut Vec<Record>) {
+    fn begin(&mut self, height: u64, time: Millis, tx: &AmxTx, records: &mut Vec<Record>) {
         let x = tx.id();
         if !tx.well_formed()
             || tx.deadline <= height
             || tx.deadline - height > MAX_WINDOW
+            || tx.expires_at_ms <= time
+            || tx.expires_at_ms - time > MAX_TIME_WINDOW_MS
             || tx
                 .legs
                 .iter()
@@ -476,6 +500,7 @@ impl GlobalState {
             GlobalEntry {
                 participants: participants.clone(),
                 deadline: tx.deadline,
+                expires_at_ms: tx.expires_at_ms,
                 yes: BTreeSet::new(),
                 decided: None,
             },
@@ -484,6 +509,7 @@ impl GlobalState {
             x,
             participants,
             deadline: tx.deadline,
+            expires_at_ms: tx.expires_at_ms,
         });
     }
 
@@ -494,6 +520,7 @@ impl GlobalState {
         &mut self,
         crypto: &dyn Crypto,
         height: u64,
+        time: Millis,
         proof: &RecordProof,
         records: &mut Vec<Record>,
     ) {
@@ -528,8 +555,11 @@ impl GlobalState {
                 // MX1: one `Yes` suffices.
                 let all =
                     entry.yes.len() == entry.participants.len() || cfg!(sumeragi_mutation = "MX1");
-                // MX2: `Commit` after the deadline.
-                let in_time = height <= entry.deadline || cfg!(sumeragi_mutation = "MX2");
+                // The same due predicate governs explicit expiry and every Commit path.
+                // MX2 bypasses the height half; MX14 bypasses the signed time half.
+                let in_time = !entry.due(height, time)
+                    || (cfg!(sumeragi_mutation = "MX2") && time < entry.expires_at_ms)
+                    || (cfg!(sumeragi_mutation = "MX14") && height <= entry.deadline);
                 if !(all && in_time) {
                     return;
                 }
@@ -538,6 +568,27 @@ impl GlobalState {
         };
         entry.decided = Some(outcome);
         records.push(Record::Decision { x: *x, outcome });
+    }
+
+    /// A real transaction resolves only this known undecided obligation when its certified
+    /// block time or height is due. Local scheduling time never changes this decision.
+    fn expire_transaction(
+        &mut self,
+        x: Hash32,
+        height: u64,
+        time: Millis,
+        records: &mut Vec<Record>,
+    ) {
+        let Some(entry) = self.txs.get_mut(&x) else {
+            return;
+        };
+        if entry.decided.is_none() && entry.due(height, time) {
+            entry.decided = Some(Outcome::Abort);
+            records.push(Record::Decision {
+                x,
+                outcome: Outcome::Abort,
+            });
+        }
     }
 
     /// A relayed handoff of dataspace `inst`'s instance.
@@ -629,11 +680,16 @@ impl DataspaceState {
             x: begun,
             participants,
             deadline,
+            expires_at_ms,
         }) = proof.record()
         else {
             return;
         };
-        if *begun != x || *participants != tx.participants() || *deadline != tx.deadline {
+        if *begun != x
+            || *participants != tx.participants()
+            || *deadline != tx.deadline
+            || *expires_at_ms != tx.expires_at_ms
+        {
             return;
         }
         let Some(leg) = tx.leg(self.me).copied() else {
@@ -801,6 +857,8 @@ impl AppState {
 pub enum Input {
     /// `Begin(X)` for `G` (a client's request).
     Begin(AmxTx),
+    /// Explicit due-obligation work on G; its validity uses the certified block timestamp.
+    Expire(Hash32),
     /// A relayed `Prepared` proof for `G`.
     Vote(Box<RecordProof>),
     /// A relayed handoff proof of dataspace `.0`'s instance for `G`'s tracker of it.
@@ -816,6 +874,8 @@ pub enum Input {
 /// The application's execution of one block: the post-state, `R_base` and the block's records.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exec {
+    /// Timestamp from the certified payload, never the executor's local clock.
+    pub block_time_ms: Millis,
     /// The application state after the block.
     pub state: AppState,
     /// `R_base` of the block.
@@ -856,6 +916,8 @@ pub struct AmxConfig {
     pub short: (u64, u64),
     /// Long deadline distance range.
     pub long: (u64, u64),
+    /// Client-selected lifetime in milliseconds for the simulator expiry candidate.
+    pub expires_after_ms: Millis,
     /// Accounts per dataspace.
     pub accounts: u8,
     /// Initial balance of every account.
@@ -881,6 +943,7 @@ impl Default for AmxConfig {
             short_ppm: 300_000,
             short: (2, 6),
             long: (12, 40),
+            expires_after_ms: 20_000,
             accounts: 4,
             balance: 100,
             max_amount: 60,
@@ -892,6 +955,8 @@ impl Default for AmxConfig {
 /// What a pending relay delivers; the relay's key is `(target instance, JobKey)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum JobKey {
+    /// The original Begin's explicit expiry transaction on G.
+    Expire(Hash32),
     /// `G`'s `Begin` of `x` to a participant (a prepare).
     Prepare(Hash32),
     /// Participant `.1`'s vote on `x` to `G`.
@@ -905,7 +970,10 @@ enum JobKey {
 #[derive(Clone, Debug)]
 struct Job {
     input: Input,
+    /// Virtual scheduler time for ordinary delay and retry pacing.
     next_at: Millis,
+    /// Certified wall-time deadline of a signed expiry obligation, if any.
+    not_before_wall_ms: Option<Millis>,
 }
 
 /// A relayer process on a machine: its scan position per instance and its pending relays by
@@ -938,12 +1006,24 @@ impl Relayer {
     ) {
         let boxed = || Box::new(proof.clone());
         let mut add = |target: usize, key: JobKey, input: Input, next_at: Millis| {
-            self.jobs
-                .entry((target, key))
-                .or_insert(Job { input, next_at });
+            let not_before_wall_ms = match (key, proof.record()) {
+                (JobKey::Expire(_), Some(Record::Begin { expires_at_ms, .. })) => {
+                    Some(*expires_at_ms)
+                }
+                _ => None,
+            };
+            self.jobs.entry((target, key)).or_insert(Job {
+                input,
+                next_at,
+                not_before_wall_ms,
+            });
         };
         match (inst, proof.record()) {
             (GLOBAL, Some(Record::Begin { x, .. })) => {
+                // MX13: lose the only actionable final-payment work when a participant is silent.
+                if !cfg!(sumeragi_mutation = "MX13") {
+                    add(GLOBAL, JobKey::Expire(*x), Input::Expire(*x), now);
+                }
                 if let Some(tx) = txs.get(x) {
                     let delay = prepare_delay * u64::from(x.0[0]) / u64::from(u8::MAX);
                     for leg in &tx.legs {
@@ -1013,8 +1093,8 @@ pub enum Settlement {
 pub struct Observed {
     /// Per instance, the last processed reference height.
     pub processed: Vec<u64>,
-    /// Begun transactions: participants and deadline.
-    pub begun: BTreeMap<Hash32, (Vec<usize>, u64)>,
+    /// Begun transactions: participants, height deadline and signed time expiry.
+    pub begun: BTreeMap<Hash32, (Vec<usize>, u64, Millis)>,
     /// `G`'s decisions: outcome, `G` height and the time of the first honest commit.
     pub decided: BTreeMap<Hash32, (Outcome, u64, Millis)>,
     /// Votes by `(dataspace, x)`.
@@ -1082,6 +1162,7 @@ impl AmxWorld {
             memo.insert(
                 (index, inst.genesis_result),
                 Rc::new(Exec {
+                    block_time_ms: 0,
                     state,
                     base: inst.genesis_result,
                     records: Vec::new(),
@@ -1145,12 +1226,18 @@ impl AmxWorld {
         let Some(parent) = self.exec_of(inst, parent) else {
             return ExecOutcome::Failed("AMX application: unknown parent post-state".to_owned());
         };
+        let Some(time) = block_time(block.payload().as_slice()) else {
+            return ExecOutcome::Failed(
+                "AMX application requires a certified payload timestamp".into(),
+            );
+        };
         let (state, records) = self.step(
             inst_config,
             inst,
             &parent.state,
             block.payload().as_slice(),
             block.header().height,
+            time,
         );
         let result = bind(&base, &records);
         self.memo
@@ -1158,6 +1245,7 @@ impl AmxWorld {
             .entry((inst, result))
             .or_insert_with(|| {
                 Rc::new(Exec {
+                    block_time_ms: time,
                     state,
                     base,
                     records,
@@ -1175,6 +1263,7 @@ impl AmxWorld {
         state: &AppState,
         payload: &[u8],
         height: u64,
+        time: Millis,
     ) -> (AppState, Vec<Record>) {
         let crypto = &self.crypto;
         let mut state = state.clone();
@@ -1188,10 +1277,13 @@ impl AmxWorld {
             }
             match (&mut state, input) {
                 (AppState::Global(global), Input::Begin(tx)) => {
-                    global.begin(height, tx, &mut records);
+                    global.begin(height, time, tx, &mut records);
                 }
                 (AppState::Global(global), Input::Vote(proof)) => {
-                    global.vote(crypto, height, proof, &mut records);
+                    global.vote(crypto, height, time, proof, &mut records);
+                }
+                (AppState::Global(global), Input::Expire(x)) => {
+                    global.expire_transaction(*x, height, time, &mut records);
                 }
                 (AppState::Global(global), Input::Handoff(ds, proof)) => {
                     global.handoff(crypto, *ds, proof);
@@ -1223,6 +1315,12 @@ impl AmxWorld {
     /// Whether the effect of a relay is committed in `state` of its target.
     fn done(&self, key: JobKey, state: &AppState) -> bool {
         match key {
+            JobKey::Expire(x) => state.global().is_some_and(|global| {
+                global
+                    .txs
+                    .get(&x)
+                    .is_some_and(|entry| entry.decided.is_some())
+            }),
             JobKey::Prepare(x) => state.dataspace().is_some_and(|ds| {
                 ds.prepared.contains_key(&x)
                     || ds.held.contains_key(&x)
@@ -1283,7 +1381,7 @@ impl World {
             if *at > horizon {
                 continue;
             }
-            let Some((participants, _)) = amx.seen.begun.get(x) else {
+            let Some((participants, _, _)) = amx.seen.begun.get(x) else {
                 continue;
             };
             for participant in participants {
@@ -1321,7 +1419,12 @@ impl World {
             .amx
             .as_ref()
             .map_or(0, |amx| amx.config.submit_loss_ppm);
-        let tx = encode_tx(id, false, INPUT_PAD);
+        let due = self
+            .amx
+            .as_ref()
+            .and_then(|amx| amx.inputs.get(&id))
+            .is_some_and(|(_, input)| matches!(input, Input::Expire(_)));
+        let tx = encode_tx_with_due(id, false, due, INPUT_PAD);
         for r in 0..self.replicas.len() {
             let machine = self.replicas[r].machine;
             if self.replicas[r].inst == target
@@ -1377,6 +1480,11 @@ impl World {
         let tx = AmxTx {
             legs,
             deadline,
+            // The external client uses the wall-time epoch of certified block timestamps;
+            // `now` alone is only the simulator's zero-based scheduling time.
+            expires_at_ms: Clock::default()
+                .local(now)
+                .saturating_add(config.expires_after_ms),
             nonce: amx.nonce,
         };
         amx.next_client = now + rng.range(config.every.0, config.every.1);
@@ -1397,7 +1505,20 @@ impl World {
         let mut submissions = Vec::new();
         let mut failure = None;
         for index in 0..amx.relayers.len() {
-            let machine = &self.machines[amx.relayers[index].machine];
+            let machine_index = amx.relayers[index].machine;
+            let machine = &self.machines[machine_index];
+            // Same wall clock as World::wall_ms. Keep it distinct from virtual retry time,
+            // and sample it again on every tick so clock steps cannot strand due jobs.
+            let offset = self
+                .clock_guard
+                .as_ref()
+                .and_then(|guard| guard.wall_offsets.get(machine_index))
+                .copied()
+                .unwrap_or(0);
+            let wall = i64::try_from(machine.clock.local(now))
+                .unwrap_or(i64::MAX)
+                .saturating_add(offset);
+            let wall = u64::try_from(wall).unwrap_or(0);
             let outage = amx
                 .config
                 .relayer_down
@@ -1468,7 +1589,7 @@ impl World {
                 let Some(job) = amx.relayers[index].jobs.get_mut(&(target, key)) else {
                     continue;
                 };
-                if job.next_at > now {
+                if job.next_at > now || job.not_before_wall_ms.is_some_and(|due| wall < due) {
                     continue;
                 }
                 job.next_at = now + retry;
@@ -1585,28 +1706,29 @@ fn observe_block(
                 x,
                 participants,
                 deadline,
+                expires_at_ms,
             } => {
                 if seen
                     .begun
-                    .insert(*x, (participants.clone(), *deadline))
+                    .insert(*x, (participants.clone(), *deadline, *expires_at_ms))
                     .is_some()
                 {
                     return Err(format!("O-AMX: G recorded a second Begin for {}", short(x)));
                 }
             }
             Record::Decision { x, outcome } => {
-                let Some((_, deadline)) = seen.begun.get(x) else {
+                let Some((_, deadline, expires_at_ms)) = seen.begun.get(x) else {
                     return Err(format!("O-AMX: G decided {} without a Begin", short(x)));
                 };
                 if *outcome == Outcome::Commit {
-                    if height > *deadline {
+                    if height > *deadline || after.block_time_ms >= *expires_at_ms {
                         return Err(format!(
                             "O-AMX: G committed {} at height {height} after its deadline {deadline}",
                             short(x)
                         ));
                     }
                     seen.commit_checks.push(*x);
-                } else if height <= *deadline {
+                } else if height <= *deadline && after.block_time_ms < *expires_at_ms {
                     seen.abort_checks.push(*x);
                 }
                 if seen.decided.insert(*x, (*outcome, height, at)).is_some() {
@@ -1812,7 +1934,7 @@ fn check_ledger(
 /// settlement applies `G`'s decision.
 fn check_cross(seen: &mut Observed) -> Result<(), String> {
     for x in std::mem::take(&mut seen.commit_checks) {
-        let Some((participants, _)) = seen.begun.get(&x) else {
+        let Some((participants, _, _)) = seen.begun.get(&x) else {
             return Err(format!("O-AMX: G committed {} without a Begin", short(&x)));
         };
         if let Some(participant) = participants
@@ -1826,7 +1948,7 @@ fn check_cross(seen: &mut Observed) -> Result<(), String> {
         }
     }
     for x in std::mem::take(&mut seen.abort_checks) {
-        let Some((participants, _)) = seen.begun.get(&x) else {
+        let Some((participants, _, _)) = seen.begun.get(&x) else {
             return Err(format!("O-AMX: G aborted {} without a Begin", short(&x)));
         };
         if !participants

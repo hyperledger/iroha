@@ -16,7 +16,6 @@ use std::{
     },
     task::Poll,
 };
-use tower::ServiceExt as _;
 fn pending_body(polls: &Arc<AtomicUsize>) -> Body {
     let polls = Arc::clone(polls);
     Body::from_stream(futures::stream::poll_fn(move |_| {
@@ -168,7 +167,7 @@ async fn sccp_query_extractor_retains_text_and_rejects_unknown_fields_under_real
                     .unwrap()
                     .into_parts();
                 let crate::NoritoStringQuery(query) = crate::NoritoStringQuery::<
-                    crate::sccp::ProofQuery,
+                    crate::sccp::native::ProofQuery,
                 >::from_request_parts(
                     &mut parts, &()
                 )
@@ -181,7 +180,7 @@ async fn sccp_query_extractor_retains_text_and_rejects_unknown_fields_under_real
                     .unwrap()
                     .into_parts();
                 assert!(
-                    crate::NoritoStringQuery::<crate::sccp::ProofQuery>::from_request_parts(
+                    crate::NoritoStringQuery::<crate::sccp::native::ProofQuery>::from_request_parts(
                         &mut parts,
                         &()
                     )
@@ -255,7 +254,7 @@ async fn sccp_three_parameter_path_and_query_fit_the_original_request_owner() {
             any(
                 move |Path((network, revision, nonce)): Path<(String, u32, u64)>,
                       crate::NoritoStringQuery(query): crate::NoritoStringQuery<
-                    crate::sccp::ProofQuery,
+                    crate::sccp::native::ProofQuery,
                 >| {
                     let entered = entered.clone();
                     let owning_app = owning_app.clone();

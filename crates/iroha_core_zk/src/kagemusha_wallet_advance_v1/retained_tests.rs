@@ -38,7 +38,12 @@ fn two_heads(
             )
             .expect("advance"),
     );
-    (device, f, slot, [bootstrap.operation_id, next.operation_id])
+    (
+        device,
+        f,
+        slot,
+        [bootstrap.body().operation_id, next.body().operation_id],
+    )
 }
 
 fn tombstone() -> KagemushaWalletTombstoneV1 {

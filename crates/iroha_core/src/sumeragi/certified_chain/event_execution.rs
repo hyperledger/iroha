@@ -55,9 +55,10 @@ pub(crate) fn read_event_execution(
         Ok(())
     };
     let genesis = source.block_with_admission(NonZeroUsize::MIN, &mut admit)?;
-    let (_, instance, _) = authenticate_genesis(&genesis, &network, chain_id).map_err(|error| {
-        error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
-    })?;
+    let (_, instance, root_scope) =
+        authenticate_genesis(&genesis, &network, chain_id).map_err(|error| {
+            error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))
+        })?;
     let mut parent = None;
     let mut current = None;
     source.visit_executed_backwards_with_original_target(
@@ -76,9 +77,12 @@ pub(crate) fn read_event_execution(
     )?;
     let parent = parent.ok_or_else(|| invalid("authenticated parent is absent"))?;
     let current = current.ok_or_else(|| invalid("authenticated target is absent"))?;
-    let certified = PrefixVerifierContext { instance }
-        .verify_executed_successor(&parent, current)
-        .map_err(state_certificate::verification_attempt_failure)?;
+    let certified = PrefixVerifierContext {
+        instance,
+        root_scope,
+    }
+    .verify_executed_successor(&parent, current, source.allocation_budget())
+    .map_err(state_certificate::verification_attempt_failure)?;
     let authenticated = certified.into_authenticated_execution().map_err(|error| {
         ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(error.to_string()))
     })?;

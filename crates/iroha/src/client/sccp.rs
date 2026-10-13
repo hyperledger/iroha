@@ -4,16 +4,18 @@
 //! bundles locally before using them.
 //! Proofs select a committed certificate height; readers independently verify its authority.
 
+use std::num::NonZeroU64;
+
 use super::{Client, dispatch, join_torii_url};
 use crate::{Error, Result, http::Method};
 use iroha_data_model::{
     account::address::ChainDiscriminantGuard, bridge::SccpNetworkV1, sccp::registry::SccpRouteV1,
 };
 use iroha_sccp::api::{
-    SccpCapabilitiesV1, SccpControlPageV1, SccpControlProofBundleV1, SccpGenerationV1,
-    SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1, SccpLcCheckpointCoverV1,
-    SccpLightClientDetailV1, SccpMessageProofBundleV1, SccpMessageStatusV1, SccpOutboundPageV1,
-    SccpRecentMessagesV1, SccpRotationV1,
+    SccpCapabilitiesV1, SccpCertificateV1, SccpControlPageV1, SccpControlProofBundleV1,
+    SccpGenerationV1, SccpGovernanceProposalDetailV1, SccpHistoryPathViewV1,
+    SccpLcCheckpointCoverV1, SccpLightClientDetailV1, SccpMessageProofBundleV1,
+    SccpMessageStatusV1, SccpOutboundPageV1, SccpRecentMessagesV1, SccpRotationV1,
 };
 use iroha_torii_shared::route_catalog::{RouteDescriptor, sccp};
 use norito::json::JsonDeserialize;
@@ -84,6 +86,23 @@ fn path(route: RouteDescriptor, values: &[&str]) -> String {
     path
 }
 
+/// Height selected for a native certificate read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SccpFinalityAt {
+    /// The peer's durable tip.
+    Latest,
+    /// One explicit nonzero height. Genesis has no Commit certificate.
+    Height(NonZeroU64),
+}
+impl SccpFinalityAt {
+    fn path_value(self) -> String {
+        match self {
+            Self::Latest => "latest".into(),
+            Self::Height(height) => height.to_string(),
+        }
+    }
+}
+
 impl Sccp<'_> {
     async fn get<R: JsonDeserialize>(
         &self,
@@ -113,6 +132,25 @@ impl Sccp<'_> {
         }
         let _format = ChainDiscriminantGuard::enter(self.client.account_chain_discriminant);
         decode_body(operation, response.body())
+    }
+
+    /// Read the original native certificate at a positive height or the captured tip.
+    ///
+    /// # Errors
+    /// Preserves transport, source availability and malformed response errors.
+    pub async fn finality(&self, at: SccpFinalityAt) -> Result<SccpCertificateV1> {
+        let response: SccpCertificateV1 = self
+            .get(sccp::FINALITY, &path(sccp::FINALITY, &[&at.path_value()]))
+            .await?;
+        if let SccpFinalityAt::Height(height) = at
+            && response.height != height.get()
+        {
+            return Err(Error::ResponseBinding {
+                operation: sccp::FINALITY.stable_route_id(),
+                field: "height",
+            });
+        }
+        Ok(response)
     }
 
     /// Read the Taira identity, parameters and light-client profiles.
@@ -222,6 +260,30 @@ impl Sccp<'_> {
     /// Returns structured transport, HTTP or decoding errors.
     pub async fn registry(&self) -> Result<Vec<SccpRouteV1>> {
         self.get(sccp::REGISTRY, sccp::REGISTRY.path()).await
+    }
+
+    /// Read effective revision holds and scalar reconciliation accounting.
+    /// # Errors
+    /// Returns structured transport, HTTP or decoding errors.
+    pub async fn forgery_hold(
+        &self,
+        query: iroha_sccp::api::SccpForgeryHoldQuery,
+    ) -> Result<iroha_sccp::api::SccpForgeryHoldViewV1> {
+        let mut path = format!("{}?limit={}", sccp::FORGERY_HOLD.path(), query.limit);
+        if let Some(network) = query.network {
+            path.push_str(&format!("&network={}", network.profile_key()));
+        }
+        if let Some(revision) = query.revision {
+            path.push_str(&format!("&revision={revision}"));
+        }
+        if let Some(after) = query.after {
+            path.push_str(&format!(
+                "&after_network={}&after_revision={}",
+                after.network.profile_key(),
+                after.revision
+            ));
+        }
+        self.get(sccp::FORGERY_HOLD, &path).await
     }
 
     /// Read the status union of one message id: an outbound record with its state, an inbound
@@ -513,6 +575,160 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_reads_share_bounded_async_transport_and_preserve_errors() {
+        use crate::client::{
+            capability_test_support::AsyncOnlyTransport,
+            evidence_http_tests::{base_url, client_with_base_url},
+        };
+        use std::{
+            sync::{Arc, Mutex, atomic::AtomicUsize},
+            time::Duration,
+        };
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let transport = Arc::new(AsyncOnlyTransport {
+            responder: Box::new(|_| {
+                Ok(crate::http::Response::builder()
+                    .status(503)
+                    .header("Retry-After", "2")
+                    .body(b"native source unavailable".to_vec())
+                    .unwrap())
+            }),
+            requests: requests.clone(),
+            completed: Arc::new(AtomicUsize::new(0)),
+            delay: Duration::ZERO,
+        });
+        let client = client_with_base_url(base_url())
+            .to_builder()
+            .http_transport(transport)
+            .build()
+            .unwrap();
+        let blocking = crate::blocking::Client::from_client(client.clone()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let id = [0xab; 32];
+        let hold_query = iroha_sccp::api::SccpForgeryHoldQuery {
+            network: Some(SccpNetworkV1::TonMainnet),
+            revision: None,
+            after: Some(iroha_sccp::api::SccpForgeryHoldCursorV1 {
+                network: SccpNetworkV1::TonMainnet,
+                revision: 7,
+            }),
+            limit: 2,
+        };
+        let expected = [
+            sccp::MESSAGE_PROOF,
+            sccp::CONTROL_PROOF,
+            sccp::FINALITY,
+            sccp::COMMITTEE_ROTATIONS,
+            sccp::CURRENT_COMMITTEE,
+            sccp::COMMITTEE,
+            sccp::FORGERY_HOLD,
+        ];
+        let check = |errors: [Option<Error>; 7]| {
+            for (error, route) in errors.into_iter().zip(expected) {
+                match error.expect("unavailable source") {
+                    Error::Http {
+                        operation,
+                        status,
+                        retry_after,
+                        body,
+                    } => {
+                        assert_eq!(operation, route.stable_route_id());
+                        assert_eq!(status, 503);
+                        assert!(retry_after.is_some());
+                        assert_eq!(body, b"native source unavailable");
+                    }
+                    error => panic!("original HTTP error lost: {error}"),
+                }
+            }
+        };
+        runtime.block_on(async {
+            check([
+                client
+                    .sccp()
+                    .message_proof(&id, SccpProofHeightV1::Record)
+                    .await
+                    .err(),
+                client
+                    .sccp()
+                    .control_proof(SccpNetworkV1::TonMainnet, 2, 3, SccpProofHeightV1::Latest)
+                    .await
+                    .err(),
+                client
+                    .sccp()
+                    .finality(SccpFinalityAt::Height(NonZeroU64::new(7).unwrap()))
+                    .await
+                    .err(),
+                client.sccp().rotations(4, 16).await.err(),
+                client.sccp().current_committee().await.err(),
+                client.sccp().committee(1).await.err(),
+                client.sccp().forgery_hold(hold_query).await.err(),
+            ]);
+            // All seven blocking operations reject an async context before I/O.
+            let errors = [
+                blocking
+                    .sccp()
+                    .message_proof(&id, SccpProofHeightV1::Record)
+                    .err(),
+                blocking
+                    .sccp()
+                    .control_proof(SccpNetworkV1::TonMainnet, 2, 3, SccpProofHeightV1::Latest)
+                    .err(),
+                blocking.sccp().finality(SccpFinalityAt::Latest).err(),
+                blocking.sccp().rotations(4, 16).err(),
+                blocking.sccp().current_committee().err(),
+                blocking.sccp().committee(1).err(),
+                blocking.sccp().forgery_hold(hold_query).err(),
+            ];
+            assert!(
+                errors
+                    .into_iter()
+                    .all(|error| matches!(error, Some(Error::Blocking(_))))
+            );
+        });
+        check([
+            blocking
+                .sccp()
+                .message_proof(&id, SccpProofHeightV1::Record)
+                .err(),
+            blocking
+                .sccp()
+                .control_proof(SccpNetworkV1::TonMainnet, 2, 3, SccpProofHeightV1::Latest)
+                .err(),
+            blocking
+                .sccp()
+                .finality(SccpFinalityAt::Height(NonZeroU64::new(7).unwrap()))
+                .err(),
+            blocking.sccp().rotations(4, 16).err(),
+            blocking.sccp().current_committee().err(),
+            blocking.sccp().committee(1).err(),
+            blocking.sccp().forgery_hold(hold_query).err(),
+        ]);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 14);
+        let expected_paths = [
+            format!("/v1/sccp/messages/{}/proof?at=record", hex32(&id)),
+            "/v1/sccp/controls/ton-mainnet/2/3/proof?at=latest".into(),
+            "/v1/sccp/finality/7".into(),
+            "/v1/sccp/committees/rotations?after_generation=4&limit=16".into(),
+            "/v1/sccp/committees/current".into(),
+            "/v1/sccp/committees/1".into(),
+            "/v1/sccp/forgery-hold?limit=2&network=ton-mainnet&after_network=ton-mainnet&after_revision=7".into(),
+        ];
+        for (index, request) in requests.iter().enumerate() {
+            assert_eq!(request.method, Method::GET);
+            assert_eq!(request.max_response_bytes, MAX_RESPONSE_BYTES);
+            assert_eq!(
+                &request.url[url::Position::BeforePath..],
+                expected_paths[index % 7]
+            );
+        }
+    }
+
+    #[test]
     fn paths_fill_placeholders_in_order() {
         assert_eq!(
             sccp::CURRENT_COMMITTEE.path(),
@@ -659,6 +875,15 @@ mod tests {
 
     #[test]
     fn proof_height_queries_are_canonical() {
+        assert_eq!(SccpFinalityAt::Latest.path_value(), "latest");
+        assert_eq!(
+            SccpFinalityAt::Height(NonZeroU64::new(u64::MAX).unwrap()).path_value(),
+            u64::MAX.to_string()
+        );
+        assert_eq!(
+            path(sccp::FINALITY, &["latest"]),
+            "/v1/sccp/finality/latest"
+        );
         assert_eq!(SccpProofHeightV1::Record.to_string(), "record");
         assert_eq!(SccpProofHeightV1::Latest.to_string(), "latest");
         assert_eq!(SccpProofHeightV1::At(12).to_string(), "12");

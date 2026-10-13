@@ -503,8 +503,15 @@ mod settlement_transcript_frame_tests {
     }
 
     #[test]
-    fn settlement_and_repo_ids_separate_identical_payloads_in_transcripts() {
-        let settlement: SettlementId = "trade_17".parse().unwrap();
+    fn settlement_and_repo_ids_preserve_distinct_scopes_in_transcripts() {
+        let settlement = SettlementId::new(
+            crate::account::AccountId::new(
+                iroha_crypto::KeyPair::from_seed(vec![91; 32], iroha_crypto::Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            ),
+            "trade_17".parse().unwrap(),
+        );
         let agreement: RepoAgreementId = "trade_17".parse().unwrap();
         let settlement_frame = assert_frame(
             &settlement,
@@ -512,7 +519,7 @@ mod settlement_transcript_frame_tests {
         );
         let agreement_frame =
             assert_frame(&agreement, "iroha_data_model::repo::model::RepoAgreementId");
-        assert_eq!(settlement.encode(), agreement.encode());
+        assert_ne!(settlement.encode(), agreement.encode());
         assert_ne!(settlement_frame, agreement_frame);
         assert!(matches!(
             norito::decode_canonical::<RepoAgreementId>(&settlement_frame),

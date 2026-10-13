@@ -345,14 +345,13 @@ fn every_native_facade_rejects_other_roles_and_wrappers_before_all_provider_call
         let account = provider.authority();
         let allowed = allowed_instructions(role, &account).remove(0);
         let mut attached = direct(&account, allowed.clone());
-        attached.attachments = Some(
-            ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+        attached
+            .set_proof_attachments_v1(&[ProofAttachment::new_ref(
                 "halo2/ipa".into(),
                 ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
                 VerifyingKeyId::new("halo2/ipa", "native-input-sidecar"),
             )])
-            .expect("bounded input sidecar"),
-        );
+            .expect("one bounded input sidecar carrier");
         let mut rejected: Vec<_> = disallowed_shapes(&account, allowed)
             .into_iter()
             .map(|executable| with_executable(&account, executable))

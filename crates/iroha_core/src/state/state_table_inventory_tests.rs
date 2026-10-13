@@ -18,12 +18,15 @@
 //!   (`state_table_inventory_functions.rs`). A reader is `State`, `World` or the owner of
 //!   another registry field with its handles and reader traits, or a table or cell
 //!   handle; a method belongs to a reader when the whole header of its `impl` or `trait`
-//!   block names one;
+//!   block names one. A record of the peer handshake or of a lane block that the carrier
+//!   walk reads is matched as a return type whatever its name;
 //! - the declarations of the consensus-carried types and their nested records: the block
 //!   header, the block payload and block result, the signed genesis consensus parameters,
 //!   the execution result, every Sumeragi wire message (`crates/iroha_sumeragi`), the lane
-//!   result, the peer handshake capabilities (`crates/iroha_p2p`) and the node's network
-//!   envelope;
+//!   batch and lane result, the peer handshake (`crates/iroha_p2p`: the hello record with
+//!   its four metadata records and wire digest, the identity binding that its signature
+//!   covers, and the consensus, confidential and crypto capabilities) and the node's
+//!   network envelope;
 //! - the execution-witness key tags of the data model, the SCCP write-set encoder, the
 //!   World accessors of the functions that derive witness values and the fields of the
 //!   witness value types.
@@ -46,8 +49,9 @@
 //! - a hash-bearing field, or a nested named type, appears in a listed consensus-carried
 //!   type or execution-witness value type without a classification,
 //! - any field, whatever its type, appears in a carrier type whose every field is
-//!   classified: the block, its payload and its result, the header, `R`, the lane result,
-//!   the genesis context parameters, the epoch identity and the handshake capabilities,
+//!   classified: the block, its payload and its result, the header, `R`, the lane batch and
+//!   lane result, the genesis context parameters, the epoch identity, every record of the
+//!   peer handshake and the network envelope,
 //! - a function that derives a witness value reads another World accessor,
 //! - an expected-open defect changes (for example a State-level canonical field becomes
 //!   committed), or
@@ -734,10 +738,10 @@ const ROOTS: &[Root] = &[
     Root {
         id: "consensus_authority_binding",
         class: RootClass::ConsensusBinding,
-        carrier: "EpochId.context in every Sumeragi core header, vote, QC, timeout vote and timeout certificate; ExecutionResultCommitment.schedule and ExecutionResultCommitment.beacon in the preimage of R; the epoch context identifiers inside the schedule and the beacon pulse",
+        carrier: "EpochId.context in every Sumeragi core header, vote, QC, timeout vote and timeout certificate; ExecutionResultCommitment.schedule and ExecutionResultCommitment.beacon in the preimage of R; the epoch context identifiers inside the schedule and the beacon pulse; the current and successor ordered-key committee roots of the fixed native X header",
         keyed: false,
-        scope: "three members. (1) The epoch context and its exact validator-generation and scheduling-authorization identities: the complete ordered BLS roster, scalar generation, epoch bounds, beacon binding and predecessor. (2) The schedule of R: the current epoch context, the boundary with its immutable E+2 preparation and the two successor slots, embedded as records; the preparation identity binds every frozen election input. (3) The finalized beacon pulse of R, embedded as a record. Canonical State sources: world.consensus_schedule for (1) and (2), world.validator_committee_transitions for the frozen preparation, world.global_beacon_pulses for (3)",
-        construction: "(1) domain-separated identities of the canonical context, exact ordered BLS generation and scheduling authorization; (2) the complete frozen preparation has its own domain-separated identity, while the schedule and (3) pulse records are part of the preimage that R hashes",
+        scope: "four members. (1) The epoch context and its exact validator-generation and scheduling-authorization identities: the complete ordered BLS roster, scalar generation, epoch bounds, beacon binding and predecessor. (2) The schedule of R: the current epoch context, the boundary with its immutable E+2 preparation and the two successor slots, embedded as records; the preparation identity binds every frozen election input. (3) The finalized beacon pulse of R, embedded as a record. (4) The fixed native X current and successor committee roots: C3/C4 bind them to the exact ordered keys of the same current/boundary epoch graph. Canonical State sources: world.consensus_schedule for (1) and (2), world.validator_committee_transitions for the frozen preparation, world.global_beacon_pulses for (3); (4) projects those authenticated epoch keys and retains the SCCP generation in world.sccp_committee_generations",
+        construction: "(1) domain-separated identities of the canonical context, exact ordered BLS generation and scheduling authorization; (2) the complete frozen preparation has its own domain-separated identity, while the schedule and (3) pulse records are part of the body that R hashes; (4) SCCP committee_root over the original ordered key bytes, checked against that same schedule before the native result can be accepted",
         witnesses: "none over State: votes and certificates bind the epoch context, and R binds the schedule and the pulse. Authority follows signed genesis and authenticated predecessor transitions; it does not depend on a State opening authenticated by the certificate being verified",
         owner: "Sumeragi (specs/sumeragi.md §§3, 4.1, 10)",
         disposition: "kept in its specified role under §§3, 4.1 and 10: the binding authenticates no State read, and its canonical State source entries are also committed by the keyed State root",
@@ -764,6 +768,10 @@ const ROOTS: &[Root] = &[
             (
                 "crates/iroha_data_model/src/nexus/committee.rs",
                 "let mut bytes = b\"iroha:validator-committee-preparation:v1\".to_vec();",
+            ),
+            (
+                "crates/iroha_data_model/src/sumeragi_finality/certified_result.rs",
+                "pub fn context_committee_root(",
             ),
             ("crates/iroha_sumeragi/src/types.rs", "pub context: Hash32,"),
             (
@@ -1510,6 +1518,7 @@ const CONSTRUCTIONS: &[&str] = &[
     "smt::",
     "ConfidentialTree",
     "HistoryAccumulator",
+    "anchor_node",
 ];
 
 /// File-name endings of path literals, which are not domain literals.
@@ -1555,6 +1564,32 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             ),
         ],
     },
+    // Canonical model hashing, original Core publication and borrowed anchor lookup share
+    // one accumulator. Its primitive domains and construction are both inside the scan.
+    ApplicationAccumulator {
+        id: "sccp_anchor_accumulator",
+        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
+        statement: "membership of one nonzero height's original consensus core hash and certified result in a retained complete 4096-anchor chunk, checked against its State-committed chunk root; neither a supplied witness nor the accumulator authenticates arbitrary State entries",
+        domains: &[r"sccp/anchor-leaf/v1", r"sccp/anchor-node/v1"],
+        evidence: &[
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+                "fn prepare_anchor<'a>(",
+            ),
+            (
+                "crates/iroha_data_model/src/sccp/generation.rs",
+                "pub fn anchor_chunk_root_v1(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/anchors.rs",
+                "pub fn lookup_anchor(",
+            ),
+            (
+                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
+                ".try_insert_admitted(chunk, root)",
+            ),
+        ],
+    },
     ApplicationAccumulator {
         id: "sccp_message_accumulator",
         fields: &[
@@ -1563,28 +1598,12 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             "world.sccp_history",
             "world.sccp_history_leaves",
         ],
-        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator",
+        statement: "inclusion of an SCCP message leaf in its block root and of that block root in the history accumulator; these roots are the native finality X fields, with certified-result production and reader binding required separately",
         domains: &[],
         evidence: &[(
             "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
             "//! Block commitment and history accumulator (`specs/sccp.md` §3.4, §3.5, §4.5 step 1).",
         )],
-    },
-    ApplicationAccumulator {
-        id: "sccp_consensus_anchor_chunks",
-        fields: &["world.sccp_anchor_open", "world.sccp_anchor_chunks"],
-        statement: "membership of one actual native core hash and certified result at its nonzero height in a retained complete 4096-anchor chunk; this application statement does not authenticate arbitrary State reads",
-        domains: &[r"sccp/anchor-leaf/v1", r"sccp/anchor-node/v1"],
-        evidence: &[
-            (
-                "crates/iroha_data_model/src/sccp/generation.rs",
-                "pub fn anchor_chunk_root_v1(",
-            ),
-            (
-                "crates/iroha_core/src/smartcontracts/isi/sccp/hook.rs",
-                "stx.world.sccp_anchor_chunks.insert(chunk, root);",
-            ),
-        ],
     },
     ApplicationAccumulator {
         id: "kaigi_roster_root",
@@ -1948,6 +1967,11 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         path: "crates/iroha_data_model/src/parliament_casting.rs",
         uses: &[("MerkleTree", 7)],
         owner: UseOwner::Roots(&["parliament_casting_snapshot_root"]),
+    },
+    ConstructionUse {
+        path: "crates/iroha_data_model/src/sccp/generation.rs",
+        uses: &[("anchor_node", 4)],
+        owner: UseOwner::Accumulator("sccp_anchor_accumulator"),
     },
     ConstructionUse {
         path: "crates/iroha_data_model/src/sumeragi_finality.rs",
@@ -2531,11 +2555,32 @@ const ROOT_BEARING_RECORDS: &[&str] = &[
     "WorldStateTransition",
 ];
 
+/// The carriers whose walked records the signature scan also matches as return types: the
+/// records of the peer handshake and of a lane block. Most of them have no name that the
+/// hash rules match, so a State reader that fills one from State content would otherwise
+/// be seen by no detector.
+const RECORD_RETURN_CARRIERS: &[&str] = &["lane_result", "peer_handshake"];
+
+/// The names of the records that the carriers of [`RECORD_RETURN_CARRIERS`] walk, in
+/// ascending order: the handshake hello with its metadata records, the identity binding,
+/// the handshake capabilities, and the lane batch and lane result.
+fn carried_records() -> Vec<&'static str> {
+    let mut records: Vec<&'static str> = CARRIERS
+        .iter()
+        .filter(|carrier| RECORD_RETURN_CARRIERS.contains(&carrier.id))
+        .flat_map(|carrier| carrier.types.iter())
+        .map(|(_, declaration)| declared_name(declaration))
+        .collect();
+    records.sort_unstable();
+    records.dedup();
+    records
+}
+
 /// The rule that decides which functions the signature scan matches.
 const STATE_READER_RULE: &str = "a function or method of a non-test iroha_core source, outside items under #[cfg(test)] or #[test], whose generics, parameters or where clause name a State reader type, or that has a self receiver inside an impl or trait block whose header names one anywhere between the keyword and the opening brace: in the generics, the implemented trait, the implementing type, the supertraits or the where clause. A blanket implementation for all readers, an extension trait of a reader trait, an implementation of a reader trait for a type with another name and an impl block in a macro body are therefore matched. The State reader types (state_reader_types) are the owners of the registry fields (State, World, the transaction storage, the block-hash journal, the trigger set and the canonical runtime) with their reader traits and their block, transaction, view, prepared, detached and published handles, every other type that implements a reader trait in a literal impl block, and the table and cell handles that State is built from";
 
 /// The rule that decides which return types are hash-bearing.
-const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
+const HASH_RETURN_RULE: &str = "a return type is hash-bearing when it names Hash, HashOf or Hash32; or a raw digest array [u8; 32], [u8; Hash::LENGTH] or [u8; blake3::OUT_LEN]; or a type whose name, before an optional V<digits> version, ends in Commitment, Digest, Fingerprint, Hash, Proof, ProofBundle, Proofs or Root (wrappers, aliases and records named for what they carry); or one of the listed records that carry a root or digest of State content under another name (root_bearing_records); or one of the records of the peer handshake and of a lane block that the carrier walk reads (carried_records), whatever its name; Self in a return type stands for the implementing type of the enclosing impl block (an associated type Self::Name does not)";
 
 /// The identifiers of a code text.
 fn identifiers(code: &str) -> impl Iterator<Item = &str> {
@@ -2571,6 +2616,13 @@ fn returns_hash(output: &str) -> bool {
             matches!(name, "Hash" | "HashOf" | "Hash32")
                 || ROOT_BEARING_RECORDS.contains(&name)
                 || is_hash_named(name)
+                || CARRIERS.iter().any(|carrier| {
+                    RECORD_RETURN_CARRIERS.contains(&carrier.id)
+                        && carrier
+                            .types
+                            .iter()
+                            .any(|(_, declaration)| declared_name(declaration) == name)
+                })
         })
 }
 
@@ -3586,19 +3638,29 @@ fn witness_key_tags() -> Vec<String> {
 fn sccp_write_set_fields() -> Vec<String> {
     let text = source("crates/iroha_core/src/state.rs");
     let (_, body) = text
-        .split_once("pub(crate) fn sccp_execution_write_set_bytes(&self) -> Vec<u8> {")
+        .split_once("pub(crate) fn write_sccp_execution_delta<W: std::io::Write>(")
         .expect("State has the SCCP write-set encoder");
     let (body, _) = body
-        .split_once("\n        out\n    }")
-        .expect("the SCCP write-set encoder returns its bytes");
-    // The field names are the `sccp_*` identifiers of the two macro invocations, however
-    // rustfmt lays their arguments out.
-    let fields: Vec<String> = body
-        .split(|character: char| {
-            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
+        .split_once("\n        Ok(())\n    }")
+        .expect("the SCCP write-set encoder completes its exact stream");
+    let fields: Vec<String> = ["cell!(", "storage!("]
+        .into_iter()
+        .flat_map(|invocation| {
+            let (_, fields) = body
+                .split_once(invocation)
+                .expect("the SCCP encoder names its cell and storage fields");
+            let (fields, _) = fields
+                .split_once(");")
+                .expect("the SCCP field invocation is complete");
+            fields
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
         })
-        .filter(|name| name.starts_with("sccp_"))
-        .map(|name| format!("world.{name}"))
+        .map(|name| {
+            assert!(name.starts_with("sccp_"), "unexpected SCCP field: {name}");
+            format!("world.{name}")
+        })
         .collect();
     assert!(!fields.is_empty(), "the SCCP write set names no field");
     fields
@@ -3809,6 +3871,59 @@ fn declared_name(declaration: &str) -> &str {
         .expect("a declaration names a type")
 }
 
+/// Whether a struct name of `crates/iroha_p2p` says that it is a record of the peer
+/// handshake: a capability record (`..HandshakeCaps`, `ConsensusConfigCaps`), or a
+/// `Handshake..` hello, metadata, digest or binding record. A trailing layout version
+/// (`V1`, `V2`, ..) is not part of the role, so a later version of a walked record is a
+/// handshake record as well.
+fn is_handshake_record_name(name: &str) -> bool {
+    let digits = name.trim_end_matches(|character: char| character.is_ascii_digit());
+    let role = match digits.strip_suffix('V') {
+        Some(unversioned) if digits.len() < name.len() => unversioned,
+        _ => name,
+    };
+    role.ends_with("HandshakeCaps")
+        || role == "ConsensusConfigCaps"
+        || (role.starts_with("Handshake")
+            && ["Hello", "Meta", "Digest", "Binding"]
+                .iter()
+                .any(|ending| role.ends_with(ending)))
+}
+
+#[test]
+fn handshake_record_names_are_recognised_at_every_layout_version() {
+    for name in [
+        "ConsensusHandshakeCaps",
+        "ConfidentialHandshakeCaps",
+        "CryptoHandshakeCaps",
+        "CryptoHandshakeCapsV2",
+        "ConsensusConfigCaps",
+        "ConsensusConfigCapsV3",
+        "HandshakeHello",
+        "HandshakeHelloV2",
+        "HandshakeConsensusMeta",
+        "HandshakeTrustMetaV12",
+        "HandshakeConfidentialDigest",
+        "HandshakeIdentityBindingV1",
+        "HandshakeIdentityBindingV2",
+        "HandshakeIdentityBinding",
+    ] {
+        assert!(is_handshake_record_name(name), "{name}");
+    }
+    for name in [
+        "HandshakeError",
+        "HandshakeBindingContext",
+        "HandshakeState",
+        "PeerBinding",
+        "ConsensusCaps",
+        "HandshakeV",
+        "HandshakeHelloVersion",
+        "V1",
+    ] {
+        assert!(!is_handshake_record_name(name), "{name}");
+    }
+}
+
 /// Whether a field type carries a 32-byte hash, or a Merkle tree of such hashes.
 fn is_hash_type(kind: &str) -> bool {
     kind.contains("Hash") || kind.contains("[u8; 32]") || kind.contains("MerkleTree")
@@ -3835,8 +3950,18 @@ const PLAIN_TYPES: &[&str] = &[
 /// Typed hashes: their type parameter names what is hashed and holds no value.
 const TYPED_HASHES: &[&str] = &["HashOf", "MerkleTree", "MerkleTreeCommitment"];
 
+/// Whether an identifier of a type text is a constant and not a type: a name in upper
+/// snake case, as the array length in `[u8; Hash::LENGTH]`. A name of two or more characters
+/// without a lowercase letter is a constant when it has an underscore or no digit; `T` and
+/// `H256` are types.
+fn is_constant_name(name: &str) -> bool {
+    name.len() > 1
+        && !name.chars().any(|character| character.is_ascii_lowercase())
+        && (name.contains('_') || !name.chars().any(|character| character.is_ascii_digit()))
+}
+
 /// The named types in a type text. The type parameters of a typed hash are not values of
-/// the field and are not named.
+/// the field and are not named, and neither is a constant ([`is_constant_name`]).
 fn named_types(kind: &str) -> Vec<&str> {
     let bytes = kind.as_bytes();
     let is_identifier = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
@@ -3852,7 +3977,9 @@ fn named_types(kind: &str) -> Vec<&str> {
             at += 1;
         }
         let name = &kind[start..at];
-        if name.starts_with(|character: char| character.is_ascii_uppercase()) {
+        if name.starts_with(|character: char| character.is_ascii_uppercase())
+            && !is_constant_name(name)
+        {
             out.push(name);
         }
         if TYPED_HASHES.contains(&name) && bytes.get(at) == Some(&b'<') {
@@ -4057,6 +4184,8 @@ const EPOCH_MODEL: &str = "crates/iroha_data_model/src/sumeragi/epoch.rs";
 const BEACON_MODEL: &str = "crates/iroha_data_model/src/consensus.rs";
 const CORE_MESSAGES: &str = "crates/iroha_sumeragi/src/message.rs";
 const HANDSHAKE_CAPS: &str = "crates/iroha_p2p/src/lib.rs";
+const HANDSHAKE_WIRE: &str = "crates/iroha_p2p/src/peer.rs";
+const LANE_CORE: &str = "crates/iroha_core/src/sumeragi/lanes/mod.rs";
 const BLOCK_MODEL: &str = "crates/iroha_data_model/src/block/mod.rs";
 const PAYLOAD_MODEL: &str = "crates/iroha_data_model/src/block/payload.rs";
 const DA_COMMITMENT_MODEL: &str = "crates/iroha_data_model/src/da/commitment.rs";
@@ -4074,10 +4203,10 @@ const TRANSCRIPT_LOCAL_TREE: &str = "the FASTPQ transfer relation builds this tr
 
 /// Every consensus-carried type whose hash-bearing fields the drift test classifies: the
 /// block header, the block payload and block result, the signed genesis consensus
-/// parameters, the execution result `R`, every Sumeragi wire message, the lane result,
-/// the peer handshake capabilities and the node's network envelope. A field that carries
-/// a digest of State content names its [`ROOTS`] entry; every other hash-bearing field
-/// says what content it commits.
+/// parameters, the execution result `R`, every Sumeragi wire message, the lane batch and
+/// lane result, the records of the peer handshake and the node's network envelope. A field
+/// that carries a digest of State content names its [`ROOTS`] entry; every other
+/// hash-bearing field says what content it commits.
 const CARRIERS: &[Carrier] = &[
     Carrier {
         id: "block_header",
@@ -5133,12 +5262,16 @@ const CARRIERS: &[Carrier] = &[
     },
     Carrier {
         id: "lane_result",
-        object: "the result of every lane block, R = H(LANE_RESULT_TAG ‖ norito(LaneResult)), which the votes and certificates of the lane instance bind",
-        types: &[(
-            "crates/iroha_core/src/sumeragi/lanes/mod.rs",
-            "pub struct LaneResult {",
-        )],
+        object: "the payload and the result of every lane block: the transaction batch whose canonical bytes are the block payload that the lane header's payload hash binds (LaneBatch), and R = H(LANE_RESULT_TAG ‖ norito(LaneResult)), which the votes and certificates of the lane instance bind",
+        types: &[
+            (LANE_CORE, "pub struct LaneBatch {"),
+            (LANE_CORE, "pub struct LaneResult {"),
+        ],
         hashes: &[
+            (
+                "LaneBatch.anchor_hash",
+                HashUse::Block("hash of the global block that anchors the lane batch"),
+            ),
             (
                 "LaneResult.anchor_hash",
                 HashUse::Block("hash of the global block that anchors the lane block"),
@@ -5156,6 +5289,14 @@ const CARRIERS: &[Carrier] = &[
         reviewed: &[],
         content: &[
             (
+                "LaneBatch.anchor_height",
+                "height of the global block that anchors the lane batch",
+            ),
+            (
+                "LaneBatch.transactions",
+                "the signed transactions of the lane block, in lane order: block content that admission checks and the global merge executes",
+            ),
+            (
                 "LaneResult.anchor_height",
                 "height of the global block that anchors the lane block",
             ),
@@ -5164,19 +5305,36 @@ const CARRIERS: &[Carrier] = &[
                 "payload length of the lane block",
             ),
         ],
-        exhaustive: &["LaneResult"],
-        opaque: &[("ChainParamsRecord", "chain parameters: numbers")],
+        exhaustive: &["LaneBatch", "LaneResult"],
+        opaque: &[
+            (
+                "SignedTransaction",
+                "a network input as its author signed it, as the transaction entrypoints of the block_payload_and_result carrier. A State value that a transaction names is an expected-value precondition (other_domains and state_hash_functions, use precondition)",
+            ),
+            ("ChainParamsRecord", "chain parameters: numbers"),
+        ],
     },
     Carrier {
         id: "peer_handshake",
-        object: "the consensus and confidential capabilities that peers exchange and compare in the handshake (crates/iroha_p2p)",
+        object: "the hello record that peers exchange in the handshake (crates/iroha_p2p) with its consensus, confidential, crypto and trust metadata and its wire digest, the identity binding that the hello signature covers, and the consensus, confidential and crypto capabilities that a node is configured with and compares the metadata against. The SoraNet transport delegation that authenticates the transport keys before the hello is not part of it",
         types: &[
             (HANDSHAKE_CAPS, "pub struct ConsensusHandshakeCaps {"),
             (HANDSHAKE_CAPS, "pub struct ConsensusConfigCaps {"),
+            (HANDSHAKE_CAPS, "pub struct ConfidentialHandshakeCaps {"),
+            (HANDSHAKE_CAPS, "pub struct CryptoHandshakeCaps {"),
+            (HANDSHAKE_WIRE, "pub(super) struct HandshakeHello {"),
+            (HANDSHAKE_WIRE, "pub(super) struct HandshakeConsensusMeta {"),
             (
-                "crates/iroha_p2p/src/peer.rs",
+                HANDSHAKE_WIRE,
+                "pub(super) struct HandshakeConfidentialMeta {",
+            ),
+            (HANDSHAKE_WIRE, "pub(super) struct HandshakeCryptoMeta {"),
+            (HANDSHAKE_WIRE, "pub(super) struct HandshakeTrustMeta {"),
+            (
+                HANDSHAKE_WIRE,
                 "pub(super) struct HandshakeConfidentialDigest {",
             ),
+            (HANDSHAKE_WIRE, "struct HandshakeIdentityBindingV1 {"),
         ],
         hashes: &[
             (
@@ -5200,12 +5358,38 @@ const CARRIERS: &[Carrier] = &[
                 HashUse::Block("digest of the IVM gas schedule compiled into the binary"),
             ),
             (
+                "ConfidentialHandshakeCaps.features",
+                HashUse::State("confidential_feature_digest"),
+            ),
+            (
+                "HandshakeConsensusMeta.consensus_fingerprint",
+                HashUse::Block("fingerprint of the signed genesis consensus parameters"),
+            ),
+            (
                 "HandshakeConfidentialDigest.vk_set_hash",
                 HashUse::State("confidential_feature_digest"),
             ),
             (
                 "HandshakeConfidentialDigest.zk_policy_hash",
                 HashUse::State("confidential_feature_digest"),
+            ),
+            (
+                "HandshakeIdentityBindingV1.session_binding",
+                HashUse::Block(
+                    "domain-separated hash of the session key of the encrypted connection: binds the identity signature to the session",
+                ),
+            ),
+            (
+                "HandshakeIdentityBindingV1.soranet_transport_binding",
+                HashUse::Block(
+                    "domain-separated hash of the signed SoraNet transport delegation frame of the connection",
+                ),
+            ),
+            (
+                "HandshakeIdentityBindingV1.transport_binding",
+                HashUse::Block(
+                    "binding of the authenticated transport session (TLS or QUIC), when the transport provides one",
+                ),
             ),
         ],
         embeds: &[],
@@ -5230,16 +5414,154 @@ const CARRIERS: &[Carrier] = &[
                 "the shared configuration capabilities: walked as ConsensusConfigCaps",
             ),
             (
+                "ConfidentialHandshakeCaps.enabled",
+                "whether the node enforces confidential verification: node configuration",
+            ),
+            (
+                "ConfidentialHandshakeCaps.assume_valid",
+                "whether the node accepts confidential blocks without verifying them: node configuration",
+            ),
+            (
+                "ConfidentialHandshakeCaps.verifier_backend",
+                "name of the configured verifier backend: node configuration",
+            ),
+            (
+                "CryptoHandshakeCaps.sm_enabled",
+                "whether the SM helpers are enabled: node configuration",
+            ),
+            (
+                "CryptoHandshakeCaps.sm_openssl_preview",
+                "whether the OpenSSL preview provider is enabled: node configuration",
+            ),
+            (
+                "CryptoHandshakeCaps.require_sm_handshake_match",
+                "whether a peer must advertise the same SM helper availability: node configuration",
+            ),
+            (
+                "CryptoHandshakeCaps.require_sm_openssl_preview_match",
+                "whether a peer must advertise the same OpenSSL preview setting: node configuration",
+            ),
+            (
+                "HandshakeHello.network_id",
+                "identity of the network, fixed at genesis",
+            ),
+            ("HandshakeHello.public_key", "public key bytes of the peer"),
+            (
+                "HandshakeHello.signature",
+                "signature of the peer over the identity binding (HandshakeIdentityBindingV1)",
+            ),
+            ("HandshakeHello.addr", "advertised address of the peer"),
+            ("HandshakeHello.relay", "relay role of the peer"),
+            (
+                "HandshakeHello.consensus",
+                "consensus metadata: walked as HandshakeConsensusMeta",
+            ),
+            (
+                "HandshakeHello.confidential",
+                "confidential metadata: walked as HandshakeConfidentialMeta",
+            ),
+            (
+                "HandshakeHello.crypto",
+                "crypto metadata: walked as HandshakeCryptoMeta",
+            ),
+            (
+                "HandshakeHello.trust",
+                "trust metadata: walked as HandshakeTrustMeta",
+            ),
+            ("HandshakeConsensusMeta.mode", "consensus mode"),
+            (
+                "HandshakeConsensusMeta.proto_version",
+                "wire protocol version of consensus messages",
+            ),
+            (
+                "HandshakeConsensusMeta.config",
+                "the shared configuration capabilities: walked as ConsensusConfigCaps",
+            ),
+            (
+                "HandshakeConfidentialMeta.enabled",
+                "whether the peer enforces confidential verification: node configuration",
+            ),
+            (
+                "HandshakeConfidentialMeta.assume_valid",
+                "whether the peer accepts confidential blocks without verifying them: node configuration",
+            ),
+            (
+                "HandshakeConfidentialMeta.verifier_backend",
+                "name of the peer's verifier backend: node configuration",
+            ),
+            (
+                "HandshakeConfidentialMeta.features",
+                "the confidential feature digest on the wire: walked as HandshakeConfidentialDigest",
+            ),
+            (
+                "HandshakeCryptoMeta.sm_enabled",
+                "whether the peer has the SM helpers enabled: node configuration",
+            ),
+            (
+                "HandshakeCryptoMeta.sm_openssl_preview",
+                "whether the peer has the OpenSSL preview provider enabled: node configuration",
+            ),
+            (
+                "HandshakeTrustMeta.trust_gossip",
+                "whether the peer takes part in trust gossip: node configuration",
+            ),
+            (
+                "HandshakeTrustMeta.scion_supported",
+                "whether the peer supports the SCION transport: node configuration",
+            ),
+            (
                 "HandshakeConfidentialDigest.conf_rules_version",
                 "version of the confidential rules compiled into the binary: a constant, no State content",
+            ),
+            (
+                "HandshakeIdentityBindingV1.network_id",
+                "identity of the network, fixed at genesis",
+            ),
+            (
+                "HandshakeIdentityBindingV1.public_key",
+                "public key bytes of the peer",
+            ),
+            (
+                "HandshakeIdentityBindingV1.advertised_addr",
+                "advertised address of the peer",
+            ),
+            ("HandshakeIdentityBindingV1.relay", "relay role of the peer"),
+            (
+                "HandshakeIdentityBindingV1.consensus",
+                "consensus metadata: walked as HandshakeConsensusMeta",
+            ),
+            (
+                "HandshakeIdentityBindingV1.confidential",
+                "confidential metadata: walked as HandshakeConfidentialMeta",
+            ),
+            (
+                "HandshakeIdentityBindingV1.crypto",
+                "crypto metadata: walked as HandshakeCryptoMeta",
+            ),
+            (
+                "HandshakeIdentityBindingV1.trust",
+                "trust metadata: walked as HandshakeTrustMeta",
             ),
         ],
         exhaustive: &[
             "ConsensusHandshakeCaps",
             "ConsensusConfigCaps",
+            "ConfidentialHandshakeCaps",
+            "CryptoHandshakeCaps",
+            "HandshakeHello",
+            "HandshakeConsensusMeta",
+            "HandshakeConfidentialMeta",
+            "HandshakeCryptoMeta",
+            "HandshakeTrustMeta",
             "HandshakeConfidentialDigest",
+            "HandshakeIdentityBindingV1",
         ],
-        opaque: &[("ConsensusMode", "enumeration without a hash payload")],
+        opaque: &[
+            ("ConsensusMode", "enumeration without a hash payload"),
+            ("NetworkId", "network identity fixed at genesis"),
+            ("SocketAddr", "network address of a peer"),
+            ("RelayRole", "enumeration without a hash payload"),
+        ],
     },
     Carrier {
         id: "node_network_envelope",
@@ -6518,7 +6840,11 @@ fn generate() -> String {
     );
     put(
         &mut out,
-        "    \"not_detected\": \"a digest of State content whose domain literal does not have the form of domain_literal_rule, that uses none of the construction tokens, that enters no listed execution-witness value type and no listed protocol carrier, and that no function matched by state_reader_rule returns in a hash-bearing type; for example an undomained hash of State rows that a function computes from an iterator or from row bytes instead of a reader type (state_reader_types) and that a node keeps in a local artifact. Also not detected: a digest held in a type that the hash rules do not match, for example an integer; such a field is listed by review (protocol_carriers[*].found_by_review, which also lists identifiers that validation derives from State for comparison). Inside a type listed under every_field_classified a new field fails the check whatever its type; in the other walked types a new field without a hash-bearing or unclassified nested type does not. The signature scan reads literal impl and trait blocks, also inside macro bodies; it does not expand macros, so a method that a macro generates from a fragment is not matched. The State reader types are listed by name: a new handle type of a State owner is matched once it is listed, which the scan test requires for every type that implements a reader trait in a literal impl block. The checks detect carrier, signature, literal and construction drift; they do not establish arbitrary State-dataflow completeness\",",
+        &format!("    \"carried_records\": {},", list(carried_records())),
+    );
+    put(
+        &mut out,
+        "    \"not_detected\": \"a digest of State content whose domain literal does not have the form of domain_literal_rule, that uses none of the construction tokens, that enters no listed execution-witness value type and no listed protocol carrier, and that no function matched by state_reader_rule returns in a hash-bearing type; for example an undomained hash of State rows that a function computes from an iterator or from row bytes instead of a reader type (state_reader_types) and that a node keeps in a local artifact. Also not detected: a digest held in a type that the hash rules do not match, for example an integer; such a field is listed by review (protocol_carriers[*].found_by_review, which also lists identifiers that validation derives from State for comparison). Inside a type listed under every_field_classified a new field fails the check whatever its type; in the other walked types a new field without a hash-bearing or unclassified nested type does not. The signature scan reads literal impl and trait blocks, also inside macro bodies; it does not expand macros, so a method that a macro generates from a fragment is not matched. It reads iroha_core only: the node binary (crates/irohad) fills the handshake capabilities, and a function of another crate that reads State and returns a hash or a carried record is not matched. The peer_handshake carrier walks the hello record, its metadata records, its identity binding and the capability records; the SoraNet transport delegation records of crates/iroha_p2p, which authenticate transport keys before the hello and carry no capability, are not walked. The State reader types are listed by name: a new handle type of a State owner is matched once it is listed, which the scan test requires for every type that implements a reader trait in a literal impl block. The checks detect carrier, signature, literal and construction drift; they do not establish arbitrary State-dataflow completeness\",",
     );
     put(&mut out, "    \"found_by_review\": [");
     let review_only: Vec<String> = REVIEW_ONLY_ROOTS
@@ -7116,11 +7442,42 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     let world = World::default();
     let budget = iroha_allocation::AllocationBudget::new(16 * 1024 * 1024);
     let mut covered = Vec::new();
+    macro_rules! put_typed {
+        ($block:ident, sccp_anchor_chunks, $key:expr, $value:expr) => {
+            $block
+                .sccp_anchor_chunks
+                .try_insert_admitted($key, $value)
+                .unwrap()
+        };
+        ($block:ident, sccp_committee_generations, $key:expr, $value:expr) => {
+            $block
+                .sccp_committee_generations
+                .try_insert_admitted($key, $value)
+                .unwrap()
+        };
+        ($block:ident, $field:ident, $key:expr, $value:expr) => {
+            $block.$field.insert($key, $value)
+        };
+    }
+    macro_rules! remove_typed {
+        ($block:ident, sccp_anchor_chunks, $key:expr) => {
+            $block.sccp_anchor_chunks.try_remove_admitted($key).unwrap()
+        };
+        ($block:ident, sccp_committee_generations, $key:expr) => {
+            $block
+                .sccp_committee_generations
+                .try_remove_admitted($key)
+                .unwrap()
+        };
+        ($block:ident, $field:ident, $key:expr) => {
+            $block.$field.remove($key)
+        };
+    }
     macro_rules! typed_table {
         ($field:ident, $key:expr, $value:expr, $changed:expr) => {{
             let mut block = world.block();
             let parent = WorldStateAccumulator::capture(&block).unwrap();
-            block.$field.insert($key, $value);
+            put_typed!(block, $field, $key, $value);
             let inserted = parent.apply_block(&block).unwrap();
             assert_ne!(
                 inserted.root(),
@@ -7135,7 +7492,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 stringify!($field)
             );
             assert_eq!(inserted.entries(), parent.entries() + 1);
-            block.$field.insert($key, $changed);
+            put_typed!(block, $field, $key, $changed);
             let replaced = parent.apply_block(&block).unwrap();
             assert_ne!(
                 replaced.root(),
@@ -7149,7 +7506,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
                 "{}: replace",
                 stringify!($field)
             );
-            block.$field.remove($key);
+            remove_typed!(block, $field, $key);
             assert_eq!(
                 parent.apply_block(&block).unwrap().root(),
                 parent.root(),
@@ -7182,6 +7539,42 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         (1_u64, [1_u8; 32]),
         (2_u64, [1_u8; 32])
     );
+    {
+        use crate::state::sccp_forgery_custody::OffenceKey;
+        let mut block = world.block();
+        let parent = WorldStateAccumulator::capture(&block).unwrap();
+        let pool = block.sccp_forgery_offences.allocation_budget().clone();
+        let key = OffenceKey::try_copy(
+            7,
+            iroha_model_base::topology::LaneId::SINGLE,
+            &account(b"typed-offence"),
+            &pool,
+        )
+        .unwrap();
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [1; 32])
+            .unwrap();
+        let inserted = parent.apply_block(&block).unwrap();
+        assert_ne!(inserted.root(), parent.root());
+        assert_eq!(inserted.entries(), parent.entries() + 1);
+        assert_eq!(
+            inserted.root(),
+            WorldStateAccumulator::capture(&block).unwrap().root()
+        );
+        block
+            .sccp_forgery_offences
+            .try_insert_admitted(key.clone(), [2; 32])
+            .unwrap();
+        assert_ne!(parent.apply_block(&block).unwrap().root(), inserted.root());
+        block
+            .sccp_forgery_offences
+            .try_remove_admitted(key)
+            .unwrap();
+        assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
+        covered.push(("world.sccp_forgery_offences", Commitment::Certified));
+    }
+
     typed_table!(
         consensus_keys_by_pk,
         "typed-public-key".to_owned(),
@@ -7238,6 +7631,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
+    typed_cell!(sccp_forgery_max_generation, Some(7_u64));
     typed_cell!(sccp_committee_current, 7_u64);
     typed_cell!(sccp_liability_clock, 1_000_u64);
     typed_cell!(sccp_degraded_run, 2_u32);
@@ -7305,7 +7699,7 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         ($field:ident, $key:expr, $value:expr) => {{
             let mut block = world.block();
             let parent = WorldStateAccumulator::capture(&block).unwrap();
-            block.$field.insert($key, $value);
+            put_typed!(block, $field, $key, $value);
             assert_eq!(
                 parent.apply_block(&block).unwrap().root(),
                 parent.root(),
@@ -7369,6 +7763,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         "world.sccp_fast_pause_rounds",
         "world.sccp_fast_pause_suspended_until_ms",
         "world.sccp_fast_pauses",
+        "world.sccp_forgery_offences",
+        "world.sccp_forgery_max_generation",
         "world.sccp_history_leaves",
         "world.sccp_liability_clock",
         "world.sccp_pause_panel",
@@ -7698,8 +8094,9 @@ fn source_scan_classifies_every_domain_literal_and_construction_use() {
         "iroha.mint",
         "iroha::logger",
         // Norito Rust schema identities name layouts, not scanned hash domains.
-        "iroha_core::amx::PreparedIntentCoordinatesV1",
-        "iroha_core::amx::PreparedIntentRowV1",
+        "iroha_core::amx::AmxParentCoordinatesV1",
+        "iroha_core::amx::AmxIntentCoordinatesV1",
+        "iroha_core::amx::AmxIntentRowV1",
         "plain text v1 here",
         "retail_fee_head_tree_v1",
         "../fixtures/a/b_v1.json",
@@ -7901,6 +8298,52 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "fn cell_digest(cell: &CellView<'_, Row>) -> ShadowDigest { todo!() }",
             "cell_digest",
         ),
+        // A record of the peer handshake or of a lane block that the carrier walk reads:
+        // the hello with its four metadata records, the capabilities and the lane batch.
+        (
+            "fn hello(view: &StateView<'_>) -> Result<HandshakeHello, E> { todo!() }",
+            "hello",
+        ),
+        (
+            "fn consensus_meta(world: &impl WorldReadOnly) -> HandshakeConsensusMeta { todo!() }",
+            "consensus_meta",
+        ),
+        (
+            "fn confidential_meta<S: StateReadOnly>(state: &S) -> Option<HandshakeConfidentialMeta> { todo!() }",
+            "confidential_meta",
+        ),
+        (
+            "fn crypto_meta(state: &State) -> HandshakeCryptoMeta { todo!() }",
+            "crypto_meta",
+        ),
+        (
+            "fn trust_meta(block: &StateBlock<'_>) -> HandshakeTrustMeta { todo!() }",
+            "trust_meta",
+        ),
+        (
+            "fn confidential_caps(state: &impl StateReadOnly) -> iroha_p2p::ConfidentialHandshakeCaps { todo!() }",
+            "confidential_caps",
+        ),
+        (
+            "fn crypto_caps(world: &World) -> CryptoHandshakeCaps { todo!() }",
+            "crypto_caps",
+        ),
+        (
+            "fn identity_binding(view: &StateView<'_>) -> HandshakeIdentityBindingV1 { todo!() }",
+            "identity_binding",
+        ),
+        (
+            "fn lane_batch(block: &StateBlock<'_>, height: u64) -> Result<LaneBatch, E> { todo!() }",
+            "lane_batch",
+        ),
+        (
+            "impl LaneBatch { fn from_state(world: &impl WorldReadOnly) -> Self { todo!() } }",
+            "from_state",
+        ),
+        (
+            "impl StateView<'_> { fn lane_result(&self) -> Option<LaneResult> { todo!() } }",
+            "lane_result",
+        ),
     ] {
         assert_eq!(
             report(text),
@@ -7908,6 +8351,42 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "{text}"
         );
     }
+    // The carried records are the walked types of the handshake and lane carriers: a type
+    // added to either carrier is matched as a return type without a second listing.
+    assert_eq!(
+        carried_records(),
+        [
+            "ConfidentialHandshakeCaps",
+            "ConsensusConfigCaps",
+            "ConsensusHandshakeCaps",
+            "CryptoHandshakeCaps",
+            "HandshakeConfidentialDigest",
+            "HandshakeConfidentialMeta",
+            "HandshakeConsensusMeta",
+            "HandshakeCryptoMeta",
+            "HandshakeHello",
+            "HandshakeIdentityBindingV1",
+            "HandshakeTrustMeta",
+            "LaneBatch",
+            "LaneResult",
+        ]
+    );
+    for record in carried_records() {
+        assert!(returns_hash(record), "{record}");
+        assert!(
+            returns_hash(&format!("Result<Option<{record}>, E>")),
+            "{record}"
+        );
+    }
+    for id in RECORD_RETURN_CARRIERS {
+        assert!(CARRIERS.iter().any(|carrier| carrier.id == *id), "{id}");
+    }
+    // The retired SCCP subject digest is not a parallel native authority path.
+    assert!(
+        scan.state_hash_functions
+            .keys()
+            .all(|(path, _)| path != "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs")
+    );
     // The functions of the tree that only the whole header matches are listed.
     for (path, name, count) in [
         (
@@ -8161,9 +8640,14 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
             "transaction_membership_root",
         ),
         (
-            "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-            "capture_data_authority_table",
+            "crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_capture/actions.rs",
+            "capture_frozen_action_authority_table",
             "state_table_substrate",
+        ),
+        (
+            "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+            "original_begin",
+            "execution_witness_roots",
         ),
     ] {
         let listed = STATE_HASH_FUNCTIONS
@@ -8222,7 +8706,16 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     ] {
         assert!(returns_hash(output), "{output}");
     }
-    for output in ["", "u64", "[u8; 31]", "Result<(), HashError>", "AccountId"] {
+    for output in [
+        "",
+        "u64",
+        "[u8; 31]",
+        "Result<(), HashError>",
+        "AccountId",
+        "LaneBatchView",
+        "HandshakeHelloTimer",
+        "RelayRole",
+    ] {
         assert!(!returns_hash(output), "{output}");
     }
     assert!(names_state_reader("x: &crate::state::State") && !names_state_reader("LaneState"));
@@ -8395,6 +8888,42 @@ fn state_hash_scan_actual_amx_complete_keeps_its_original_listing() {
         1,
         "original AMX complete must retain its exact registry entry"
     );
+}
+
+/// Fixture-only hash collection cannot replace the production replay-alias classification.
+#[test]
+fn state_hash_scan_carrier_fixture_keeps_production_alias_and_visitor_visible() {
+    let path = "crates/iroha_core/src/tx.rs";
+    let (_, code) = split_source(&source(path));
+    let signatures = fn_signatures(&code);
+    assert!(
+        !signatures
+            .iter()
+            .any(|entry| entry.name == "canonical_carrier_membership_hashes"),
+        "the cfg(test) collection adapter is not a production State reader"
+    );
+    let visitor: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "for_each_canonical_carrier_membership_hash")
+        .collect();
+    assert_eq!(visitor.len(), 1);
+    assert!(visitor[0].reads_state && !visitor[0].returns_hash);
+    let alias: Vec<_> = signatures
+        .iter()
+        .filter(|entry| entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(alias.len(), 1);
+    assert!(alias[0].reads_state && alias[0].returns_hash);
+    let listed: Vec<_> = STATE_HASH_FUNCTIONS
+        .iter()
+        .filter(|entry| entry.path == path && entry.name == "authenticated_signed_replay_alias")
+        .collect();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].count, 1);
+    assert!(matches!(listed[0].owner, UseOwner::Other(Use::Record, _)));
+    assert!(!STATE_HASH_FUNCTIONS.iter().any(|entry| {
+        entry.path == path && entry.name == "canonical_carrier_membership_hashes"
+    }));
 }
 
 /// Current execution proofs serve an existing certified identity and result.
@@ -9211,6 +9740,130 @@ fn witness_families_cover_every_witness_key_tag() {
 /// of State content with its listed commitment, or as the content it commits, and every
 /// nested type is walked or declared.
 #[test]
+fn native_result_carrier_walk_matches_every_fixed_header_byte_range() {
+    use iroha_data_model::sumeragi_finality::{
+        SccpFinalityHeaderV1,
+        certified_result::{
+            FLAG_ACTIVE, FLAG_ROTATION, SccpFinalityHeaderFieldsV1, X_LEN, X_MAGIC,
+        },
+    };
+    let source = source(CERTIFIED_RESULT_MODEL);
+    assert_eq!(
+        source
+            .matches("pub struct SccpFinalityHeaderV1([u8; X_LEN]);")
+            .count(),
+        1,
+        "the reviewed wrapper must retain only its exact fixed byte array"
+    );
+    assert_eq!(core::mem::size_of::<SccpFinalityHeaderV1>(), 221);
+    assert_eq!(X_LEN, 221);
+    let fields = SccpFinalityHeaderFieldsV1 {
+        network_id: [1; 32],
+        height: 2,
+        timestamp_ms: 3,
+        flags: FLAG_ACTIVE | FLAG_ROTATION,
+        message_count: 1,
+        sccp_root: [4; 32],
+        history_size: 1,
+        history_root: [5; 32],
+        generation: 1,
+        committee_root: [6; 32],
+        validity_ms: 7,
+        next_committee_root: [8; 32],
+    };
+    let header = SccpFinalityHeaderV1::from_fields(&fields).unwrap();
+    let bytes = header.as_bytes();
+    assert_eq!(&bytes[..16], X_MAGIC);
+    // Destructure without `..`: a new projected field requires an explicit byte-range review.
+    let SccpFinalityHeaderFieldsV1 {
+        network_id,
+        height,
+        timestamp_ms,
+        flags,
+        message_count,
+        sccp_root,
+        history_size,
+        history_root,
+        generation,
+        committee_root,
+        validity_ms,
+        next_committee_root,
+    } = header.fields();
+    assert_eq!(&bytes[16..48], &network_id);
+    assert_eq!(&bytes[48..56], &height.to_be_bytes());
+    assert_eq!(&bytes[56..64], &timestamp_ms.to_be_bytes());
+    assert_eq!(bytes[64], flags);
+    assert_eq!(&bytes[65..69], &message_count.to_be_bytes());
+    assert_eq!(&bytes[69..101], &sccp_root);
+    assert_eq!(&bytes[101..109], &history_size.to_be_bytes());
+    assert_eq!(&bytes[109..141], &history_root);
+    assert_eq!(&bytes[141..149], &generation.to_be_bytes());
+    assert_eq!(&bytes[149..181], &committee_root);
+    assert_eq!(&bytes[181..189], &validity_ms.to_be_bytes());
+    assert_eq!(&bytes[189..221], &next_committee_root);
+    assert_eq!(header.fields(), fields);
+    assert_eq!(SccpFinalityHeaderV1::parse(bytes).unwrap(), header);
+    // Flip one actual byte in every field. Only the reserved flag mutation is structurally
+    // invalid; the others must change exactly the corresponding decoded field. This guards
+    // the real byte decoder, not merely the non-serialized Fields declaration.
+    let expected = [
+        "network_id",
+        "height",
+        "timestamp_ms",
+        "flags",
+        "message_count",
+        "sccp_root",
+        "history_size",
+        "history_root",
+        "generation",
+        "committee_root",
+        "validity_ms",
+        "next_committee_root",
+    ];
+    let decoded_fields = declared_fields(&source, "pub struct SccpFinalityHeaderFieldsV1 {");
+    assert_eq!(
+        decoded_fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    for (field, offset) in [47, 55, 63, 64, 68, 100, 108, 140, 148, 180, 188, 220]
+        .into_iter()
+        .enumerate()
+    {
+        let mut changed = *bytes;
+        changed[offset] ^= 0x80;
+        if field == 3 {
+            assert!(SccpFinalityHeaderV1::parse(&changed).is_err());
+            continue;
+        }
+        let actual = SccpFinalityHeaderV1::parse(&changed).unwrap().fields();
+        let differences = [
+            actual.network_id != fields.network_id,
+            actual.height != fields.height,
+            actual.timestamp_ms != fields.timestamp_ms,
+            actual.flags != fields.flags,
+            actual.message_count != fields.message_count,
+            actual.sccp_root != fields.sccp_root,
+            actual.history_size != fields.history_size,
+            actual.history_root != fields.history_root,
+            actual.generation != fields.generation,
+            actual.committee_root != fields.committee_root,
+            actual.validity_ms != fields.validity_ms,
+            actual.next_committee_root != fields.next_committee_root,
+        ];
+        assert_eq!(
+            differences,
+            std::array::from_fn(|index| index == field),
+            "{}",
+            expected[field]
+        );
+    }
+}
+
+/// Exhaustively classify the original protocol carrier declarations and detect new fields.
+#[test]
 fn protocol_carriers_classify_every_hash_bearing_field() {
     check_carriers();
     let carrier = |id: &str| -> &'static Carrier {
@@ -9268,7 +9921,31 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
         state_fields("lane_result"),
         [("LaneResult.next_committee_digest", "lane_authority_binding")]
     );
-    assert_eq!(state_fields("peer_handshake").len(), 4);
+    assert_eq!(
+        state_fields("peer_handshake"),
+        [
+            (
+                "ConsensusConfigCaps.execution_policy_hash",
+                "execution_policy_digest"
+            ),
+            (
+                "ConsensusConfigCaps.nexus_policy_digest",
+                "execution_policy_digest"
+            ),
+            (
+                "ConfidentialHandshakeCaps.features",
+                "confidential_feature_digest"
+            ),
+            (
+                "HandshakeConfidentialDigest.vk_set_hash",
+                "confidential_feature_digest"
+            ),
+            (
+                "HandshakeConfidentialDigest.zk_policy_hash",
+                "confidential_feature_digest"
+            ),
+        ]
+    );
     // The block payload and result: the DA proof-policy bundle, the beacon pulse and the
     // AXT policy snapshot are embedded records of listed commitments, and the snapshot's
     // 64-bit version is the one digest that only a review can list.
@@ -9398,6 +10075,9 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
     let authority = carrier("execution_result");
     let mut authority_types = carrier_types(authority);
     for (name, field, kind) in [
+        ("CertifiedResultV1", "shadow_header", "UnknownPolicy"),
+        ("SccpFinalityHeaderFieldsV1", "shadow_root", "[u8; 32]"),
+        ("SccpFinalityHeaderFieldsV1", "shadow_flag", "u8"),
         (
             "ValidatorEpochAuthorizationV1",
             "shadow_generation",
@@ -9728,6 +10408,192 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
         unlisted_carrier_fields(body, &body_types),
         ["not-walked type LaneId is in no field"]
     );
+    // Negative controls on the actual handshake and lane declarations. The hello record
+    // that peers exchange, its four metadata records, the identity binding that the hello
+    // signature covers, the three capability records and the lane batch are walked with
+    // every field classified: a new field fails whatever its type, and a 32-byte or Hash
+    // field is reported by the hash rule as well.
+    let handshake = carrier("peer_handshake");
+    let lane = carrier("lane_result");
+    assert_eq!(
+        handshake.exhaustive.len(),
+        handshake.types.len(),
+        "every walked type of the handshake classifies every field"
+    );
+    assert_eq!(lane.exhaustive, ["LaneBatch", "LaneResult"]);
+    for (listed, walked) in [
+        (
+            handshake,
+            &[
+                "ConsensusHandshakeCaps",
+                "ConsensusConfigCaps",
+                "ConfidentialHandshakeCaps",
+                "CryptoHandshakeCaps",
+                "HandshakeHello",
+                "HandshakeConsensusMeta",
+                "HandshakeConfidentialMeta",
+                "HandshakeCryptoMeta",
+                "HandshakeTrustMeta",
+                "HandshakeConfidentialDigest",
+                "HandshakeIdentityBindingV1",
+            ][..],
+        ),
+        (lane, &["LaneBatch", "LaneResult"][..]),
+    ] {
+        let mut types = carrier_types(listed);
+        assert_eq!(
+            types.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            walked,
+            "{}",
+            listed.id
+        );
+        assert!(unclassified_value_fields(&types, listed.hashes, listed.opaque).is_empty());
+        assert!(unlisted_carrier_fields(listed, &types).is_empty());
+        for name in walked {
+            let at = position(&types, name);
+            assert!(!types[at].1.is_empty(), "{name} declares fields");
+            for (field, kind, by_hash_rule) in [
+                ("shadow_root", "[u8; 32]", true),
+                ("shadow_root", "Option<[u8; 32]>", true),
+                ("shadow_hash", "Hash", true),
+                ("shadow_hash", "HashOf<ShadowTable>", true),
+                ("shadow_binding", "[u8; iroha_crypto::Hash::LENGTH]", true),
+                ("shadow_digest", "Option<ShadowDigestV1>", true),
+                ("shadow_version", "u64", false),
+                ("shadow_flag", "Option<bool>", false),
+            ] {
+                types[at].1.push((field.to_owned(), kind.to_owned()));
+                assert_eq!(
+                    unlisted_carrier_fields(listed, &types),
+                    [format!("unclassified field {name}.{field}: {kind}")],
+                    "{name}.{field}"
+                );
+                assert_eq!(
+                    unclassified_value_fields(&types, listed.hashes, listed.opaque),
+                    if by_hash_rule {
+                        vec![format!("unclassified hash field {name}.{field}: {kind}")]
+                    } else {
+                        Vec::new()
+                    },
+                    "{name}.{field}"
+                );
+                types[at].1.pop();
+            }
+            // A nested record that is neither walked nor declared is reported.
+            types[at]
+                .1
+                .push(("shadow".to_owned(), "Vec<ShadowRecord>".to_owned()));
+            assert_eq!(
+                unclassified_value_fields(&types, listed.hashes, listed.opaque),
+                [format!(
+                    "unclassified nested type ShadowRecord in {name}.shadow"
+                )],
+                "{name}"
+            );
+            types[at].1.pop();
+        }
+    }
+    // The hello record is read from its own declaration: nine fields, with the four
+    // metadata records and the wire digest nested below it.
+    let hello = declared_fields(
+        &source(HANDSHAKE_WIRE),
+        "pub(super) struct HandshakeHello {",
+    );
+    assert_eq!(
+        hello
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "network_id",
+            "public_key",
+            "signature",
+            "addr",
+            "relay",
+            "consensus",
+            "confidential",
+            "crypto",
+            "trust"
+        ]
+    );
+    assert!(
+        hello
+            .iter()
+            .any(|(name, kind)| name == "confidential" && kind == "HandshakeConfidentialMeta")
+    );
+    assert_eq!(
+        declared_fields(
+            &source(HANDSHAKE_CAPS),
+            "pub struct ConfidentialHandshakeCaps {"
+        ),
+        [
+            ("enabled".to_owned(), "bool".to_owned()),
+            ("assume_valid".to_owned(), "bool".to_owned()),
+            ("verifier_backend".to_owned(), "String".to_owned()),
+            (
+                "features".to_owned(),
+                "Option<ConfidentialFeatureDigest>".to_owned()
+            ),
+        ]
+    );
+    assert_eq!(
+        declared_fields(&source(LANE_CORE), "pub struct LaneBatch {"),
+        [
+            ("anchor_height".to_owned(), "u64".to_owned()),
+            (
+                "anchor_hash".to_owned(),
+                "HashOf<iroha_data_model::block::BlockHeader>".to_owned()
+            ),
+            (
+                "transactions".to_owned(),
+                "Vec<SignedTransaction>".to_owned()
+            ),
+        ]
+    );
+    // The digest that the confidential capabilities hold is found by its type name: with
+    // the listing removed the field is reported, and the lane batch anchor likewise.
+    let without = |listed: &'static Carrier, field: &str| -> Vec<String> {
+        let hashes: Vec<(&str, HashUse)> = listed
+            .hashes
+            .iter()
+            .copied()
+            .filter(|(name, _)| *name != field)
+            .collect();
+        unclassified_value_fields(&carrier_types(listed), &hashes, listed.opaque)
+    };
+    assert_eq!(
+        without(handshake, "ConfidentialHandshakeCaps.features"),
+        [
+            "unclassified hash field ConfidentialHandshakeCaps.features: Option<ConfidentialFeatureDigest>"
+        ]
+    );
+    assert_eq!(
+        without(handshake, "HandshakeConsensusMeta.consensus_fingerprint"),
+        ["unclassified hash field HandshakeConsensusMeta.consensus_fingerprint: Option<[u8; 32]>"]
+    );
+    assert_eq!(
+        without(lane, "LaneBatch.anchor_hash"),
+        [
+            "unclassified hash field LaneBatch.anchor_hash: HashOf<iroha_data_model::block::BlockHeader>"
+        ]
+    );
+    // An array length is a constant, not a nested type.
+    assert_eq!(
+        named_types("Option<[u8; iroha_crypto::Hash::LENGTH]>"),
+        ["Option", "Hash"]
+    );
+    assert_eq!(named_types("[u8; blake3::OUT_LEN]"), Vec::<&str>::new());
+    for (name, constant) in [
+        ("LENGTH", true),
+        ("OUT_LEN", true),
+        ("MAX_2", true),
+        ("T", false),
+        ("H256", false),
+        ("Hash", false),
+        ("HashOf", false),
+    ] {
+        assert_eq!(is_constant_name(name), constant, "{name}");
+    }
     // The declarations with private storage: the DA proof-policy bundle is read through
     // its storage enumeration to its canonical parts.
     assert_eq!(
@@ -9747,6 +10613,41 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
                 "ChargedShared<RetainedPayload<CanonicalParts>>".to_owned()
             ),
         ]
+    );
+    // The DA commitment bundle has the same private storage in its own source.
+    // The block body delegates its complete walk to da_commitment_bundle; the
+    // same-named proof-policy parts cannot mask a new hash in this distinct owner.
+    assert_eq!(
+        declared_fields(&source(DA_BUNDLE_MODEL), "pub struct DaCommitmentBundle {"),
+        [("storage".to_owned(), "Storage".to_owned())]
+    );
+    assert_eq!(
+        declared_fields(&source(DA_BUNDLE_MODEL), "enum Storage {"),
+        declared_fields(&source(DA_POLICY_MODEL), "enum Storage {")
+    );
+    let commitment_parts = [
+        ("version".to_owned(), "u16".to_owned()),
+        (
+            "commitments".to_owned(),
+            "Vec<DaCommitmentRecord>".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        declared_fields(&source(DA_BUNDLE_MODEL), "struct CanonicalParts {"),
+        commitment_parts
+    );
+    let commitment = carrier("da_commitment_bundle");
+    let mut commitment_types = carrier_types(commitment);
+    let parts_at = commitment_types
+        .iter()
+        .position(|(name, fields)| *name == "CanonicalParts" && fields[..] == commitment_parts)
+        .expect("the canonical parts of the commitment bundle are walked");
+    commitment_types[parts_at]
+        .1
+        .push(("shadow_root".to_owned(), "Hash".to_owned()));
+    assert_eq!(
+        unclassified_value_fields(&commitment_types, commitment.hashes, commitment.opaque),
+        ["unclassified hash field CanonicalParts.shadow_root: Hash"]
     );
     assert!(is_hash_type("MerkleTree<ExecutionOutputV1>") && !is_hash_type("Vec<u64>"));
     assert_eq!(
@@ -9792,6 +10693,58 @@ fn protocol_carriers_classify_every_hash_bearing_field() {
         ["ControlWitness"]
     );
     assert_eq!(named_types("[[Hash; 32]; 8]"), ["Hash"]);
+}
+
+/// The retired validator-set checkpoint layout is gone. It declared a parent and a post
+/// State root beside a validator-set hash, was computed by nothing and carried by nothing,
+/// and Torii's OpenAPI contract requires its schema to stay absent. No source of the two
+/// scanned crates declares or names it, and the data model declares no other record with
+/// that pair of State roots outside the listed execution result.
+#[test]
+fn retired_validator_set_checkpoint_layout_is_absent() {
+    const RETIRED: &str = concat!("ValidatorSet", "Checkpoint");
+    let mut pairs = Vec::new();
+    for path in rust_sources(SCAN_SCOPE) {
+        let text = source(&path);
+        assert!(
+            !text.contains(RETIRED),
+            "{path} names the retired layout {RETIRED}: it was removed under the first-release \
+             rule against retired layouts (specs/sumeragi.md section 16.8)"
+        );
+        if !is_test_source(&path)
+            && path.starts_with("crates/iroha_data_model/src/")
+            && path != RESULT_MODEL
+            && text.contains("pub parent_state_root:")
+            && text.contains("pub post_state_root:")
+        {
+            pairs.push(path);
+        }
+    }
+    assert_eq!(
+        pairs,
+        Vec::<String>::new(),
+        "a data-model record declares a parent and a post State root: list it as a commitment \
+         or a carrier field"
+    );
+    let result = source(RESULT_MODEL);
+    assert!(
+        result.contains("pub parent_state_root:") && result.contains("pub post_state_root:"),
+        "the execution result, which the execution_result carrier walks, declares both roots"
+    );
+    // The contract fixture that keeps the schema out of Torii's OpenAPI document.
+    let contract = source("crates/iroha_torii/src/openapi/tests/openapi_contracts_v1.json");
+    let (_, retired) = contract
+        .split_once("\"ledger.state_finality.retired_schemas\"")
+        .expect("the OpenAPI contract lists the retired finality schemas");
+    let (retired, _) = retired.split_once(']').expect("the list ends");
+    assert!(retired.contains(&format!("\"{RETIRED}\"")));
+    // Its hash-version constant stays: lane committee records still name it.
+    assert_eq!(
+        source(BEACON_MODEL)
+            .matches("pub const VALIDATOR_SET_HASH_VERSION_V1: u16 = 1;")
+            .count(),
+        1
+    );
 }
 
 /// The fields of `ExecutionCommitment`, in declaration order, read from the data model.
@@ -10073,8 +11026,25 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
          authenticates a State read)",
         "The block result also carries the AXT policy snapshot, tracked by G1-D11.",
         "the carrier walk reads the declarations of the block header, the block payload and \
-         block result, the signed genesis consensus parameters, `R` and the lane result with \
-         their nested records",
+         block result, the signed genesis consensus parameters, `R`, the lane batch and the \
+         lane result with their nested records",
+        "of the peer handshake (`crates/iroha_p2p`: the hello record that peers exchange with \
+         its consensus, confidential, crypto and trust metadata and its wire digest, the \
+         identity binding that the hello signature covers, and the consensus, confidential and \
+         crypto capabilities that a node compares them with)",
+        "In the types listed under `protocol_carriers[*].every_field_classified` every field \
+         is classified, so a new field fails the check whatever its type. They are the block, \
+         its payload and its result, the header with its confidential feature digest, the native \
+         `CertifiedResultV1`, all twelve fixed X fields, the two body records of `R`, the walked \
+         committee-member, authorization, beacon-binding and frozen-election-policy records, \
+         the lane batch and the lane result, the genesis context parameters, the epoch identity, \
+         every walked record of the peer handshake, the network envelope with its Sumeragi \
+         frame, and the DA commitment bundle with its storage variants, canonical parts and \
+         commitment records. In the other walked types a new field fails only when its type is hash-bearing \
+         or names an unclassified nested type.",
+        "It also matches a function that reads State and returns a walked record of the peer \
+         handshake or of a lane block (`source_scan.carried_records`), whatever the name of \
+         the record; it does not read the node binary, which fills the handshake capabilities.",
         "digests or embedded records that bind consensus authority, scheduling and finalized \
          beacon inputs in their specified roles under §§3, 4.1 and 10; they authenticate no \
          State read, and their canonical State source entries are also committed by the keyed \
@@ -10093,6 +11063,117 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
          and literal drift; they do not establish arbitrary State-dataflow completeness.",
     ] {
         assert!(cutover.contains(sentence), "section 16.8 lacks: {sentence}");
+    }
+    // The every-field sentence of section 16.8 is exact: the types it names are the types
+    // listed under `every_field_classified`, carrier by carrier, and for the peer handshake
+    // and the lane block they are every walked type.
+    let exhaustive: Vec<(&str, &[&str])> = CARRIERS
+        .iter()
+        .map(|carrier| (carrier.id, carrier.exhaustive))
+        .collect();
+    assert_eq!(
+        exhaustive,
+        [
+            (
+                "block_header",
+                &["BlockHeader", "ConfidentialFeatureDigest"][..]
+            ),
+            (
+                "block_payload_and_result",
+                &["SignedBlock", "BlockPayload", "BlockResult"][..]
+            ),
+            (
+                "signed_genesis_consensus_parameters",
+                &["SumeragiGenesisContextParameters"][..]
+            ),
+            (
+                "execution_result",
+                &[
+                    "CertifiedResultV1",
+                    "SccpFinalityHeaderFieldsV1",
+                    "ExecutionResultCommitment",
+                    "ExecutionCommitment",
+                    "ValidatorCommitteeMemberV1",
+                    "ValidatorEpochAuthorizationV1",
+                    "BeaconEpochBindingV1",
+                    "InstalledBeaconEpochBindingV1",
+                    "ValidatorCommitteePreparationV1",
+                    "ValidatorElectionPolicyV1",
+                ][..]
+            ),
+            ("consensus_messages", &["EpochId"][..]),
+            ("lane_result", &["LaneBatch", "LaneResult"][..]),
+            (
+                "peer_handshake",
+                &[
+                    "ConsensusHandshakeCaps",
+                    "ConsensusConfigCaps",
+                    "ConfidentialHandshakeCaps",
+                    "CryptoHandshakeCaps",
+                    "HandshakeHello",
+                    "HandshakeConsensusMeta",
+                    "HandshakeConfidentialMeta",
+                    "HandshakeCryptoMeta",
+                    "HandshakeTrustMeta",
+                    "HandshakeConfidentialDigest",
+                    "HandshakeIdentityBindingV1",
+                ][..]
+            ),
+            (
+                "node_network_envelope",
+                &["NetworkMessage", "SumeragiFrame"][..]
+            ),
+            (
+                "da_commitment_bundle",
+                &[
+                    "DaCommitmentBundle",
+                    "Storage",
+                    "CanonicalParts",
+                    "DaCommitmentRecord"
+                ][..]
+            ),
+        ]
+    );
+    for carrier in CARRIERS {
+        if RECORD_RETURN_CARRIERS.contains(&carrier.id) {
+            let walked: Vec<&str> = carrier
+                .types
+                .iter()
+                .map(|(_, declaration)| declared_name(declaration))
+                .collect();
+            assert_eq!(carrier.exhaustive, walked, "{}", carrier.id);
+        }
+    }
+    // Every record of the handshake in crates/iroha_p2p is walked: a struct of the two
+    // sources whose name says that it is a handshake hello, metadata, digest, binding or
+    // capability record.
+    let handshake_types: BTreeSet<&str> = CARRIERS
+        .iter()
+        .filter(|carrier| carrier.id == "peer_handshake")
+        .flat_map(|carrier| carrier.types.iter())
+        .map(|(_, declaration)| declared_name(declaration))
+        .collect();
+    for path in [HANDSHAKE_CAPS, HANDSHAKE_WIRE] {
+        let text = source(path);
+        for line in text.lines() {
+            let Some((_, rest)) = line.split_once("struct ") else {
+                continue;
+            };
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let name: String = rest
+                .chars()
+                .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                .collect();
+            if is_handshake_record_name(&name) {
+                assert!(
+                    handshake_types.contains(name.as_str()),
+                    "{path} declares the handshake record {name}, which the peer_handshake \
+                     carrier does not walk"
+                );
+            }
+        }
     }
     // Section 16.8 names every protocol fingerprint and every open defect that tracks one,
     // and every class of the inventory.

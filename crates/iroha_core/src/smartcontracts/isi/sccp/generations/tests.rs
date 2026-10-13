@@ -58,16 +58,17 @@ fn seed(stx: &mut StateTransaction<'_, '_>, peers: &[PeerId]) {
     )
     .unwrap();
     store::parameters::set(stx, Some(parameters));
-    install_genesis(stx, generation);
+    install_genesis(stx, generation).unwrap();
 }
 
 #[test]
 fn epoch_guard_checks_zero_exact_floor_and_overflow_without_wrapping() {
-    assert!(!epoch_duration_is_valid(0, u64::MAX));
-    assert!(!epoch_duration_is_valid(u64::MAX, 0));
-    assert!(!epoch_duration_is_valid(3_599, 1_000));
-    assert!(epoch_duration_is_valid(3_600, 1_000));
-    assert!(epoch_duration_is_valid(u64::MAX, u64::MAX));
+    use crate::smartcontracts::isi::sccp::params::validate_epoch;
+    assert!(validate_epoch(0, u64::MAX).is_err());
+    assert!(validate_epoch(u64::MAX, 0).is_err());
+    assert!(validate_epoch(3_599, 1_000).is_err());
+    assert!(validate_epoch(3_600, 1_000).is_ok());
+    assert!(validate_epoch(u64::MAX, u64::MAX).is_err());
 }
 
 #[test]
@@ -89,7 +90,7 @@ fn key_change_beats_heartbeat_and_keeps_outgoing_certificate_generation() {
     );
     assert_eq!(prepared.rotation.as_ref().unwrap().keys.len(), 7);
     let next_root = prepared.next_committee_root;
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     assert_eq!(*store::committee_current::get(&*stx.world), 2);
     assert_eq!(
         store::committee_generations::get(&*stx.world, &1)
@@ -203,7 +204,7 @@ fn resync_uses_real_native_parent_time_then_boundary_rotates_again() {
         parent.creation_time_ms()
     );
     assert_eq!(prepared.rotation.as_ref().unwrap().generation, 3);
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     assert_eq!(*store::committee_current::get(&*stx.world), 3);
     let restored = store::committee_generations::get(&*stx.world, &2).unwrap();
     assert_eq!(restored.keys.len(), 7);
@@ -306,7 +307,7 @@ fn pruning_requires_explicit_pending_set_preserves_inclusive_liability_and_eight
                 successor_validity_ms: params.committee_validity_ms,
             });
         }
-        publish_record(&mut stx, record);
+        publish_record(&mut stx, record).expect("fixture generation publication");
     }
     let boundary = store::committee_generations::get(&*stx.world, &1)
         .unwrap()
@@ -377,12 +378,12 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             next_committee_root: committee.root,
             successor_validity_ms: parameters.committee_validity_ms,
         });
-        publish_record(&mut stx, record);
+        publish_record(&mut stx, record).expect("fixture generation publication");
     }
     store::liability_clock::set(&mut stx, 2_000);
     let network = SccpNetworkV1::EthereumMainnet;
     store::routes::insert(&mut stx, network, sample_route(network)).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -406,7 +407,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
         state_hash: [2; 32],
     };
     store::light_clients::insert(&mut stx, network, client).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -416,7 +417,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
     );
     client.head.latest_finalized.source_time_ms += 1;
     store::light_clients::insert(&mut stx, network, client).unwrap();
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert_eq!(
         store::committee_generations::iter(&*stx.world)
             .filter(|(_, g)| g.dest_cleared_lc == Some(2_000))
@@ -430,7 +431,7 @@ fn destination_progress_is_strict_and_bounded_and_never_rewrites_clearance() {
             .is_none()
     );
     store::liability_clock::set(&mut stx, 3_000);
-    clear_destinations(&mut stx);
+    clear_destinations(&mut stx).unwrap();
     assert_eq!(
         store::committee_generations::get(&*stx.world, &1)
             .unwrap()
@@ -501,7 +502,11 @@ fn combined_resync_rotation_capacity_wait_stays_pending_until_external_release()
             .end
             .is_none()
     );
-    drop(external);
+    // This thread owns live admitted writers, so its refunds deliberately cannot wake
+    // work that would reacquire them. Model a genuinely external owner releasing credit.
+    std::thread::scope(|scope| {
+        scope.spawn(move || drop(external)).join().unwrap();
+    });
     assert_eq!(waiter.poll_wait(release, &mut cx), Poll::Ready(()));
     let complete = plan(&stx, &candidate, Some(&source)).unwrap();
     assert_eq!(complete.generation, 2);
@@ -562,7 +567,7 @@ fn handoff_resolves_original_registration_for_successor_tenure_and_freezes_it() 
     stx.world
         .public_lane_validators
         .insert((lane, replacement.validator.clone()), replacement);
-    prepared.publish(&mut stx);
+    prepared.publish(&mut stx).unwrap();
     let committed = store::committee_generations::get(&*stx.world, &2).unwrap();
     assert_eq!(
         committed.members[0].as_ref().unwrap().validator,
@@ -680,12 +685,12 @@ fn destination_clearance_visits_only_bounded_pending_index_after_cleared_history
             if id <= cleared_history {
                 record.dest_cleared_lc = Some(2_000);
             }
-            publish_record(&mut stx, record);
+            publish_record(&mut stx, record).expect("fixture generation publication");
         }
         store::liability_clock::set(&mut stx, 3_000);
         assert_eq!(stx.world.sccp_destination_pending_generations.len(), 65);
         assert_eq!(
-            clear_destinations(&mut stx),
+            clear_destinations(&mut stx).unwrap(),
             64,
             "work is independent of {cleared_history} cleared records"
         );
@@ -705,9 +710,9 @@ fn destination_clearance_visits_only_bounded_pending_index_after_cleared_history
                 Some(3_000)
             );
         }
-        assert_eq!(clear_destinations(&mut stx), 1);
+        assert_eq!(clear_destinations(&mut stx).unwrap(), 1);
         assert_eq!(
-            clear_destinations(&mut stx),
+            clear_destinations(&mut stx).unwrap(),
             0,
             "no historical scan once work is cleared"
         );

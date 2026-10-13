@@ -177,8 +177,9 @@ pub(super) fn prepare(
         let mut parent = ManagedServiceBootstrap::open(prepared)?;
         let authorization =
             parent.authorize_generated_startup(deadline, Arc::clone(&budget.cancelled))?;
-        drop(parent);
-        let owner = Arc::new(GeneratedServiceRuntime::open(prepared)?);
+        // The consuming handoff releases Bootstrap before the catalog reopens its purpose.
+        // Authorization remains the original separately issued finite startup capability.
+        let owner = Arc::new(parent.into_generated_runtime()?);
         let revision = owner.prepare_catalog(deadline)?;
         if revision.stage() != GeneratedRuntimeStage::Catalog
             || !revision.required_transactions().is_empty()

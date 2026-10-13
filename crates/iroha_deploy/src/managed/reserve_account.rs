@@ -406,8 +406,12 @@ impl ManagedReserveAccountRegistration {
                 };
             return Ok(progress(status, None, None));
         }
-        // Existing signed work remains observable during a current-state/quorum outage.
-        let observed = self.authority.observe_finality(deadline).ok();
+        // Only preparation or dispatch can consume this absence preflight. Signed read-only
+        // recovery still resumes the exact wallet and authenticates fresh finality below.
+        let observed = mode
+            .submits()
+            .then(|| self.authority.observe_finality(deadline).ok())
+            .flatten();
         let current = observed
             .as_ref()
             .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());

@@ -1,8 +1,6 @@
 //! Source-bound Kura projection, retaining exact certificate and proposal backing on refusal.
 
 use std::io;
-#[cfg(test)]
-use std::sync::Arc;
 
 use iroha_allocation::AllocationBudget;
 use iroha_data_model::sumeragi_finality::result_of_preimage;
@@ -11,7 +9,7 @@ use iroha_sumeragi::{
     message::{ByteAdmissionError, Qc, VoteKind},
 };
 
-use super::certificate_read::{CertificateRead, CertificateReadError, DecodedCertificate};
+use super::certificate_read::DecodedCertificate;
 use crate::sumeragi::{
     body_read::{BodyReadError, BodyReadJob, BodyReadPoll},
     driver::{
@@ -23,21 +21,18 @@ use crate::sumeragi::{
 /// The same original decode/projection can either return its QC to a committed reader or
 /// let the ordinary body-read adapter release it before returning untrusted restoration input.
 pub(super) enum StoredBodyReadPoll {
-    Absent,
     Pending(ByteAdmissionError),
     Ready(BodyRestoration, Qc),
 }
 
 enum Stage {
-    Absent,
-    Certificate(CertificateRead),
     Decoded(DecodedCertificate),
     Projecting(PayloadBuild<DecodedCertificate>),
     Consumed,
 }
 
-/// A source selected independently of the committed frame, with one retained decode/projection.
-/// The caller supplies None only for real absence, never for a failed Kura read below its tip.
+/// Project the original decoded certificate selected by the committed or hash-keyed reader.
+/// Those enclosing readers own certificate decoding and authenticating real slot absence.
 pub(super) struct StoredBodyRead {
     source: AvailabilitySource,
     budget: AllocationBudget,
@@ -46,26 +41,6 @@ pub(super) struct StoredBodyRead {
     stage: Stage,
 }
 impl StoredBodyRead {
-    #[cfg(test)]
-    pub(super) fn new(
-        source: AvailabilitySource,
-        block: Option<iroha_data_model::block::SharedSignedBlock>,
-        budget: AllocationBudget,
-        crypto: SharedCrypto,
-        root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
-    ) -> Self {
-        let stage = block.map_or(Stage::Absent, |block| {
-            Stage::Certificate(CertificateRead::new(block, budget.clone()))
-        });
-        Self {
-            source,
-            budget,
-            crypto,
-            root_scope,
-            stage,
-        }
-    }
-
     /// Transfer the same original decoded owners from full committed-certificate verification.
     pub(super) fn from_decoded(
         source: AvailabilitySource,
@@ -125,33 +100,6 @@ impl StoredBodyRead {
         }
         loop {
             match std::mem::replace(&mut self.stage, Stage::Consumed) {
-                Stage::Absent => return Ok(StoredBodyReadPoll::Absent),
-                Stage::Certificate(job) => match job.complete(budget) {
-                    Ok(decoded) => self.stage = Stage::Decoded(decoded),
-                    Err((job, error)) => {
-                        self.stage = Stage::Certificate(job);
-                        return match error {
-                            CertificateReadError::ForeignBudget => {
-                                Err(BodyReadError::ForeignBudget)
-                            }
-                            CertificateReadError::MissingCertificate => {
-                                Err(BodyReadError::Io(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "stored block has no certificate",
-                                )))
-                            }
-                            CertificateReadError::Decode(error) => {
-                                Err(BodyReadError::from_decode(error))
-                            }
-                            CertificateReadError::Admission(error) if error.is_local_refusal() => {
-                                Ok(StoredBodyReadPoll::Pending(error))
-                            }
-                            CertificateReadError::Admission(error) => {
-                                Err(BodyReadError::Admission(error))
-                            }
-                        };
-                    }
-                },
                 Stage::Decoded(decoded) => {
                     if let Err(error) = self.check(&decoded) {
                         self.stage = Stage::Decoded(decoded);
@@ -215,7 +163,6 @@ impl BodyReadJob for StoredBodyRead {
 
     fn poll(&mut self, budget: &AllocationBudget) -> Result<BodyReadPoll, BodyReadError> {
         Ok(match self.poll_with_qc(budget)? {
-            StoredBodyReadPoll::Absent => BodyReadPoll::Absent,
             StoredBodyReadPoll::Pending(error) => BodyReadPoll::Pending(error),
             StoredBodyReadPoll::Ready(restoration, qc) => {
                 // This caller requested only a body. Release the original proof owners before

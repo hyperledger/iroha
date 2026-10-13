@@ -66,8 +66,6 @@ pub struct SccpKeeper {
     /// [`Self::key_dir_path`].
     pub key_dir: WithOrigin<PathBuf>,
     /// Whether the keeper submits due keepalives (§4.7.4).
-    // TODO: WP-S3: the keeper does not read `keepalive` and `keepalive_stagger` yet; the
-    // keepalive duty lands with the `Keepalive` instruction.
     pub keepalive: bool,
     /// Keepalive stagger per canonical committee index (nonzero).
     pub keepalive_stagger: Duration,

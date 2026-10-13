@@ -6,7 +6,7 @@
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
-pub(crate) const ENTRY_POINTS: [&str; 16] = [
+pub const ENTRY_POINTS: [&str; 16] = [
     "fastpq_fft_columns",
     "fastpq_lde_columns",
     "fastpq_fft_post_tiling",
@@ -94,7 +94,7 @@ static ADMISSION: OnceLock<Result<AdmittedBundle, ArtifactRefusal>> = OnceLock::
 
 /// The exact borrowed immutable bytes whose independent pins were checked.
 #[derive(Debug)]
-pub(crate) struct AdmittedBundle {
+pub struct AdmittedBundle {
     bytes: &'static [u8],
 }
 impl AdmittedBundle {
@@ -105,7 +105,7 @@ impl AdmittedBundle {
 
 /// Operational absence/refusal; never native completion or transaction validity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ArtifactRefusal {
+pub enum ArtifactRefusal {
     Absent,
     SourceIdentity,
     LibraryLength,
@@ -131,7 +131,8 @@ fn source_sha256() -> [u8; 32] {
     // Fixed ordered path length/path/source length/source framing; no temporary
     // concatenation, normalized text, cloned source or runtime path access.
     for (path, bytes) in SOURCES {
-        hash.update((path.len() as u32).to_le_bytes());
+        let path_len = u32::try_from(path.len()).expect("fixed Metal source paths fit u32");
+        hash.update(path_len.to_le_bytes());
         hash.update(path.as_bytes());
         hash.update((bytes.len() as u64).to_le_bytes());
         hash.update(bytes);
@@ -174,7 +175,7 @@ fn inspect(approved: Option<&ApprovedBundle>) -> Result<AdmittedBundle, Artifact
 
 /// Borrow the sole admission result; refused results cannot refresh from a path,
 /// environment variable, caller-selected pin, or a cached backend selection.
-pub(crate) fn admitted_bundle() -> Result<&'static AdmittedBundle, ArtifactRefusal> {
+pub fn admitted_bundle() -> Result<&'static AdmittedBundle, ArtifactRefusal> {
     ADMISSION
         .get_or_init(|| inspect(APPROVED_BUNDLE.as_ref()))
         .as_ref()

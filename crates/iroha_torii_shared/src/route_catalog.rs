@@ -4643,9 +4643,14 @@ pub mod sccp {
         public_get("sccp.committee.read", "/v1/sccp/committees/{generation}");
     /// Read every route with its escrow, stranded balance and revisions.
     pub const REGISTRY: RouteDescriptor = public_get("sccp.registry.read", "/v1/sccp/registry");
+    /// Read effective forgery holds, quarantine and reconciliation accounting.
+    pub const FORGERY_HOLD: RouteDescriptor =
+        public_get("sccp.forgery_hold.read", "/v1/sccp/forgery-hold");
     /// Read the status union of one message id (outbound, inbound or unknown).
     pub const MESSAGE: RouteDescriptor =
         public_get("sccp.message.read", "/v1/sccp/messages/{message_id}");
+    /// Read the native certificate of an explicit height or `latest`.
+    pub const FINALITY: RouteDescriptor = public_get("sccp.finality", "/v1/sccp/finality/{height}");
     /// Read the newest outbound or inbound records.
     pub const MESSAGES_RECENT: RouteDescriptor =
         public_get("sccp.messages.recent", "/v1/sccp/messages/recent");
@@ -4712,12 +4717,14 @@ pub mod sccp {
         LIGHT_CLIENT_SETS,
         LIGHT_CLIENT_CHECKPOINTS,
         REGISTRY,
+        FORGERY_HOLD,
         MESSAGES_RECENT,
         MESSAGE,
-        MESSAGE_PROOF,
         OUTBOUND_BY_NONCE,
         CONTROLS,
+        MESSAGE_PROOF,
         CONTROL_PROOF,
+        FINALITY,
     ];
 }
 /// Canonical descriptors enforced by Torii's mounted-route registry. Router assembly fails when any

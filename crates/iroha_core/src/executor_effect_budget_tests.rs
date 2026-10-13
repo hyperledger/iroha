@@ -514,12 +514,15 @@ seiyaku ActualEffectGroups { permission CanInvokeContractEntrypoint;
         let mut segment_cycles = Vec::new();
         let mut segment_gas = Vec::new();
         let mut successful_batch_gas = None;
-        let authored_gas = isi_gas::meter_instructions(&[SetKeyValue::account(
-            ALICE_ID.clone(),
-            "effect_authored".parse().unwrap(),
-            Json::new(true),
-        )
-        .into()]);
+        let authored_gas = isi_gas::meter_instructions(
+            &[SetKeyValue::account(
+                ALICE_ID.clone(),
+                "effect_authored".parse().unwrap(),
+                Json::new(true),
+            )
+            .into()],
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(authored_gas > 0);
         let mut refused_return_gas = None;
         for case in 0..5 {

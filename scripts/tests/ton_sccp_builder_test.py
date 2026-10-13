@@ -583,7 +583,7 @@ def test_replay_deployment_time_and_init_mode() -> None:
 
 def test_committed_tolk_vectors_are_current() -> None:
     generated = builder.generated_vectors()
-    assert list(generated) == [builder.VECTORS_FILE, builder.CERT_VECTORS_FILE]
+    assert list(generated) == [builder.VECTORS_FILE, builder.CERT_VECTORS_FILE, builder.BOC_VECTORS_FILE]
     for path, rendered in generated.items():
         assert path.read_text(encoding="utf-8") == rendered, path.name
         assert rendered.endswith("\n") and not rendered.endswith("\n\n")
@@ -603,6 +603,35 @@ def test_vectors_command_detects_stale_files(tmp_path: Path, monkeypatch: pytest
     with pytest.raises(builder.TonBuilderError, match="sccp-cert-vectors.gen.tolk is stale"):
         builder.command_vectors(check=True)
     assert "test vectors are current" in capsys.readouterr().out
+
+
+def test_boc_renderer_imports_every_wallet_graph_and_native_type() -> None:
+    fixture = builder.load_fixture("ton_boc_v1.json")
+    rendered = builder.render_boc_vectors()
+    assert f"const VEC_BOC_COUNT = {len(fixture['rows'])}\n" in rendered
+    assert f"const VEC_BOC_NEGATIVE_COUNT = {len(fixture['snake_negatives'])}\n" in rendered
+    for index, row in enumerate(fixture["rows"]):
+        assert f"const VEC_BOC_{builder._upper(row['label'])} = {index}\n" in rendered
+        assert f'parseCellFromHex("{row["boc"]}")' in rendered
+        assert builder._word("0x" + row["hash"]) in rendered
+        if row["kind"] != "KeyChunk":
+            assert f"{row['kind']}.fromCell(vecBocCell(index)).toCell()" in rendered
+    for row in fixture["snake_negatives"]:
+        assert f'parseCellFromHex("{row["boc"]}")' in rendered
+
+
+def test_boc_renderer_refuses_changed_hash_or_duplicate_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    fixture = builder.load_fixture("ton_boc_v1.json")
+    load = builder.load_fixture
+    monkeypatch.setattr(builder, "load_fixture", lambda name: fixture if name == "ton_boc_v1.json" else load(name))
+    original = fixture["rows"][0]["hash"]
+    fixture["rows"][0]["hash"] = "00" * 32
+    with pytest.raises(builder.TonBuilderError, match="disagrees with its Python cell graph"):
+        builder.render_boc_vectors()
+    fixture["rows"][0]["hash"] = original
+    fixture["rows"].append(fixture["rows"][0])
+    with pytest.raises(builder.TonBuilderError, match="duplicate TON BoC fixture label"):
+        builder.render_boc_vectors()
 
 
 def test_test_vectors_render_the_fixture_rows() -> None:
@@ -973,7 +1002,9 @@ def test_test_command_records_gas_and_applies_the_baseline(
     assert calls == [["test", "tests/unit"]]
     rows = builder.load_gas_report(current)
     assert rows["checkpoint n=31"] == {"gas": 164189, "limit": 250000}
-    assert "wrote gas-current.json" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "wrote gas-current.json" in output
+    assert "gas is within" not in output
     # the recorded run is its own baseline
     baseline.write_text(current.read_text())
     builder.command_test(Path("/acton"), [])

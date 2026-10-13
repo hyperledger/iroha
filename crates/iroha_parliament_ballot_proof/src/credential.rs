@@ -9,7 +9,7 @@
 //!             Enc(governance_attempt_id), Enc(election_attempt_id),
 //!             Enc(body_role), B, C))
 //! auth  = SHAKE256("PAU1" || P16 || sk[48] || D_reg[64],   64 bytes)
-//! nf    = SHAKE256("PNF1" || P16 || sk[48] || scope[64],   64 bytes)
+//! nf    = SHAKE256("PNF1" || P16 || sk[48] || scope[64],  128 bytes)
 //! ```
 //!
 //! The helpers for `policy_hash`, `proposal_digest` and `scope` reproduce the
@@ -26,7 +26,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::{
     framing::{
         BodyContext, COMMITMENT_BYTES, Commitment, DIGEST_BYTES, Digest64, Frame, FramingError,
-        OpaqueField, frame_digest,
+        NULLIFIER_BYTES, Nullifier, OpaqueField, frame_digest,
     },
     keccak_relation::{SECRET_BYTES, evaluate, public_block},
     profile::P16,
@@ -38,6 +38,8 @@ pub const COMMITMENT_TAG: [u8; 4] = *b"PCR1";
 pub const AUTHORIZATION_TAG: [u8; 4] = *b"PAU1";
 /// The SHAKE256 tag of the nullifier.
 pub const NULLIFIER_TAG: [u8; 4] = *b"PNF1";
+/// The SHAKE256 tag of the vote authorization value.
+pub const VOTE_AUTHORIZATION_TAG: [u8; 4] = *b"PAV1";
 
 /// The 48-byte credential secret `sk`.
 ///
@@ -105,11 +107,18 @@ impl CredentialSecret {
         Digest64(out)
     }
 
-    /// The nullifier `nf` for `scope`. It does not depend on the vote.
-    pub fn nullifier(&self, scope: &Digest64) -> Digest64 {
+    /// The vote authorization `auth_v` for the complete vote digest `D_v`.
+    pub fn vote_authorization(&self, vote_digest: &Digest64) -> Digest64 {
         let mut out = [0u8; DIGEST_BYTES];
-        self.shake(NULLIFIER_TAG, scope, &mut out);
+        self.shake(VOTE_AUTHORIZATION_TAG, vote_digest, &mut out);
         Digest64(out)
+    }
+
+    /// The nullifier `nf` for `scope`. It does not depend on the vote.
+    pub fn nullifier(&self, scope: &Digest64) -> Nullifier {
+        let mut out = [0u8; NULLIFIER_BYTES];
+        self.shake(NULLIFIER_TAG, scope, &mut out);
+        Nullifier(out)
     }
 }
 
@@ -392,12 +401,19 @@ mod tests {
         );
         assert_eq!(
             secret.nullifier(&input).as_bytes().to_vec(),
-            shake256(&[b"PNF1", &P16, &bytes, input.as_bytes()], 64)
+            shake256(&[b"PNF1", &P16, &bytes, input.as_bytes()], 128)
         );
-        // The three domains are separate.
-        assert_ne!(secret.authorization(&input), secret.nullifier(&input));
+        assert_eq!(
+            secret.vote_authorization(&input).as_bytes().to_vec(),
+            shake256(&[b"PAV1", &P16, &bytes, input.as_bytes()], 64)
+        );
+        // The four domains are separate.
         assert_ne!(
-            secret.commitment(&input).as_bytes()[..64],
+            secret.authorization(&input).as_bytes()[..],
+            secret.nullifier(&input).as_bytes()[..64]
+        );
+        assert_ne!(
+            secret.commitment(&input).as_bytes()[..],
             secret.nullifier(&input).as_bytes()[..]
         );
     }

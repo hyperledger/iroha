@@ -4582,6 +4582,7 @@ dependencies = [
  "iroha_model_base",
  "iroha_p2p",
  "iroha_primitives",
+ "iroha_sccp",
  "iroha_service_model",
  "iroha_sumeragi",
  "iroha_telemetry",
@@ -5287,6 +5288,10 @@ dependencies = [
 name = "iroha_fhe"
 version = "2.0.0-rc.2.0"
 dependencies = [
+ "blake3",
+ "getrandom 0.3.4",
+ "iroha_fhe",
+ "iroha_measurement",
  "num-bigint 0.4.6",
  "thiserror 2.0.18",
  "zeroize",
@@ -5621,6 +5626,7 @@ name = "iroha_parliament_ballot_proof"
 version = "2.0.0-rc.2.0"
 dependencies = [
  "iroha_zkp_vole",
+ "norito",
  "sha3",
  "thiserror 2.0.18",
  "zeroize",

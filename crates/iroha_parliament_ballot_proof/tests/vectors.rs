@@ -23,7 +23,7 @@ use iroha_parliament_ballot_proof::{
 };
 
 /// The vector's names of the proof fields, in layout order.
-const FIELD_NAMES: [(ProofField, &str); 10] = [
+const FIELD_NAMES: [(ProofField, &str); 11] = [
     (ProofField::Corrections, "c"),
     (ProofField::MultCorrections, "c_mult"),
     (ProofField::UTilde, "u_tilde"),
@@ -33,6 +33,7 @@ const FIELD_NAMES: [(ProofField, &str); 10] = [
     (ProofField::NodeSeeds, "node_seeds"),
     (ProofField::Challenge, "chall_3"),
     (ProofField::IvPre, "iv_pre"),
+    (ProofField::Salt, "salt"),
     (ProofField::Counter, "ctr"),
 ];
 
@@ -77,6 +78,26 @@ fn check_proof(vector: &Vector, row: Row, role: Role, proof: &[u8]) {
             "proof field {name}"
         );
     }
+    let expected: &[u8] = match (row, role) {
+        (Row::Candidate, Role::Registration) => include_bytes!("fixtures/reg_fast.proof"),
+        (Row::Comparator, Role::Registration) => include_bytes!("fixtures/reg_comparator.proof"),
+        (Row::Candidate, Role::Vote) => match vector.int("S_u16") {
+            3 => include_bytes!("fixtures/vote_S3_i1_fast.proof"),
+            500 => include_bytes!("fixtures/vote_S500_i250_fast.proof"),
+            1000 => include_bytes!("fixtures/vote_S1000_i500_fast.proof"),
+            _ => panic!("unsupported fixture"),
+        },
+        (Row::Comparator, Role::Vote) => match vector.int("S_u16") {
+            3 => include_bytes!("fixtures/vote_S3_i1_comparator.proof"),
+            500 => include_bytes!("fixtures/vote_S500_i250_comparator.proof"),
+            1000 => include_bytes!("fixtures/vote_S1000_i500_comparator.proof"),
+            _ => panic!("unsupported fixture"),
+        },
+    };
+    assert_eq!(
+        proof, expected,
+        "complete independently generated proof bytes"
+    );
     assert_eq!(proof[proof.len() - 4..], *vector.get("ctr_u32"));
     assert_eq!(shake256_64(proof), vector.get("proof_shake256_64"));
 }
@@ -93,7 +114,7 @@ fn check_proof(vector: &Vector, row: Row, role: Role, proof: &[u8]) {
 /// (`constraint_*_a*`) are **not** reproduced here: they need the VOLE tags of
 /// the run, which this crate's API does not expose; the proof-field digests
 /// cover them.
-fn check_evaluations(intermediate: &Vector, secret: &[u8; 48], blocks: &[(char, [u8; 200]); 2]) {
+fn check_evaluations(intermediate: &Vector, secret: &[u8; 48], blocks: &[(char, [u8; 200])]) {
     for &(name, block) in blocks {
         let message = intermediate.get(&format!("shake_message_{name}"));
         assert_eq!(message.len(), 132, "message {name}");
@@ -121,8 +142,8 @@ fn check_evaluations(intermediate: &Vector, secret: &[u8; 48], blocks: &[(char, 
 }
 
 /// The committed states of the witness against the intermediate file.
-fn check_states(intermediate: &Vector, witness: &[u8], second: char) {
-    for (permutation, offset) in ['C', second].into_iter().zip(PERMUTATION_OFFSETS) {
+fn check_states(intermediate: &Vector, witness: &[u8], names: &[char]) {
+    for (permutation, offset) in names.iter().copied().zip(PERMUTATION_OFFSETS) {
         for group in 1..=11usize {
             let start = offset + 1600 * (group - 1);
             let name = format!(
@@ -189,10 +210,10 @@ fn registration_vector(row: Row, text: &str, intermediate: &str) {
     assert_eq!(vector.int("witness_bits_u32"), 35_840);
     assert_eq!(vector.int("n_constraints_u32"), 72_576);
     let pad: [u8; 32] = array(vector.get("tape_pad"));
-    assert_eq!(vector.get("tape")[48..], pad);
+    assert_eq!(vector.get("tape")[48..80], pad);
     let witness = registration::witness(instance.public(), &secret, &pad);
     assert_eq!(shake256_64(&witness), vector.get("witness_shake256_64"));
-    check_states(&intermediate, &witness, 'A');
+    check_states(&intermediate, &witness, &['C', 'A']);
     check_evaluations(
         &intermediate,
         &array(vector.get("sk")),
@@ -299,8 +320,27 @@ fn vote_vector(row: Row, text: &str, intermediate: &str, list_text: Option<&str>
     assert_eq!(vector.get("nf"), nullifier.as_bytes());
     let vote_value = Vote::from_byte(vector.get("vote_u8")[0]).expect("a vote");
 
-    let statement =
-        VoteStatement::new(body, scope, &list, nullifier, vote_value, policy).expect("valid");
+    let statement = VoteStatement::new(
+        body,
+        scope,
+        &list,
+        nullifier,
+        Digest64(array(vector.get("auth_v"))),
+        vote_value,
+        policy,
+    )
+    .expect("valid");
+    assert_eq!(
+        statement
+            .authorization_digest(&profile)
+            .expect("D_v")
+            .as_bytes(),
+        vector.get("D_v")
+    );
+    assert_eq!(
+        secret.vote_authorization(&statement.authorization_digest(&profile).expect("D_v")),
+        statement.auth_v
+    );
     assert_eq!(statement, case.statement);
     assert_eq!(statement.list_digest, Digest64(array(vector.get("R"))));
     assert_eq!(vector.get("PREFIX_VOTE"), profile.prefix(Role::Vote));
@@ -312,18 +352,28 @@ fn vote_vector(row: Row, text: &str, intermediate: &str, list_text: Option<&str>
     let instance = statement.instance(&profile).expect("valid");
     assert_eq!(vector.get("mu"), instance.mu());
 
-    assert_eq!(vector.int("witness_bits_u32"), 35_904);
-    assert_eq!(vector.int("n_constraints_u32"), 72_707);
+    assert_eq!(vector.int("witness_bits_u32"), 53_504);
+    assert_eq!(vector.int("n_constraints_u32"), 108_931);
     let pad: [u8; 32] = array(vector.get("tape_pad"));
     let witness = vote::witness(instance.public(), &secret, position, &pad);
     assert_eq!(shake256_64(&witness), vector.get("witness_shake256_64"));
-    check_states(&intermediate, &witness, 'N');
+    check_states(&intermediate, &witness, &['C', 'N', 'V']);
     check_evaluations(
         &intermediate,
         &array(vector.get("sk")),
         &[
             ('C', public_block(COMMITMENT_TAG, body.as_bytes())),
             ('N', public_block(NULLIFIER_TAG, scope.as_bytes())),
+            (
+                'V',
+                public_block(
+                    iroha_parliament_ballot_proof::credential::VOTE_AUTHORIZATION_TAG,
+                    statement
+                        .authorization_digest(&profile)
+                        .expect("D_v")
+                        .as_bytes(),
+                ),
+            ),
         ],
     );
     assert_eq!(
@@ -331,11 +381,11 @@ fn vote_vector(row: Row, text: &str, intermediate: &str, list_text: Option<&str>
         *member.as_bytes()
     );
     assert_eq!(
-        intermediate.get("state_N_round24_final")[..64],
+        intermediate.get("state_N_round24_final")[..128],
         *nullifier.as_bytes()
     );
-    assert_eq!(witness[4480..4484], *intermediate.get("selector_a_u32"));
-    assert_eq!(witness[4484..4488], *intermediate.get("selector_b_u32"));
+    assert_eq!(witness[6680..6684], *intermediate.get("selector_a_u32"));
+    assert_eq!(witness[6684..6688], *intermediate.get("selector_b_u32"));
 
     let encoded = test_codec::encode_vote(&profile, &statement).expect("encodes");
     assert_eq!(
@@ -399,6 +449,36 @@ fn vote_with_a_thousand_members_on_the_candidate_row_reproduces_the_prototype() 
         Row::Candidate,
         include_str!("fixtures/vote_S1000_i500_fast.txt"),
         include_str!("fixtures/vote_S1000_i500_fast.intermediate.txt"),
+        None,
+    );
+}
+
+#[test]
+fn vote_with_five_hundred_members_on_the_candidate_row_reproduces_the_prototype() {
+    vote_vector(
+        Row::Candidate,
+        include_str!("fixtures/vote_S500_i250_fast.txt"),
+        include_str!("fixtures/vote_S500_i250_fast.intermediate.txt"),
+        None,
+    );
+}
+
+#[test]
+fn vote_with_five_hundred_members_on_the_comparator_row_reproduces_the_prototype() {
+    vote_vector(
+        Row::Comparator,
+        include_str!("fixtures/vote_S500_i250_comparator.txt"),
+        include_str!("fixtures/vote_S500_i250_comparator.intermediate.txt"),
+        None,
+    );
+}
+
+#[test]
+fn vote_with_a_thousand_members_on_the_comparator_row_reproduces_the_prototype() {
+    vote_vector(
+        Row::Comparator,
+        include_str!("fixtures/vote_S1000_i500_comparator.txt"),
+        include_str!("fixtures/vote_S1000_i500_comparator.intermediate.txt"),
         None,
     );
 }

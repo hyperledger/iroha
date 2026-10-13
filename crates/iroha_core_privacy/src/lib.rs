@@ -52,6 +52,8 @@
 pub mod execution_proofs;
 #[cfg(test)]
 mod ivm_test_support;
+/// Typed Exact12 dispatch registry: verification, effect class and delivery per role.
+pub mod privacy_dispatch;
 /// Native transparent privacy protocol engines.
 pub mod privacy_engines;
 /// Deterministic compiled manifests for executable privacy engines.

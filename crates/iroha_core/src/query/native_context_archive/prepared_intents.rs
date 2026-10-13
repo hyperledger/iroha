@@ -1,87 +1,165 @@
-//! Local, unresolved outbound Prepared intent from the original executed witness.
+//! Durable Begin, Prepared and Decision coordinates from the original executed witness.
 //!
-//! One canonical frame borrows exact coordinates and a checked scalar row sequence. These are source coordinates, never finality or signing authority. No
-//! AMX record graph is decoded. The unchanged `.nrt` is the complete original record
-//! source, which an eventual consumer must authenticate with the native carrier.
-//! The borrowed native consumer joins these bytes to the original proof/instruction owner.
-//! TODO(S6): connect that instruction to an explicitly authorized, funded parent transaction
-//! journal. No signed submission, restart scheduling or successful relay is represented here.
+//! This sole canonical `.ami` frame borrows scalar rows; it grants no finality, signing,
+//! funding or delivery authority. The unchanged `.nrt` retains the complete original
+//! execution witness. Consumers authenticate every selected record against that source.
+//! Decision rows retain their original Begin height through Global pruning and restart;
+//! no parallel queue or current unpruned transaction entry substitutes for history.
 
 use super::*;
 use crate::state::CapturedExecWitness;
 use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId,
+    block::consensus::SumeragiRootScope,
     execution_witness::ExecutionWitnessKeyTagV1,
-    sumeragi_amx::{AMX_RECORD_WITNESS_KEY_BYTES, AmxRecordKind},
+    sumeragi_amx::{AMX_RECORD_WITNESS_KEY_BYTES, AmxRecordKind, SumeragiAmxState},
 };
 use iroha_model_base::topology::DataSpaceId;
 
+// Owned field identity used by the shared optional-field visitor; production reads
+// borrow its chain bytes from the original charged frame and never decode this graph.
+#[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[norito_schema(name = "iroha_core::amx::AmxParentCoordinatesV1")]
+struct ParentCoordinatesOwned {
+    network: NetworkId,
+    chain: Vec<u8>,
+    instance: [u8; 32],
+    genesis: Hash,
+    successor: Hash,
+    participant: DataSpaceId,
+}
 #[derive(norito::Encode, norito::NoritoSchema)]
-// The borrowed root explicitly projects to the sole owned frame identity; its nominal
-// erased lifetime stays distinct, as required by Norito's schema contract.
 #[norito_schema(
-    name = "iroha_core::amx::PreparedIntentCoordinatesV1",
-    frame = "iroha_core::amx::PreparedIntentCoordinatesV1"
+    name = "iroha_core::amx::AmxParentCoordinatesV1",
+    frame = "iroha_core::amx::AmxParentCoordinatesV1"
+)]
+struct ParentCoordinates<'a> {
+    network: NetworkId,
+    chain: &'a [u8],
+    instance: [u8; 32],
+    genesis: Hash,
+    successor: Hash,
+    participant: DataSpaceId,
+}
+#[derive(norito::Encode, norito::NoritoSchema)]
+#[norito_schema(
+    name = "iroha_core::amx::AmxIntentCoordinatesV1",
+    frame = "iroha_core::amx::AmxIntentCoordinatesV1"
 )]
 struct Coordinates<'a> {
     local_network: NetworkId,
     local_chain: &'a [u8],
-    parent_network: NetworkId,
-    parent_chain: &'a [u8],
-    parent_instance: [u8; 32],
-    parent_genesis: Hash,
-    parent_successor: Hash,
-    participant: DataSpaceId,
+    scope: SumeragiRootScope,
+    parent: Option<ParentCoordinates<'a>>,
     height: u64,
     carrier: HashOf<BlockHeader>,
     ordinary_writes_root: Hash,
     records: u64,
-    // Zero always means outbound signing/fee authority is unresolved.
+    // Zero grants no outbound signing or fee authority.
     authority: u8,
     rows: RowsRef<'a>,
 }
 #[derive(Clone, Copy, Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
-#[norito_schema(name = "iroha_core::amx::PreparedIntentRowV1")]
-/// Fixed canonical intent observation; only native proof verification authenticates its claims.
+#[norito_schema(name = "iroha_core::amx::AmxIntentRowV1")]
+/// Scalar source selector; native proof verification still authenticates every claim.
 pub(crate) struct Row {
     pub(crate) key: [u8; AMX_RECORD_WITNESS_KEY_BYTES],
     pub(crate) tx: [u8; 32],
-    pub(crate) participant: DataSpaceId,
+    pub(crate) participant: Option<DataSpaceId>,
+    pub(crate) begin_height: Option<u64>,
     pub(crate) value: Hash,
 }
-
-pub(super) fn is_prepared_key_prefix(key: &[u8]) -> bool {
-    key.first() == Some(&(ExecutionWitnessKeyTagV1::AmxRecord as u8))
-        && key.get(1) == Some(&(AmxRecordKind::Prepared as u8))
+impl Row {
+    pub(crate) fn kind(&self) -> Result<AmxRecordKind, norito::Error> {
+        record_kind(&self.key).ok_or(norito::Error::NonCanonicalEncoding)
+    }
 }
-fn prepared_key(
+fn record_kind(key: &[u8]) -> Option<AmxRecordKind> {
+    if key.first() != Some(&(ExecutionWitnessKeyTagV1::AmxRecord as u8)) {
+        return None;
+    }
+    match key.get(1).copied()? {
+        value if value == AmxRecordKind::Begin as u8 => Some(AmxRecordKind::Begin),
+        value if value == AmxRecordKind::Prepared as u8 => Some(AmxRecordKind::Prepared),
+        value if value == AmxRecordKind::Decision as u8 => Some(AmxRecordKind::Decision),
+        _ => None,
+    }
+}
+pub(super) fn is_relay_key_prefix(key: &[u8]) -> bool {
+    record_kind(key).is_some()
+}
+fn relay_key(
     key: &[u8],
 ) -> Result<Option<[u8; AMX_RECORD_WITNESS_KEY_BYTES]>, NativeContextArchiveError> {
-    if !is_prepared_key_prefix(key) {
+    if !is_relay_key_prefix(key) {
         return Ok(None);
     }
     Ok(Some(key.try_into().map_err(|_| {
-        NativeContextArchiveError::Source("original Prepared key length differs")
+        NativeContextArchiveError::Source("original AMX key length differs")
     })?))
 }
-fn row(write: &ExecKv, participant: DataSpaceId) -> Result<Option<Row>, NativeContextArchiveError> {
-    let Some(key) = prepared_key(&write.key)? else {
+#[derive(Clone, Copy)]
+struct RowContext<'a> {
+    participant: Option<DataSpaceId>,
+    height: u64,
+    current: Option<&'a SumeragiAmxState>,
+    before: Option<&'a SumeragiAmxState>,
+}
+impl RowContext<'_> {
+    #[cfg(test)]
+    fn prepared(participant: DataSpaceId) -> Self {
+        Self {
+            participant: Some(participant),
+            height: 0,
+            current: None,
+            before: None,
+        }
+    }
+}
+fn row(write: &ExecKv, context: RowContext<'_>) -> Result<Option<Row>, NativeContextArchiveError> {
+    let Some(key) = relay_key(&write.key)? else {
         return Ok(None);
     };
     let mut tx = [0; 32];
     tx.copy_from_slice(&key[2..]);
+    let kind = record_kind(&key).expect("selected exact AMX key");
+    let (participant, begin_height) = match (kind, context.participant) {
+        (AmxRecordKind::Prepared, Some(participant)) => (Some(participant), None),
+        (AmxRecordKind::Begin, None) => (None, Some(context.height)),
+        (AmxRecordKind::Decision, None) => {
+            let entry = context
+                .current
+                .and_then(|state| state.transaction(&tx))
+                .or_else(|| context.before.and_then(|state| state.transaction(&tx)))
+                .ok_or(NativeContextArchiveError::Source(
+                    "original Decision lost its Begin locator before publication",
+                ))?;
+            if entry.begun_at < 2 || entry.begun_at > context.height {
+                return Err(NativeContextArchiveError::Source(
+                    "original Decision Begin locator is outside its source history",
+                ));
+            }
+            (None, Some(entry.begun_at))
+        }
+        _ => {
+            return Err(NativeContextArchiveError::Source(
+                "AMX record kind differs from original root scope",
+            ));
+        }
+    };
     Ok(Some(Row {
         key,
         tx,
         participant,
+        begin_height,
         value: Hash::new(&write.value),
     }))
 }
 pub(crate) fn count(writes: &[ExecKv]) -> Result<usize, NativeContextArchiveError> {
     let mut count = 0usize;
     for write in writes {
-        if prepared_key(&write.key)?.is_some() {
+        if relay_key(&write.key)?.is_some() {
             count = count
                 .checked_add(1)
                 .ok_or(iroha_allocation::AllocationRefusal::DemandOverflow)
@@ -99,7 +177,7 @@ enum RowsSource<'a> {
 }
 struct RowsRef<'a> {
     source: RowsSource<'a>,
-    participant: DataSpaceId,
+    context: RowContext<'a>,
     count: usize,
 }
 impl norito::NoritoSchema for RowsRef<'_> {
@@ -109,7 +187,7 @@ impl norito::NoritoSchema for RowsRef<'_> {
             .into()
     }
     fn static_nominal_name() -> Option<&'static str> {
-        Some("iroha_core::amx::PreparedIntentRowsRef<'_>")
+        Some("iroha_core::amx::AmxIntentRowsRef<'_>")
     }
     fn frame_name() -> String {
         <Vec<Row> as norito::NoritoSchema>::frame_name()
@@ -131,7 +209,7 @@ impl norito::core::SerializePayload for RowsRef<'_> {
             writer,
             Rows {
                 writes: writes.iter(),
-                participant: self.participant,
+                context: self.context,
                 remaining: self.count,
             },
         )
@@ -139,17 +217,17 @@ impl norito::core::SerializePayload for RowsRef<'_> {
 }
 struct Rows<'a> {
     writes: std::slice::Iter<'a, ExecKv>,
-    participant: DataSpaceId,
+    context: RowContext<'a>,
     remaining: usize,
 }
 impl Iterator for Rows<'_> {
     type Item = Row;
     fn next(&mut self) -> Option<Row> {
         for write in self.writes.by_ref() {
-            if is_prepared_key_prefix(&write.key) {
+            if is_relay_key_prefix(&write.key) {
                 // count() checked every exact key before constructing this immutable view.
                 // A cardinality/length fault is refused by the shared sequence writer.
-                let item = row(write, self.participant).ok().flatten()?;
+                let item = row(write, self.context).ok().flatten()?;
                 self.remaining = self.remaining.checked_sub(1)?;
                 return Some(item);
             }
@@ -170,7 +248,7 @@ impl NativeContextArchive {
         original: &mut PreparedNativeContext,
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &RetainedPayload<iroha_data_model::sumeragi_finality::CertifiedResultV1>,
+        result: &RetainedPayload<CertifiedResultV1>,
         witness: &CapturedExecWitness,
     ) -> Result<(), NativeContextArchiveError> {
         // Ordinary no-AMX blocks retain their original capture path unchanged.
@@ -201,25 +279,49 @@ impl NativeContextArchive {
             original.intents_complete = true;
             return Ok(());
         }
-        let parent = overlay
-            .world()
-            .sumeragi_amx_participant()
-            .authenticated_parent_source(&self.budget)
+        let scope = overlay
+            .native_execution_tip()
+            .as_ref()
+            .map(|tip| tip.root_scope())
             .ok_or(NativeContextArchiveError::Source(
-                "Prepared intent lacks its original authenticated participant",
+                "AMX capture lacks original root scope",
             ))?;
-        let global = &parent.participant.global;
-        // Never consult participant.prepared: same-block settle/prune may remove an
-        // entry while the original transactionally committed witness retains it.
+        let parent = match scope {
+            SumeragiRootScope::Global => None,
+            SumeragiRootScope::Dataspace { .. } => {
+                let source = overlay
+                    .world()
+                    .sumeragi_amx_participant()
+                    .authenticated_parent_source(&self.budget)
+                    .ok_or(NativeContextArchiveError::Source(
+                        "Prepared intent lacks its original authenticated participant",
+                    ))?;
+                Some(ParentCoordinates {
+                    network: source.participant.global.current.network_id,
+                    chain: &source.global_chain_label,
+                    instance: source.participant.global.instance,
+                    genesis: Hash::new(&source.global_genesis),
+                    successor: Hash::new(&source.global_successor),
+                    participant: source.participant.dataspace,
+                })
+            }
+        };
+        let context = RowContext {
+            participant: parent.as_ref().map(|parent| parent.participant),
+            height: original.height,
+            current: Some(overlay.world().sumeragi_amx()),
+            before: Some(overlay.world.sumeragi_amx.get_before_block()),
+        };
+        // Check every original scalar relationship before reserving/encoding destination
+        // bytes. The immutable row iterator then cannot erase a source refusal.
+        for write in &witness.writes {
+            let _ = row(write, context)?;
+        }
         let coordinates = Coordinates {
             local_network: *overlay.network_id(),
             local_chain: overlay.chain_id().as_str().as_bytes(),
-            parent_network: global.current.network_id,
-            parent_chain: &parent.global_chain_label,
-            parent_instance: global.instance,
-            parent_genesis: Hash::new(&parent.global_genesis),
-            parent_successor: Hash::new(&parent.global_successor),
-            participant: parent.participant.dataspace,
+            scope,
+            parent,
             height: original.height,
             carrier: original.carrier_hash,
             ordinary_writes_root: result.get().commitment().execution.ordinary_writes_root,
@@ -227,7 +329,7 @@ impl NativeContextArchive {
             authority: 0,
             rows: RowsRef {
                 source: RowsSource::Writes(&witness.writes),
-                participant: parent.participant.dataspace,
+                context,
                 count: records,
             },
         };
@@ -318,40 +420,90 @@ fn rows<'a>(payload: &'a [u8], offset: &mut usize) -> Result<RowsRef<'a>, norito
         .map_err(codec)?;
     Ok(RowsRef {
         source: RowsSource::Encoded(&payload[original]),
-        participant: DataSpaceId::UNIVERSAL,
+        context: RowContext {
+            participant: None,
+            height: 0,
+            current: None,
+            before: None,
+        },
         count,
     })
+}
+#[derive(Debug)]
+struct ParentProjection {
+    network: NetworkId,
+    chain: Range<usize>,
+    instance: [u8; 32],
+    genesis: Hash,
+    successor: Hash,
+    participant: DataSpaceId,
+}
+fn decode_parent<'a>(
+    payload: &'a [u8],
+    offset: &mut usize,
+) -> Result<Option<ParentCoordinates<'a>>, norito::Error> {
+    // The shared Option kernel owns tags/framing. Return only checked scalar offsets
+    // from its visitor, then borrow the original child bytes from the charged outer frame.
+    let projection = ncore::framed_field::<Option<ParentCoordinatesOwned>>(payload, offset)?
+        .decode_optional(|field| {
+            field.with_payload(|child| {
+                let mut offset = 0;
+                let network = scalar(child, &mut offset)?;
+                let chain = range(payload, chain_bytes(child, &mut offset)?)?;
+                let instance =
+                    ncore::framed_byte_array_field::<32>(child, &mut offset)?.decode_owned()?;
+                let genesis = scalar(child, &mut offset)?;
+                let successor = scalar(child, &mut offset)?;
+                let participant = scalar(child, &mut offset)?;
+                if offset != child.len() {
+                    return Err(norito::Error::LengthMismatch.into());
+                }
+                Ok::<_, DecodeIntoError<Infallible>>(ParentProjection {
+                    network,
+                    chain,
+                    instance,
+                    genesis,
+                    successor,
+                    participant,
+                })
+            })
+        })
+        .map_err(codec)?;
+    projection
+        .map(|parent| {
+            Ok(ParentCoordinates {
+                network: parent.network,
+                chain: payload
+                    .get(parent.chain)
+                    .ok_or(norito::Error::LengthMismatch)?,
+                instance: parent.instance,
+                genesis: parent.genesis,
+                successor: parent.successor,
+                participant: parent.participant,
+            })
+        })
+        .transpose()
 }
 fn decode_coordinates(payload: &[u8]) -> Result<Coordinates<'_>, norito::Error> {
     let mut offset = 0;
     let local_network = scalar(payload, &mut offset)?;
     let local_chain = chain_bytes(payload, &mut offset)?;
-    let parent_network = scalar(payload, &mut offset)?;
-    let parent_chain = chain_bytes(payload, &mut offset)?;
-    let parent_instance =
-        ncore::framed_byte_array_field::<32>(payload, &mut offset)?.decode_owned()?;
-    let parent_genesis = scalar(payload, &mut offset)?;
-    let parent_successor = scalar(payload, &mut offset)?;
-    let participant = scalar(payload, &mut offset)?;
+    let scope = scalar(payload, &mut offset)?;
+    let parent = decode_parent(payload, &mut offset)?;
     let height = scalar(payload, &mut offset)?;
     let carrier = scalar(payload, &mut offset)?;
     let ordinary_writes_root = scalar(payload, &mut offset)?;
     let records = scalar(payload, &mut offset)?;
     let authority = scalar(payload, &mut offset)?;
-    let mut rows = rows(payload, &mut offset)?;
-    rows.participant = participant;
+    let rows = rows(payload, &mut offset)?;
     if offset != payload.len() {
         return Err(norito::Error::LengthMismatch);
     }
     Ok(Coordinates {
         local_network,
         local_chain,
-        parent_network,
-        parent_chain,
-        parent_instance,
-        parent_genesis,
-        parent_successor,
-        participant,
+        scope,
+        parent,
         height,
         carrier,
         ordinary_writes_root,
@@ -477,12 +629,8 @@ impl<'a> RowsRef<'a> {
 pub(crate) struct IntentProjection {
     local_network: NetworkId,
     local_chain: Range<usize>,
-    parent_network: NetworkId,
-    parent_chain: Range<usize>,
-    parent_instance: [u8; 32],
-    parent_genesis: Hash,
-    parent_successor: Hash,
-    participant: DataSpaceId,
+    scope: SumeragiRootScope,
+    parent: Option<ParentProjection>,
     height: u64,
     carrier: HashOf<BlockHeader>,
     pub(crate) ordinary_writes_root: Hash,
@@ -490,7 +638,18 @@ pub(crate) struct IntentProjection {
     count: usize,
 }
 impl IntentProjection {
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC218")))]
+    pub(crate) fn parent_network(&self) -> NetworkId {
+        self.parent
+            .as_ref()
+            .expect("authenticated Prepared parent")
+            .network
+    }
+    pub(crate) fn parent_instance(&self) -> [u8; 32] {
+        self.parent
+            .as_ref()
+            .expect("authenticated Prepared parent")
+            .instance
+    }
     pub(crate) fn record_count(&self) -> usize {
         self.count
     }
@@ -508,21 +667,53 @@ impl IntentProjection {
         {
             return Err(norito::Error::LengthMismatch);
         }
+        match (&value.scope, &value.parent) {
+            (SumeragiRootScope::Global, None) => {}
+            (
+                SumeragiRootScope::Dataspace {
+                    parent_network_id,
+                    dataspace_id,
+                },
+                Some(parent),
+            ) if *parent_network_id == parent.network && *dataspace_id == parent.participant => {}
+            _ => return Err(norito::Error::NonCanonicalEncoding),
+        }
         Ok(Self {
             local_network: value.local_network,
             local_chain: range(bytes, value.local_chain)?,
-            parent_network: value.parent_network,
-            parent_chain: range(bytes, value.parent_chain)?,
-            parent_instance: value.parent_instance,
-            parent_genesis: value.parent_genesis,
-            parent_successor: value.parent_successor,
-            participant: value.participant,
+            scope: value.scope,
+            parent: value
+                .parent
+                .map(|parent| {
+                    Ok::<_, norito::Error>(ParentProjection {
+                        network: parent.network,
+                        chain: range(bytes, parent.chain)?,
+                        instance: parent.instance,
+                        genesis: parent.genesis,
+                        successor: parent.successor,
+                        participant: parent.participant,
+                    })
+                })
+                .transpose()?,
             height: value.height,
             carrier: value.carrier,
             ordinary_writes_root: value.ordinary_writes_root,
             rows: range(bytes, rows)?,
             count: value.rows.count,
         })
+    }
+    pub(crate) fn matches_root<V: StateReadOnly>(
+        &self,
+        bytes: &[u8],
+        view: &V,
+        height: u64,
+        carrier: HashOf<BlockHeader>,
+    ) -> bool {
+        self.local_network == *view.network_id()
+            && self.height == height
+            && self.carrier == carrier
+            && bytes.get(self.local_chain.clone()) == Some(view.chain_id().as_str().as_bytes())
+            && view.native_execution_tip().map(|tip| tip.root_scope()) == Some(self.scope)
     }
     pub(crate) fn matches<V: StateReadOnly>(
         &self,
@@ -532,6 +723,9 @@ impl IntentProjection {
         height: u64,
         carrier: HashOf<BlockHeader>,
     ) -> bool {
+        let Some(claim) = self.parent.as_ref() else {
+            return false;
+        };
         let Some(parent) = view
             .world()
             .sumeragi_amx_participant()
@@ -540,16 +734,13 @@ impl IntentProjection {
             return false;
         };
         let global = &parent.participant.global;
-        self.local_network == *view.network_id()
-            && self.height == height
-            && self.carrier == carrier
-            && bytes.get(self.local_chain.clone()) == Some(view.chain_id().as_str().as_bytes())
-            && self.parent_network == global.current.network_id
-            && bytes.get(self.parent_chain.clone()) == Some(parent.global_chain_label.as_slice())
-            && self.parent_instance == global.instance
-            && self.parent_genesis == Hash::new(&parent.global_genesis)
-            && self.parent_successor == Hash::new(&parent.global_successor)
-            && self.participant == parent.participant.dataspace
+        self.matches_root(bytes, view, height, carrier)
+            && claim.network == global.current.network_id
+            && bytes.get(claim.chain.clone()) == Some(parent.global_chain_label.as_slice())
+            && claim.instance == global.instance
+            && claim.genesis == Hash::new(&parent.global_genesis)
+            && claim.successor == Hash::new(&parent.global_successor)
+            && claim.participant == parent.participant.dataspace
     }
     pub(crate) fn first_offset(&self, bytes: &[u8]) -> Result<usize, norito::Error> {
         let rows = bytes
@@ -581,10 +772,27 @@ impl IntentProjection {
             return Err(norito::Error::LengthMismatch);
         }
         let (row, used) = decode_row(&bytes[offset..self.rows.end])?;
-        if row.participant != self.participant
-            || prepared_key(&row.key).ok().flatten() != Some(row.key)
+        if relay_key(&row.key).ok().flatten() != Some(row.key)
             || row.key.get(2..) != Some(row.tx.as_slice())
         {
+            return Err(norito::Error::NonCanonicalEncoding);
+        }
+        let valid = match (row.kind()?, self.scope, self.parent.as_ref()) {
+            (AmxRecordKind::Prepared, SumeragiRootScope::Dataspace { .. }, Some(parent)) => {
+                row.participant == Some(parent.participant) && row.begin_height.is_none()
+            }
+            (AmxRecordKind::Begin, SumeragiRootScope::Global, None) => {
+                row.participant.is_none() && row.begin_height == Some(self.height)
+            }
+            (AmxRecordKind::Decision, SumeragiRootScope::Global, None) => {
+                row.participant.is_none()
+                    && row
+                        .begin_height
+                        .is_some_and(|begin| begin >= 2 && begin <= self.height)
+            }
+            _ => false,
+        };
+        if !valid {
             return Err(norito::Error::NonCanonicalEncoding);
         }
         Ok(Some((
@@ -615,7 +823,12 @@ pub(crate) mod test_helpers {
         value.records = 1;
         value.rows = RowsRef {
             source: RowsSource::Encoded(&encoded),
-            participant: value.participant,
+            context: RowContext {
+                participant: value.parent.as_ref().map(|parent| parent.participant),
+                height: value.height,
+                current: None,
+                before: None,
+            },
             count: 1,
         };
         norito::encode_canonical(&value).unwrap()
@@ -637,7 +850,7 @@ pub(crate) mod test_helpers {
         bytes: &[u8],
         overlay: &StateBlock<'_>,
         executed: &SignedBlock,
-        result: &ExecutionResultCommitment,
+        result: &CertifiedResultV1,
         witness: &CapturedExecWitness,
     ) -> [u8; 32] {
         let value = read_coordinates(bytes).unwrap();
@@ -650,19 +863,34 @@ pub(crate) mod test_helpers {
         assert_eq!(value.local_network, *overlay.network_id());
         assert_eq!(value.local_chain, overlay.chain_id().as_str().as_bytes());
         assert_eq!(
-            value.parent_network,
+            value.parent.as_ref().unwrap().network,
             parent.participant.global.current.network_id
         );
-        assert_eq!(value.parent_chain, parent.global_chain_label);
-        assert_eq!(value.parent_instance, parent.participant.global.instance);
-        assert_eq!(value.parent_genesis, Hash::new(&parent.global_genesis));
-        assert_eq!(value.parent_successor, Hash::new(&parent.global_successor));
-        assert_eq!(value.participant, parent.participant.dataspace);
+        assert_eq!(
+            value.parent.as_ref().unwrap().chain,
+            parent.global_chain_label
+        );
+        assert_eq!(
+            value.parent.as_ref().unwrap().instance,
+            parent.participant.global.instance
+        );
+        assert_eq!(
+            value.parent.as_ref().unwrap().genesis,
+            Hash::new(&parent.global_genesis)
+        );
+        assert_eq!(
+            value.parent.as_ref().unwrap().successor,
+            Hash::new(&parent.global_successor)
+        );
+        assert_eq!(
+            value.parent.as_ref().unwrap().participant,
+            parent.participant.dataspace
+        );
         assert_eq!(value.height, executed.header().height().get());
         assert_eq!(value.carrier, executed.hash());
         assert_eq!(
             value.ordinary_writes_root,
-            result.execution.ordinary_writes_root
+            result.commitment().execution.ordinary_writes_root
         );
         assert_eq!(
             value.authority, 0,
@@ -672,7 +900,13 @@ pub(crate) mod test_helpers {
         let expected: Vec<_> = witness
             .writes
             .iter()
-            .filter_map(|write| row(write, value.participant).unwrap())
+            .filter_map(|write| {
+                row(
+                    write,
+                    RowContext::prepared(value.parent.as_ref().unwrap().participant),
+                )
+                .unwrap()
+            })
             .collect();
         assert_eq!(value.rows.count, expected.len());
         for (actual, expected) in value.rows.iter().unwrap().zip(&expected) {
@@ -699,41 +933,49 @@ mod tests {
         use norito::NoritoSchema as _;
         assert_eq!(
             Coordinates::static_frame_name(),
-            Some("iroha_core::amx::PreparedIntentCoordinatesV1")
+            Some("iroha_core::amx::AmxIntentCoordinatesV1")
         );
         assert_eq!(
             Coordinates::frame_name(),
-            "iroha_core::amx::PreparedIntentCoordinatesV1"
+            "iroha_core::amx::AmxIntentCoordinatesV1"
         );
         assert_ne!(Coordinates::nominal_name(), Coordinates::frame_name());
         assert_eq!(
             norito::schema::identity::frame_hash::<Coordinates>(),
-            norito::core::schema_hash_for_name("iroha_core::amx::PreparedIntentCoordinatesV1")
+            norito::core::schema_hash_for_name("iroha_core::amx::AmxIntentCoordinatesV1")
         );
     }
     #[test]
     fn original_prepared_key_selection_refuses_malformed_and_preserves_transaction() {
         let key = amx_record_witness_key(AmxRecordKind::Prepared, [0x41; 32]);
-        assert!(is_prepared_key_prefix(&key));
-        assert_eq!(prepared_key(&key).unwrap(), Some(key));
+        assert!(is_relay_key_prefix(&key));
+        assert_eq!(relay_key(&key).unwrap(), Some(key));
         assert!(matches!(
-            prepared_key(&key[..33]),
+            relay_key(&key[..33]),
             Err(NativeContextArchiveError::Source(_))
         ));
         assert!(
-            prepared_key(&amx_record_witness_key(AmxRecordKind::Begin, [0x41; 32]))
+            relay_key(&amx_record_witness_key(AmxRecordKind::Begin, [0x41; 32]))
                 .unwrap()
-                .is_none()
+                .is_some()
         );
-        assert!(prepared_key(&[]).unwrap().is_none());
+        assert!(
+            relay_key(&amx_record_witness_key(AmxRecordKind::Decision, [0x41; 32]))
+                .unwrap()
+                .is_some()
+        );
+        assert!(relay_key(&[]).unwrap().is_none());
         let write = ExecKv {
             key: key.to_vec(),
             value: vec![1, 2, 3],
         };
-        let selected = row(&write, DataSpaceId::new(5)).unwrap().unwrap();
+        let selected = row(&write, RowContext::prepared(DataSpaceId::new(5)))
+            .unwrap()
+            .unwrap();
         assert_eq!(selected.tx, [0x41; 32]);
         assert_eq!(selected.key, key);
-        assert_eq!(selected.participant, DataSpaceId::new(5));
+        assert_eq!(selected.participant, Some(DataSpaceId::new(5)));
+        assert_eq!(selected.begin_height, None);
         assert_eq!(selected.value, Hash::new(&write.value));
     }
     #[test]
@@ -750,10 +992,14 @@ mod tests {
         ];
         let rows = RowsRef {
             source: RowsSource::Writes(&writes),
-            participant: DataSpaceId::new(5),
+            context: RowContext::prepared(DataSpaceId::new(5)),
             count: count(&writes).unwrap(),
         };
-        let owned = vec![row(&writes[0], DataSpaceId::new(5)).unwrap().unwrap()];
+        let owned = vec![
+            row(&writes[0], RowContext::prepared(DataSpaceId::new(5)))
+                .unwrap()
+                .unwrap(),
+        ];
         use norito::NoritoSchema as _;
         assert_ne!(RowsRef::nominal_name(), <Vec<Row>>::nominal_name());
         assert_eq!(RowsRef::frame_name(), <Vec<Row>>::frame_name());
@@ -791,12 +1037,18 @@ mod tests {
         let coordinates = Coordinates {
             local_network: NetworkId::from_genesis_hash(carrier),
             local_chain: b"local-original",
-            parent_network: NetworkId::from_genesis_hash(carrier),
-            parent_chain: b"parent-original",
-            parent_instance: [0x55; 32],
-            parent_genesis: Hash::new(b"G1"),
-            parent_successor: Hash::new(b"H2"),
-            participant: DataSpaceId::new(5),
+            scope: SumeragiRootScope::Dataspace {
+                parent_network_id: NetworkId::from_genesis_hash(carrier),
+                dataspace_id: DataSpaceId::new(5),
+            },
+            parent: Some(ParentCoordinates {
+                network: NetworkId::from_genesis_hash(carrier),
+                chain: b"parent-original",
+                instance: [0x55; 32],
+                genesis: Hash::new(b"G1"),
+                successor: Hash::new(b"H2"),
+                participant: DataSpaceId::new(5),
+            }),
             height: 2,
             carrier,
             ordinary_writes_root: Hash::new(b"writes"),
@@ -804,15 +1056,18 @@ mod tests {
             authority: 0,
             rows: RowsRef {
                 source: RowsSource::Writes(&writes),
-                participant: DataSpaceId::new(5),
+                context: RowContext::prepared(DataSpaceId::new(5)),
                 count: 1,
             },
         };
         let original = norito::encode_canonical(&coordinates).unwrap();
         // Both counterexamples are genuine codec-owned frames, not manually edited headers.
-        let foreign =
-            norito::encode_canonical(&row(&writes[0], DataSpaceId::new(5)).unwrap().unwrap())
-                .unwrap();
+        let foreign = norito::encode_canonical(
+            &row(&writes[0], RowContext::prepared(DataSpaceId::new(5)))
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert!(ncore::from_bytes_view(&foreign).is_ok());
         assert!(matches!(
             read_coordinates(&foreign),
@@ -840,7 +1095,7 @@ mod tests {
         let mut bytes = ChargedBuffer::new(original.len(), &budget).unwrap();
         bytes.append(&original).unwrap();
         let decoded = read_coordinates(bytes.as_slice()).unwrap();
-        for borrowed in [decoded.local_chain, decoded.parent_chain] {
+        for borrowed in [decoded.local_chain, decoded.parent.as_ref().unwrap().chain] {
             let selected = range(bytes.as_slice(), borrowed).unwrap();
             assert!(std::ptr::eq(
                 borrowed.as_ptr(),
@@ -890,5 +1145,67 @@ mod tests {
         drop(decoded);
         drop(bytes);
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+    #[test]
+    fn borrowed_global_intent_keeps_exact_begin_locator_without_a_participant_parent() {
+        let writes = [ExecKv {
+            key: amx_record_witness_key(AmxRecordKind::Begin, [0x81; 32]).to_vec(),
+            value: vec![1, 4, 8],
+        }];
+        let carrier = HashOf::from_untyped_unchecked(Hash::new(b"Global scalar codec fixture"));
+        let mut coordinates = Coordinates {
+            local_network: NetworkId::from_genesis_hash(carrier),
+            local_chain: b"Global original",
+            scope: SumeragiRootScope::Global,
+            parent: None,
+            height: 8,
+            carrier,
+            ordinary_writes_root: Hash::new(b"actual full witness root belongs to verifier"),
+            records: 1,
+            authority: 0,
+            rows: RowsRef {
+                source: RowsSource::Writes(&writes),
+                count: 1,
+                context: RowContext {
+                    participant: None,
+                    height: 8,
+                    current: None,
+                    before: None,
+                },
+            },
+        };
+        let encoded = norito::encode_canonical(&coordinates).unwrap();
+        let decoded = read_coordinates(&encoded).unwrap();
+        assert!(decoded.parent.is_none());
+        assert_eq!(norito::encode_canonical(&decoded).unwrap(), encoded);
+        let projection = IntentProjection::decode(&encoded).unwrap();
+        let offset = projection.first_offset(&encoded).unwrap();
+        let (row, next) = projection.row(&encoded, 0, offset).unwrap().unwrap();
+        assert_eq!(row.kind().unwrap(), AmxRecordKind::Begin);
+        assert_eq!(row.begin_height, Some(8));
+        assert_eq!(row.participant, None);
+        assert_eq!(row.tx, [0x81; 32]);
+        assert!(projection.row(&encoded, 1, next).unwrap().is_none());
+        coordinates.height = 9;
+        let substituted = norito::encode_canonical(&coordinates).unwrap();
+        let projection = IntentProjection::decode(&substituted).unwrap();
+        assert!(
+            projection
+                .row(
+                    &substituted,
+                    0,
+                    projection.first_offset(&substituted).unwrap()
+                )
+                .is_err(),
+            "Begin locator cannot differ from its source height"
+        );
+        coordinates.scope = SumeragiRootScope::Dataspace {
+            parent_network_id: coordinates.local_network,
+            dataspace_id: DataSpaceId::new(5),
+        };
+        assert!(
+            IntentProjection::decode(&norito::encode_canonical(&coordinates).unwrap()).is_err(),
+            "a private source requires its exact authenticated parent coordinates"
+        );
     }
 }

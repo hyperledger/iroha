@@ -246,7 +246,8 @@ pub struct AmxCertifiedBlockV1 {
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
     )]
     pub commit_qc: Vec<u8>,
-    /// Canonical preimage of `R` (`CertifiedResultV1`).
+    /// Canonical preimage of `R`: the fixed native header `X` followed by the
+    /// canonical `ExecutionResultCommitment` body (`CertifiedResultV1`).
     #[norito(
         with = "crate::json_helpers::base64_vec",
         bounded_with = "crate::json_helpers::base64_vec::serialize_bounded"
@@ -299,7 +300,8 @@ impl AmxRecordProofV1 {
     /// produced (the complete execution witness writes, including mandatory context writes).
     /// The resulting path must match the ordinary-write root in the canonical result preimage.
     /// This checks the supplied write set; the receiving foreign-instance tracker still
-    /// authenticates the certificate and its binding to that preimage.
+    /// authenticates the certificate and its binding to that preimage. The producer
+    /// supplies its selected root `scope`; the result header cannot select authority.
     ///
     /// # Errors
     /// The result preimage is malformed or exceeds its bound, the record is not written in
@@ -311,7 +313,7 @@ impl AmxRecordProofV1 {
         scope: crate::sumeragi_finality::CertifiedResultScope,
     ) -> Result<Self, AmxError> {
         let commitment = CertifiedResultV1::decode(&block.result_preimage, scope)
-            .map_err(|error| super::commitment_error(&error))?;
+            .map_err(super::certified_result_error)?;
         let key = record.witness_key();
         let (write, value) = AmxWriteProofV1::from_writes(writes, &key)?;
         if value != record.witness_value()? {

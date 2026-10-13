@@ -1,6 +1,8 @@
 //! Structures, traits and impls related to *runtime* `Executor`s.
 /// Bounded deterministic VM fault values and authenticated execution coordinates.
 pub mod fault;
+/// Rejected retry references to original successful native payments.
+pub mod settlement;
 #[cfg(feature = "transparent_api")]
 pub use self::model::*;
 #[cfg(not(feature = "transparent_api"))]
@@ -15,6 +17,7 @@ use crate::transaction::executable::IvmBytecode;
 use iroha_data_model_derive::model;
 use iroha_primitives::json::Json;
 use iroha_schema::Ident;
+pub use settlement::{SettlementReplayDispositionV1, SettlementReplayV1};
 use std::{collections::BTreeSet, format, string::String, vec::Vec};
 #[model]
 mod model {
@@ -135,6 +138,8 @@ mod model {
         QueryFailed(#[source] query::error::QueryExecutionFail),
         /// Atomic cross-transaction policy rejected the request.
         AxtReject(AxtRejectContext),
+        /// A payer-scoped payment identity already succeeded: {0}
+        SettlementReplay(Box<SettlementReplayV1>),
         /// Operation is too complex; consider increasing the IVM runtime configuration parameters
         ///
         /// For example it's a very big IVM bytecode.

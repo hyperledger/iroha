@@ -42,18 +42,17 @@ impl Pool {
     fn new(workers: usize, queued: usize, resolver: Arc<Resolver>) -> Result<Self, Error> {
         let (jobs, received) = mpsc::sync_channel::<Job>(queued);
         let received = Arc::new(Mutex::new(received));
-        for index in 0..workers {
+        for (index, resolver) in std::iter::repeat_n(resolver, workers).enumerate() {
             let received = received.clone();
-            let resolver = resolver.clone();
             std::thread::Builder::new()
                 .name(format!("musubi-dns-{index}"))
                 .spawn(move || {
                     loop {
                         let job = {
-                            let Ok(receiver) = received.lock() else {
+                            let Ok(queue) = received.lock() else {
                                 return;
                             };
-                            let Ok(job) = receiver.recv() else { return };
+                            let Ok(job) = queue.recv() else { return };
                             job
                         };
                         if Instant::now() >= job.deadline {
@@ -132,10 +131,10 @@ fn native_resolve(host: &str, port: u16) -> Answer {
 }
 
 pub(super) fn resolve(host: &str, port: u16, deadline: Instant) -> Answer {
+    static POOL: OnceLock<Result<Pool, Error>> = OnceLock::new();
     if Instant::now() >= deadline {
         return Err(Error::Deadline);
     }
-    static POOL: OnceLock<Result<Pool, Error>> = OnceLock::new();
     POOL.get_or_init(|| Pool::new(WORKERS, QUEUED, Arc::new(native_resolve)))
         .as_ref()
         .map_err(|error| *error)?

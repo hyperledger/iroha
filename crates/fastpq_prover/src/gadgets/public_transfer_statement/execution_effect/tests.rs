@@ -601,7 +601,7 @@ fn genuine_core_capture_preserves_all_effects_and_refuses_substitution() {
     // It is retained from the separate producer, never reconstructed from this offer.
     let borrowed =
         materialize_source_fixture(&effects, &original_source_leaf, limits, tree_limits).unwrap();
-    assert!(std::ptr::eq(borrowed.effects(), &effects));
+    assert!(std::ptr::eq(borrowed.effects(), &raw const effects));
     assert_eq!(
         norito::encode_canonical(&borrowed.statement()).unwrap(),
         norito::encode_canonical(&built.statement).unwrap()
@@ -831,7 +831,7 @@ fn independent_source_leaf_binds_complete_context_and_all_nonroot_inputs() {
     let built =
         materialize_source_fixture(&effects, &source, ExecutionEffectLimits::default(), trees())
             .unwrap();
-    assert!(std::ptr::eq(built.effects(), &effects));
+    assert!(std::ptr::eq(built.effects(), &raw const effects));
     let source_frame = norito::encode_canonical(&built.statement()).unwrap();
     let statement: FastpqExecutionEffectStatementV1 =
         norito::decode_canonical(&source_frame).unwrap();

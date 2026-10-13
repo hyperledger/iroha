@@ -1,0 +1,21 @@
+   Compiling aes v0.8.4 (/Users/mtakemiya/dev/iroha/vendor/aes)
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+   Compiling iroha_parliament_ballot_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_parliament_ballot_proof)
+   Compiling parliament_qualification_bridge v0.1.0 (/tmp/parliament-b6-ios-source-test/bridge)
+    Finished `release` profile [optimized] target(s) in 11.63s
+     Running unittests src/lib.rs (/tmp/parliament-b6-ios-source-test/bridge/target/release/deps/parliament_qualification_bridge-26c9b66c9d60c746)
+
+running 10 tests
+test qualification::tests::allocator_metrics_include_retained_input_and_new_output ... ok
+test qualification::tests::counter_extraction_obeys_exact_width_and_limit_on_both_rows ... ok
+test qualification::tests::deterministic_domains_and_proof_digest_are_reproducible ... ok
+test qualification::tests::nearest_rank_keeps_max_and_small_sample_p95_honest ... ok
+test qualification::tests::norito_records_flush_and_round_trip_without_environment_access ... ok
+test qualification::tests::options_bound_work_and_reject_ambiguous_values ... ok
+test qualification::tests::reproducible_inputs_use_maximum_fields_and_bound_list_sizes ... ok
+test qualification::tests::summaries_keep_the_phase_and_retry_sample_counts ... ok
+test tests::arguments_bind_sample_count_and_row ... ok
+test tests::null_host_pointers_are_rejected_without_access ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

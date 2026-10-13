@@ -170,7 +170,7 @@ pub struct RegCase {
     /// The secret of member 0.
     pub secret: [u8; 48],
     /// The proving tape.
-    pub tape: [u8; 80],
+    pub tape: [u8; 112],
 }
 
 /// The prototype's `reg_case(row)`.
@@ -188,7 +188,7 @@ pub fn reg_case(row: Row) -> RegCase {
         row,
         statement,
         secret: secret_bytes,
-        tape: array(&fx(&format!("tape/reg/{}", row_label(row)), 80)),
+        tape: array(&fx(&format!("tape/reg/{}", row_label(row)), 112)),
     }
 }
 
@@ -233,7 +233,7 @@ pub struct VoteCase {
     /// The voter's list position.
     pub index: usize,
     /// The proving tape.
-    pub tape: [u8; 80],
+    pub tape: [u8; 112],
 }
 
 /// The prototype's `vote_case(row, s, pos)` with vote 0.
@@ -241,11 +241,12 @@ pub fn vote_case(row: Row, size: usize, index: usize) -> VoteCase {
     let (list, secrets) = member_list(size);
     let voter = secrets[index];
     let scope = scope_for(ENC_PROPOSAL);
-    let statement = VoteStatement::new(
+    let statement = VoteStatement::for_secret(
+        &Profile::new(row).expect("profile"),
+        &secret(&voter),
         fixture_body_digest(),
         scope,
         &list,
-        secret(&voter).nullifier(&scope),
         Vote::Aye,
         policy_hash(ENC_POLICY).expect("frame"),
     )
@@ -259,7 +260,7 @@ pub fn vote_case(row: Row, size: usize, index: usize) -> VoteCase {
         index,
         tape: array(&fx(
             &format!("tape/vote/{size}/{index}/{}", row_label(row)),
-            80,
+            112,
         )),
     }
 }
@@ -351,8 +352,8 @@ pub fn vote_violations(instance: &VoteInstance, witness: &[u8]) -> BTreeSet<Bloc
 }
 
 /// The pad of a case's tape.
-pub fn pad_of(tape: &[u8; 80]) -> [u8; 32] {
-    array(&tape[48..])
+pub fn pad_of(tape: &[u8; 112]) -> [u8; 32] {
+    array(&tape[48..80])
 }
 
 /// The registration faults of the prototype's self-test.
@@ -453,7 +454,7 @@ pub fn registration_faults(case: &RegCase) -> Vec<Fault<RegistrationStatement>> 
 /// The vote faults of the prototype's self-test.
 pub fn vote_faults(case: &VoteCase) -> Vec<Fault<VoteStatement>> {
     use BlockKind::{PrefixA, PrefixB, Range, SumA, SumB};
-    use Permutation::{Commitment, Nullifier};
+    use Permutation::{Commitment, Nullifier, VoteAuthorization};
     let profile = Profile::new(case.row).expect("tables");
     let pad = pad_of(&case.tape);
     let own = secret(&case.secret);
@@ -482,7 +483,11 @@ pub fn vote_faults(case: &VoteCase) -> Vec<Fault<VoteStatement>> {
     same_statement(
         "wrong sk",
         foreign.clone(),
-        &[output(Commitment), output(Nullifier)],
+        &[
+            output(Commitment),
+            output(Nullifier),
+            output(VoteAuthorization),
+        ],
     );
     same_statement(
         "right sk, selectors on another member",
@@ -540,9 +545,13 @@ pub fn vote_faults(case: &VoteCase) -> Vec<Fault<VoteStatement>> {
     other_statement.scope = other_scope;
     other_statement.nullifier = own.nullifier(&other_scope);
     let other_scope_witness = witness_at(&instance_of(&other_statement), &own, index);
+    let mut nullifier_only = honest.clone();
+    for group in 1..=11 {
+        splice_state(&mut nullifier_only, &other_scope_witness, 1, group);
+    }
     same_statement(
         "nullifier states of another scope",
-        other_scope_witness.clone(),
+        nullifier_only,
         &[transition(Nullifier, 1), output(Nullifier)],
     );
     let mut witness = honest.clone();
@@ -563,17 +572,59 @@ pub fn vote_faults(case: &VoteCase) -> Vec<Fault<VoteStatement>> {
     // The statement's scope with the nullifier of the other scope.
     let mut statement = case.statement.clone();
     statement.nullifier = own.nullifier(&other_scope);
+    statement.auth_v =
+        own.vote_authorization(&statement.authorization_digest(&profile).expect("D_v"));
+    let corrected_auth = witness_at(&instance_of(&statement), &own, index);
     out.push(Fault {
         name: "public nf of another scope (states of the statement's scope)",
         statement: statement.clone(),
-        witness: honest,
+        witness: corrected_auth.clone(),
         expected: set(&[output(Nullifier)]),
     });
     out.push(Fault {
         name: "public nf of another scope (states of the other scope)",
         statement,
-        witness: other_scope_witness,
+        witness: {
+            let mut witness = corrected_auth;
+            for group in 1..=11 {
+                splice_state(&mut witness, &other_scope_witness, 1, group);
+            }
+            witness
+        },
         expected: set(&[transition(Nullifier, 1)]),
     });
+    // Complete output coverage: each half must be enforced even when every
+    // other statement value and witness state is honestly recomputed.
+    for (name, auth, start, len) in [
+        ("wrong low half of auth_v", true, 0, 32),
+        ("wrong high half of auth_v", true, 32, 32),
+        ("wrong low half of nf with recomputed auth_v", false, 0, 64),
+        (
+            "wrong high half of nf with recomputed auth_v",
+            false,
+            64,
+            64,
+        ),
+    ] {
+        let mut statement = case.statement.clone();
+        if auth {
+            for byte in &mut statement.auth_v.0[start..start + len] {
+                *byte ^= 0xff;
+            }
+        } else {
+            for byte in &mut statement.nullifier.0[start..start + len] {
+                *byte ^= 0xff;
+            }
+            statement.auth_v =
+                own.vote_authorization(&statement.authorization_digest(&profile).expect("D_v"));
+        }
+        let witness = witness_at(&instance_of(&statement), &own, index);
+        out.push(Fault {
+            name,
+            statement,
+            witness,
+            expected: set(&[output(if auth { VoteAuthorization } else { Nullifier })]),
+        });
+    }
     out
 }

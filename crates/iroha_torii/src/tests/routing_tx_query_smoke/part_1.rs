@@ -206,7 +206,7 @@ async fn contract_feeds_project_rejected_contract_call_from_signed_invocation() 
         ))
         .sign(keypair.private_key());
     let entry_hash = format!("{}", signed.hash_as_entrypoint());
-    let _committed = crate::test_utils::commit_native_accepted_inputs(
+    let committed = crate::test_utils::commit_native_accepted_inputs(
         &mut native_chain,
         vec![AcceptedTransaction::new_unchecked(Cow::Owned(signed))],
     );
@@ -227,6 +227,8 @@ async fn contract_feeds_project_rejected_contract_call_from_signed_invocation() 
         "the committed rejected call remains queryable"
     );
     assert_eq!(items[0]["result_ok"].as_bool(), Some(false));
+    assert_eq!(items[0]["block_height"].as_u64(), Some(committed.height()));
+    assert_eq!(items[0]["block_index"].as_u64(), Some(0));
     assert_eq!(
         items[0]["entrypoint_hash"].as_str(),
         Some(entry_hash.as_str())

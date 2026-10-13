@@ -740,10 +740,13 @@ define_instruction_handlers! {
     // Core enforces every SCCP v1 rule (`specs/sccp.md` §4.19); exact user payments and
     // protected custody retain the common numeric mutation and fee checks.
     dispatch_instruction::<iroha_data_model::isi::sccp::InitializeSccpV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::chain::Keepalive> => CoreAuthorized [asset_effect = NoNumericAssetEffect],
     dispatch_instruction::<iroha_data_model::isi::sccp::RecordSccpMessage> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpInboundMessageV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SettleSccpV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpOutboundVoidV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::sccp::ProveSccpForgedMintV1> => CoreAuthorized,
+    dispatch_instruction::<iroha_data_model::isi::sccp::SubmitSccpForgeryEvidenceV1> => CoreAuthorized,
     dispatch_instruction::<iroha_data_model::isi::sccp::AdvanceSccpLightClientV1> => CoreAuthorized,
     dispatch_instruction::<
         iroha_data_model::isi::sccp::ReportSccpLightClientEquivocationV1

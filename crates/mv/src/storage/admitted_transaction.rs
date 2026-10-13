@@ -57,6 +57,15 @@ where
     V: Value,
     P: AdmittedStoragePolicy + ClonePlanning<K, V> + ClonePlanning<K, Option<V>>,
 {
+    /// Borrow the original pool retained by this admitted block.
+    pub fn allocation_budget(&self) -> &AllocationBudget {
+        self.writers
+            .target
+            .allocation
+            .as_ref()
+            .expect("original admitted block pool")
+    }
+
     /// Begin a private admitted transaction under these same physical writers.
     ///
     /// Checked generation refusal is returned before any user admission or copy.
@@ -381,5 +390,17 @@ where
             .checked_add(1)
             .expect("applied transaction count exceeds the finite block domain");
         self.resolve();
+    }
+}
+
+impl<K, V, P> Transaction<'_, K, V, Prepaid<P>>
+where
+    K: Key,
+    V: Value,
+    P: AdmittedStoragePolicy + ClonePlanning<K, V> + ClonePlanning<K, Option<V>>,
+{
+    /// Borrow this child's original map pool, never a newly constructed budget.
+    pub fn allocation_budget(&self) -> &AllocationBudget {
+        self.allocation.expect("original admitted transaction pool")
     }
 }

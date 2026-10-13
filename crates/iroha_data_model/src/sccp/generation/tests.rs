@@ -43,9 +43,9 @@ fn generation() -> SccpCommitteeGenerationV1 {
         start_lc: 1_000,
         validity_ms: 100,
         deadline_ms: 1_100,
-        grace_ms: 20,
+        grace_ms: crate::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
         progress_cap_ms: 30,
-        liable_until_lc: 1_120,
+        liable_until_lc: 1_100 + crate::sccp::params::SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1,
         dest_cleared_lc: None,
         end: None,
     }
@@ -159,6 +159,9 @@ fn stored_generation_rejects_bad_geometry_bindings_roots_and_deadlines() {
         assert!(!wrong.is_well_formed(), "{wrong:?}");
     }
     let mut saturated = row;
+    saturated.generation = 2;
+    saturated.cause = SccpGenerationCauseV1::Heartbeat;
+    saturated.start_height = 2;
     saturated.start_timestamp_ms = u64::MAX - 5;
     saturated.start_lc = u64::MAX - 6;
     saturated.deadline_ms = u64::MAX;
@@ -169,6 +172,9 @@ fn stored_generation_rejects_bad_geometry_bindings_roots_and_deadlines() {
 #[test]
 fn liability_is_inclusive_and_uses_the_captured_progress_and_grace_windows() {
     let mut row = generation();
+    // Small synthetic windows isolate arithmetic; persisted records obey parameter bounds.
+    row.grace_ms = 20;
+    row.liable_until_lc = 1_120;
     assert!(
         row.is_liable(1, u64::MAX),
         "current generation stays liable"
@@ -307,4 +313,119 @@ fn anchor_frontier_matches_full_tree_and_exact_witnesses_bind_height_core_hash_a
             ));
         }
     }
+}
+
+#[test]
+fn malformed_decoded_claims_are_not_authority_and_fail_structural_validation() {
+    use crate::sccp::params::*;
+
+    type Mutation = fn(&mut SccpCommitteeGenerationV1);
+    let cases: &[(&str, Mutation)] = &[
+        ("zero generation", |v| v.generation = 0),
+        ("wrong genesis cause", |v| {
+            v.cause = SccpGenerationCauseV1::Heartbeat
+        }),
+        ("late genesis", |v| v.start_height = 2),
+        ("non-genesis at genesis height", |v| {
+            v.generation = 2;
+            v.cause = SccpGenerationCauseV1::Heartbeat;
+        }),
+        ("genesis clock", |v| {
+            v.start_lc -= 1;
+            v.liable_until_lc = v
+                .start_lc
+                .saturating_add(v.validity_ms)
+                .saturating_add(v.grace_ms);
+        }),
+        ("short committee", |v| {
+            v.keys.pop();
+        }),
+        ("committee order", |v| v.keys.swap(0, 1)),
+        ("duplicate key", |v| v.keys[1] = v.keys[0]),
+        ("bad subgroup key", |v| v.keys[0] = [0; 48]),
+        ("root mismatch", |v| v.committee_root[0] ^= 1),
+        ("short members", |v| {
+            v.members.pop();
+        }),
+        ("duplicate account", |v| v.members[1] = v.members[0].clone()),
+        ("wrong lane", |v| {
+            v.members[0].as_mut().unwrap().lane_id = LaneId::new(1)
+        }),
+        ("future activation", |v| {
+            v.members[0].as_mut().unwrap().activation_height = 2
+        }),
+        ("future clock", |v| v.start_lc = v.start_timestamp_ms + 1),
+        ("zero validity", |v| v.validity_ms = 0),
+        ("long validity", |v| {
+            v.validity_ms = SCCP_MAX_VALIDITY_MS_V1 + 1
+        }),
+        ("short grace", |v| {
+            v.grace_ms = SCCP_MIN_FORGERY_EVIDENCE_GRACE_MS_V1 - 1;
+            v.liable_until_lc = v
+                .start_lc
+                .saturating_add(v.validity_ms)
+                .saturating_add(v.grace_ms);
+        }),
+        ("long grace", |v| {
+            v.grace_ms = SCCP_MAX_FORGERY_EVIDENCE_GRACE_MS_V1 + 1;
+            v.liable_until_lc = v
+                .start_lc
+                .saturating_add(v.validity_ms)
+                .saturating_add(v.grace_ms);
+        }),
+        ("long progress cap", |v| {
+            v.progress_cap_ms = SCCP_MAX_DESTINATION_PROGRESS_CAP_MS_V1 + 1
+        }),
+        ("deadline", |v| v.deadline_ms += 1),
+        ("liability deadline", |v| v.liable_until_lc += 1),
+        ("early end height", |v| {
+            v.end.as_mut().unwrap().end_height = 0
+        }),
+        ("early end time", |v| {
+            v.end.as_mut().unwrap().end_timestamp_ms = 0
+        }),
+        ("empty successor root", |v| {
+            v.end.as_mut().unwrap().next_committee_root = [0; 32]
+        }),
+        ("zero successor validity", |v| {
+            v.end.as_mut().unwrap().successor_validity_ms = 0
+        }),
+        ("long successor validity", |v| {
+            v.end.as_mut().unwrap().successor_validity_ms = SCCP_MAX_VALIDITY_MS_V1 + 1
+        }),
+        ("early destination clearance", |v| {
+            v.dest_cleared_lc = Some(v.start_lc - 1)
+        }),
+        ("unended destination clearance", |v| {
+            v.end = None;
+            v.dest_cleared_lc = Some(v.start_lc);
+        }),
+    ];
+    for (label, mutate) in cases {
+        let mut claim = generation();
+        claim.end = Some(SccpGenerationEndV1 {
+            end_height: 10,
+            end_timestamp_ms: 2_000,
+            next_committee_root: claim.committee_root,
+            successor_validity_ms: claim.validity_ms,
+        });
+        mutate(&mut claim);
+        let encoded = norito::encode_canonical(&claim).unwrap();
+        let decoded: SccpCommitteeGenerationV1 = norito::decode_canonical(&encoded).unwrap();
+        assert!(!decoded.is_well_formed(), "{label}");
+    }
+}
+
+#[test]
+fn member_shape_preserves_zero_activation_but_not_two_tenures_of_one_account() {
+    let mut generation = generation();
+    generation.members[0].as_mut().unwrap().activation_height = 0;
+    assert!(generation.is_well_formed());
+    generation.generation = 2;
+    generation.cause = SccpGenerationCauseV1::Heartbeat;
+    generation.start_height = 2;
+    let mut duplicate = generation.members[0].clone().unwrap();
+    duplicate.activation_height = 2;
+    generation.members[1] = Some(duplicate);
+    assert!(!generation.is_well_formed());
 }

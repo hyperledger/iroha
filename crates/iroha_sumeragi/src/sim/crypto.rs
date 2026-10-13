@@ -106,6 +106,9 @@ pub struct SigLog {
     /// Honest Commit signatures to check against their `PrepareQC` (drained by the world,
     /// which knows the committees): `(machine, preimage)`.
     pub commits: Vec<(usize, Vec<u8>)>,
+    /// Genuine first signatures of honest Prepare preimages, drained by the world's
+    /// clock oracle: `(machine, slot, block hash)`.
+    pub prepares: Vec<(usize, SigSlot, Hash32)>,
     /// Every proposed `(I, h, v, block hash)` (any signer).
     proposed: BTreeSet<(Hash32, u64, u64, Hash32)>,
     /// Keys that must abstain: `(key, I)` → first height at which they may sign (R2, R6).
@@ -215,6 +218,11 @@ impl SigLog {
         if slot.kind == KIND_COMMIT {
             self.commits.push((m, preimage.to_vec()));
         }
+        if slot.kind == KIND_PREPARE
+            && let Some(block_hash) = block_hash
+        {
+            self.prepares.push((m, slot, block_hash));
+        }
         list.push(Honest {
             kind: slot.kind,
             view: slot.view,
@@ -321,6 +329,13 @@ impl SimSigner {
 }
 
 impl Signer for SimSigner {
+    fn sign_prepare(
+        &self,
+        context: &crate::crypto::PrepareSigningContext<'_>,
+    ) -> Result<Signature, crate::crypto::SigningError> {
+        self.sign(context.preimage())
+    }
+
     fn public_key(&self) -> &PublicKey {
         &self.key
     }

@@ -1428,7 +1428,6 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             let terminal = session.terminal(&native, MemoryBudget::DEFAULT).unwrap();
             assert_eq!(terminal.proof, output.proof);
             assert_eq!(terminal.instances, public[0]);
-            drop(key_seal);
             replay_native_checkpoints(&prover, input, &retained, &native);
             eprintln!(
                 "ARCHIVE_COMPLETE all10A_all9W=true valid={} native_maps=true native_source_and_proof_bytes_equal=true original_PK_import=true all19_canonical_checkpoints_restored=true no_final_omega_admission=true ordinary_finality_fixture=true release_qualified=false",
@@ -1464,7 +1463,6 @@ fn prove_chain(source: archive_q::ArchiveSource) {
             },
         )
         .unwrap();
-        drop(key_seal);
         let (wrapper, key) = WKey::keygen(&wrapper_circuit, &params).unwrap();
         let planned = identities[index].wrapper.as_ref().unwrap();
         assert_eq!(wrapper.verifier().binding(), planned.verifier().binding());
@@ -1554,7 +1552,6 @@ fn prove_chain(source: archive_q::ArchiveSource) {
         assert_eq!(encoded.len(), layouts[2 * index + 1].payload_bytes());
         retained.push(encoded);
         prior_native = Some(native_wrapper);
-        drop(key_seal);
         eprintln!(
             "Archive W{index} verified actual proof_bytes={}",
             output.proof.len()

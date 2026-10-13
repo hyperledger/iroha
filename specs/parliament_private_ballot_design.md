@@ -1070,12 +1070,12 @@ object is capped at 160 KiB. The envelope limit is therefore not a claim that
 every cold verification input fits in 256 KiB; the total cold input is
 disclosed with the measurements.
 
-For the construction under development, the raw proof is 160,148 B for
+For the implemented standalone construction, the raw proof is 160,148 B for
 `pi_reg` and 233,012 B for `pi_vote` on the row carried as the integration
 candidate, and 109,498 B and 158,074 B on the comparison row. These are the
 second-opinion review's figures, derived in
 [parliament_ballot_proof_profile.md](parliament_ballot_proof_profile.md)
-section 9.7; none is measured. Against the 262,144 B envelope
+section 9.7 and confirmed by the final implementation's proof lengths. Against the 262,144 B envelope
 limit the candidate row leaves 101,996 B for a registration
 (`262,144 − 160,148`) and 29,132 B for a ballot (`262,144 − 233,012`): the
 ballot proof alone is 89% of the limit.
@@ -1089,18 +1089,16 @@ shared seal data, not part of any ballot. The sizes are therefore compatible
 with the 256 KiB and 160 KiB caps, and no limit changes. Complete-envelope
 compliance is unqualified until the production schema exists and the
 complete envelope is measured against it; no exact framed size is stated
-before then. Verification time and memory of this construction are
-unmeasured, and the 250 ms, 64 MiB and phone limits are unchanged. The only
-timings that exist are of an earlier vote relation, without the vote
-authorization value and the 128-byte nullifier, on a backend without the
-current proof randomness, counter range and commitments. They were taken on
-a development machine that is not a baseline (Apple M2 Ultra, one thread,
-release build): on the candidate row about 215 ms to prove and 105 ms to
-verify with hardware AES, about 390 ms and 270 ms on the portable path, and
-about 3 MiB of peak heap; on the comparison row about 390 ms and 275 ms with
-hardware AES and about 2.0 s and 1.9 s portable. They describe that relation,
-machine and build only. They are not measurements of the construction under
-development and satisfy no limit in the table above.
+before then. Final-construction measurements cover both rows, registration
+and votes at `S = 3`, 500 and 1,000 in portable and accelerated release builds.
+The [B5 record](../docs/validation/parliament_ballot_standalone.md) retains its
+seven-sample, decoded-input measurements; the
+[B6 record](../docs/validation/parliament_ballot_b6.md) adds fresh-input and
+late-invalid verification, actual proving/retry distributions, requested live
+heap including inputs, bounded adversarial campaigns and attached-device
+evidence. These runs do not establish complete work/allocation bounds,
+cold-process/cache behaviour or the named validator and phone qualification.
+The 250 ms, 64 MiB and phone limits are unchanged.
 
 The hardware baselines are:
 
@@ -1148,13 +1146,19 @@ awaiting independent review:
 | 4 | Unlinkability has a conditional bound from joint zero knowledge and P under the stated disclosure exclusions; non-frameability reduces to gates 2 and 8 |
 | 5 | Joint zero knowledge has a conditional simulation argument whose generator terms are unvalued; anonymity is conditional on it and on P |
 | 6 | No complete ledger at the actual resources and no attack-cost assessment; the written bounds that contain `Z` cannot justify advantage 2^-64 |
-| 7 | Needs implementation evidence, deterministic bounds, complete envelopes and measurements |
+| 7 | Standalone component evidence and development-machine measurements exist; complete deterministic bounds, production envelopes and baseline qualification remain open |
 
-The implementation does not yet match the construction. The standalone
-backend reproduces the twelve official FAEST v3.0.2 signatures in its
-reference mode, which is a separate construction used for conformance. The
-ballot relations implement the earlier vote relation on the earlier backend.
-The construction under development needs its own test vectors.
+The standalone Rust implementation now matches the strengthened relation and
+the salted, affine-checked backend. All eight final proof cases match an
+independently implemented Python prototype: registration and all three roster
+sizes on both rows. Portable and accelerated component suites exercise the final
+relations and backend; exact vector coverage and source-bound results are in
+[the standalone validation record](../docs/validation/parliament_ballot_standalone.md).
+The twelve official FAEST v3.0.2 signature vectors remain conformance checks
+for reference mode, a separate construction. These results do not provide
+independent cryptographic review or cross-architecture qualification. Later
+bounded parser campaigns and supplementary device measurements are tracked in
+[B6](../docs/validation/parliament_ballot_b6.md); they discharge no section 5 gate.
 Selection follows section 12.2 step 2.
 
 Repository reference components are not qualified profiles:
@@ -1633,7 +1637,7 @@ Keep beacon machinery still required for consensus or sortition.
    replacement. The launch gate being false does not remove the selection
    precondition.
 
-   Conditions 2 to 5 do not hold today, so steps 3 and 4 have not started.
+   Conditions 2, 3 and 5 remain unmet, so steps 3 and 4 have not started.
    The second-opinion review's arguments for items 1, 2, 3, 4, 5 and 8 are
    written, conditional and awaiting independent review, but none has its
    numerical substitution into the item 6 contract: the generator terms,
@@ -1642,9 +1646,18 @@ Keep beacon machinery still required for consensus or sortition.
    Assumptions P and U of section 5 are unestablished. No complete ledger at
    the actual resources and no attack-cost assessment exists, and a
    hypothetical nominal substitution does not satisfy condition 3. The
-   standalone prover and verifier do not yet implement the exact
-   construction (condition 4), and no measurement of it or complete envelope
-   size is recorded (condition 5).
+   standalone prover and verifier now implement the exact construction, with
+   meaningful adversarial and component-conformance evidence for condition 4
+   in [the validation record](../docs/validation/parliament_ballot_standalone.md).
+   The [B6 evidence](../docs/validation/parliament_ballot_b6.md) adds bounded
+   parser campaigns, cold-input/late-invalid measurements and supplementary
+   attached-device evidence. Physical x86/ARM qualification and independent
+   implementation review remain open. Measurements cover both rows and all
+   three roster sizes, but complete envelope sizes, deterministic work and
+   allocation bounds, and named-hardware qualification remain open (condition
+   5 and the later activation obligations). The executable security ledger
+   preserves unknown terms and fails qualification; its arithmetic and source
+   review do not establish the missing premises.
    Activation qualification is step 5 together with the owner's
    qualification record; `parliament_binding_ballot_available()` stays false
    through selection, implementation and review until the owner records it.

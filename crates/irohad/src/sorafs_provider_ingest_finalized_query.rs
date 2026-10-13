@@ -53,7 +53,7 @@ use iroha_data_model::{
         capacity::ProviderId,
         pin_registry::{
             PinManifestFinalizedCursorV1, PinManifestFinalizedRecordV1, PinStatus,
-            ProviderIngestCompletionAuthorityV1, ReplicationOrderId, ReplicationOrderStatus,
+            ReplicationOrderId, ReplicationOrderStatus,
         },
     },
 };

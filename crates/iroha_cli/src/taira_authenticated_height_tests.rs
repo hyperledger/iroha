@@ -5,7 +5,7 @@ use iroha_core::{
     state::World,
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
-use iroha_crypto::{Algorithm, KeyPair, Signature, SignatureOf};
+use iroha_crypto::{Algorithm, KeyPair, SignatureOf, bls::consensus};
 use iroha_data_model::{
     block::{CommitCertificate, decode_framed_signed_block},
     sumeragi::{SumeragiFootprint, SumeragiStatus},
@@ -111,26 +111,14 @@ impl Fixture {
         let signatures: Vec<_> = chosen
             .iter()
             .map(|index| {
-                Signature::from_bytes(
-                    &iroha_crypto::bls::consensus::sign_preimage(
-                        self.keys[*index as usize].private_key(),
-                        &certificate.preimage(),
-                    )
-                    .unwrap(),
+                consensus::sign_preimage(
+                    self.keys[*index as usize].private_key(),
+                    &certificate.preimage(),
                 )
+                .unwrap()
             })
             .collect();
-        certificate.agg_sig = AggregateSignature(
-            iroha_crypto::bls_normal_aggregate_signatures(
-                &signatures
-                    .iter()
-                    .map(|signature| signature.payload())
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        );
+        certificate.agg_sig = AggregateSignature(consensus::aggregate(&signatures).unwrap());
     }
 
     fn edit_certificate(

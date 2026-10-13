@@ -56,7 +56,7 @@ fn measured<T>(operation: impl FnOnce() -> T) -> (T, usize) {
 }
 #[test]
 fn observer_counts_all_three_allocation_routes_and_resets_after_unwind() {
-    let (_, count) = measured(|| {
+    let ((), count) = measured(|| {
         // SAFETY: every successful exact-layout allocation is deallocated with
         // its matching final layout; failed reallocation retains the old pointer.
         unsafe {

@@ -33,7 +33,9 @@ fn private_state() -> (State, DataSpaceId) {
     };
     let world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
     let mut parameters = world.parameters.block();
-    parameters.set_parameter(test_support::metadata(scope));
+    parameters
+        .set_parameter(test_support::metadata(scope))
+        .expect("valid fixture parameters");
     parameters.commit();
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
     nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
@@ -298,7 +300,8 @@ fn malformed_root_metadata_is_terminal_and_cannot_acquire_retry_authority() {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 handshake_meta_id(),
                 payload.parse::<iroha_primitives::json::Json>().unwrap(),
-            )));
+            )))
+            .expect("valid fixture parameters");
         assert!(matches!(
             execution_root_scope(&mut tx),
             Err(ValidationFail::NotPermitted(reason))
@@ -341,7 +344,8 @@ fn readonly_manifest_query_preserves_malformed_and_foreign_rejections() {
             .set_parameter(Parameter::Custom(CustomParameter::new(
                 handshake_meta_id(),
                 payload.parse::<iroha_primitives::json::Json>().unwrap(),
-            )));
+            )))
+            .expect("valid fixture parameters");
         assert!(matches!(
             local.execute(&tx),
             Err(ExecutionAttemptError::Rejected(QueryExecutionFail::Conversion(message)))

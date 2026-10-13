@@ -151,7 +151,6 @@ fn borrowed_history_projection_matches_real_typed_proof_dto_and_sealed_identity(
         entrypoint: source,
         entrypoint_hash: source.hash(),
         result: &output.result,
-        block_hash: block.hash(),
     };
     let owned = iroha_data_model::query::CommittedTransaction {
         block_hash: block.hash(),
@@ -179,8 +178,8 @@ fn borrowed_history_projection_matches_real_typed_proof_dto_and_sealed_identity(
             tx_field_value(&owned, field)
         );
     }
-    let a = contract_activity_projection_from_tx(2, &borrowed).unwrap();
-    let b = contract_activity_projection_from_tx(2, &owned).unwrap();
+    let a = contract_activity_projection_from_tx(&borrowed).unwrap();
+    let b = contract_activity_projection_from_tx(&owned).unwrap();
     assert_eq!(a.entrypoint_hash, b.entrypoint_hash);
     assert_eq!(a.contract_address, carrier_identity().2.to_string());
     assert_eq!(a.contract_entrypoint, "submit");

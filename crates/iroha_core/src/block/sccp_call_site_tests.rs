@@ -68,6 +68,7 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
 
 #[test]
 fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
+    use crate::smartcontracts::isi::sccp::test_support::SampleInstructions;
     use iroha_data_model::{bridge::SccpNetworkV1, isi::sccp::AdvanceSccpLightClientV1};
     use iroha_sccp::light_client::{
         bsc::BscLcAdvanceV1,
@@ -121,13 +122,14 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
                     }),
                 },
             ),
+            signed(SampleInstructions::advance().into()),
             crate::smartcontracts::isi::sccp::test_support::sample_signed_transaction(),
         ],
         key_pair.private_key(),
         None,
         None,
     );
-    assert_eq!(block.network_entrypoints().count(), 4);
+    assert_eq!(block.network_entrypoints().count(), 5);
     let with_cap = |cap| {
         let state = crate::smartcontracts::isi::sccp::test_support::blank_state();
         let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
@@ -166,8 +168,10 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
         block.commit();
     }
     let _ = observed::take();
-    let prepared = CertifiedTestChain::prepare(TestChainConfig::new(world, 10_000))
-        .expect("the original signed genesis is prepared");
+    let mut config = TestChainConfig::new(world, 10_000);
+    config.genesis_block_cadence_ms = std::num::NonZeroU64::new(1_000).unwrap();
+    let prepared =
+        CertifiedTestChain::prepare(config).expect("the original signed genesis is prepared");
     let preparation_inputs = observed::take();
     assert!(
         !preparation_inputs.is_empty(),
@@ -352,4 +356,29 @@ fn native_execution_rejects_relay_fee_mode_before_source_execution() {
         error.to_string().contains("retired lane-relay-burn"),
         "{error}"
     );
+}
+
+#[test]
+fn sccp_follower_rejects_second_included_forgery_independent_of_total_cap() {
+    use crate::smartcontracts::isi::sccp::forgery::tests::{
+        active_member_chain_with_penalty_delay, future,
+    };
+    use crate::state::StateReadOnly as _;
+    let (chain, committee, ordinary) = active_member_chain_with_penalty_delay(2);
+    let view = chain.state().view();
+    let time = view.native_execution_tip().unwrap().creation_time_ms();
+    let submit = future(&chain, &committee);
+    let first = chain.sign(&ordinary, [InstructionBox::from(submit.clone())], time + 1);
+    let second = chain.sign(&ordinary, [InstructionBox::from(submit)], time + 2);
+    let parent = crate::smartcontracts::isi::sccp::eligibility::Current(view.world());
+    // The carrier is DATA for the actual follower cap predicate, not a fabricated certified
+    // history. The normative cap counts included content regardless of execution outcome;
+    // two distinct signed outer transactions carrying the same proof still exceed it.
+    let one = SignedBlock::genesis(vec![first.clone()], ordinary.private_key(), None, None);
+    ValidBlock::validate_sccp_exempt_cap_against(&one, &parent, Some(time)).unwrap();
+    let two = SignedBlock::genesis(vec![first, second], ordinary.private_key(), None, None);
+    assert_eq!(two.network_entrypoints().count(), 2);
+    let error =
+        ValidBlock::validate_sccp_exempt_cap_against(&two, &parent, Some(time)).unwrap_err();
+    assert!(error.to_string().contains("per-block caps"), "{error}");
 }

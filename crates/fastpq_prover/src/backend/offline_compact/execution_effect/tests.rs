@@ -99,7 +99,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
     };
     let model = FastpqOrdinaryCompactArtifactV1 {
         profile_id: execution_effect_profile_id(),
-        source: source.clone(),
+        source,
         statement,
         bundle_frame: encode(
             &EffectBundleWire {
@@ -119,7 +119,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
     // Mutation of position alone is not represented in the statement tape, so
     // this also proves the outer comparison is of the full independently owned leaf.
     for mutation in 0..13 {
-        let mut expected_source = source.clone();
+        let mut expected_source = source;
         match mutation {
             0 => expected_source.statement_index += 1,
             1 => expected_source.entry_index += 1,

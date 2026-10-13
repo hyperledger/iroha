@@ -7,8 +7,6 @@
 // Nested `if` blocks remain intentional for readability/instrumentation; Clippy's
 // `collapsible_if` lint would force let-chains that obscure the control flow.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::all)]
-#![allow(clippy::pedantic, clippy::nursery, clippy::restriction)]
 #![allow(
     clippy::cast_lossless,
     clippy::cloned_instead_of_copied,
@@ -107,6 +105,11 @@ pub mod oracle;
 pub mod peers_gossiper;
 /// Pipeline helpers (access-set derivation, scheduler glue)
 pub mod pipeline;
+mod pipeline_gas_policy;
+/// Committed execution-limit policy: the chain parameter that decides overlay, IVM,
+/// quarantine, query and AMX limits of the transaction pipeline.
+pub mod pipeline_validity_policy;
+mod resource_coherence;
 /// Internal privacy owner paths used by Core and Sumeragi-owned tests.
 pub(crate) use iroha_core_privacy::{
     execution_proofs, privacy_engines, privacy_profiles, privacy_state, privacy_verifier,
@@ -174,8 +177,12 @@ pub mod validation_fee_rewards;
 pub mod validator_committee_evidence;
 /// Crate-local path to `iroha_core_zk`; external crates import `iroha_core_zk` directly.
 pub(crate) use iroha_core_zk as zk;
-/// Node-configuration adapters for zk verification guardrails.
+/// Adapters that build zk verification guardrails from a State's frozen ZK settings: the
+/// committed validity policy for limits and switches, the node's own values for local resources.
 pub mod zk_guardrails;
+/// Committed ZK validity policy: the chain parameter that decides proof limits, windows,
+/// verifier switches, relation-selecting keys and verification gas.
+pub mod zk_validity_policy;
 pub use block::InvalidGenesisError;
 /// Native STARK/FRI verifier under `zk-stark`; external crates use `iroha_core_zk::stark`.
 #[cfg(feature = "zk-stark")]

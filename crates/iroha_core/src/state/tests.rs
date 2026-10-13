@@ -3419,14 +3419,16 @@ fn public_lane_staking_invariant_fixture() -> PublicLaneStakingInvariantFixture 
     );
     {
         let mut parameters = world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            SumeragiNposParameters {
-                evidence_horizon_blocks: 2,
-                slashing_delay_blocks: 2,
-                ..SumeragiNposParameters::default()
-            }
-            .into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                SumeragiNposParameters {
+                    evidence_horizon_blocks: 2,
+                    slashing_delay_blocks: 2,
+                    ..SumeragiNposParameters::default()
+                }
+                .into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     world.public_lane_validators.insert(
@@ -4810,7 +4812,7 @@ state_test! { sync public_lane_staking_roundtrip_through_state_json
                 ..SumeragiNposParameters::default()
             }
             .into_custom_parameter(),
-        ));
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let request_id = Hash::new("unbond-request");
@@ -6032,9 +6034,11 @@ fn executor_reconciliation_cannot_replace_signed_npos_parameters() {
     let state = blank_test_state();
     {
         let mut parameters = state.world.parameters.block();
-        parameters.set_parameter(iroha_data_model::parameter::Parameter::Custom(
-            installed.clone().into_custom_parameter(),
-        ));
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                installed.clone().into_custom_parameter(),
+            ))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut attacker_model = ExecutorDataModel::default();
@@ -8383,7 +8387,7 @@ state_test! { sync governance_restore_rejects_oversized_plain_ballot_corpus
     ).expect("exact finite negative-corpus source reservation");
     parameters.get_mut().set_parameter(iroha_data_model::parameter::Parameter::Block(
         iroha_data_model::parameter::BlockParameter::FastpqSource(policy),
-    ));
+    )).expect("valid fixture parameters");
     parameters.commit();
     world.governance_referenda.insert("oversized-plain-restore".to_owned(), indexed_plain_referendum());
     world
@@ -11116,7 +11120,7 @@ state_test! { sync emergency_fast_restored_config_preserves_staking_owner_and_cu
                     ..SumeragiNposParameters::default()
                 }
                 .into_custom_parameter(),
-            ));
+            )).expect("valid fixture parameters");
             parameters.commit();
         }
         let mut state = State::new_for_testing(
@@ -20089,7 +20093,9 @@ state_test! { sync trigger_genesis_preserves_original_execution_bounds
     let component = blank_state();
     {
         let mut parameters = component.world.parameters.block();
-        parameters.smart_contract.execution_depth = 3;
+        parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(3),
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let original_execution = component.world.parameters.view().get().parameters()
@@ -26059,7 +26065,9 @@ state_test! { sync self_calling_trigger_stops_at_synchronous_execution_depth
     let state = authenticate_trigger_fixture(blank_state());
     {
         let mut parameters = state.world.parameters.block();
-        parameters.smart_contract.execution_depth = 3;
+        parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
+            iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(3),
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let trigger_id: TriggerId = "bounded_self_call".parse().expect("valid trigger id");
@@ -26124,7 +26132,7 @@ state_test! { sync data_trigger_depth_u8_max_rejects_without_panicking_or_wrappi
         let mut parameters = state.world.parameters.block();
         parameters.set_parameter(iroha_data_model::parameter::Parameter::SmartContract(
             iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(u8::MAX),
-        ));
+        )).expect("valid fixture parameters");
         parameters.commit();
     }
     let trigger_id: TriggerId = "max_depth_data_trigger".parse().expect("valid trigger id");
@@ -30704,3 +30712,16 @@ fn frozen_plain_minimum_bond_is_enforced_by_validator_tally_and_restore() {
 
 #[path = "lifecycle_index_release_tests.rs"]
 mod lifecycle_index_release_tests;
+
+#[cfg(unix)]
+#[path = "geometry_completion_tests.rs"]
+mod geometry_completion_tests;
+
+#[path = "publication_effect_lifecycle_tests.rs"]
+mod publication_effect_lifecycle_tests;
+
+#[path = "publication_effect_manifest_tests.rs"]
+mod publication_effect_manifest_tests;
+
+#[path = "publication_effect_kura_tests.rs"]
+mod publication_effect_kura_tests;

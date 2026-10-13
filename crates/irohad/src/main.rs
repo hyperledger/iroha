@@ -5,6 +5,8 @@ compile_error!(
 );
 /// Metadata derived from the authenticated and executed native genesis.
 pub mod authenticated_genesis;
+/// Durable, independently verified native AMX relay delivery.
+mod amx_relay;
 /// Per-seat authenticated global-beacon DKG and exact-quorum rotation provisioning.
 #[cfg(unix)]
 pub mod beacon_bootstrap;
@@ -32,6 +34,7 @@ pub mod runtime_provider_registry;
 #[cfg(unix)]
 #[path = "sccp_keeper.rs"]
 mod sccp_keeper;
+mod sccp_staking_policy;
 /// Embedded Soracloud runtime-manager reconciliation.
 #[path = "soracloud_runtime.rs"]
 mod soracloud_runtime;
@@ -268,27 +271,30 @@ fn decode_confidential_registry_meta(
         norito::Error::Message("failed to decode confidential_registry_root payload".to_string())
     })
 }
-/// Project a confidential feature digest onto the height-independent policy the p2p handshake
-/// compares, so peers at different heights still connect.
+/// The confidential feature digest this node advertises in the P2P handshake.
 ///
-/// The registry fields are dropped, and the policy hash binds the ZK configuration with the
-/// version-1 SCCP light-client profiles
-/// ([`iroha_core::state::compute_genesis_confidential_policy_hash`]) instead of the digest's
-/// own policy hash: that one binds the light-client profile versions active at the digest's
-/// height, which change at a Parliament activation and are checked by every block's digest
-/// instead (`specs/sccp.md` §4.13.2).
+/// It binds the confidential rules version and the protocol-default ZK and SCCP
+/// policy hash of the release. It reads no State: the committed
+/// `zk_validity_policy_v1` of a chain is decided by its blocks, and a value
+/// that differs between peers at different heights cannot gate a connection.
+fn handshake_confidential_features() -> iroha_data_model::confidential::ConfidentialFeatureDigest {
+    iroha_data_model::confidential::ConfidentialFeatureDigest::new(
+        None,
+        None,
+        None,
+        Some(iroha_config::parameters::defaults::confidential::RULES_VERSION),
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+    )
+}
 fn confidential_handshake_policy_digest(
     digest: iroha_data_model::confidential::ConfidentialFeatureDigest,
-    zk_config: &iroha_config::parameters::actual::Zk,
 ) -> iroha_data_model::confidential::ConfidentialFeatureDigest {
     iroha_data_model::confidential::ConfidentialFeatureDigest::new(
         None,
         None,
         None,
         digest.conf_rules_version,
-        Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-            zk_config,
-        )),
+        Some(iroha_core::state::default_genesis_confidential_policy_hash()),
     )
 }
 fn decode_consensus_handshake_meta(
@@ -590,6 +596,49 @@ mod handshake_payload_tests {
         assert_eq!(decoded, None);
     }
     #[test]
+    fn handshake_confidential_features_identify_the_release_not_committed_state() {
+        // The advertised digest is the protocol default whatever a chain commits:
+        // a node that restarts after an authorized policy change advertises the
+        // same value as its peers that did not restart.
+        let features = handshake_confidential_features();
+        assert_eq!(
+            features.zk_policy_hash,
+            Some(iroha_core::state::default_genesis_confidential_policy_hash())
+        );
+        assert_eq!(
+            features.conf_rules_version,
+            Some(iroha_config::parameters::defaults::confidential::RULES_VERSION)
+        );
+        assert_eq!(confidential_handshake_policy_digest(features), features);
+        // A State that holds a committed policy reports another policy hash to
+        // consensus, and the handshake value does not follow it.
+        let mut policy = iroha_core::zk_validity_policy::ZkValidityPolicyV1::protocol_default();
+        policy.confidential.max_nullifiers_per_tx += 1;
+        let world = iroha_core::state::World::default();
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    policy.into_custom_parameter(),
+                ))
+                .expect("install the committed pipeline fixture policy");
+            block.commit();
+        }
+        let state = iroha_core::state::State::new_for_testing(
+            world,
+            iroha_core::kura::Kura::blank_kura_for_testing(),
+            iroha_core::query::store::LiveQueryStore::start_test(),
+        );
+        let committed = iroha_core::state::combine_zk_and_sccp_policy_hashes(
+            iroha_core::state::compute_zk_consensus_policy_hash(&state.zk_snapshot()),
+            iroha_core::state::sccp_genesis_policy_hash_v1(),
+        );
+        assert_ne!(Some(committed), features.zk_policy_hash);
+        assert_eq!(handshake_confidential_features(), features);
+    }
+    #[test]
     fn confidential_handshake_digest_excludes_height_dependent_registry_fields() {
         let digest = iroha_data_model::confidential::ConfidentialFeatureDigest::new(
             Some([1; 32]),
@@ -598,8 +647,7 @@ mod handshake_payload_tests {
             Some(1),
             Some([2; 32]),
         );
-        let zk = iroha_core::state::default_zk_config();
-        let handshake = confidential_handshake_policy_digest(digest, &zk);
+        let handshake = confidential_handshake_policy_digest(digest);
         assert_eq!(handshake.vk_set_hash, None);
         assert_eq!(handshake.poseidon_params_id, None);
         assert_eq!(handshake.pedersen_params_id, None);
@@ -609,16 +657,14 @@ mod handshake_payload_tests {
         // activation never splits peers at different heights.
         assert_eq!(
             handshake.zk_policy_hash,
-            Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-                &zk
-            ))
+            Some(iroha_core::state::default_genesis_confidential_policy_hash())
         );
         let after_activation = iroha_data_model::confidential::ConfidentialFeatureDigest {
             zk_policy_hash: Some([3; 32]),
             ..digest
         };
         assert_eq!(
-            confidential_handshake_policy_digest(after_activation, &zk),
+            confidential_handshake_policy_digest(after_activation),
             handshake
         );
     }
@@ -996,6 +1042,8 @@ pub enum StartError {
     ListenOsSignal,
     /// Failed to start the Torii API server
     StartTorii,
+    /// Explicit AMX relay route, custody or journal initialization failed.
+    StartAmxRelay,
 }
 impl std::fmt::Display for MainError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1019,6 +1067,7 @@ impl std::fmt::Display for StartError {
             StartError::InitKura => "error.init_kura",
             StartError::ListenOsSignal => "error.listen_os_signal",
             StartError::StartTorii => "error.start_torii",
+            StartError::StartAmxRelay => return f.write_str("failed to initialize native AMX relay"),
         };
         write!(f, "{}", i18n::t(key))
     }
@@ -1066,19 +1115,44 @@ fn refresh_block_count_after_snapshot_load(
     block_count.0 = durable_height;
     Ok(())
 }
-fn apply_state_runtime_config_before_snapshot_auth(state: &mut State, config: &Config) {
+fn apply_state_runtime_config_before_snapshot_auth(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
     // These fields are process-local execution policy and do not touch Kura-owned geometry.
     // Settlement must be installed before replay because historical
     // transitions resolve their deterministic execution state through
     // `State::settlement`. This ordering is replay correctness, not a
     // node-readiness gate.
+    install_node_pipeline_config(state, config)?;
     state.set_crypto(config.crypto.clone());
-    state.set_pipeline(config.pipeline.clone());
     state.set_oracle(config.oracle.clone());
     state.set_fraud_monitoring(config.fraud_monitoring.clone());
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement);
+    Ok(())
+}
+/// Install the node's local pipeline resources; validity and fees are committed.
+///
+/// Execution limits are committed chain policy
+/// (`iroha_core::pipeline_validity_policy`). The node configuration schema holds
+/// no such key, so nothing is ignored when the settings come from a file.
+fn install_node_pipeline_config(
+    state: &mut State,
+    config: &Config,
+) -> Result<(), iroha_core::pipeline_validity_policy::PipelineValidityPolicyError> {
+    let ignored = state.install_node_pipeline(config.pipeline.clone())?;
+    if !ignored.is_empty() {
+        // Unreachable from a configuration file; a settings value built by hand
+        // (a tool or a test) may still hold such values.
+        iroha_logger::warn!(
+            fields = ?ignored,
+            "ignoring pipeline validity values of a hand-built settings value: the committed \
+             `pipeline_validity_policy_v1` chain parameter (or the protocol default) decides them"
+        );
+    }
+    Ok(())
 }
 fn apply_state_geometry_config_before_kura_replay(
     state: &mut State,
@@ -1115,6 +1189,13 @@ fn apply_state_geometry_config_before_kura_replay(
                 report.attach("failed to restore snapshot Nexus lane storage at startup")
             })?;
     }
+    sccp_staking_policy::validate(&state.world_view(), &policies.nexus.staking)
+        .map_err(|error| Report::new(error).change_context(StartError::InitKura))
+        .map_err(|report| {
+            report.attach(
+                "SCCP staking policy does not cover current and retained committee liability",
+            )
+        })?;
     state
         .set_nexus_from_config(policies.nexus.clone())
         .map_err(|err| Report::new(err).change_context(StartError::InitKura))
@@ -1127,9 +1208,22 @@ fn install_zk_config_before_kura_replay(
     state: &mut State,
     config: &Config,
 ) -> ReportResult<(), StartError> {
-    state
-        .set_zk(config.zk.clone())
-        .map_err(|error| Report::new(error).change_context(StartError::InitKura))
+    // Validity-affecting ZK values are committed chain policy
+    // (`iroha_core::zk_validity_policy`). The node configuration schema holds
+    // local resource settings only, so nothing is ignored here.
+    let ignored = state
+        .install_node_zk(config.zk.clone())
+        .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
+    if !ignored.is_empty() {
+        // Unreachable from a configuration file; a settings value built by hand
+        // (a tool or a test) may still hold such values.
+        iroha_logger::warn!(
+            fields = ?ignored,
+            "ignoring ZK validity values of a hand-built settings value: the committed \
+             `zk_validity_policy_v1` chain parameter (or the protocol default) decides them"
+        );
+    }
+    Ok(())
 }
 fn nexus_config_for_startup_replay(
     mut configured: iroha_config::parameters::actual::Nexus,
@@ -2051,6 +2145,9 @@ async fn supervise_sumeragi(
     let _ = tokio::task::spawn_blocking(move || node.shutdown()).await;
 }
 
+mod startup_preparation;
+use startup_preparation::{PreparedNative, PreparedStartup, StartupLifetime};
+
 impl Iroha {
     /// Starts Iroha with all its subsystems.
     ///
@@ -2092,7 +2189,9 @@ impl Iroha {
     /// handoffs, and all hedging/billing query, verification, signing,
     /// publication, acknowledgement, and witness adapters must be supplied by
     /// an injecting launcher; enabling the dependent path without one fails
-    /// closed. A private Musubi publication runner is likewise assembled only
+    /// closed. Native preparation executes into the original State before activation; a later
+    /// provider refusal retains valid durable genesis while joining this generation's children.
+    /// A private Musubi publication runner is likewise assembled only
     /// by an explicitly injected late-bound factory and joins this node's supervisor.
     /// The reputation queue submitter is a separately injected deployment
     /// boundary. The Torii proxy bridge signer remains a separate native node
@@ -2106,12 +2205,40 @@ impl Iroha {
     /// - Reading telemetry configs
     /// - Telemetry setup
     /// - Initialization of the native Sumeragi node and [`Kura`]
-    #[allow(clippy::too_many_lines)]
-    #[iroha_logger::log(name = "start", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
     pub(crate) async fn start_with_runtime_deps(
         build: CompiledBuildMetadata,
-        mut config: Config,
+        config: Config,
         genesis: Option<GenesisBlock>,
+        logger: LoggerHandle,
+        shutdown_signal: ShutdownSignal,
+        runtime_deps: IrohaRuntimeDeps,
+        musubi_publication_factory: Option<
+            Box<dyn musubi_publication_service::MusubiPublicationPrivateServiceFactoryV1>,
+        >,
+    ) -> ReportResult<
+        (
+            Self,
+            impl Future<Output = iroha_futures::supervisor::Result<()>>,
+        ),
+        StartError,
+    > {
+        let prepared = PreparedStartup::prepare(config, genesis).await?;
+        Self::activate_with_runtime_deps(
+            build,
+            prepared,
+            logger,
+            shutdown_signal,
+            runtime_deps,
+            musubi_publication_factory,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[iroha_logger::log(name = "start", skip_all)] // This is actually easier to understand as a linear sequence of init statements.
+    async fn activate_with_runtime_deps(
+        build: CompiledBuildMetadata,
+        prepared: PreparedStartup,
         logger: LoggerHandle,
         shutdown_signal: ShutdownSignal,
         mut runtime_deps: IrohaRuntimeDeps,
@@ -2125,45 +2252,47 @@ impl Iroha {
         ),
         StartError,
     > {
+        let PreparedStartup { native, lifetime } = prepared;
+        let PreparedNative {
+            mut config,
+            mut supervisor,
+            kura,
+            state,
+            live_query_store,
+            genesis,
+            stored_genesis_block,
+            block_count,
+            prepared_sumeragi,
+            signed_consensus_mode,
+            frozen_startup_lane_manifests,
+            frozen_startup_lane_compliance,
+            expected_network_id,
+            snapshot_writer_key,
+            snapshot_read_buffer_budget,
+            events_sender,
+            startup_trace_started_at,
+            telemetry_profile,
+            #[cfg(feature = "telemetry")]
+            metrics,
+            #[cfg(feature = "telemetry")]
+            state_telemetry,
+            #[cfg(feature = "telemetry")]
+            streaming_telemetry,
+        } = *native;
+        let effective_genesis = stored_genesis_block
+            .as_ref()
+            .map(AsRef::as_ref)
+            .or_else(|| genesis.as_ref().map(|genesis| &genesis.0));
+        let config_emergency_fast = config.kura.init_mode == InitMode::Fast;
+        // Keep the original supervisor outside all fallible activation work so every normal
+        // error signals and joins its children before this startup returns. Pin this existing
+        // inner future on the heap so the instrumented outer future does not retain its large
+        // state inline. Its completed owner still drops before the original cleanup match.
+        let result = Box::pin(async {
         let build_identity = build
             .identity()
             .map_err(|error| Report::new(StartError::BuildIdentity).attach(error))?;
-        // Compile and validate immutable privacy profiles before any public
-        // service begins accepting requests. In particular, the ZK-X.509
-        // profile validates six fixed algebraic schedules; doing that work in
-        // a Torii handler would make the first capability request CPU-bound.
-        let privacy_catalog_started = Instant::now();
-        let privacy_catalog =
-            iroha_core_privacy::privacy_profiles::compiled_privacy_profile_catalog_v1().map_err(
-                |error| {
-                    Report::new(StartError::StartTorii).attach(format!(
-                        "failed to initialize compiled privacy profile catalog: {error}"
-                    ))
-                },
-            )?;
-        iroha_logger::info!(
-            protocol_count = privacy_catalog.protocols.len(),
-            elapsed_ms = privacy_catalog_started.elapsed().as_millis(),
-            "compiled privacy profile catalog initialized before Torii startup"
-        );
-        let nts_params = iroha_core::time::Params::from(&config.nts);
         let emergency_fast = config.kura.init_mode == InitMode::Fast;
-        let snapshot_writer_key =
-            if !emergency_fast && matches!(config.snapshot.mode, SnapshotMode::ReadWrite) {
-                Some(
-                    snapshot_signing_key(&config)
-                        .map_err(|error| Report::new(StartError::InitKura).attach(error))?,
-                )
-            } else {
-                None
-            };
-        // A successful reservation publishes policy and ownership as one
-        // generation. Fast keeps the reservation without starting the sampler,
-        // so no concurrent in-process startup can replace its fallback policy.
-        let nts_reservation = iroha_core::time::reserve(nts_params).ok_or_else(|| {
-            Report::new(StartError::StartP2p)
-                .attach("network time service already has a process owner")
-        })?;
         if emergency_fast {
             iroha_logger::warn!(
                 "emergency Fast startup defers optional Kura-backed SoraFS runtimes and their archive qualification until a Strict restart"
@@ -2427,9 +2556,6 @@ impl Iroha {
             }
             None
         };
-        let mut supervisor = Supervisor::new();
-        let startup_trace_started_at = Instant::now();
-        log_startup_trace("irohad.start.enter", startup_trace_started_at);
         let sorafs_pop_credentials = if emergency_fast {
             None
         } else {
@@ -2443,389 +2569,37 @@ impl Iroha {
                 ))
             })?
         };
-        // Log detailed backtraces if a lock-order deadlock occurs so we can
-        // diagnose stalls during long-running scenarios (e.g., integration tests).
+        // Diagnostics share the node's original shutdown owner. Failed activation must not
+        // leave a detached infinite thread behind.
         if !emergency_fast {
-            std::thread::spawn(|| {
+            let deadlock_shutdown = supervisor.shutdown_signal();
+            supervisor.monitor(tokio::spawn(async move {
                 loop {
-                    std::thread::sleep(Duration::from_secs(10));
-                    let deadlocks = deadlock::check_deadlock();
-                    if deadlocks.is_empty() {
-                        continue;
+                    tokio::select! {
+                        () = deadlock_shutdown.receive() => break,
+                        () = tokio::time::sleep(Duration::from_secs(10)) => {}
                     }
-                    for (i, threads) in deadlocks.iter().enumerate() {
-                        iroha_logger::error!(
-                            deadlock_index = i,
-                            thread_count = threads.len(),
-                            "deadlock detected"
-                        );
-                        for thr in threads {
-                            iroha_logger::error!(
-                                deadlock_index = i,
-                                thread = ?thr.thread_id(),
-                                backtrace = ?thr.backtrace(),
-                                "deadlocked thread backtrace"
-                            );
+                    for (i, threads) in deadlock::check_deadlock().iter().enumerate() {
+                        iroha_logger::error!(deadlock_index = i, thread_count = threads.len(), "deadlock detected");
+                        for thread in threads {
+                            iroha_logger::error!(deadlock_index = i, thread = ?thread.thread_id(), backtrace = ?thread.backtrace(), "deadlocked thread backtrace");
                         }
                     }
                 }
-            });
+            }));
         }
-        let (kura, mut block_count) = Kura::new_with_configured_lane_catalog(
-            &config.kura,
-            &config.nexus.lane_config,
-            &config.nexus.configured_lane_catalog,
-        )
-        .map_err(|err| {
-            let resolved = config.kura.store_dir.resolve_relative_path();
-            Report::new(err).attach(format!(
-                "failed to initialize Kura for store_dir {} (raw {})",
-                resolved.display(),
-                config.kura.store_dir.value().display(),
-            ))
-        })
-        .change_context(StartError::InitKura)?;
-        kura.configure_fastpq_proof_sidecar_limits(&config.zk.fastpq);
-        let live_query_store =
-            LiveQueryStore::from_config(config.live_query_store, supervisor.shutdown_signal());
-        let live_query_store = if emergency_fast {
-            live_query_store.into_inert_handle()
-        } else {
-            let (handle, child) = live_query_store.start();
-            supervisor.monitor(child);
-            handle
-        };
-        let telemetry_profile = if !emergency_fast {
-            config.telemetry_profile
-        } else {
-            iroha_config::parameters::actual::TelemetryProfile::Disabled
-        };
-        #[cfg(feature = "telemetry")]
-        let (metrics, state_telemetry, streaming_telemetry) = {
-            let metrics =
-                init_global_metrics_handle(config.dev_telemetry.panic_on_duplicate_metrics);
-            let state = StateTelemetry::from_privacy_parameters(
-                Arc::clone(&metrics),
-                telemetry_profile.metrics_enabled(),
-                &config.network.soranet_privacy,
-            );
-            let streaming = if telemetry_profile.metrics_enabled() {
-                Some(StreamingTelemetry::new(
-                    Arc::clone(&metrics),
-                    telemetry_profile.metrics_enabled(),
-                ))
-            } else {
-                None
-            };
-            (metrics, state, streaming)
-        };
-        let verification_key = config
-            .snapshot
-            .verification_public_key
-            .as_ref()
-            .unwrap_or_else(|| config.common.key_pair.public_key());
-        let genesis = load_configured_startup_genesis(genesis, config.genesis.file.as_ref())?;
-        // Resolve the trust source before reading a genesis body from Kura. The on-disk block may
-        // satisfy an already resolved exact hash, but it can never choose its own trust anchor.
-        let startup_trust_root = ResolvedGenesisTrustAnchor::resolve(
-            &config.genesis.public_key,
-            config.genesis.expected_hash,
-            genesis.as_ref(),
-        )?;
-        let state_execution_budget =
-            iroha_allocation::AllocationBudget::new(config.pipeline.ivm_execution_max_bytes);
-        let stored_genesis_block =
-            read_stored_genesis_block(kura.as_ref(), block_count, &state_execution_budget)?;
-        let effective_genesis = stored_genesis_block
-            .as_ref()
-            .map(AsRef::as_ref)
-            .or_else(|| genesis.as_ref().map(|genesis| &genesis.0));
-        let genesis_to_verify = effective_genesis.ok_or_else(|| {
-            Report::new(StartError::InitKura).attach(
-                "startup has an exact genesis trust anchor but no local or stored signed genesis body; peer genesis retrieval is not supported",
-            )
-        })?;
-        startup_trust_root.verify(genesis_to_verify)?;
-        let signed_genesis_context = Some(
-            signed_genesis_context_metadata(genesis_to_verify)
-                .map_err(|error| Report::new(StartError::InitKura).attach(error))?,
-        );
-        let effective_genesis_public_key = config.genesis.public_key.clone();
-        // Freeze configured sources before deserialization creates its first State
-        // view, then retain the same baseline through replay and runtime handoff.
-        let configured_lane_manifests = if emergency_fast {
-            Arc::new(LaneManifestRegistry::provisional_empty_for_emergency_fast_startup())
-        } else {
-            freeze_lane_manifests_for_startup_replay(&config.nexus)
-                .map_err(|error| Report::new(error).change_context(StartError::InitKura))
-                .map_err(|report| {
-                    report.attach("lane manifest registry is not ready before snapshot restoration")
-                })?
-        };
-        let mut loaded_state_from_snapshot = false;
-        let snapshot_read_buffer_budget =
-            iroha_allocation::AllocationBudget::new(config.snapshot.max_read_buffer_bytes.get());
-        let snapshot_result = if snapshot_mode_allows_restore(config.snapshot.mode) {
-            try_read_snapshot_with_limits(
-                &state_execution_budget,
-                config.snapshot.store_dir.resolve_relative_path(),
-                &kura,
-                &configured_lane_manifests,
-                &config.nexus,
-                || live_query_store.clone(),
-                block_count,
-                config.snapshot.merkle_chunk_size_bytes,
-                config.snapshot.max_payload_bytes,
-                config.snapshot.resources,
-                verification_key,
-                &config.common.chain,
-                &NetworkId::from_genesis_hash(config.genesis.expected_hash),
-                &config.zk,
-                #[cfg(feature = "telemetry")]
-                state_telemetry.clone(),
-                &snapshot_read_buffer_budget,
-            )
-        } else {
-            iroha_logger::info!("Snapshot restore is disabled by configuration");
-            Err(TryReadSnapshotError::NotFound)
-        };
-        let mut state = match snapshot_result {
-            Ok(state) => {
-                iroha_logger::info!(
-                    at_height = state.committed_height(),
-                    "Successfully loaded the state from a snapshot"
-                );
-                loaded_state_from_snapshot = true;
-                refresh_block_count_after_snapshot_load(
-                    &mut block_count,
-                    state.committed_height(),
-                    kura.as_ref(),
-                )
-                .map_err(|error| Report::new(StartError::InitKura).attach(error))?;
-                state
-            }
-            Err(error) if snapshot_failure_allows_empty_state_fallback(&error, emergency_fast) => {
-                if matches!(&error, TryReadSnapshotError::NotFound) {
-                    iroha_logger::info!("Didn't find a state snapshot; creating an empty state");
-                } else {
-                    iroha_logger::warn!(
-                        ?error,
-                        "Failed to load state snapshot; checking whether Kura can rebuild from an empty state"
-                    );
-                }
-                preflight_empty_state_snapshot_fallback(
-                    kura.as_ref(),
-                    &NetworkId::from_genesis_hash(config.genesis.expected_hash),
-                    &config.nexus.configured_lane_catalog,
-                )?;
-                iroha_logger::warn!(
-                    "Kura retains the configured-primary replay floor; rebuilding state from blocks"
-                );
-                let genesis_public_key = effective_genesis_public_key.clone();
-                let mut world = World::try_with_execution_budget(
-                    [genesis_domain(genesis_public_key.clone())],
-                    [genesis_account(genesis_public_key)],
-                    [],
-                    &state_execution_budget,
-                )
-                .map_err(|error: iroha_core::state::WorldConstructionError| {
-                    Report::new(error).change_context(StartError::InitKura)
-                })?;
-                if let Some(genesis_block) = effective_genesis {
-                    iroha_core::sns::seed_genesis_alias_bootstrap(
-                        &mut world,
-                        genesis_block,
-                        &config.nexus.dataspace_catalog,
-                    )
-                    .map_err(|error| Report::new(StartError::InitKura).attach(error))?;
-                }
-                Box::new(
-                    State::try_new_with_chain_and_network_id(
-                        state_execution_budget.clone(),
-                        world,
-                        Arc::clone(&kura),
-                        live_query_store.clone(),
-                        config.common.chain.clone(),
-                        NetworkId::from_genesis_hash(config.genesis.expected_hash),
-                        #[cfg(feature = "telemetry")]
-                        state_telemetry.clone(),
-                    )
-                    .map_err(|error| Report::new(error).change_context(StartError::InitKura))?,
-                )
-            }
-            Err(error) if emergency_fast => {
-                return Err(Report::new(error)
-                    .change_context(StartError::InitKura)
-                    .attach(
-                        "emergency Fast startup requires one valid signed snapshot at the exact durable Kura tip; restart in Strict mode to rebuild or repair state",
-                    ));
-            }
-            Err(error) => {
-                return Err(Report::new(error).change_context(StartError::InitKura));
-            }
-        };
-        #[cfg(feature = "telemetry")]
-        {
-            kura.attach_telemetry(state.telemetry.clone());
-        }
-        let expected_network_id = NetworkId::from_genesis_hash(config.genesis.expected_hash);
-        if state.network_id != expected_network_id {
-            return Err(Report::new(StartError::InitKura).attach(format!(
-                "restored state network id {} differs from genesis.expected_hash-derived id {}",
-                state.network_id, expected_network_id
-            )));
-        }
-        if state.chain_id != config.common.chain {
-            return Err(Report::new(StartError::InitKura).attach(
-                "restored native chain identity differs from configured consensus instance",
-            ));
-        }
-        if !loaded_state_from_snapshot {
-            // Snapshot candidates install this at their post-decode,
-            // pre-reconciliation boundary. Fresh and Kura-rebuilt state has no
-            // snapshot boundary, so install it exactly once here before replay.
-            install_zk_config_before_kura_replay(&mut state, &config)?;
-        }
+        // Genesis publication is synchronous and already complete. The background writer
+        // starts only after the actual prepared prefix and provider admission both succeed.
         if emergency_fast {
-            state
-                .validate_restored_governance(&config.gov)
-                .map_err(|error| {
-                    Report::new(StartError::InitKura).attach(format!(
-                        "emergency Fast restored governance is incompatible with configured governance: {error}"
-                    ))
-                })?;
-        } else {
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
-        }
-        let startup_lane_policies = if emergency_fast {
-            None
-        } else {
-            Some(install_lane_policies_for_startup_replay(
-                &mut state,
-                config.nexus.clone(),
-                &configured_lane_manifests,
-            )?)
-        };
-        if let Some(policies) = startup_lane_policies.as_ref() {
-            apply_state_geometry_config_before_kura_replay(&mut state, policies)?;
-        }
-        // Reuse the policy snapshot installed before geometry; emergency Fast never scans local
-        // policy sources.
-        let (frozen_startup_lane_manifests, frozen_startup_lane_compliance) = if let Some(
-            policies,
-        ) =
-            &startup_lane_policies
-        {
-            (Arc::clone(&policies.manifests), policies.compliance.clone())
-        } else {
-            iroha_logger::warn!(
-                "emergency Fast startup deferred lane-manifest and compliance directory loading until a Strict restart"
-            );
-            (
-                Arc::new(LaneManifestRegistry::provisional_empty_for_emergency_fast_startup()),
-                None,
-            )
-        };
-        if emergency_fast {
-            state
-                .install_provisional_empty_lane_manifests_for_emergency_fast_pre_auth()
-                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
-            state.install_lane_compliance_engine(None);
-        }
-        let (signed_consensus_mode, signed_context) = match signed_genesis_context {
-            Some(context) => context,
-            None => {
-                return Err(Report::new(StartError::InitKura)
-                    .attach("startup has no signed genesis metadata"));
-            }
-        };
-        // The original genesis signature and exact configured trust anchor were verified above.
-        // A private root owns one independent lane zero; its non-universal dataspace is not a
-        // public multi-lane topology and does not change the signed consensus mode.
-        startup_root_topology::validate(
-            &config.nexus,
-            signed_consensus_mode,
-            signed_context.root_scope,
-        )
-        .map_err(|reason| Report::new(StartError::InitKura).attach(reason))?;
-        // Thread the remaining runtime preferences from config into state before Sumeragi
-        // rebuilds it, so replayed and live blocks execute under the same configuration. ZK
-        // configuration was installed once above.
-        if emergency_fast {
-            iroha_logger::warn!(
-                "emergency Fast startup left the tiered-state backend disabled and skipped lane-directory preflight and reconciliation until a Strict restart"
-            );
-        } else {
-            state
-                .set_tiered_backend(&config.tiered_state)
-                .map_err(|err| Report::new(err).change_context(StartError::InitKura))
-                .map_err(|report| {
-                    report.attach("failed to restore effective Nexus tiered lane geometry")
-                })?;
-            state.set_pipeline(config.pipeline.clone());
-            state.set_oracle(config.oracle.clone());
-            state.set_fraud_monitoring(config.fraud_monitoring.clone());
-            state.set_gov(config.gov.clone());
-            log_startup_trace(
-                "irohad.state.runtime_config_applied",
-                startup_trace_started_at,
-            );
-        }
-        // No Kura writer is live while trust selection or replay can still fail. Emergency Fast
-        // remains read-only for its entire process lifetime; Strict owns every writer and repair.
-        if emergency_fast {
-            iroha_logger::warn!(
-                "emergency Fast startup did not start the Kura writer; canonical and sidecar persistence remain disabled until a Strict restart"
-            );
+            iroha_logger::warn!("emergency Fast startup did not start the Kura writer; canonical and sidecar persistence remain disabled until a Strict restart");
         } else {
             let child = Kura::start(kura.clone(), supervisor.shutdown_signal())
                 .map_err(|err| Report::new(StartError::InitKura).attach(err))?;
             supervisor.monitor(child);
         }
-        // Delay Arc wrapping until after we tweak state with config
-        let events_buffer_capacity = if emergency_fast {
-            1
-        } else {
-            config.torii.events_buffer_capacity.get()
-        };
-        let (events_sender, _) = broadcast::channel(events_buffer_capacity);
-        // Register pipeline events sender for ZK lane reporting
+        // Global diagnostic publication is an activation side effect, never a prepared-state
+        // or provider-failure side effect. Native preparation owns its direct event sender.
         iroha_core::pipeline::zk_lane::register_events_sender(events_sender.clone());
-        let state: Arc<State> = Arc::from(state);
-        // Sumeragi rebuilds the state: it applies (fresh chain) or re-executes (restart) the
-        // signed genesis and replays every block Kura holds against its commit certificate.
-        let prepared_sumeragi = if emergency_fast {
-            None
-        } else {
-            log_startup_trace("irohad.sumeragi.prepare", startup_trace_started_at);
-            let prepared =
-                iroha_core::sumeragi::node::prepare(iroha_core::sumeragi::node::PrepareInputs {
-                    state: Arc::clone(&state),
-                    events: events_sender.clone(),
-                    genesis: genesis.as_ref().map(|genesis| genesis.0.clone()),
-                    genesis_account: AccountId::new(effective_genesis_public_key.clone()),
-                    consensus_mode: signed_consensus_mode,
-                })
-                .map_err(|error| {
-                    Report::new(StartError::InitKura)
-                        .attach(format!("Sumeragi could not rebuild the state: {error}"))
-                })?;
-            iroha_logger::info!(
-                height = state.committed_height(),
-                instance = ?prepared.instance(),
-                "Sumeragi rebuilt the state from genesis and Kura"
-            );
-            Some(prepared)
-        };
-        // Key admission and rotation read canonical WSV parameters. Local configuration must
-        // match that authority rather than overwriting it without a block.
-        state
-            .validate_sumeragi_key_policy(&config.sumeragi)
-            .map_err(|field| {
-                Report::new(StartError::InitKura).attach(format!(
-                    "configured Sumeragi key policy differs from canonical state: {field}"
-                ))
-            })?;
         // Kura replay can advance consensus-owned Nexus topology beyond the
         // process configuration (manual lifecycle transactions and autoscale
         // transitions both do so). Seed every admission/manifest surface from
@@ -2997,23 +2771,11 @@ impl Iroha {
             consensus_fingerprint: consensus_fingerprint.0,
             config: config_caps,
         };
-        let confidential_features = if emergency_fast {
-            let zk = state.zk_snapshot();
-            iroha_data_model::confidential::ConfidentialFeatureDigest::new(
-                None,
-                None,
-                None,
-                Some(iroha_config::parameters::defaults::confidential::RULES_VERSION),
-                Some(iroha_core::state::combine_zk_and_sccp_policy_hashes(
-                    iroha_core::state::compute_zk_consensus_policy_hash(&zk),
-                    iroha_core::state::sccp_genesis_policy_hash_v1(),
-                )),
-            )
-        } else {
-            let view = state.view();
-            let height = u64::try_from(view.block_hashes().len()).expect("height fits into u64");
-            iroha_core::state::compute_confidential_feature_digest(view.world(), &view.zk, height)
-        };
+        // The handshake identifies the release, not the chain's committed ZK
+        // policy: a policy an authorized `SetParameter` commits is State, and
+        // peers at different heights (a joining node, a node that restarted
+        // after the change) must still connect.
+        let confidential_features = handshake_confidential_features();
         iroha_logger::info!(
             mode=%consensus_caps.mode.tag(),
             proto=%consensus_caps.proto_version,
@@ -3041,14 +2803,14 @@ impl Iroha {
                 )));
             }
         }
+        // TODO(F.4): `confidential.enabled` and `confidential.assume_valid` are node-local
+        // switches advertised to peers (census entry `cfg.confidential.node_switches`).
+        // Remove them together with the handshake fields and the generators that write them.
         let confidential_caps = iroha_p2p::ConfidentialHandshakeCaps {
             enabled: config.confidential.enabled,
             assume_valid: config.confidential.assume_valid,
             verifier_backend: config.confidential.verifier_backend.clone(),
-            features: Some(confidential_handshake_policy_digest(
-                confidential_features,
-                &state.zk_snapshot(),
-            )),
+            features: Some(confidential_handshake_policy_digest(confidential_features)),
         };
         let crypto_caps = iroha_p2p::CryptoHandshakeCaps {
             sm_enabled: config.crypto.sm_helpers_enabled(),
@@ -3263,7 +3025,8 @@ impl Iroha {
             lane_manifest_task
         {
             let state_task = Arc::clone(&state);
-            tokio::spawn(async move {
+            let watcher_shutdown = supervisor.shutdown_signal();
+            supervisor.monitor(tokio::spawn(async move {
                 queue_task
                     .watch_lane_manifests_task(
                         Some(telemetry_task),
@@ -3272,12 +3035,16 @@ impl Iroha {
                         Some(state_task),
                     )
                     .await;
-            });
+                // A disabled or refused diagnostic refresh may finish normally. Preserve that
+                // behavior while retaining this task under the original cleanup owner.
+                watcher_shutdown.receive().await;
+            }));
         }
         #[cfg(not(feature = "telemetry"))]
         if let Some((queue_task, governance_task, registry_cfg_task)) = lane_manifest_task {
             let state_task = Arc::clone(&state);
-            tokio::spawn(async move {
+            let watcher_shutdown = supervisor.shutdown_signal();
+            supervisor.monitor(tokio::spawn(async move {
                 queue_task
                     .watch_lane_manifests_task(
                         None,
@@ -3286,7 +3053,10 @@ impl Iroha {
                         Some(state_task),
                     )
                     .await;
-            });
+                // A disabled or refused diagnostic refresh may finish normally. Preserve that
+                // behavior while retaining this task under the original cleanup owner.
+                watcher_shutdown.receive().await;
+            }));
         }
         #[cfg(feature = "telemetry")]
         let telemetry = if emergency_fast || !telemetry_profile.metrics_enabled() {
@@ -4525,6 +4295,18 @@ impl Iroha {
             supervisor.monitor(child);
             Some(runtime)
         };
+        // The relay only receives the authenticated replayed State. Emergency inspection
+        // cannot sign or dispatch AMX carriers. Invalid explicit custody fails activation.
+        if !emergency_fast
+            && let Some(child) = amx_relay::start(
+                Arc::clone(&state),
+                config.amx_relay.clone(),
+                supervisor.shutdown_signal(),
+            )
+            .map_err(|error| Report::new(StartError::StartAmxRelay).attach(error.to_string()))?
+        {
+            supervisor.monitor(child);
+        }
         // The SCCP keeper is a supervised task of its own and never aborts the node: its
         // public RPC delays neither block production nor any other task.
         #[cfg(unix)]
@@ -4674,6 +4456,10 @@ impl Iroha {
             .transpose()
             .map_err(|error| Report::new(StartError::StartTorii).attach(error))?
             .map(Arc::new);
+        // Keep the late by-value builder scratch in a separate synchronous call frame
+        // instead of the activation poll; no State observation or startup stage moves.
+        #[allow(clippy::redundant_closure_call)]
+        let runtime_deps = (|| {
         let runtime_deps = iroha_torii::ToriiRuntimeDeps::new(build_identity, torii_telemetry)
             .with_parliament_tle_release_coordinator(parliament_tle_release_coordinator)
             .with_torii_proxy_bridge_signer(config.common.key_pair.clone())
@@ -4873,10 +4659,14 @@ impl Iroha {
         } else {
             runtime_deps
         };
+        runtime_deps
+        })();
         let queue_backpressure = queue.backpressure_handle();
         // Start proof lanes before Torii begins accepting submissions so one-time GPU setup happens
         // during node startup instead of the first hot-path transaction burst.
         if !emergency_fast {
+            // The diagnostic worker uses node-local trace resources, independently
+            // of the committed proof validity policy.
             if let Some((_h, child)) = iroha_core::pipeline::zk_lane::start(&config.zk.trace) {
                 supervisor.monitor(Child::new(child, OnShutdown::Wait(Duration::from_secs(1))));
             }
@@ -4954,16 +4744,9 @@ impl Iroha {
             // handle loss. Any pre-shutdown return means the supervised configuration
             // authority failed; restarting only this relay would preserve stale ACL or
             // handshake policy and is therefore deliberately not recoverable.
-            let confidential_gas = config.confidential.gas;
             supervisor.monitor(tokio::task::spawn(async move {
-                if let Err(err) = config_updates_relay(
-                    kiso,
-                    logger,
-                    net_for_relay,
-                    confidential_gas,
-                    config_update_receivers,
-                )
-                .await
+                if let Err(err) =
+                    config_updates_relay(kiso, logger, net_for_relay, config_update_receivers).await
                 {
                     iroha_logger::error!(?err, "Config updates relay exited");
                 }
@@ -4989,24 +4772,7 @@ impl Iroha {
                 supervisor.monitor(child);
             }
         }
-        // Finalize NTS ownership only after every fallible startup preflight has
-        // succeeded. Otherwise an early return would detach a task and retain
-        // its process-singleton ownership across an in-process retry. Fast is a
-        // bounded recovery surface, so it holds policy ownership but leaves the
-        // sampler inert.
-        let nts_child = if emergency_fast {
-            iroha_core::time::hold_fallback_reserved(nts_reservation, supervisor.shutdown_signal())
-        } else {
-            iroha_core::time::start_reserved(
-                network.clone(),
-                nts_reservation,
-                supervisor.shutdown_signal(),
-            )
-        };
-        supervisor.monitor(nts_child);
-        supervisor.shutdown_on_external_signal(shutdown_signal);
-        Ok((
-            Self {
+        Ok(Self {
                 kura,
                 state,
                 soracloud_runtime,
@@ -5017,13 +4783,53 @@ impl Iroha {
                 sorafs_provider_ingest_runtime,
                 sorafs_provider_ingest_finalized_query,
                 sorafs_provider_ingest_completed_musubi_capture,
-            },
-            async move {
-                supervisor.start().await?;
-                iroha_logger::info!("Iroha shutdown normally");
-                Ok(())
-            },
-        ))
+        })
+        }).await;
+        match result {
+            Ok(node) => {
+                let StartupLifetime {
+                    nts_reservation,
+                    kura: original_kura,
+                    state: original_state,
+                } = lifetime;
+                // Finalize NTS ownership only after every fallible startup preflight has
+                // succeeded. Otherwise an early return would detach a task and retain
+                // its process-singleton ownership across an in-process retry. Fast is a
+                // bounded recovery surface, so it holds policy ownership but leaves the
+                // sampler inert.
+                let nts_child = if config_emergency_fast {
+                    iroha_core::time::hold_fallback_reserved(
+                        nts_reservation,
+                        supervisor.shutdown_signal(),
+                    )
+                } else {
+                    iroha_core::time::start_reserved(
+                        node.network.clone(),
+                        nts_reservation,
+                        supervisor.shutdown_signal(),
+                    )
+                };
+                supervisor.monitor(nts_child);
+                supervisor.shutdown_on_external_signal(shutdown_signal);
+                drop((original_state, original_kura));
+                Ok((node, async move {
+                    supervisor.start().await?;
+                    iroha_logger::info!("Iroha shutdown normally");
+                    Ok(())
+                }))
+            }
+            Err(error) => {
+                supervisor.shutdown_signal().send();
+                let cleanup = supervisor.start().await;
+                drop(lifetime);
+                match cleanup {
+                    Ok(()) => Err(error),
+                    Err(cleanup) => {
+                        Err(error.attach(format!("startup activation cleanup failed: {cleanup:?}")))
+                    }
+                }
+            }
+        }
     }
     /// Read-only handle to the world state view.
     pub fn state(&self) -> &Arc<State> {
@@ -5231,11 +5037,8 @@ async fn config_updates_relay(
     _kiso: KisoHandle,
     logger: LoggerHandle,
     network: iroha_core::IrohaNetwork,
-    confidential_gas: iroha_config::parameters::actual::ConfidentialGas,
     config_update_receivers: ConfigUpdateReceivers,
 ) -> EyreResult<()> {
-    #[cfg(not(feature = "telemetry"))]
-    let _ = confidential_gas;
     let mut log_level_update = config_update_receivers.log_level;
     let mut acl_update = config_update_receivers.acl;
     let mut handshake_update = config_update_receivers.handshake;
@@ -5243,7 +5046,8 @@ async fn config_updates_relay(
     let confidential_metrics_handle = iroha_telemetry::metrics::global().cloned();
     #[cfg(feature = "telemetry")]
     if let Some(metrics) = confidential_metrics_handle.as_ref() {
-        metrics.set_confidential_gas_schedule(&confidential_gas);
+        // The confidential verification gas gauges follow the schedule State
+        // charges; Core sets them whenever it installs a schedule.
         let digest = ivm::gas::schedule_hash();
         metrics.set_ivm_gas_schedule_hash(digest.as_ref());
     }
@@ -8317,124 +8121,41 @@ fn run_main_with_config_guard(
         }
         return Ok(());
     }
-    // Resolve deployment-owned executable providers only after the complete
-    // static configuration has passed the same offline checks as
-    // `--check-config`, and before Tokio or node-owned durable state starts.
+    // Keep pure configuration and signed-input admission ahead of storage. Strict startup
+    // then executes exactly once into its real native owner before resolving providers.
     validate_startup_config_offline(&config).change_context(MainError::Config)?;
     // A `data_dir` node started by the stock launcher reads its runtime secrets from fixed files
     // under `<data_dir>/secrets/`; deployment launchers keep their own registries.
     let node_secrets_launch =
         config.data_dir.is_some() && !emergency_fast && runtime_provider_registry.is_none();
-    let authenticated_genesis = genesis
-        .as_ref()
-        .map(|local_genesis| {
-            validate_available_genesis_for_check(&config, local_genesis, None)
-                .map(|(authenticated, _)| authenticated)
-        })
-        .transpose()?;
-    let runtime_deps = if emergency_fast {
-        iroha_logger::warn!(
-            "emergency Fast startup skipped deployment runtime-provider projection and resolution"
-        );
-        IrohaRuntimeDeps::default()
-    } else if node_secrets_launch {
-        resolve_node_secrets_runtime_deps(&config)?
-    } else {
-        let stock_runtime_provider_registry = if runtime_provider_registry.is_none() {
-            let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(&config)
-                .map_err(Report::new)
-                .change_context(MainError::Config)
-                .attach("failed to project deployment runtime-provider bindings")?;
-            (!bindings.is_empty()).then(|| {
-                runtime_provider_broker::StockRuntimeProviderBrokerRegistryV1::new(
-                    config.runtime_provider_broker.endpoint_path.clone(),
-                )
-            })
+    if let Some(local_genesis) = genesis.as_ref() {
+        if emergency_fast {
+            // Emergency Fast preserves its existing supplied-genesis offline admission;
+            // the runtime itself stays read-only and never starts native replay.
+            let (authenticated, _) =
+                validate_available_genesis_for_check(&config, local_genesis, None)?;
+            if authenticated.network_id
+                != NetworkId::from_genesis_hash(config.genesis.expected_hash)
+            {
+                return Err(Report::new(MainError::Config)
+                    .attach("signed genesis belongs to another network"));
+            }
         } else {
-            None
-        };
-        let runtime_provider_registry = runtime_provider_registry.or_else(|| {
-            stock_runtime_provider_registry.as_ref().map(|registry| {
-                let registry: &dyn IrohaRuntimeProviderRegistryV1 = registry;
-                registry
-            })
-        });
-        runtime_provider_registry::resolve_runtime_deps(&config, runtime_provider_registry)
+            validate_available_genesis_inputs(&config, local_genesis)?;
+        }
+    }
+    // Pure projection still fails before opening storage or resolving executable providers.
+    if !emergency_fast {
+        IrohaRuntimeProviderBindingsV1::try_from_config(&config)
             .map_err(Report::new)
             .change_context(MainError::Config)
-            .attach("failed to resolve deployment runtime-provider bindings")?
-    };
-    #[cfg(feature = "test-network-parliament-signers")]
-    let runtime_deps = {
-        if emergency_fast {
-            runtime_deps
-        } else {
-            if runtime_deps.sumeragi_global_beacon_partial_signer.is_some()
-                || runtime_deps.parliament_tle_partial_release_signer.is_some()
-            {
-                return Err(Report::new(MainError::Config).attach(
-                    "the test-network Parliament signers reject a second injected provider",
-                ));
-            }
-            let ordered_roster =
-                filter_validators_from_trusted(config.common.trusted_peers.value());
-            let test_network_id = NetworkId::from_genesis_hash(config.genesis.expected_hash);
-            let beacon_signer = iroha_core::beacon::parliament_test_network_signer::
-                TestNetworkParliamentBeaconPartialSignerV1::try_new(
-                    test_network_id,
-                    ordered_roster.clone(),
-                    &config.common.peer.id,
-                    &iroha_allocation::AllocationBudget::new(
-                        config.runtime_provider_broker.credential_max_memory_bytes.get(),
-                    ),
-                )
-                .map_err(|_| Report::new(MainError::Config))
-                .attach(
-                    "failed to bind the feature-isolated Parliament beacon signer to the exact local validator seat",
-                )?;
-            let beacon_signer: Option<
-                Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,
-            > = match args.test_network_parliament_beacon_signer_mode {
-                TestNetworkParliamentBeaconSignerMode::Valid => Some(Arc::new(beacon_signer)),
-                TestNetworkParliamentBeaconSignerMode::Absent => None,
-                TestNetworkParliamentBeaconSignerMode::Invalid => {
-                    Some(Arc::new(beacon_signer.with_deliberately_invalid_outbound()))
-                }
-            };
-            let tle_signer = iroha_core::tle_release::parliament_test_network_signer::
-                TestNetworkParliamentTlePartialReleaseSignerV1::try_new(
-                    test_network_id,
-                    ordered_roster,
-                    &config.common.peer.id,
-                )
-                .map_err(|_| Report::new(MainError::Config))
-                .attach(
-                    "failed to bind the feature-isolated Parliament TLE signer to the exact local validator seat",
-                )?;
-            let runtime_deps =
-                runtime_deps.with_parliament_tle_partial_release_signer(Arc::new(tle_signer));
-            if let Some(beacon_signer) = beacon_signer {
-                runtime_deps.with_sumeragi_global_beacon_partial_signer(beacon_signer)
-            } else {
-                runtime_deps
-            }
-        }
-    };
-    if authenticated_genesis.as_ref().is_some_and(|context| {
-        context.network_id
-            != iroha_data_model::NetworkId::from_genesis_hash(config.genesis.expected_hash)
-    }) {
-        return Err(
-            Report::new(MainError::Config).attach("signed genesis belongs to another network")
-        );
+            .attach("failed to project deployment runtime-provider bindings")?;
     }
     let musubi_publication_factory = if emergency_fast {
         None
     } else {
         musubi_publication_factory
     };
-    let runtime_deps =
-        runtime_deps.with_sumeragi_fresh_key_assertion(args.startup.sumeragi_assert_fresh_key);
     #[cfg(feature = "telemetry")]
     if !emergency_fast && config.telemetry_profile.expensive_metrics_enabled() {
         let fastpq_device_labels = FastpqDeviceLabels::from_config(&config.zk.fastpq);
@@ -8486,16 +8207,146 @@ fn run_main_with_config_guard(
         .build()
         .map_err(Report::from)
         .change_context(MainError::IrohaStart)?;
-    let result = rt.block_on(run_node(
-        build,
-        config,
-        genesis,
-        runtime_deps,
-        musubi_publication_factory,
-    ));
+    let logger = init_startup_logger(&rt, config.logger.clone())?;
+    let result = match prepare_with_runtime_deps(&rt, config, genesis, |config| {
+        let runtime_deps = if emergency_fast {
+            iroha_logger::warn!(
+                "emergency Fast startup skipped deployment runtime-provider projection and resolution"
+            );
+            IrohaRuntimeDeps::default()
+        } else if node_secrets_launch {
+            resolve_node_secrets_runtime_deps(&config)?
+        } else {
+            let stock_runtime_provider_registry = if runtime_provider_registry.is_none() {
+                let bindings = IrohaRuntimeProviderBindingsV1::try_from_config(&config)
+                    .map_err(Report::new)
+                    .change_context(MainError::Config)
+                    .attach("failed to project deployment runtime-provider bindings")?;
+                (!bindings.is_empty()).then(|| {
+                    runtime_provider_broker::StockRuntimeProviderBrokerRegistryV1::new(
+                        config.runtime_provider_broker.endpoint_path.clone(),
+                    )
+                })
+            } else {
+                None
+            };
+            let runtime_provider_registry = runtime_provider_registry.or_else(|| {
+                stock_runtime_provider_registry.as_ref().map(|registry| {
+                    let registry: &dyn IrohaRuntimeProviderRegistryV1 = registry;
+                    registry
+                })
+            });
+            runtime_provider_registry::resolve_runtime_deps(&config, runtime_provider_registry)
+                .map_err(Report::new)
+                .change_context(MainError::Config)
+                .attach("failed to resolve deployment runtime-provider bindings")?
+        };
+        #[cfg(feature = "test-network-parliament-signers")]
+        let runtime_deps = {
+            if emergency_fast {
+                runtime_deps
+            } else {
+                if runtime_deps.sumeragi_global_beacon_partial_signer.is_some()
+                    || runtime_deps.parliament_tle_partial_release_signer.is_some()
+                {
+                    return Err(Report::new(MainError::Config).attach(
+                        "the test-network Parliament signers reject a second injected provider",
+                    ));
+                }
+                let ordered_roster =
+                    filter_validators_from_trusted(config.common.trusted_peers.value());
+                let test_network_id = NetworkId::from_genesis_hash(config.genesis.expected_hash);
+                let beacon_signer = iroha_core::beacon::parliament_test_network_signer::
+                TestNetworkParliamentBeaconPartialSignerV1::try_new(
+                    test_network_id,
+                    ordered_roster.clone(),
+                    &config.common.peer.id,
+                    &iroha_allocation::AllocationBudget::new(
+                        config.runtime_provider_broker.credential_max_memory_bytes.get(),
+                    ),
+                )
+                .map_err(|_| Report::new(MainError::Config))
+                .attach(
+                    "failed to bind the feature-isolated Parliament beacon signer to the exact local validator seat",
+                )?;
+                let beacon_signer: Option<
+                    Arc<dyn iroha_core::beacon::GlobalThresholdBeaconPartialSignerV1>,
+                > = match args.test_network_parliament_beacon_signer_mode {
+                    TestNetworkParliamentBeaconSignerMode::Valid => Some(Arc::new(beacon_signer)),
+                    TestNetworkParliamentBeaconSignerMode::Absent => None,
+                    TestNetworkParliamentBeaconSignerMode::Invalid => {
+                        Some(Arc::new(beacon_signer.with_deliberately_invalid_outbound()))
+                    }
+                };
+                let tle_signer = iroha_core::tle_release::parliament_test_network_signer::
+                TestNetworkParliamentTlePartialReleaseSignerV1::try_new(
+                    test_network_id,
+                    ordered_roster,
+                    &config.common.peer.id,
+                )
+                .map_err(|_| Report::new(MainError::Config))
+                .attach(
+                    "failed to bind the feature-isolated Parliament TLE signer to the exact local validator seat",
+                )?;
+                let runtime_deps =
+                    runtime_deps.with_parliament_tle_partial_release_signer(Arc::new(tle_signer));
+                if let Some(beacon_signer) = beacon_signer {
+                    runtime_deps.with_sumeragi_global_beacon_partial_signer(beacon_signer)
+                } else {
+                    runtime_deps
+                }
+            }
+        };
+        Ok(runtime_deps.with_sumeragi_fresh_key_assertion(args.startup.sumeragi_assert_fresh_key))
+    }) {
+        Ok((prepared, runtime_deps)) => rt.block_on(run_node(
+            build,
+            prepared,
+            logger,
+            runtime_deps,
+            musubi_publication_factory,
+        )),
+        Err(error) => Err(error),
+    };
     rt.shutdown_timeout(NODE_RUNTIME_SHUTDOWN_TIMEOUT);
     result
 }
+
+/// Spawn the logger on the node's runtime without entering the later provider boundary.
+fn init_startup_logger(
+    runtime: &tokio::runtime::Runtime,
+    config: iroha_logger::Config,
+) -> ReportResult<LoggerHandle, MainError> {
+    let _entered = runtime.enter();
+    iroha_logger::init_global(config).map_err(|error| Report::new(MainError::Logger).attach(error))
+}
+
+/// Hold actual native preparation across the out-of-Tokio provider boundary.
+///
+/// Provider failure may leave valid genesis durably retained. It never leaves the prepared
+/// executor, query pruner, NTS reservation or storage custody running after this function returns.
+fn prepare_with_runtime_deps(
+    runtime: &tokio::runtime::Runtime,
+    config: Config,
+    genesis: Option<GenesisBlock>,
+    resolve: impl FnOnce(&Config) -> ReportResult<IrohaRuntimeDeps, MainError>,
+) -> ReportResult<(PreparedStartup, IrohaRuntimeDeps), MainError> {
+    let prepared = runtime
+        .block_on(PreparedStartup::prepare(config, genesis))
+        .change_context(MainError::IrohaStart)?;
+    // Deliberately outside every runtime enter/block_on guard. This synchronous borrowed
+    // deployment API may perform blocking I/O or create its own runtime.
+    match resolve(prepared.config()) {
+        Ok(dependencies) => Ok((prepared, dependencies)),
+        Err(error) => match runtime.block_on(prepared.close()) {
+            Ok(()) => Err(error),
+            Err(cleanup) => {
+                Err(error.attach(format!("prepared startup cleanup failed: {cleanup:?}")))
+            }
+        },
+    }
+}
+
 /// Validate configuration and any locally available genesis without mutating durable state,
 /// returning the authenticated genesis bootstrap when the signed genesis is available.
 fn validate_config_and_genesis_for_check(
@@ -8564,11 +8415,18 @@ fn resolve_node_secrets_runtime_deps(
 ) -> ReportResult<IrohaRuntimeDeps, MainError> {
     Err(Report::new(MainError::Config).attach("data_dir node secrets require the daemon feature"))
 }
-fn validate_available_genesis_for_check(
+struct GenesisStaticInputs {
+    authority: AccountId,
+    mode: iroha_data_model::block::consensus::ConsensusMode,
+    parameters: iroha_data_model::block::consensus::SumeragiGenesisContextParameters,
+    cadence_ms: u64,
+}
+
+/// Authenticate fixed signed inputs without executing or manufacturing an execution verdict.
+fn validate_available_genesis_inputs(
     config: &Config,
     genesis: &GenesisBlock,
-    required_inrou_deployment_authority: Option<&AccountId>,
-) -> ReportResult<(crate::authenticated_genesis::AuthenticatedGenesis, u64), MainError> {
+) -> ReportResult<GenesisStaticInputs, MainError> {
     let configured_key = &config.genesis.public_key;
     let embedded_key =
         genesis_public_key_from_genesis_block(&genesis.0).change_context(MainError::Config)?;
@@ -8605,6 +8463,25 @@ fn validate_available_genesis_for_check(
         &mode_tag,
         iroha_core::sumeragi::consensus::PROTO_VERSION,
     )?;
+    Ok(GenesisStaticInputs {
+        authority: genesis_account,
+        mode: signed_mode,
+        parameters: signed_parameters,
+        cadence_ms: block_cadence_ms,
+    })
+}
+
+fn validate_available_genesis_for_check(
+    config: &Config,
+    genesis: &GenesisBlock,
+    required_inrou_deployment_authority: Option<&AccountId>,
+) -> ReportResult<(crate::authenticated_genesis::AuthenticatedGenesis, u64), MainError> {
+    let GenesisStaticInputs {
+        authority: genesis_account,
+        mode: signed_mode,
+        parameters: signed_parameters,
+        cadence_ms: block_cadence_ms,
+    } = validate_available_genesis_inputs(config, genesis)?;
     validate_genesis_execution_offline(
         config,
         genesis,
@@ -8745,7 +8622,8 @@ fn validate_genesis_execution_offline(
         ))
     })?;
     install_zk_config_before_kura_replay(&mut state, config).change_context(MainError::Config)?;
-    apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+    apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+        .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
         .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let startup_policies =
@@ -9317,81 +9195,103 @@ fn verify_genesis_metadata(
 }
 async fn run_node(
     build: CompiledBuildMetadata,
-    config: Config,
-    genesis: Option<GenesisBlock>,
+    prepared: PreparedStartup,
+    logger: LoggerHandle,
     runtime_deps: IrohaRuntimeDeps,
     musubi_publication_factory: Option<
         Box<dyn musubi_publication_service::MusubiPublicationPrivateServiceFactoryV1>,
     >,
 ) -> ReportResult<(), MainError> {
-    let logger = iroha_logger::init_global(config.logger.clone()).map_err(|err| {
-        // https://github.com/hashintel/hash/issues/4295
-        Report::new(MainError::Logger).attach(err)
-    })?;
-    validate_startup_config(&config).change_context(MainError::Config)?;
-    set_banner_enabled(config.ivm.banner.show);
-    // Print a retro Norito banner with applied settings when enabled.
-    if config.ivm.banner.show {
-        log_norito_banner(&config);
-    }
-    iroha_logger::info!(
-        version = build.version(),
-        git_commit_sha = build.source_commit_label(),
-        build_features = build.cargo_features_label(),
-        peer = %config.common.peer,
-        chain = %config.common.chain,
-        listening_on = %config.torii.address.value(),
-        "{}",
-        i18n::t("info.welcome"),
-    );
-    if genesis.is_some() {
-        iroha_logger::debug!("Submitting genesis.");
-    }
-    #[cfg(feature = "beep")]
-    startup_beep(config.ivm.banner.beep);
-    let shutdown_on_panic = ShutdownSignal::new();
-    let default_hook = std::panic::take_hook();
-    let signal_clone = shutdown_on_panic.clone();
-    std::panic::set_hook(Box::new(move |info| {
-        let suppressed_by_panic_hook = iroha_panic_hook::is_suppressed();
-        let suppressed_by_norito_decode = norito::decode_panic_suppressed();
-        if suppressed_by_panic_hook || suppressed_by_norito_decode {
-            let panic_file = info.location().map(std::panic::Location::file);
-            let panic_line = info.location().map(std::panic::Location::line);
-            iroha_logger::warn!(
-                suppressed_by_panic_hook,
-                suppressed_by_norito_decode,
-                ?panic_file,
-                ?panic_line,
-                "Panic occurred with shutdown suppression active; skipping shutdown signal"
-            );
-        } else {
-            iroha_logger::error!("Panic occurred, shutting down Iroha gracefully...");
-            signal_clone.send();
+    let setup = (|| -> ReportResult<_, MainError> {
+        let config = prepared.config();
+        validate_startup_config(&config).change_context(MainError::Config)?;
+        set_banner_enabled(config.ivm.banner.show);
+        // Print a retro Norito banner with applied settings when enabled.
+        if config.ivm.banner.show {
+            log_norito_banner(&config);
         }
-        default_hook(info);
-    }));
-    if config.lifecycle.exit_on_stdin_close {
-        spawn_input_close_shutdown(std::io::stdin(), shutdown_on_panic.clone()).map_err(
-            |error| {
-                Report::new(MainError::IrohaStart).attach(format!(
-                    "failed to watch standard input for lifecycle.exit_on_stdin_close: {error}"
-                ))
-            },
-        )?;
-    }
-    let start = Iroha::start_with_runtime_deps(
+        iroha_logger::info!(
+            version = build.version(),
+            git_commit_sha = build.source_commit_label(),
+            build_features = build.cargo_features_label(),
+            peer = %config.common.peer,
+            chain = %config.common.chain,
+            listening_on = %config.torii.address.value(),
+            "{}",
+            i18n::t("info.welcome"),
+        );
+        if prepared.native.genesis.is_some() {
+            iroha_logger::debug!("Prepared original signed genesis.");
+        }
+        #[cfg(feature = "beep")]
+        startup_beep(config.ivm.banner.beep);
+        let shutdown_on_panic = ShutdownSignal::new();
+        let default_hook = std::panic::take_hook();
+        let signal_clone = shutdown_on_panic.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            let suppressed_by_panic_hook = iroha_panic_hook::is_suppressed();
+            let suppressed_by_norito_decode = norito::decode_panic_suppressed();
+            if suppressed_by_panic_hook || suppressed_by_norito_decode {
+                let panic_file = info.location().map(std::panic::Location::file);
+                let panic_line = info.location().map(std::panic::Location::line);
+                iroha_logger::warn!(
+                    suppressed_by_panic_hook,
+                    suppressed_by_norito_decode,
+                    ?panic_file,
+                    ?panic_line,
+                    "Panic occurred with shutdown suppression active; skipping shutdown signal"
+                );
+            } else {
+                iroha_logger::error!("Panic occurred, shutting down Iroha gracefully...");
+                signal_clone.send();
+            }
+            default_hook(info);
+        }));
+        Ok((
+            logger,
+            shutdown_on_panic,
+            config.lifecycle.exit_on_stdin_close,
+        ))
+    })();
+    let (logger, shutdown_on_panic, exit_on_stdin_close) = match setup {
+        Ok(setup) => setup,
+        Err(error) => {
+            return match prepared.close().await {
+                Ok(()) => Err(error),
+                Err(cleanup) => {
+                    Err(error.attach(format!("prepared startup cleanup failed: {cleanup:?}")))
+                }
+            };
+        }
+    };
+    let start = Iroha::activate_with_runtime_deps(
         build,
-        config,
-        genesis,
+        prepared,
         logger,
-        shutdown_on_panic,
+        shutdown_on_panic.clone(),
         runtime_deps,
         musubi_publication_factory,
     );
     let (_iroha, supervisor_fut) = Box::pin(start)
         .await
         .change_context(MainError::IrohaStart)?;
+    // Never leave a detached stdin watcher after a provider or startup-admission failure.
+    // Successful runtime ownership retains the established EOF lifetime contract.
+    if exit_on_stdin_close {
+        if let Err(error) = spawn_input_close_shutdown(std::io::stdin(), shutdown_on_panic.clone())
+        {
+            shutdown_on_panic.send();
+            let error = Report::new(MainError::IrohaStart).attach(format!(
+                "failed to watch standard input for lifecycle.exit_on_stdin_close: {error}"
+            ));
+            return match supervisor_fut.await {
+                Ok(()) => Err(error),
+                Err(cleanup) => {
+                    Err(error.attach(format!("startup activation cleanup failed: {cleanup:?}")))
+                }
+            };
+        }
+    }
     supervisor_fut.await.change_context(MainError::IrohaRun)
 }
 /// Shut the daemon down once `input` reaches end-of-file (`lifecycle.exit_on_stdin_close`).
@@ -9890,12 +9790,12 @@ mod tests {
         let activation_gate = startup
             .find("validate_provider_attestation_journal_activation")
             .expect("provider-attestation activation gate");
-        let supervisor = startup
-            .find("let mut supervisor = Supervisor::new()")
-            .expect("supervisor construction");
+        let writer = startup
+            .find("Kura::start(kura.clone(), supervisor.shutdown_signal())")
+            .expect("Kura writer activation");
         assert!(
-            activation_gate < supervisor,
-            "an unqualified capture request must fail before any supervised child starts"
+            activation_gate < writer,
+            "an unqualified capture request must fail before persistent runtime activation"
         );
     }
     #[test]
@@ -9981,53 +9881,66 @@ mod tests {
     }
     #[test]
     fn emergency_fast_skips_tiered_state_directory_reconciliation() {
-        let startup = include_str!("main.rs")
-            .split_once("pub(crate) async fn start_with_runtime_deps")
-            .expect("runtime-dependency startup entry")
-            .1;
-        let tiered_setup = startup
-            .split_once("let tiered_state_cfg = config.tiered_state.clone();")
+        let preparation = include_str!("startup_preparation.rs");
+        let tiered_setup = preparation
+            .split_once("// Thread the remaining runtime preferences from config")
             .expect("tiered-state runtime setup")
             .1;
         let fast_guard = tiered_setup
             .find("if emergency_fast")
             .expect("emergency Fast tiered-state guard");
         let reconciliation = tiered_setup
-            .find(".set_tiered_backend(&tiered_state_cfg)")
+            .find(".set_tiered_backend(&config.tiered_state)")
             .expect("Strict tiered-state reconciliation");
         let pipeline_runtime = tiered_setup
-            .find("state.set_pipeline(pipeline_cfg)")
+            .find("install_node_pipeline_config(&mut state, &config)")
             .expect("Strict pipeline runtime setup");
         assert!(
             fast_guard < reconciliation && reconciliation < pipeline_runtime,
             "emergency Fast must branch before tiered storage or the pipeline worker pool can be initialized"
         );
+        // Both Strict steps are in the `else` of that one guard.
+        let strict_branch = &tiered_setup[fast_guard..pipeline_runtime];
+        assert_eq!(strict_branch.matches(concat!("} ", "else {")).count(), 1);
+        assert_eq!(
+            strict_branch
+                .matches(concat!("if ", "emergency_fast"))
+                .count(),
+            1
+        );
+        // The pipeline is installed as node-local resources only: startup holds
+        // no installation of a complete pipeline settings value.
+        assert!(!tiered_setup[..pipeline_runtime].contains(concat!(".set_", "pipeline(")));
     }
     #[test]
-    fn emergency_fast_skips_confidential_registry_scans() {
-        let startup = include_str!("main.rs")
+    fn startup_handshake_digest_scans_no_confidential_registry() {
+        // Neither emergency Fast nor Strict startup scans the confidential registry or
+        // reads State for the handshake digest: it identifies the release.
+        let source = include_str!("main.rs");
+        let startup = source
             .split_once("pub(crate) async fn start_with_runtime_deps")
             .expect("runtime-dependency startup entry")
             .1;
         let confidential_setup = startup
-            .split_once("let confidential_features = if emergency_fast {")
-            .expect("emergency Fast confidential-feature branch")
+            .split_once("let confidential_features = handshake_confidential_features();")
+            .expect("release-bound confidential handshake digest")
             .1
-            .split_once("} else {")
-            .expect("Strict confidential-feature branch");
-        assert!(confidential_setup.0.contains("state.zk_snapshot()"));
-        assert!(
-            confidential_setup
-                .0
-                .contains("sccp_genesis_policy_hash_v1()")
-        );
-        assert!(!confidential_setup.0.contains("state.view()"));
-        assert!(confidential_setup.1.contains("let view = state.view()"));
-        assert!(
-            confidential_setup
-                .1
-                .contains("compute_confidential_feature_digest(")
-        );
+            .split_once("let confidential_caps = iroha_p2p::ConfidentialHandshakeCaps {")
+            .expect("confidential handshake caps")
+            .0;
+        assert!(!confidential_setup.contains("state.zk_snapshot()"));
+        assert!(!confidential_setup.contains("let view = state.view()"));
+        assert!(!confidential_setup.contains("compute_confidential_feature_digest("));
+        let digest = source
+            .split_once("fn handshake_confidential_features()")
+            .expect("handshake digest function")
+            .1
+            .split_once("fn confidential_handshake_policy_digest(")
+            .expect("end of the handshake digest function")
+            .0;
+        assert!(digest.contains("default_genesis_confidential_policy_hash()"));
+        assert!(!digest.contains("state."));
+        assert!(!digest.contains("config."));
     }
     #[test]
     fn emergency_fast_skips_strict_restart_audits_and_pipeline_diagnostics() {
@@ -10037,7 +9950,10 @@ mod tests {
             .1;
 
         // Fast neither rebuilds the state through Sumeragi nor validates a genesis manifest.
-        assert!(startup.contains("let prepared_sumeragi = if emergency_fast {\n            None"));
+        assert!(
+            include_str!("startup_preparation.rs")
+                .contains("let prepared_sumeragi = if emergency_fast {\n            None")
+        );
         assert!(startup.contains("if !emergency_fast && let Some(json_path) = cfg_manifest"));
 
         let diagnostics = startup
@@ -10061,8 +9977,9 @@ mod tests {
             .split_once("fn emergency_fast_keeps_query_telemetry_and_time_workers_inert")
             .expect("emergency Fast source assertion boundary")
             .0;
-        let compact_source: String = implementation
+        let compact_source: String = include_str!("startup_preparation.rs")
             .chars()
+            .chain(implementation.chars())
             .filter(|character| !character.is_whitespace())
             .collect();
 
@@ -10082,20 +9999,16 @@ mod tests {
         ));
         assert!(
             compact_source
-                .contains("letnts_reservation=iroha_core::time::reserve(nts_params).ok_or_else(")
+                .contains("letnts_reservation=iroha_core::time::reserve(iroha_core::time::Params::from(&config.nts,)).ok_or_else(")
         );
-        assert!(
-            compact_source.contains(
-                "letnts_child=ifemergency_fast{iroha_core::time::hold_fallback_reserved("
-            )
-        );
-        assert!(
-            compact_source.contains(
-                "}else{iroha_core::time::start_reserved(network.clone(),nts_reservation,"
-            )
-        );
+        assert!(compact_source.contains(
+            "letnts_child=ifconfig_emergency_fast{iroha_core::time::hold_fallback_reserved("
+        ));
+        assert!(compact_source.contains(
+            "}else{iroha_core::time::start_reserved(node.network.clone(),nts_reservation,"
+        ));
         let nts_start = compact_source
-            .find("iroha_core::time::start_reserved(network.clone()")
+            .find("iroha_core::time::start_reserved(node.network.clone()")
             .expect("NTS start");
         let os_signal_preflight = compact_source
             .find("setup_shutdown_on_os_signals()")
@@ -10113,7 +10026,7 @@ mod tests {
                 .contains("ifemergency_fast{state.validate_restored_governance(&config.gov)")
         );
         assert!(compact_source.contains(
-            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config);}"
+            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config).map_err(|error|Report::new(error).change_context(StartError::InitKura))?;}"
         ));
         assert!(compact_source.contains(
             "letevents_buffer_capacity=ifemergency_fast{1}else{config.torii.events_buffer_capacity.get()};"
@@ -10150,7 +10063,7 @@ mod tests {
             "letmutacceleration=config.accel.clone();acceleration.enable_simd=false;acceleration.enable_metal=false;acceleration.enable_cuda=false;acceleration.max_gpus=Some(0);apply_ivm_acceleration_config(&acceleration);rs16::set_simd_enabled(false);"
         ));
         assert!(compact_source.contains(
-            "if!emergency_fast{std::thread::spawn(||{loop{std::thread::sleep(Duration::from_secs(10));letdeadlocks=deadlock::check_deadlock();"
+            "if!emergency_fast{letdeadlock_shutdown=supervisor.shutdown_signal();supervisor.monitor(tokio::spawn(asyncmove{loop{tokio::select!{()=deadlock_shutdown.receive()=>break,()=tokio::time::sleep(Duration::from_secs(10))=>{}}"
         ));
         assert!(compact_source.contains(
             "lettokio_stack_bytes=ifemergency_fast{iroha_config::parameters::actual::Concurrency::from_defaults().tokio_stack_bytes}else{config.concurrency.tokio_stack_bytes};"
@@ -10165,7 +10078,10 @@ mod tests {
             .split_once("pub(crate) async fn start_with_runtime_deps")
             .expect("runtime-dependency startup entry")
             .1;
-        assert!(startup.contains("let prepared_sumeragi = if emergency_fast {\n            None"));
+        assert!(
+            include_str!("startup_preparation.rs")
+                .contains("let prepared_sumeragi = if emergency_fast {\n            None")
+        );
         let consensus = startup
             .split_once("let sumeragi = match prepared_sumeragi")
             .expect("emergency Fast consensus branch")
@@ -10430,13 +10346,13 @@ mod tests {
         );
         assert!(
             run_main_source.contains(
-                "rt.block_on(run_node(build,config,genesis,runtime_deps,musubi_publication_factory,))"
+                "rt.block_on(run_node(build,prepared,logger,runtime_deps,musubi_publication_factory,))"
             ),
             "standard CLI startup must forward the resolved dependency set and private publication factory"
         );
         assert!(
             run_node_source.contains(
-                "Iroha::start_with_runtime_deps(build,config,genesis,logger,shutdown_on_panic,runtime_deps,musubi_publication_factory,)"
+                "Iroha::activate_with_runtime_deps(build,prepared,logger,shutdown_on_panic.clone(),runtime_deps,musubi_publication_factory,)"
             ),
             "daemon startup must consume the resolved dependency set and private publication factory"
         );
@@ -10445,6 +10361,20 @@ mod tests {
                 .contains("letruntime_deps=IrohaRuntimeDeps::default();rt.block_on(run_node("),
             "standard CLI startup must not replace registry output with Default"
         );
+        let host_boundary = run_main_source
+            .split_once("fnprepare_with_runtime_deps(")
+            .expect("two-phase host boundary")
+            .1;
+        let preparation = host_boundary
+            .find(".block_on(PreparedStartup::prepare(config,genesis))")
+            .expect("one original native preparation");
+        let provider = host_boundary
+            .find("matchresolve(prepared.config())")
+            .expect("out-of-Tokio borrowed provider call");
+        let cleanup = host_boundary
+            .find("runtime.block_on(prepared.close())")
+            .expect("joined original owner on provider refusal");
+        assert!(preparation < provider && provider < cleanup);
         let validation = run_main_source
             .find("validate_startup_config_offline(&config).change_context(MainError::Config)?")
             .expect("offline validation in run_main");
@@ -10464,10 +10394,10 @@ mod tests {
             .expect("Tokio runtime construction in run_main");
         assert!(
             validation < binding_projection
-                && binding_projection < stock_broker
-                && stock_broker < resolution
-                && resolution < runtime_start,
-            "fixed-binding preflight must precede broker construction, and provider resolution must precede Tokio/node startup"
+                && binding_projection < runtime_start
+                && runtime_start < stock_broker
+                && stock_broker < resolution,
+            "pure binding preflight precedes preparation; the host resolves providers after native preparation"
         );
     }
     #[test]
@@ -10662,8 +10592,9 @@ mod tests {
     include!("main/governance_dag_launcher_tests.rs");
     #[test]
     fn standard_launcher_configures_kura_proof_limits_before_start() {
-        let compact_source: String = include_str!("main.rs")
+        let compact_source: String = include_str!("startup_preparation.rs")
             .chars()
+            .chain(include_str!("main.rs").chars())
             .filter(|character| !character.is_whitespace())
             .collect();
         let construct = compact_source
@@ -10693,7 +10624,7 @@ mod tests {
             .map(|(_, suffix)| suffix)
             .expect("standard launcher must build the PoP runtime");
         let corridor = corridor
-            .split_once("//Logdetailedbacktraces")
+            .split_once("//Diagnosticssharethenode'soriginalshutdownowner.")
             .map(|(corridor, _)| corridor)
             .expect("PoP startup corridor must end before daemon subsystem startup");
         assert!(
@@ -10753,20 +10684,37 @@ mod tests {
             config.zk.sccp.max_proof_bytes_per_proof =
                 std::num::NonZeroU64::new(11).expect("nonzero byte cap");
             config.settlement.router.epsilon_bps = 17;
+            config.pipeline.ivm_execution_max_bytes = 1024;
             let kura = Kura::blank_kura_for_testing();
             let query = LiveQueryStore::start_test();
             let mut state = State::new_for_testing(World::new(), kura, query);
+            let original_execution_budget = state.ivm_execution_budget();
             install_zk_config_before_kura_replay(&mut state, &config)
                 .expect("fresh state accepts actual ZK configuration");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
+                .expect("fresh state accepts runtime configuration");
+            assert!(original_execution_budget.same_pool(&state.ivm_execution_budget()));
+            assert_eq!(original_execution_budget.limit_bytes(), 1024);
             let installed = state.zk_snapshot();
+            // The node configuration cannot change a validity value: the protocol
+            // default (or the committed `zk_validity_policy_v1`) decides it.
+            let protocol = iroha_core::state::default_zk_config();
+            assert_ne!(
+                config.zk.sccp.max_proofs_per_transaction,
+                protocol.sccp.max_proofs_per_transaction
+            );
             assert_eq!(
                 installed.sccp.max_proofs_per_transaction,
-                config.zk.sccp.max_proofs_per_transaction
+                protocol.sccp.max_proofs_per_transaction
             );
             assert_eq!(
                 installed.sccp.max_proof_bytes_per_proof,
-                config.zk.sccp.max_proof_bytes_per_proof
+                protocol.sccp.max_proof_bytes_per_proof
+            );
+            assert_eq!(
+                iroha_core::state::compute_zk_consensus_policy_hash(&installed),
+                iroha_core::state::compute_zk_consensus_policy_hash(&protocol),
+                "a node-local ZK setting must not move the consensus policy hash"
             );
             assert_eq!(
                 state.settlement().router.epsilon_bps,
@@ -11090,8 +11038,8 @@ mod tests {
             genesis_authority: &KeyPair,
             config: &Config,
         ) -> GenesisBlock {
-            // Match Kagami's config-bound signer: both provisional staging and
-            // the final proposal must commit to the policy installed in State.
+            // Match Kagami's signer: provisional staging and the final proposal
+            // commit to the protocol-default ZK policy the genesis block runs under.
             genesis
                 .with_consensus_meta()
                 .expect("valid fixture consensus parameters")
@@ -11100,9 +11048,7 @@ mod tests {
                     Some(iroha_core::da::proof_policy_bundle(
                         &config.nexus.lane_config,
                     )),
-                    Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-                        &config.zk,
-                    )),
+                    Some(iroha_core::state::default_genesis_confidential_policy_hash()),
                 )
                 .expect("sign genesis fixture with configured DA and confidential policies")
         }
@@ -11143,7 +11089,8 @@ mod tests {
             )
             .expect("genesis state");
             install_zk_config_before_kura_replay(&mut state, config).expect("genesis ZK policy");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, config);
+            apply_state_runtime_config_before_snapshot_auth(&mut state, config)
+                .expect("genesis runtime configuration");
             let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
                 .expect("genesis lane manifests");
             let policies = install_lane_policies_for_startup_replay(
@@ -11345,6 +11292,8 @@ mod tests {
             .expect("configured BLS controller registers through native signed genesis execution");
         }
 
+        include!("startup_preparation_tests.rs");
+
         struct LocalSemanticGenesisFixture {
             config: Config,
             genesis: GenesisBlock,
@@ -11397,12 +11346,23 @@ mod tests {
             config.crypto.allowed_curve_ids.sort_unstable();
             config.crypto.allowed_curve_ids.dedup();
             let base_genesis = complete_test_genesis_builder_for_topology(
-                GenesisBuilder::new_without_executor(chain_id, "."),
+                // Sign the actual policy installed in the staging and target State, including
+                // the BLS controllers required by this fixture's four-validator roster.
+                GenesisBuilder::new_without_executor(chain_id, ".").with_crypto(ManifestCrypto {
+                    sm_openssl_preview: config.crypto.enable_sm_openssl_preview,
+                    sm_intrinsics: config.crypto.sm_intrinsics.as_str().to_owned(),
+                    default_hash: config.crypto.default_hash.clone(),
+                    allowed_signing: config.crypto.allowed_signing.clone(),
+                    sm2_distid_default: config.crypto.sm2_distid_default.clone(),
+                    allowed_curve_ids: config.crypto.allowed_curve_ids.clone(),
+                }),
                 topology,
             );
             let base_raw = base_genesis
                 .build_raw()
                 .expect("build complete offline semantic genesis manifest");
+            ensure_manifest_crypto_matches(&base_raw, &config)
+                .expect("sign the exact configured crypto policy before native staging");
             let (context_hash, execution_policy_hash) =
                 staged_context_hashes_for_test(&base_raw, &genesis_authority, &config);
             let mut parameters = base_raw.sumeragi_context_parameters();

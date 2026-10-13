@@ -8,8 +8,9 @@
 //! evidence hashes are well defined. The variant names the source chain and must match the
 //! instruction's network.
 //!
-//! A verified proof yields one [`SccpNormalizedEventV1`]: a `TransferToTaira` burn or a `Void`
-//! of outbound nonces, with the emitter the caller compares to the revision's deployment.
+//! A verified proof yields one [`SccpNormalizedEventV1`]: a `TransferToTaira` burn, a
+//! `Finalized` outbound mint or a `Void` of outbound nonces, with the emitter the caller
+//! compares to the revision's deployment.
 
 use iroha_data_model::{
     bridge::SccpNetworkV1,
@@ -408,6 +409,19 @@ impl SccpSourceEmitterV1 {
 /// Source event yielded by a verified proof (§4.12.1 step 4, §4.16).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SccpNormalizedEventV1 {
+    /// An outbound mint finalized on the destination, authenticated by its source proof.
+    Finalized {
+        /// Emitting destination contract.
+        emitter: SccpSourceEmitterV1,
+        /// Canonical outbound message identity.
+        message_id: [u8; 32],
+        /// Route outbound nonce.
+        nonce: u64,
+        /// EVM logs carry exact Taira units; TON requires the bound payload preimage.
+        amount: Option<u128>,
+        /// Original event position.
+        locator: SccpSourceLocatorV1,
+    },
     /// A burn on the source chain (`SccpTransferToTaira` and equivalents).
     TransferToTaira {
         /// Emitting contract.
@@ -445,7 +459,9 @@ impl SccpNormalizedEventV1 {
     #[must_use]
     pub const fn emitter(&self) -> &SccpSourceEmitterV1 {
         match self {
-            Self::TransferToTaira { emitter, .. } | Self::Void { emitter, .. } => emitter,
+            Self::Finalized { emitter, .. }
+            | Self::TransferToTaira { emitter, .. }
+            | Self::Void { emitter, .. } => emitter,
         }
     }
 
@@ -453,12 +469,14 @@ impl SccpNormalizedEventV1 {
     #[must_use]
     pub const fn locator(&self) -> &SccpSourceLocatorV1 {
         match self {
-            Self::TransferToTaira { locator, .. } | Self::Void { locator, .. } => locator,
+            Self::Finalized { locator, .. }
+            | Self::TransferToTaira { locator, .. }
+            | Self::Void { locator, .. } => locator,
         }
     }
 }
 
-/// Result of an accepted inbound or void proof.
+/// Result of an accepted inbound, finalized-mint or void proof.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SccpVerifiedProofV1 {
     /// Normalized source event.

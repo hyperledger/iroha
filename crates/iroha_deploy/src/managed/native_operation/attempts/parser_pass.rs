@@ -18,10 +18,25 @@ pub(in crate::managed) struct EnrollmentReadPass<'a> {
     retained: Option<&'a History>,
     parser_handles: bool,
 }
+// Consumed only by the immediately following wallet entry after check_successor has
+// completed its current census and pure successor/binding checks. It is not a wallet or
+// freshness receipt and cannot cross a callback, effect or inherited decoder boundary.
+pub(super) struct CurrentReadAdmission<'history, 'pass, 'snapshot> {
+    history: &'history History,
+    pass: &'pass EnrollmentReadPass<'snapshot>,
+}
+impl CurrentReadAdmission<'_, '_, '_> {
+    pub(super) fn covers(self, history: &History, pass: Option<&EnrollmentReadPass<'_>>) -> bool {
+        !norito::core::decode_limits_active()
+            && std::ptr::eq(self.history, history)
+            && pass.is_some_and(|pass| std::ptr::eq(self.pass, pass))
+            && self.pass.covers_predecessor(history.scope.predecessor())
+    }
+}
 impl<'a> EnrollmentReadPass<'a> {
     pub(in crate::managed) fn parse(
         snapshot: &'a SnapshotReadPass<'a>,
-        parser: crate::managed::stream_token_custody::body_history::ReadOnlyHistoryParser<'a>,
+        parser: crate::managed::stream_token_custody::body_history::ReadOnlyHistoryParser<'a, '_>,
         epochs: &mut crate::managed::native_operation::authorization::EpochReader,
     ) -> Result<()> {
         let retained = parser.retained_graph();
@@ -49,9 +64,70 @@ impl<'a> EnrollmentReadPass<'a> {
         current?;
         result
     }
+    // The only caller is the closed unsigned transition phase. The concrete inspector is
+    // intentionally required; arbitrary FnMut wallet callbacks cannot mint this pass.
+    pub(super) fn unsigned_closure(
+        snapshot: &'a SnapshotReadPass<'a>,
+        history: &History,
+        _inspector: &crate::managed::stream_token_custody::body_history::NativeClosureInspector<'_>,
+    ) -> Self {
+        Self {
+            snapshot,
+            latest: RefCell::new(
+                history
+                    .scope
+                    .predecessor()
+                    .map(|prior| Arc::clone(prior.shared_history())),
+            ),
+            count: std::cell::Cell::new(0),
+            retained: None,
+            parser_handles: true,
+        }
+    }
+    // Only the concrete empty generated prefix can mint this pass. The owner contains
+    // canonical current metadata and its fixed read sequence has no wallet/effect callback.
+    pub(super) fn empty_generated(
+        snapshot: &'a SnapshotReadPass<'a>,
+        owner: &generated_read_phase::EmptyGeneratedReadPhase,
+    ) -> Self {
+        Self {
+            snapshot,
+            latest: RefCell::new(
+                owner
+                    .history()
+                    .scope
+                    .predecessor()
+                    .map(|prior| Arc::clone(prior.shared_history())),
+            ),
+            count: std::cell::Cell::new(0),
+            retained: None,
+            parser_handles: true,
+        }
+    }
+    pub(super) fn current_read<'history, 'pass>(
+        &'pass self,
+        history: &'history History,
+    ) -> Result<Option<CurrentReadAdmission<'history, 'pass, 'a>>> {
+        self.validate(history)?;
+        Ok(self
+            .covers_predecessor(history.scope.predecessor())
+            .then_some(CurrentReadAdmission {
+                history,
+                pass: self,
+            }))
+    }
+    pub(super) fn completed_predecessor(&self, prior: &VerifiedUnsignedClosure) -> bool {
+        !norito::core::decode_limits_active()
+            && self.count.get() > 0
+            && self
+                .latest
+                .borrow()
+                .as_ref()
+                .is_some_and(|latest| Arc::ptr_eq(latest, prior.shared_history()))
+    }
     fn close_latest(&self) -> Result<()> {
         if let Some(history) = self.latest.borrow().as_ref() {
-            let current = history.require_current();
+            let current = retained_graph::validate_in_snapshot(history, self.snapshot);
             history.revalidate_retained_handles()?;
             current?;
         }

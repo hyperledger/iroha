@@ -1,0 +1,29 @@
+{
+  "checks": [
+    {
+      "actual_exit": 1,
+      "argument": "--require-complete",
+      "expected_exit": 1,
+      "qualification": false,
+      "script": "scripts/check_parliament_ballot_resource_accounting.py"
+    },
+    {
+      "actual_exit": 2,
+      "argument": "--require-qualified",
+      "expected_exit": 2,
+      "qualification": false,
+      "script": "scripts/check_parliament_ballot_security_ledger.py"
+    }
+  ],
+  "observed_source_sha256": {
+    "crates/iroha_core/src/smartcontracts/isi/sccp/parliament_iface.rs": "27b496e295e8558bc47404ba94814addf65e8db9abc7415b6b539fece4a150ef",
+    "crates/iroha_core/src/state.rs": "d65e87807dcea330fbb7f8335187df98558a0b49181c4b89432ccb3e941d3ee5",
+    "scripts/formal/check_sora_parliament_source_contract.py": "b627a207d5b7164e6d1866d3c0fe048e96c05c23f0f199793a5f4bc22afc35b3"
+  },
+  "python_regression": {
+    "failed": 92,
+    "failure": "concurrent SCCP reconciliation hook disagrees with exact source-contract sequence",
+    "passed": 1115,
+    "subtests_passed": 6
+  }
+}

@@ -792,7 +792,6 @@ fn localnet_builder(shape: TopologyShape) -> NetworkBuilder {
                     ["nexus", "staking", "max_validators"],
                     VALIDATORS_PER_LANE as i64,
                 )
-                .write(["zk", "stark", "enabled"], true)
                 .write(["nexus", "atomic_private_settlement", "enabled"], true)
                 .write(
                     ["nexus", "atomic_private_settlement", "activation_height"],

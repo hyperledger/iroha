@@ -1311,7 +1311,7 @@ pub fn ton_sccp_transfer_payload_v1(
     let message = ton_transaction_out_message(&boc, transaction, message_index)?;
     match ton_parse_sccp_ext_out(&boc, message, &minter)? {
         TonSccpEventV1::TransferToTaira { payload, .. } => Some(payload),
-        TonSccpEventV1::Voided { .. } => None,
+        TonSccpEventV1::Finalized { .. } | TonSccpEventV1::Voided { .. } => None,
     }
 }
 
@@ -2822,6 +2822,7 @@ fn ton_read_canonical_std_address(reader: &mut TonBitReader<'_>) -> Option<TonSt
 const TON_CONFIG_ELECTION_TIMINGS: u32 = 15;
 const TON_MC_STATE_EXTRA_CONSTRUCTOR: u16 = 0xcc26;
 const TON_SCCP_TRANSFER_TO_TAIRA_OP: u32 = 0x5343_5454;
+const TON_SCCP_FINALIZED_OP: u32 = 0x5343_464e;
 const TON_SCCP_VOIDED_OP: u32 = 0x5343_564f;
 const TON_SNAKE_CHUNK_BYTES: usize = 127;
 const TON_MAX_SNAKE_BYTES: usize = 4 * 1024;
@@ -2844,6 +2845,32 @@ pub struct TonMcHeaderV1 {
     /// Post-state hash (`state_update` new hash), when the header proof opens `state_update`;
     /// key-block hops, bootstraps and back-links need it.
     pub(crate) new_state_hash: Option<H256>,
+}
+
+impl TonMcHeaderV1 {
+    /// Generation time in seconds, decoded from the header opened against its exact block root.
+    /// The caller independently authenticates/selects that root; opening a header alone does
+    /// not establish chain finality.
+    #[must_use]
+    pub const fn generation_time_seconds(&self) -> u32 {
+        self.gen_utime
+    }
+}
+
+/// Read the generation time of the exact selected masterchain block from its rooted header.
+///
+/// This authenticates the time against `block_id.root_hash`, not the network's choice of
+/// root. Callers must independently select the destination-chain observation; a valid
+/// header proof alone does not establish native TON finality.
+///
+/// # Errors
+/// Returns the existing typed header/resource/network refusal without replacing it by a clock.
+pub fn ton_masterchain_generation_time_seconds(
+    block_id: TonBlockIdExtV1,
+    header_proof: &[u8],
+) -> Result<u32, TonNativeSourceError> {
+    ton_open_masterchain_block(block_id, header_proof, None)
+        .map(|(header, _)| header.generation_time_seconds())
 }
 
 /// Validator epoch read from a key block's state.
@@ -2871,6 +2898,13 @@ pub struct TonShardHeaderV1 {
 /// An SCCP external-out message of the minter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TonSccpEventV1 {
+    /// `SccpFinalizedEvent`, whose amount is bound by the original payload preimage.
+    Finalized {
+        /// Finalized message identity.
+        message_id: H256,
+        /// Route outbound nonce.
+        nonce: u64,
+    },
     /// `sccp_transfer_to_taira`.
     TransferToTaira {
         /// Message id the minter computed.
@@ -3183,16 +3217,24 @@ fn ton_parse_sccp_ext_out(boc: &TonBoc, message: usize, minter: &H256) -> Option
     if reader.read_bit()? {
         return None; // no StateInit on an event
     }
-    let mut body = if reader.read_bit()? {
+    let body = if reader.read_bit()? {
         let reference = reader.read_ref()?;
         reader.exhausted().then_some(())?;
         TonBitReader::new(boc.cells.get(ton_virtual_root_index(boc, reference)?)?)?
     } else {
         reader
     };
+    ton_parse_sccp_event_body(boc, body)
+}
+
+fn ton_parse_sccp_event_body(boc: &TonBoc, mut body: TonBitReader<'_>) -> Option<TonSccpEventV1> {
     let op = u32::try_from(body.read_u64(32)?).ok()?;
     let message_id = body.read_h256()?;
     let event = match op {
+        TON_SCCP_FINALIZED_OP => TonSccpEventV1::Finalized {
+            message_id,
+            nonce: body.read_u64(64)?,
+        },
         TON_SCCP_TRANSFER_TO_TAIRA_OP => {
             let nonce = body.read_u64(64)?;
             let sender = ton_read_canonical_std_address(&mut body)?;
@@ -4374,6 +4416,34 @@ mod tests {
         });
         assert!(parse_single_root_boc(&nested).is_some());
         assert_eq!(ton_canonical_boc_single_root_hash_v1(&nested), None);
+    }
+
+    #[test]
+    fn finalized_event_body_has_exact_opcode_fields_and_no_trailing_bits_or_refs() {
+        let mut bytes = TON_SCCP_FINALIZED_OP.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[7; 32]);
+        bytes.extend_from_slice(&12_u64.to_be_bytes());
+        let parse = |data, refs| {
+            let boc = TonBoc {
+                roots: vec![0],
+                cells: vec![ordinary_cell(data, refs)],
+            };
+            ton_parse_sccp_event_body(&boc, TonBitReader::new(&boc.cells[0]).unwrap())
+        };
+        assert_eq!(
+            parse(bytes.clone(), Vec::new()),
+            Some(TonSccpEventV1::Finalized {
+                message_id: [7; 32],
+                nonce: 12,
+            })
+        );
+        assert_eq!(parse(bytes[..43].to_vec(), Vec::new()), None);
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert_eq!(parse(trailing, Vec::new()), None);
+        assert_eq!(parse(bytes.clone(), vec![0]), None);
+        bytes[0] ^= 1;
+        assert_eq!(parse(bytes, Vec::new()), None);
     }
 
     #[test]

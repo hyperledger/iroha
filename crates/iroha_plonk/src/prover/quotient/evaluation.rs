@@ -93,7 +93,8 @@ impl<F: PastaField> CompiledExpressions<F> {
             self.evaluate_row(columns, row, scratch);
             return;
         }
-        debug_assert_eq!(width, TILE_ROWS);
+        assert_eq!(width, TILE_ROWS);
+        let width = TILE_ROWS;
         assert_eq!(scratch.len(), self.nodes.len() * width);
         for (index, node) in self.nodes.iter().enumerate() {
             let (prior, rest) = scratch.split_at_mut(index * width);

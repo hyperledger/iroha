@@ -46,10 +46,14 @@ fn state(row_bytes: u64) -> State {
     policy.validate().expect("feasible fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     state
 }
@@ -61,31 +65,23 @@ fn authenticated_state(row_bytes: u64) -> State {
 }
 
 fn authenticate_output_state(component: State) -> State {
-    use crate::sumeragi::{
-        startup,
-        test_chain::{CertifiedTestChain, TestChainConfig},
-    };
-    let nexus = component.nexus_snapshot();
-    let crypto = component.crypto.read().as_ref().clone();
-    let block_parameters = component.world.parameters.view().block();
-    let mut config = TestChainConfig::new(component.world, 0);
-    // Genesis materializes a complete parameter snapshot. Carry the tested limits
-    // in that signed source rather than replacing them with the builder defaults.
-    config.genesis_parameters.extend([
-        Parameter::Block(BlockParameter::ExecutionOutput(
-            block_parameters.execution_output(),
-        )),
-        Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
-            block_parameters.max_time_trigger_invocations(),
-        )),
-    ]);
-    config.chain_id = component.chain_id;
-    config.pipeline = component.pipeline;
-    config.governance = Some(component.gov);
-    config.nexus = Some(nexus);
-    config.zk = Some(component.zk);
-    config.crypto = Some(crypto);
-    config.fraud_monitoring = component.fraud_monitoring;
+    let policy = component
+        .world
+        .parameters
+        .view()
+        .get()
+        .pipeline_policy()
+        .clone();
+    authenticate_output_state_with_policy(component, policy)
+}
+
+/// Install exact validity limits in the original signed genesis, never as node overrides.
+fn authenticate_output_state_with_policy(
+    component: State,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
+) -> State {
+    use crate::sumeragi::{startup, test_chain::CertifiedTestChain};
+    let config = output_fixture_config(component, policy);
     let genesis_account =
         iroha_data_model::account::AccountId::new(config.genesis_key.public_key().clone());
     let mode = config.consensus_mode;
@@ -101,6 +97,40 @@ fn authenticate_output_state(component: State) -> State {
     )
     .expect("apply original output fixture genesis");
     state
+}
+
+/// Preserve the same original signed configuration for one-shot and multi-height fixtures.
+fn output_fixture_config(
+    component: State,
+    policy: crate::pipeline_validity_policy::PipelineValidityPolicyV1,
+) -> crate::sumeragi::test_chain::TestChainConfig {
+    use crate::sumeragi::test_chain::TestChainConfig;
+    let nexus = component.nexus_snapshot();
+    let crypto = component.crypto.read().as_ref().clone();
+    let block_parameters = component.world.parameters.view().block();
+    let mut config = TestChainConfig::new(component.world, 0);
+    // Genesis materializes a complete parameter snapshot. Carry the tested limits
+    // in that signed source rather than replacing them with the builder defaults.
+    config.genesis_parameters.extend([
+        Parameter::Block(BlockParameter::ExecutionOutput(
+            block_parameters.execution_output(),
+        )),
+        Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            block_parameters.max_time_trigger_invocations(),
+        )),
+    ]);
+    policy.validate().expect("valid fixture pipeline policy");
+    config
+        .genesis_parameters
+        .push(Parameter::Custom(policy.into_custom_parameter()));
+    config.chain_id = component.chain_id;
+    config.pipeline = component.pipeline;
+    config.governance = Some(component.gov);
+    config.nexus = Some(nexus);
+    config.zk = Some(component.zk);
+    config.crypto = Some(crypto);
+    config.fraud_monitoring = component.fraud_monitoring;
+    config
 }
 
 fn output_fixture_parent_time(state: &State) -> u64 {
@@ -739,10 +769,14 @@ fn receipt_source(
     policy.validate().expect("finite receipt fixture policy");
     parameters
         .get_mut()
-        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
-    parameters.get_mut().set_parameter(Parameter::Block(
-        BlockParameter::MaxTimeTriggerInvocations(NonZeroU32::MIN),
-    ));
+        .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+        .expect("valid fixture parameters");
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
+            NonZeroU32::MIN,
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let state = authenticate_output_state(state);
 
@@ -1154,7 +1188,8 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(7).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     *tx.block_execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
     tx.apply_consensus_effects();
     assert_eq!(*block.world.parameters.get(), before);
@@ -1164,3 +1199,6 @@ fn poisoned_carrier_refuses_consensus_world_application() {
         Some(ExecutionOutputPlanState::Poisoned)
     ));
 }
+
+#[path = "output_sccp_forgery_tests.rs"]
+mod sccp_forgery;

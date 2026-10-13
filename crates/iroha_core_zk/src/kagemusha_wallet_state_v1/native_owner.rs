@@ -68,8 +68,15 @@ pub struct NativeWalletProofsV1<F: KagemushaWalletFsV1, P, S> {
 
 fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
     value.map_err(|error| match error {
+        ProofError::DecodeResource(original) => Error::DecodeResource(original),
         ProofError::Unavailable => Error::ArtifactsUnavailable("native operation artifact"),
         ProofError::Cancelled => Error::Cancelled,
+        ProofError::Entropy => {
+            crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
+            )
+            .into()
+        }
         _ => Error::Proof("native operation source or proof"),
     })
 }
@@ -277,7 +284,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     ) -> Result<Self::AdvanceCheck, Error> {
         next.validate()?;
         let preparation = proof(PreparationV1::new(&self.installed))?;
-        if next.capsule.kind == KagemushaWalletOperationKindV1::Bootstrap {
+        if next.capsule.body().kind == KagemushaWalletOperationKindV1::Bootstrap {
             if predecessor.is_some()
                 || folded.is_some()
                 || custody.prepared().is_some()
@@ -291,24 +298,22 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             )?;
             let KagemushaWalletEffectV1::Bootstrap {
                 enrollment_marker, ..
-            } = next.capsule.statement.effect
+            } = next.capsule.body().statement.effect
             else {
                 return Err(Error::Proof("Bootstrap effect"));
             };
             let expected = proof(preparation.prepare_bootstrap(
                 &owner,
                 enrollment_marker,
-                next.capsule.successor_state.core.state_nonce,
+                next.capsule.body().successor_state.core.state_nonce,
             ))?;
-            let frozen = proof(preparation.freeze_bootstrap(
+            let frozen = proof(preparation.body_bootstrap(
                 &owner,
                 &expected,
-                next.capsule.step_proof.clone(),
+                next.capsule.body().step_proof.clone(),
                 self.budget,
             ))?;
-            if &frozen != next {
-                return Err(Error::Proof("Bootstrap derived capsule"));
-            }
+            proof(frozen.require_matches(next))?;
             return Ok(NativeAdvanceCheckV1::without_time());
         }
         let source = PreparationSourceV1 {
@@ -406,5 +411,36 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &mut *originals,
             custody.ok_or(Error::WitnessLost("native fold custody"))?,
         )
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::*;
+
+    #[test]
+    fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {
+        let bytes = norito::encode_canonical(&vec![7u8; 128]).unwrap();
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        let captured = norito::with_decode_limits_scope(limits, || {
+            norito::decode_canonical_for_admission::<Vec<u8>>(
+                &bytes,
+                norito::canonical_decode_limits(bytes.len()),
+            )
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let expected = captured.clone();
+        let error = proof::<()>(Err(ProofError::DecodeResource(captured))).unwrap_err();
+        assert!(matches!(error, Error::DecodeResource(original) if original == expected));
+        assert!(matches!(
+            proof::<()>(Err(ProofError::Cancelled)),
+            Err(Error::Cancelled)
+        ));
+        assert!(matches!(
+            proof::<()>(Err(ProofError::Authority)),
+            Err(Error::Proof("native operation source or proof"))
+        ));
     }
 }

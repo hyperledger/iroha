@@ -1200,3 +1200,6 @@ fn retained_state_partial_musubi_validation_refuses_changed_visibility() {
     assert!(state.world.musubi_public_directory.view().is_empty());
     assert_eq!(state.transactions.latest_height(), 0);
 }
+
+#[path = "publication_effect_retry_tests.rs"]
+mod effect_retry_tests;

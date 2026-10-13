@@ -2,6 +2,9 @@
 //! Direct component commits do not qualify full coordinator HTTP or running service readiness.
 
 use super::*;
+use crate::managed::native_operation::test_support::native_fixture::signed_recovery_http::{
+    assert_recovery_reads, with_recovery_http,
+};
 use crate::managed::native_operation::{
     test_support::{
         UnavailablePeers,
@@ -420,6 +423,49 @@ fn selected_custody_recovery_keeps_unprepared_wallets_absent_and_exact_carriers_
         assert_eq!(carrier.checkpoint().height(), height);
         let finalized = verify_carrier(&carrier, &signed).unwrap();
         assert_eq!(finalized.height, height);
+        let authorization_bytes = original
+            .directory()
+            .read("authorization.nrt", 64 * 1024)
+            .unwrap();
+        for permit_finality in [false, true] {
+            let recovered =
+                with_recovery_http(&native, &prepared, &signed, permit_finality, |requests| {
+                    let recovered = selected(&mut owner, &policy, &original, &options)
+                        .unwrap()
+                        .unwrap();
+                    assert_recovery_reads(requests, permit_finality);
+                    assert!(
+                        Instant::now() < options.deadline,
+                        "recovery retains its original deadline"
+                    );
+                    recovered
+                });
+            assert_eq!(recovered.transaction_status, OperationStatus::Applied);
+            assert_eq!(recovered.finalized, permit_finality.then_some(finalized));
+            assert!(recovered.current.is_none());
+            assert_eq!(
+                original
+                    .directory()
+                    .read("authorization.nrt", 64 * 1024)
+                    .unwrap(),
+                authorization_bytes,
+            );
+            assert_eq!(
+                owner
+                    .verify_wallet(original.directory(), &original, options.deadline)
+                    .unwrap()
+                    .encode_wire_v1()
+                    .unwrap(),
+                wire,
+            );
+            assert!(!path.join("submission.json").exists());
+            if permit_finality {
+                original.directory().remove_private("carrier.nrt").unwrap();
+                original.directory().remove_private("replay.nrt").unwrap();
+            } else {
+                assert!(!original.directory().path().join("carrier.nrt").exists());
+            }
+        }
         if name == "configure" {
             // Component decision coverage: the same post-Applied owner must replace its
             // stale H2 preflight bound with fresh H3 native finality before retaining replay.

@@ -416,89 +416,7 @@ pub mod isi {
         }
         Ok(())
     }
-    #[derive(crate::json_macros::JsonDeserialize)]
-    struct GovernedGasRate {
-        asset: String,
-        units_per_gas: u64,
-        twap_local_per_xor: Option<String>,
-        liquidity_profile: Option<String>,
-        volatility_class: Option<String>,
-    }
-    fn validate_governed_pipeline_gas_parameter(
-        custom: &iroha_data_model::parameter::CustomParameter,
-    ) -> Result<(), Error> {
-        let parameter_id = iroha_data_model::parameter::CustomParameterId(
-            "ivm_gas_units_per_gas"
-                .parse()
-                .expect("static pipeline gas parameter id"),
-        );
-        if custom.id() != &parameter_id {
-            return Ok(());
-        }
-        let rates = custom
-            .payload()
-            .try_into_any_norito::<Vec<GovernedGasRate>>()
-            .map_err(|_| {
-                invalid_smart_contract_parameter(
-                    "ivm_gas_units_per_gas must be a list of gas-rate objects",
-                )
-            })?;
-        let mut assets = BTreeSet::new();
-        for rate in rates {
-            let asset = AssetDefinitionId::parse_address_literal(&rate.asset).map_err(|error| {
-                invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas asset `{}`: {error}",
-                    rate.asset
-                ))
-            })?;
-            if rate.asset != asset.canonical_address() {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "ivm_gas_units_per_gas asset `{}` is not a canonical asset definition address",
-                    rate.asset
-                )));
-            }
-            if !assets.insert(asset) {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "ivm_gas_units_per_gas contains duplicate asset `{}`",
-                    rate.asset
-                )));
-            }
-            // A zero rate is an intentional convention for signature-bound gas that is
-            // settled by the Nexus component rather than a second pipeline transfer.
-            let _units_per_gas = rate.units_per_gas;
-            if let Some(value) = rate.twap_local_per_xor.as_deref() {
-                let twap = Numeric::from_str(value).map_err(|error| {
-                    invalid_smart_contract_parameter(format!(
-                        "invalid ivm_gas_units_per_gas twap `{value}` for asset `{}`: {error}",
-                        rate.asset
-                    ))
-                })?;
-                if twap <= Numeric::zero() {
-                    return Err(invalid_smart_contract_parameter(format!(
-                        "invalid ivm_gas_units_per_gas twap `{value}` for asset `{}`: value must be positive",
-                        rate.asset
-                    )));
-                }
-            }
-            if let Some(value) = rate.liquidity_profile.as_deref()
-                && iroha_config::parameters::actual::GasLiquidity::from_str(value).is_err()
-            {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas liquidity `{value}` for asset `{}`",
-                    rate.asset
-                )));
-            }
-            if let Some(value) = rate.volatility_class.as_deref()
-                && iroha_config::parameters::actual::GasVolatility::from_str(value).is_err()
-            {
-                return Err(invalid_smart_contract_parameter(format!(
-                    "invalid ivm_gas_units_per_gas volatility `{value}` for asset `{}`",
-                    rate.asset
-                )));
-            }
-        }
-        Ok(())
-    }
+
     fn validate_hijiri_parameters(
         custom: &iroha_data_model::parameter::CustomParameter,
         state_transaction: &StateTransaction<'_, '_>,
@@ -852,12 +770,14 @@ pub mod isi {
         trigger_id: &TriggerId,
         metadata: &Metadata,
         code_bytes: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<Error>> {
         crate::executor::validate_trigger_call_execution_context(metadata, code_bytes).map_err(
-            |err| {
-                invalid_smart_contract_parameter(format!(
-                    "invalid trigger `{trigger_id}` callback dispatch metadata: {err}"
-                ))
+            |error| {
+                error.map_rejection(|err| {
+                    invalid_smart_contract_parameter(format!(
+                        "invalid trigger `{trigger_id}` callback dispatch metadata: {err}"
+                    ))
+                })
             },
         )
     }
@@ -942,7 +862,8 @@ pub mod isi {
                     &descriptor.id,
                     &metadata,
                     callback_contract.code_bytes.as_ref(),
-                )?;
+                )
+                .map_err(|error| state_transaction.attempt_error_to_instruction_error(error))?;
                 let trigger_authority = descriptor
                     .authority
                     .clone()
@@ -3391,56 +3312,72 @@ pub mod isi {
             state_transaction: &mut StateTransaction<'_, '_>,
         ) -> Result<(), Error> {
             ensure_sccp_route_governance_proposer(authority, state_transaction)?;
-            // TODO(ws33): check `base_revisions` against `sccp_governance_revisions` and every
-            // `RegisterRoute` destination word against `sccp_destination_words` (§4.14.3).
             self.proposal
                 .validate_static(&state_transaction.network_id)
                 .map_err(|error| {
                     InstructionExecutionError::InvariantViolation(error.to_string().into())
                 })?;
-            let h_now = state_transaction._curr_block.height().get();
-            let payload = SccpRouteGovernanceProposal {
-                proposal: Box::new(self.proposal.clone()),
-            };
-            let kind = ProposalKind::SccpRouteGovernance(payload.clone());
-            let id = kind.fingerprint();
-            if let Some(existing) = state_transaction.world.governance_proposals.get(&id) {
-                let Some(existing_payload) = existing.as_sccp_route_governance() else {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        "governance proposal id collision".into(),
-                    ));
-                };
-                if existing_payload.proposal != payload.proposal {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        "governance proposal id collision".into(),
-                    ));
-                }
-                ensure_certificate_only_proposal_v1(id, existing, state_transaction)?;
-                return Ok(());
+            if !cfg!(all(test, sumeragi_core_mutation = "HC284"))
+                && !super::sccp::parliament_iface::parliament_binding_ballot_available()
+            {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "ParliamentBallotUnavailable".into(),
+                ));
             }
-            let created_height = h_now;
-            let record = crate::state::GovernanceProposalRecord {
-                proposer: authority.clone(),
-                kind,
-                created_height,
-                status: crate::state::GovernanceProposalStatus::Proposed,
-            };
-            ensure_certificate_only_proposal_v1(id, &record, state_transaction)?;
-            state_transaction
-                .world
-                .put_governance_proposal(id, record)
-                .map_err(governance_proposal_storage_error)?;
-            state_transaction.world.emit_events(Some(
-                iroha_data_model::events::data::governance::GovernanceEvent::ProposalSubmitted(
-                    iroha_data_model::events::data::governance::GovernanceProposalSubmitted {
-                        id,
-                        proposer: authority.clone(),
-                        contract_address: None,
-                    },
-                ),
-            ));
-            Ok(())
+            super::sccp::governance::preflight_attempt(state_transaction, &self.proposal)?;
+            record_sccp_route_governance_proposal(self.proposal, authority, state_transaction)
         }
+    }
+
+    // Storage transition after the production admission checks. Component tests may exercise
+    // its idempotence; storing DATA here does not produce a qualified Parliament ballot.
+    fn record_sccp_route_governance_proposal(
+        proposal: iroha_data_model::sccp::governance::SccpGovernanceProposalV1,
+        authority: &AccountId,
+        state_transaction: &mut StateTransaction<'_, '_>,
+    ) -> Result<(), Error> {
+        let h_now = state_transaction._curr_block.height().get();
+        let payload = SccpRouteGovernanceProposal {
+            proposal: Box::new(proposal),
+        };
+        let kind = ProposalKind::SccpRouteGovernance(payload.clone());
+        let id = kind.fingerprint();
+        if let Some(existing) = state_transaction.world.governance_proposals.get(&id) {
+            let Some(existing_payload) = existing.as_sccp_route_governance() else {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "governance proposal id collision".into(),
+                ));
+            };
+            if existing_payload.proposal != payload.proposal {
+                return Err(InstructionExecutionError::InvariantViolation(
+                    "governance proposal id collision".into(),
+                ));
+            }
+            ensure_certificate_only_proposal_v1(id, existing, state_transaction)?;
+            return Ok(());
+        }
+        let created_height = h_now;
+        let record = crate::state::GovernanceProposalRecord {
+            proposer: authority.clone(),
+            kind,
+            created_height,
+            status: crate::state::GovernanceProposalStatus::Proposed,
+        };
+        ensure_certificate_only_proposal_v1(id, &record, state_transaction)?;
+        state_transaction
+            .world
+            .put_governance_proposal(id, record)
+            .map_err(governance_proposal_storage_error)?;
+        state_transaction.world.emit_events(Some(
+            iroha_data_model::events::data::governance::GovernanceEvent::ProposalSubmitted(
+                iroha_data_model::events::data::governance::GovernanceProposalSubmitted {
+                    id,
+                    proposer: authority.clone(),
+                    contract_address: None,
+                },
+            ),
+        ));
+        Ok(())
     }
     impl Execute for gov::ProposeSorafsProviderGovernance {
         fn execute(
@@ -4299,28 +4236,21 @@ pub mod isi {
                 None
             };
             // 3) Verify the proof against the resolved VK (ZK1/H2* envelope dispatch)
-            let vk_id = ballot_vk_id
-                .or_else(|| {
-                    state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                        iroha_data_model::proof::VerifyingKeyId::new(
-                            v.backend.clone(),
-                            v.name.clone(),
-                        )
-                    })
-                })
-                .ok_or_else(|| {
-                    state_transaction.world.emit_events(Some(
-                        iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
-                            iroha_data_model::events::data::governance::GovernanceBallotRejected {
-                                referendum_id: self.election_id.clone(),
-                                reason: "verifying key not configured".into(),
-                            },
-                        ),
-                    ));
-                    InstructionExecutionError::InvariantViolation(
-                        "verifying key not configured".into(),
-                    )
-                })?;
+            // The election's own committed key selects the ballot relation; no
+            // node configuration supplies a default.
+            let vk_id = ballot_vk_id.ok_or_else(|| {
+                state_transaction.world.emit_events(Some(
+                    iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
+                        iroha_data_model::events::data::governance::GovernanceBallotRejected {
+                            referendum_id: self.election_id.clone(),
+                            reason: "election commits no ballot verifying key".into(),
+                        },
+                    ),
+                ));
+                InstructionExecutionError::InvariantViolation(
+                    "election commits no ballot verifying key".into(),
+                )
+            })?;
             let Some(vk_rec) = state_transaction.world.verifying_keys.get(&vk_id).cloned() else {
                 state_transaction.world.emit_events(Some(
                     iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
@@ -4435,12 +4365,14 @@ pub mod isi {
                     iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
                         iroha_data_model::events::data::governance::GovernanceBallotRejected {
                             referendum_id: self.election_id.clone(),
-                            reason: "stark verification is disabled in node configuration".into(),
+                            reason:
+                                "stark verification is disabled by the committed ZK validity policy"
+                                    .into(),
                         },
                     ),
                 ));
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             if let Err(err) = enforce_vk_max_proof_bytes("ballot", &vk_rec, proof_bytes.len()) {
@@ -4595,12 +4527,8 @@ pub mod isi {
                     "election already finalized".into(),
                 ));
             }
-            // Resolve verifying key id: prefer election's vk_ballot, else config default
-            if let Some(vk_id) = st.vk_ballot.clone().or_else(|| {
-                state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            }) {
+            // The election's own committed key selects the ballot relation.
+            if let Some(vk_id) = st.vk_ballot.clone() {
                 if state_transaction.world.verifying_keys.get(&vk_id).is_none() {
                     return Err(InstructionExecutionError::InvariantViolation(
                         "verifying key not found".into(),
@@ -5668,7 +5596,9 @@ pub mod isi {
         let previous = {
             let parameters = state_transaction.world.parameters.get_mut();
             let previous = parameters.custom().get(next.id()).cloned();
-            parameters.set_parameter(Parameter::Custom(next.clone()));
+            parameters
+                .set_parameter(Parameter::Custom(next.clone()))
+                .expect("validation fee registry is not a pipeline fee parameter");
             previous
         };
         state_transaction
@@ -8631,20 +8561,12 @@ pub mod isi {
                         "certified SCCP proposal belongs to a different exact NetworkId".into(),
                     ));
                 }
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
-                    track: iroha_sccp::v1::control::TRACK_PARLIAMENT,
-                    certificate_id:
-                        *iroha_data_model::governance::types::GovernanceCertificateId::derive_v1(
-                            certificate,
-                        )
-                        .as_bytes(),
-                    effect_hash: certificate.effect_preimage_hash,
-                };
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(certificate)?;
                 #[cfg(all(test, sumeragi_core_mutation = "HC237"))]
-                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1 {
-                    certificate_id: proposal_id,
-                    ..cause
-                };
+                let cause = crate::smartcontracts::isi::sccp::controls::ControlCauseV1::for_test(
+                    proposal_id,
+                    certificate.effect_preimage_hash,
+                );
                 crate::smartcontracts::isi::sccp::governance::enact(
                     state_transaction,
                     &payload.proposal,
@@ -8802,7 +8724,8 @@ pub mod isi {
                     .world
                     .parameters
                     .get_mut()
-                    .set_parameter(Parameter::Custom(next.clone()));
+                    .set_parameter(Parameter::Custom(next.clone()))
+                    .expect("Parliament registry is not a pipeline validity parameter");
                 state_transaction
                     .world
                     .emit_events(Some(ConfigurationEvent::Changed(ParameterChanged {
@@ -13066,7 +12989,7 @@ pub mod isi {
             && !state_transaction.zk.stark.enabled
         {
             return Err(InstructionExecutionError::InvariantViolation(
-                "stark verification is disabled in node configuration".into(),
+                "stark verification is disabled by the committed ZK validity policy".into(),
             ));
         }
         let record = state_transaction
@@ -14124,17 +14047,12 @@ pub mod isi {
         ),
         Error,
     > {
-        let vk_id = st
-            .vk_ballot
-            .clone()
-            .or_else(|| {
-                state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            })
-            .ok_or_else(|| {
-                InstructionExecutionError::InvariantViolation("verifying key not configured".into())
-            })?;
+        // The election's own committed key selects the ballot relation.
+        let vk_id = st.vk_ballot.clone().ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "election commits no ballot verifying key".into(),
+            )
+        })?;
         if attachment.vk_ref != vk_id {
             return Err(InstructionExecutionError::InvariantViolation(
                 "ballot verifying key ref mismatch".into(),
@@ -14206,17 +14124,12 @@ pub mod isi {
         ),
         Error,
     > {
-        let vk_id = st
-            .vk_tally
-            .clone()
-            .or_else(|| {
-                state_transaction.gov.vk_tally.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            })
-            .ok_or_else(|| {
-                InstructionExecutionError::InvariantViolation("verifying key not configured".into())
-            })?;
+        // The election's own committed key selects the tally relation.
+        let vk_id = st.vk_tally.clone().ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "election commits no tally verifying key".into(),
+            )
+        })?;
         if attachment.vk_ref != vk_id {
             return Err(InstructionExecutionError::InvariantViolation(
                 "tally verifying key ref mismatch".into(),
@@ -14461,7 +14374,7 @@ pub mod isi {
             let backend = vk_id.backend.as_str();
             if crate::zk::is_stark_fri_v1_backend(backend) && !state_transaction.zk.stark.enabled {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             let proof_len = self.ballot_proof.proof.bytes.len();
@@ -14651,7 +14564,7 @@ pub mod isi {
             let backend = vk_id.backend.as_str();
             if crate::zk::is_stark_fri_v1_backend(backend) && !state_transaction.zk.stark.enabled {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             let proof_len = att.proof.bytes.len();
@@ -18097,6 +18010,25 @@ pub mod isi {
             super::parameter_validation::validate_ivm_heap_parameter(self.inner())?;
             state_transaction.validate_execution_output_parameter(self.inner())?;
             if let Parameter::Sumeragi(change) = self.inner() {
+                if let iroha_data_model::parameter::system::SumeragiParameter::MaxClockDriftMs(
+                    drift,
+                ) = change
+                {
+                    super::sccp::keepalive::clock_parameters(&*state_transaction.world)
+                        .and_then(|clock| {
+                            clock.validate(
+                                *drift,
+                                state_transaction
+                                    .world
+                                    .parameters
+                                    .get()
+                                    .sumeragi()
+                                    .block_cadence_ms
+                                    .get(),
+                            )
+                        })
+                        .map_err(invalid_smart_contract_parameter)?;
+                }
                 if !state_transaction._curr_block.is_genesis()
                     && let iroha_data_model::parameter::system::SumeragiParameter::EpochLengthBlocks(
                         epoch,
@@ -18131,21 +18063,22 @@ pub mod isi {
                         _ => None,
                     };
                     if proposed.is_some_and(|(epoch, cadence)| {
-                        !crate::smartcontracts::isi::sccp::generations::epoch_duration_is_valid(
-                            epoch, cadence,
-                        )
+                        crate::smartcontracts::isi::sccp::params::validate_epoch(epoch, cadence)
+                            .is_err()
                     }) {
                         return Err(invalid_smart_contract_parameter(
-                            "SCCP requires epoch_length_blocks * block_cadence_ms >= 3600000",
+                            "SCCP requires epoch_length_blocks * block_cadence_ms within 3600000..=u64::MAX",
                         ));
                     }
                 }
-                // Sumeragi chain parameters take effect at `h + 2` through the consensus
-                // schedule; the demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
+                // Scheduled chain parameters take effect at `h + 2`; clock drift belongs
+                // to the application State read from the committed parent (`h + 1`).
+                // The demotion window is a genesis constant (`specs/sumeragi.md` §10.1).
                 crate::sumeragi::schedule::validate_parameter_change(
                     state_transaction.world.parameters.get().sumeragi(),
                     change,
                     state_transaction._curr_block.is_genesis(),
+                    super::sccp::params::exists(&*state_transaction.world),
                 )
                 .map_err(|error| {
                     InstructionExecutionError::InvalidParameter(
@@ -18154,6 +18087,18 @@ pub mod isi {
                 })?;
             }
             if let Parameter::Custom(custom) = self.inner() {
+                use iroha_data_model::parameter::GovernanceClockParametersV1;
+                if custom.id() == GovernanceClockParametersV1::parameter_id() {
+                    let current = state_transaction.world.parameters.get().sumeragi();
+                    GovernanceClockParametersV1::from_custom_parameter(custom)
+                        .and_then(|clock| {
+                            clock.validate(
+                                current.max_clock_drift_ms(),
+                                current.block_cadence_ms.get(),
+                            )
+                        })
+                        .map_err(invalid_smart_contract_parameter)?;
+                }
                 if custom.id()
                     == &iroha_data_model::private_dataspace::PrivateDataspaceAdmissionPolicy::parameter_id()
                 {
@@ -18221,7 +18166,22 @@ pub mod isi {
                     }
                 }
                 validate_alias_dataspace_bootstrap_grant(custom, state_transaction)?;
-                validate_governed_pipeline_gas_parameter(custom)?;
+                // The committed ZK validity policy is an ordinary authorized
+                // parameter. A malformed or incoherent payload, or one that strands
+                // committed pending transitions, is rejected from the instruction
+                // bytes and committed State alone, identically on every validator.
+                // An accepted change governs the next block.
+                crate::zk_validity_policy::validate_set_parameter(
+                    custom,
+                    state_transaction
+                        .world
+                        .confidential_policy_transition_counts
+                        .iter()
+                        .map(|(effective_height, count)| (*effective_height, *count)),
+                )
+                .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
+                // The atomic parameter owner validates pipeline limits and fee
+                // fields below, preserving an original local decoder refusal.
                 validate_hijiri_parameters(custom, state_transaction)?;
                 validate_da_ingest_admission_policy(custom, state_transaction)?;
                 validate_reputation_archive_retention_request(custom, state_transaction)?;
@@ -18280,7 +18240,14 @@ pub mod isi {
                             let new_param = Parameter::$container(
                                 iroha_data_model::parameter::$single::$variant(next),
                             );
-                            params.set_parameter(new_param.clone());
+                            let result = params.set_parameter(new_param.clone());
+                            result.map_err(|error| {
+                                state_transaction.attempt_error_to_instruction_error(
+                                    crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                                        invalid_smart_contract_parameter(error.to_string())
+                                    }),
+                                )
+                            })?;
                             state_transaction.world.emit_events(
                                 Some(ConfigurationEvent::Changed(ParameterChanged {
                                     old_value: prev_param,
@@ -18327,12 +18294,16 @@ pub mod isi {
                                         )),
                                     )
                                 })?;
-                                state_transaction
-                                    .world
-                                    .parameters
-                                    .get_mut()
-                                    .sumeragi
-                                    .block_cadence_ms = metadata.block_cadence_ms;
+                                if super::sccp::params::exists(&*state_transaction.world) {
+                                    super::sccp::params::validate_epoch(
+                                        state_transaction.world.parameters.get().sumeragi().epoch_length_blocks.get(),
+                                        metadata.block_cadence_ms.get(),
+                                    ).map_err(|error| invalid_smart_contract_parameter(&error.to_string()))?;
+                                }
+                                let parameters = state_transaction.world.parameters.get_mut();
+                                let mut consensus = parameters.sumeragi().clone();
+                                consensus.block_cadence_ms = metadata.block_cadence_ms;
+                                parameters.set_sumeragi(consensus);
                             }
                             if next.id()
                                 == &iroha_data_model::isi::settlement::FxCorridorPolicyRegistry::parameter_id()
@@ -18486,7 +18457,14 @@ pub mod isi {
                             let previous = {
                                 let params = state_transaction.world.parameters.get_mut();
                                 let previous = params.custom().get(next.id()).cloned();
-                                params.set_parameter(Parameter::Custom(next.clone()));
+                                let result = params.set_parameter(Parameter::Custom(next.clone()));
+                                result.map_err(|error| {
+                                    state_transaction.attempt_error_to_instruction_error(
+                                        crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                                            invalid_smart_contract_parameter(error.to_string())
+                                        }),
+                                    )
+                                })?;
                                 previous
                             };
                             state_transaction.world.emit_events(Some(
@@ -21116,6 +21094,106 @@ pub mod isi {
         }
 
         #[test]
+        fn parliament_due_certificate_records_exact_native_control_cause() {
+            use crate::smartcontracts::isi::sccp::{store, test_support::sample_route};
+            use iroha_data_model::sccp::{
+                governance::{
+                    SccpGovernanceActionV1, SccpGovernanceProposalV1, SccpGovernanceSubjectV1,
+                    SccpSetDestinationPausedActionV1,
+                },
+                params::SccpParametersV1,
+            };
+            let state = blank_test_state();
+            let block = new_dummy_block_at_height(
+                NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).expect("due height"),
+            );
+            let mut state_block = state.block(block.as_ref().header());
+            let network = iroha_data_model::bridge::SccpNetworkV1::TonMainnet;
+            let fixture = {
+                let mut seed = state_block.transaction();
+                Register::account(Account::new(ALICE_ID.clone()))
+                    .execute(&ALICE_ID, &mut seed)
+                    .expect("proposer");
+                store::parameters::set(&mut seed, Some(SccpParametersV1::taira_default()));
+                store::routes::insert(&mut seed, network, sample_route(network)).expect("route");
+                let proposal = SccpGovernanceProposalV1 {
+                    network_id: *seed.network_id(),
+                    base_revisions: vec![
+                        (SccpGovernanceSubjectV1::RouteControl(network), 0).into(),
+                    ],
+                    actions: vec![SccpGovernanceActionV1::SetDestinationPaused(
+                        SccpSetDestinationPausedActionV1 {
+                            network,
+                            revision: 1,
+                            paused: true,
+                        },
+                    )],
+                };
+                let fixture = seed_due_parliament_certificate(
+                    &mut seed,
+                    ProposalKind::SccpRouteGovernance(SccpRouteGovernanceProposal {
+                        proposal: Box::new(proposal),
+                    }),
+                );
+                seed.apply();
+                fixture
+            };
+            let mut malformed = fixture.certificate.clone();
+            malformed.effect_preimage_hash = [0; 32];
+            crate::smartcontracts::isi::sccp::controls::ControlCauseV1::from_parliament_certificate(
+                &malformed,
+            ).expect_err("zero effect is not a native authority");
+            let mut execution = state_block.transaction();
+            assert_eq!(
+                execute_due_parliament_certificate_v1(
+                    fixture.governance_attempt_id,
+                    &mut execution
+                )
+                .expect("execute exact certificate"),
+                DueParliamentCertificateExecutionV1::Applied
+            );
+            let record = store::control_messages::get(&*execution.world, &(network, 1, 1))
+                .expect("native control");
+            assert_eq!(record.track, 1);
+            assert!(record.parliament_paused);
+            assert_eq!(record.fast_pause_until_ms, 0);
+            assert_eq!(
+                record.certificate_id,
+                *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes()
+            );
+            assert_ne!(record.certificate_id, fixture.proposal_id);
+            assert_eq!(record.effect_hash, fixture.certificate.effect_preimage_hash);
+            assert_eq!(record.height, PARLIAMENT_DUE_CERTIFICATE_HEIGHT);
+            assert_eq!(record.commitment_index, 0);
+            let revision = &store::routes::get(&*execution.world, &network)
+                .expect("route")
+                .revisions[&1];
+            assert_eq!(
+                record.leaf,
+                iroha_sccp::v1::control::control_leaf(
+                    execution.network_id().as_bytes(),
+                    network,
+                    &revision.destination_word,
+                    &iroha_sccp::v1::control::ControlLeafV1 {
+                        route_revision: 1,
+                        control_nonce: 1,
+                        track: 1,
+                        parliament_paused: 1,
+                        fast_pause_until_ms: 0,
+                        certificate_id: record.certificate_id,
+                        effect_hash: record.effect_hash,
+                    }
+                )
+                .expect("native control leaf")
+            );
+            assert_automatic_parliament_execution_event(
+                &execution,
+                &fixture,
+                gov::ParliamentAutomaticExecutionOutcomeV1::Enacted,
+            );
+        }
+
+        #[test]
         fn parliament_due_certificate_grants_and_revokes_exact_global_trigger_permission() {
             fn run(action: GlobalDataTriggerPermissionGovernanceActionV1, initially_granted: bool) {
                 let state = blank_test_state();
@@ -22029,11 +22107,13 @@ pub mod isi {
             use crate::sumeragi::test_chain::TestChainConfig;
             let nexus = component.nexus_snapshot();
             let crypto = component.crypto.read().as_ref().clone();
+            let pipeline = component.installed_pipeline().clone();
+            let zk = component.installed_zk().clone();
             let mut config = TestChainConfig::new(component.world, 0);
             config.chain_id = component.chain_id;
-            config.pipeline = component.pipeline;
+            config.pipeline = pipeline;
             config.nexus = Some(nexus);
-            config.zk = Some(component.zk);
+            config.zk = Some(zk);
             config.governance = Some(component.gov);
             config.crypto = Some(crypto);
             config.fraud_monitoring = component.fraud_monitoring;
@@ -27269,6 +27349,31 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .expect_err("retired Halo2 vote-tally circuit must not resolve");
             assert_contains!(tally_error .to_string(), "tally verifying key circuit mismatch", "unexpected retired tally circuit rejection: {tally_error}");
         });
+        world_test!(election_keys_are_read_from_the_committed_election_only {
+            blank_state_transaction!(state, block, state_block, stx);
+            // A settings value that names default keys, as a node configuration
+            // could before the keys of `[gov]` were removed from its schema. The
+            // committed election record is the only relation selector.
+            let configured = VerifyingKeyId::new("pipa-r/pasta", "vk_node_default");
+            let configured_box = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![9, 9, 9]);
+            vk_record!(rec, 1, VOTING_BALLOT_CIRCUIT_ID, BackendTag::NativePipaRPasta, "vesta", [0u8; 32], hash_vk(&configured_box); status = ConfidentialStatus::Active, key = Some(configured_box.clone()), vk_len = u32::try_from(configured_box.bytes.len()) .expect("verifying key length fits into u32"));
+            stx.world.verifying_keys.insert(configured.clone(), rec);
+            let node_default = iroha_config::parameters::actual::VerifyingKeyRef {
+                backend: "pipa-r/pasta".to_owned(),
+                name: "vk_node_default".to_owned(),
+            };
+            stx.gov.vk_ballot = Some(node_default.clone());
+            stx.gov.vk_tally = Some(node_default);
+            let without_keys = crate::state::ElectionState::default();
+            let proof = ProofBox::new("pipa-r/pasta".into(), vec![0xaa]);
+            let attachment = ProofAttachment::new_ref("pipa-r/pasta".into(), proof, configured);
+            let ballot_error = resolve_ballot_vk(&without_keys, &attachment, &stx)
+                .expect_err("an election without a committed ballot key has no ballot relation");
+            assert_contains!(ballot_error.to_string(), "election commits no ballot verifying key", "unexpected rejection: {ballot_error}");
+            let tally_error = resolve_tally_vk(&without_keys, &attachment, &stx)
+                .expect_err("an election without a committed tally key has no tally relation");
+            assert_contains!(tally_error.to_string(), "election commits no tally verifying key", "unexpected rejection: {tally_error}");
+        });
         world_test!(standalone_zk_semantic_guard_stays_closed_independently_of_vote_roles {
             blank_state_transaction!(state, block, state_block, stx);
             let election_id = "unqualified-standalone-zk".to_owned();
@@ -28185,7 +28290,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let counterparty = AccountId::new(checked_keypair().public_key().clone());
             Register::account(new_account_in_domain(&counterparty))
                 .expect_execute(&ALICE_ID, &mut stx, "register settlement counterparty");
-            let settlement_id = "domain_receipt_guard".parse().expect("settlement id");
+            let settlement_id = iroha_data_model::isi::SettlementId::new(ALICE_ID.clone(), "domain_receipt_guard".parse().expect("settlement reference"));
             stx.world.settlement_receipts.insert(
                 settlement_id,
                 iroha_data_model::isi::SettlementReceipt {
@@ -28697,7 +28802,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
             stx.world.insert_repo_agreement_entry(agreement);
             let settlement_id: iroha_data_model::isi::SettlementId =
-                "settleguard".parse().expect("settlement id");
+                iroha_data_model::isi::SettlementId::new(account_id.clone(), "settleguard".parse().expect("settlement reference"));
             let receipt = iroha_data_model::isi::SettlementReceipt {
                 authority: account_id.clone(),
                 metadata: Metadata::default(),
@@ -30764,7 +30869,9 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             {
                 let mut stx = state_block.transaction();
                 let params = stx.world.parameters.get_mut();
-                params.sumeragi.key_activation_lead_blocks = 2;
+                let mut consensus = params.sumeragi().clone();
+                consensus.key_activation_lead_blocks = 2;
+                params.set_sumeragi(consensus);
                 stx.apply();
             }
             crate::status::reset_peer_key_policy_counters_for_tests();
@@ -32050,6 +32157,84 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let params = stx.world.parameters.get().sumeragi().clone();
             assert_eq!(params.max_clock_drift_ms(), 333);
         });
+        fn governance_clock_test_parameter(lag_ms: u64, work_units: u32) -> Parameter {
+            use iroha_data_model::parameter::{CustomParameter, GovernanceClockParametersV1};
+            let clock = GovernanceClockParametersV1 {
+                due_work_max_lag_ms: lag_ms,
+                governance_block_start_work_units: work_units,
+            };
+            Parameter::Custom(CustomParameter::new(
+                GovernanceClockParametersV1::parameter_id().clone(),
+                norito::json::to_json(&clock).unwrap().parse::<iroha_primitives::json::Json>().unwrap(),
+            ))
+        }
+        world_test!(set_parameter_governance_clock_and_drift_preserve_the_joint_bound {
+            blank_state_transaction!(state, block, state_block, stx);
+            let current = stx.world.parameters.get().sumeragi();
+            let drift = current.max_clock_drift_ms();
+            let cadence = current.block_cadence_ms.get();
+            let minimum = 2 * drift + 4 * cadence;
+            for (lag, units) in [(minimum - 1, 64), (minimum, 0)] {
+                let before = stx.world.parameters.get().clone();
+                let events = stx.world.internal_event_buf.len();
+                SetParameter(governance_clock_test_parameter(lag, units))
+                    .execute(&ALICE_ID, &mut stx)
+                    .expect_err("incoherent governance clock must refuse before mutation");
+                assert_eq!(*stx.world.parameters.get(), before);
+                assert_eq!(stx.world.internal_event_buf.len(), events);
+            }
+            SetParameter(governance_clock_test_parameter(minimum, 64))
+                .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag bound");
+            SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
+                .execute(&ALICE_ID, &mut stx)
+                .expect_err("drift increase must preserve committed governance lag");
+            assert_eq!(stx.world.parameters.get().sumeragi().max_clock_drift_ms(), drift);
+            SetParameter(governance_clock_test_parameter(minimum + 2, 64))
+                .expect_execute(&ALICE_ID, &mut stx, "raise lag before raising drift");
+            SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
+                .expect_execute(&ALICE_ID, &mut stx, "jointly valid drift increase");
+            use iroha_data_model::parameter::{CustomParameter, GovernanceClockParametersV1};
+            let before = stx.world.parameters.get().clone();
+            SetParameter(Parameter::Custom(CustomParameter::new(
+                GovernanceClockParametersV1::parameter_id().clone(),
+                "{}".parse::<iroha_primitives::json::Json>().unwrap(),
+            )))
+                .execute(&ALICE_ID, &mut stx)
+                .expect_err("malformed committed clock cannot silently choose defaults");
+            assert_eq!(*stx.world.parameters.get(), before);
+        });
+        world_test!(set_parameter_clock_drift_bound_rejects_excess_without_changing_state {
+            use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+            for height in [1, 2] {
+                let state = blank_state();
+                let block = new_dummy_block_at_height(NonZeroU64::new(height).unwrap());
+                let mut state_block = state.block(block.as_ref().header());
+                let mut stx = state_block.transaction();
+                let cadence = stx.world.parameters.get().sumeragi().block_cadence_ms.get();
+                SetParameter(governance_clock_test_parameter(2 * MAX_CLOCK_DRIFT_BOUND_MS + 4 * cadence, 64))
+                    .expect_execute(&ALICE_ID, &mut stx, "lag supporting the maximum CT4 drift");
+                SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(
+                    MAX_CLOCK_DRIFT_BOUND_MS,
+                )))
+                    .expect_execute(&ALICE_ID, &mut stx, "exact CT4 bound");
+                for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+                    SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(value)))
+                        .execute(&ALICE_ID, &mut stx)
+                        .expect_err("excess clock drift must fail before parameter mutation");
+                    assert_eq!(
+                        stx.world.parameters.get().sumeragi().max_clock_drift_ms(),
+                        MAX_CLOCK_DRIFT_BOUND_MS,
+                    );
+                }
+                // A speculative update does not replace the committed parent parameter.
+                drop(stx);
+                drop(state_block);
+                assert_eq!(
+                    state.view().world().parameters().sumeragi().max_clock_drift_ms(),
+                    iroha_data_model::parameter::system::SumeragiParameters::default().max_clock_drift_ms(),
+                );
+            }
+        });
         world_test!(set_parameter_validates_sumeragi_chain_parameters_and_genesis_constants {
             // Genesis (height 1) accepts the demotion window and defers the §9.4 combination
             // check to the genesis schedule.
@@ -32182,7 +32367,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             ));
             assert!(stx.world.parameters.get().custom().get(&parameter_id).is_none());
             // An already committed exact grant remains retryable after its authorized creation.
-            stx.world.parameters.get_mut().set_parameter(Parameter::Custom(custom.clone()));
+            stx.world.parameters.get_mut().set_parameter(Parameter::Custom(custom.clone())).expect("valid fixture parameters");
             SetParameter::new(Parameter::Custom(custom.clone()))
                 .expect_execute(&ALICE_ID, &mut stx, "installed exact grant retry does not mutate SNS ownership");
             assert_eq!(stx.world.parameters.get().custom().get(&parameter_id), Some(&custom));
@@ -32244,7 +32429,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                     .expect("each governed transaction variant has a current value");
                 let next_parameter = Parameter::Transaction(next);
                 let mut expected_parameters = stx.world.parameters.get().clone();
-                expected_parameters.set_parameter(next_parameter.clone());
+                expected_parameters.set_parameter(next_parameter.clone()).expect("valid fixture parameters");
                 let internal_before = stx.world.internal_event_buf.len();
                 let external_before = stx.world.external_event_buf.len();
                 SetParameter::new(next_parameter.clone())
@@ -32717,7 +32902,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 let mut world = state.world.block();
                 world.parameters.get_mut().set_parameter(Parameter::Custom(
                     SumeragiNposParameters::default().into_custom_parameter(),
-                ));
+                )).expect("valid fixture parameters");
                 world.commit();
             }
             let block = new_dummy_block_at_height(NonZeroU64::new(2).unwrap());
@@ -34081,7 +34266,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(protected));
+                .set_parameter(Parameter::Custom(protected)).expect("valid fixture parameters");
             let rotation = scode::CommitContractDeployment {
                 expected_deploy_nonce: 1,
                 contract_address: address_at_nonce_1.clone(),
@@ -34138,7 +34323,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(parameter));
+                .set_parameter(Parameter::Custom(parameter)).expect("valid fixture parameters");
             let contract_address = ContractAddress::derive(
                 stx.network_id(),
                 &ALICE_ID,
@@ -34182,7 +34367,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             stx.world
                 .parameters
                 .get_mut()
-                .set_parameter(Parameter::Custom(protected));
+                .set_parameter(Parameter::Custom(protected)).expect("valid fixture parameters");
             grant_contract_lifecycle_authority(&mut stx, &ALICE_ID);
             let code_hash = Hash::new(b"protected-contract");
             let manifest = ContractManifest {

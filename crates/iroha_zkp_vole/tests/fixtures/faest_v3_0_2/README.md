@@ -8,6 +8,33 @@ These vectors establish conformance of the building blocks in `iroha_zkp_vole`
 with the FAEST reference implementation. They say nothing about the Parliament
 ballot relations, which are FAEST-derived and have no official vectors.
 
+## Direct CRT generator comparison
+
+`compare_upstream_crt.py` compiles the unmodified upstream
+[`tables/vole_mult_tables.cpp`](https://github.com/faest-sign/faest-ref/blob/4fb6b71143b37764546b7c7729440d9cd8898a5e/tables/vole_mult_tables.cpp)
+at commit `4fb6b71143b37764546b7c7729440d9cd8898a5e`, extracts the numeric
+`parameters.h` macros from that commit's `meson.build`, and compares all scalars
+and every word of `TREE_MODULI`, `M_TREE`, `F`, `G`, `W_TREE`, `W_GATE`, and
+`W_CRT` with the eight embedded Rust table sets. No Rust or Python table
+generator supplies the expected tables. The upstream source tree generates
+these headers during its build; they are not tracked upstream fixtures.
+
+All eight comparisons passed on 2026-10-13. The driver pins SHA-256 hashes of
+its four source inputs (`vole_mult_tables.cpp`, `meson.build`, `macros.h`,
+`faest_defines.h`) before compilation. `upstream_crt_comparison.txt` records the
+generated-header SHA-256 and the SHA3-256 of each canonical `codec::encode_words`
+image serialized as little-endian words. This digest is not the ballot's
+separately framed `T_crt` digest. Reproduction requires Python 3.10+, a C++17
+compiler, and network access on the first run; normal Cargo tests stay offline:
+
+```sh
+python3 crates/iroha_zkp_vole/tests/fixtures/faest_v3_0_2/compare_upstream_crt.py --work-dir /tmp/parliament-upstream-crt
+```
+
+The comparison aborts on source hash, scalar, matrix word, or saved-result
+differences. It does not rewrite the Rust tables or qualify the extended ballot
+construction.
+
 ## Provenance
 
 | | |

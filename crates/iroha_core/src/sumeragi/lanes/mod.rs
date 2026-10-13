@@ -167,6 +167,10 @@ pub fn lane_genesis_result(record: &SumeragiLaneRecord) -> Hash32 {
 /// A pinned member whose key is not BLS-normal, an empty or oversized committee, or chain
 /// parameters that fail §9.4 validation.
 pub fn lane_height_config(record: &SumeragiLaneRecord) -> Result<HeightConfig, LaneError> {
+    iroha_data_model::parameter::system::validate_max_clock_drift_ms(
+        record.params.max_clock_drift_ms,
+    )
+    .map_err(|error| LaneError::Schedule(ScheduleError::Epoch(error.to_string())))?;
     record
         .da_layout
         .validate()
@@ -215,6 +219,22 @@ pub struct LaneBatch {
 }
 
 impl LaneBatch {
+    /// Local clock reference implied by the authenticated anchor and signed inputs.
+    /// This is application pacing only and is absent from the lane result preimage.
+    pub(super) fn effective_time(&self, anchor_time_ms: u64) -> std::time::Duration {
+        let input_floor = self
+            .transactions
+            .iter()
+            .map(|transaction| {
+                u64::try_from(transaction.creation_time().as_millis())
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(1)
+            })
+            .max()
+            .unwrap_or_default();
+        std::time::Duration::from_millis(anchor_time_ms.max(input_floor))
+    }
+
     /// The canonical payload bytes.
     #[must_use]
     pub fn to_payload(&self) -> Vec<u8> {
@@ -432,8 +452,40 @@ pub fn admit(
     payload: &[u8],
 ) -> Result<Admission, AdmissionAttemptError> {
     let batch = LaneBatch::from_payload(payload)?;
+    admit_decoded(
+        record,
+        anchors,
+        chain,
+        checks,
+        config,
+        &batch,
+        payload.len(),
+    )
+    .map(|admitted| {
+        admitted.map_or(Admission::Pending, |admitted| {
+            Admission::Valid(admitted.result)
+        })
+    })
+}
+
+/// Original deterministic admission facts and their clock reference, retained together.
+struct AdmittedLane {
+    result: LaneResult,
+    effective_time: std::time::Duration,
+}
+
+/// Admit the original canonical decoded batch without another decoder or transaction graph.
+fn admit_decoded(
+    record: &SumeragiLaneRecord,
+    anchors: &impl AnchorView,
+    chain: &LaneChainView,
+    checks: &impl TransactionCheck,
+    config: &HeightConfig,
+    batch: &LaneBatch,
+    payload_len: usize,
+) -> Result<Option<AdmittedLane>, AdmissionAttemptError> {
     let Some(applied) = anchors.applied_hash(batch.anchor_height) else {
-        return Ok(Admission::Pending);
+        return Ok(None);
     };
     if applied != batch.anchor_hash {
         return Err(AdmissionError::AnchorMismatch {
@@ -488,13 +540,16 @@ pub fn admit(
         }
         tx_hashes.push(hash);
     }
-    Ok(Admission::Valid(LaneResult {
-        anchor_height: batch.anchor_height,
-        anchor_hash: batch.anchor_hash,
-        tx_hashes,
-        payload_bytes: u64::try_from(payload.len()).unwrap_or(u64::MAX),
-        next_committee_digest: chain_hash(&committee_digest_preimage(&config.committee)).0,
-        next_params: ChainParamsRecord::from_core(&config.params),
+    Ok(Some(AdmittedLane {
+        effective_time: batch.effective_time(anchor_time_ms),
+        result: LaneResult {
+            anchor_height: batch.anchor_height,
+            anchor_hash: batch.anchor_hash,
+            tx_hashes,
+            payload_bytes: u64::try_from(payload_len).unwrap_or(u64::MAX),
+            next_committee_digest: chain_hash(&committee_digest_preimage(&config.committee)).0,
+            next_params: ChainParamsRecord::from_core(&config.params),
+        },
     }))
 }
 
@@ -570,6 +625,25 @@ mod tests {
             merged: SumeragiLaneFrontier::default(),
             merged_at: 7,
             rescued: 0,
+        }
+    }
+
+    #[test]
+    fn lane_height_config_clock_drift_bound_rejects_unbounded_original_records() {
+        use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+        let mut record = record(None);
+        for value in [0, MAX_CLOCK_DRIFT_BOUND_MS] {
+            record.params.max_clock_drift_ms = value;
+            assert!(lane_height_config(&record).is_ok());
+        }
+        for value in [MAX_CLOCK_DRIFT_BOUND_MS + 1, u64::MAX] {
+            record.params.max_clock_drift_ms = value;
+            assert!(
+                lane_height_config(&record)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("exceeds the protocol bound")
+            );
         }
     }
 

@@ -374,16 +374,20 @@ where
 
 fn receive_capsule_data() -> (
     KagemushaWalletSchemeV1,
-    KagemushaWalletRecoveryCapsuleV1,
+    KagemushaWalletRecoveryBodyV1,
     KagemushaWalletCredentialV1,
 ) {
     let scheme = capsule_data_fixture("KagemushaWalletSchemeV1");
-    let capsule = capsule_data_fixture("KagemushaWalletRecoveryCapsuleV1");
+    let capsule = capsule_data_fixture::<KagemushaWalletRecoveryCapsuleV1>(
+        "KagemushaWalletRecoveryCapsuleV1",
+    )
+    .body()
+    .clone();
     let request = retained_request(&capsule).expect("exact retained Request");
     (scheme, capsule, request.receiver_credential)
 }
 
-fn request_original(capsule: &mut KagemushaWalletRecoveryCapsuleV1) -> &mut Vec<u8> {
+fn request_original(capsule: &mut KagemushaWalletRecoveryBodyV1) -> &mut Vec<u8> {
     &mut capsule
         .retained_inputs
         .iter_mut()
@@ -394,7 +398,7 @@ fn request_original(capsule: &mut KagemushaWalletRecoveryCapsuleV1) -> &mut Vec<
 
 // Recompute the capsule's actual own public bindings after a DATA context mutation. This
 // makes the negative controls reach the new context join rather than only shape rejection.
-fn rebind_capsule_data(capsule: &mut KagemushaWalletRecoveryCapsuleV1) {
+fn rebind_capsule_data(capsule: &mut KagemushaWalletRecoveryBodyV1) {
     capsule.operation_id = capsule
         .statement
         .operation_id(&capsule.wallet_id)
@@ -589,7 +593,7 @@ fn receipt_free_context_preserves_soft_incoming_original_for_receive_relation() 
 // produced by the Send relation, an authenticated ArtifactSet, or proof acceptance evidence.
 fn send_capsule_data() -> (
     KagemushaWalletSchemeV1,
-    KagemushaWalletRecoveryCapsuleV1,
+    KagemushaWalletRecoveryBodyV1,
     KagemushaWalletCredentialV1,
 ) {
     let (scheme, mut capsule, _) = receive_capsule_data();
@@ -781,6 +785,9 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
     // These are unadmitted DATA originals from another scheme. This test proves only
     // cancellation precedence; none of their placeholder proof bytes is accepted.
     let (_, capsule, credential) = receive_capsule_data();
+    let frozen: KagemushaWalletRecoveryCapsuleV1 =
+        capsule_data_fixture("KagemushaWalletRecoveryCapsuleV1");
+    assert_eq!(frozen.body(), &capsule);
     let payment: KagemushaWalletPaymentV1 = capsule_data_fixture("KagemushaWalletPaymentV1");
     let lineage = payment.send.lineage.lineage().unwrap();
     let token = iroha_pasta::CancellationToken::new();
@@ -791,7 +798,11 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
         Err(Error::Cancelled)
     );
     assert_eq!(
-        verifier.verify_capsule_proofs_cancellable(&capsule, &credential, budget, Some(&token)),
+        verifier.verify_capsule_proofs_cancellable(&frozen, &credential, budget, Some(&token)),
+        Err(Error::Cancelled)
+    );
+    assert_eq!(
+        verifier.verify_body_proofs_cancellable(&capsule, &credential, budget, Some(&token)),
         Err(Error::Cancelled)
     );
     assert_eq!(
@@ -814,4 +825,25 @@ fn cancelled_verification_never_reports_acceptance_or_invalidity() {
         verifier.verify_package_proofs(&payment.send, None, budget),
         Err(Error::Authority)
     );
+}
+
+#[test]
+fn retained_request_read_preserves_original_refusal_and_exact_retry() {
+    let (scheme, mut capsule, payer) = send_capsule_data();
+    let before = capsule.clone();
+    let expected = retained_request(&capsule).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    for error in [
+        norito::with_decode_limits_scope(limits, || retained_request(&capsule)).unwrap_err(),
+        norito::with_decode_limits_scope(limits, || capsule_selector(&scheme, &capsule, &payer))
+            .unwrap_err(),
+    ] {
+        assert!(matches!(error, Error::DecodeResource(ref cause)
+            if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    }
+    assert_eq!(capsule, before);
+    assert_eq!(retained_request(&capsule).unwrap(), expected);
+    assert!(capsule_selector(&scheme, &capsule, &payer).is_ok());
+    *request_original(&mut capsule) = vec![0];
+    assert_eq!(retained_request(&capsule), Err(Error::Authority));
 }

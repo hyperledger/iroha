@@ -89,7 +89,7 @@ use crate::{
     },
     v1::{
         constants::{CODEC_EVM_ADDRESS20, MAX_VOID_FROZEN_RANGE_EVM},
-        evm_abi::{AbiError, TransferToTairaLogV1, VoidedLogV1},
+        evm_abi::{AbiError, FinalizedLogV1, TransferToTairaLogV1, VoidedLogV1},
         hashes::{keccak256, payload_hash, word_u64},
         network::tag,
         payload::PayloadAccountV1,
@@ -283,9 +283,11 @@ pub enum EthereumEventSelectorV1 {
     TransferToTaira(EthereumLogRefV1),
     /// One `voidExpired` log, or a run of `voidFrozen` logs of consecutive nonces.
     Void(EthereumLogRangeV1),
+    /// One `SccpFinalized` mint log.
+    Finalized(EthereumLogRefV1),
 }
 
-/// Ethereum inbound or void proof.
+/// Ethereum inbound, finalized-mint or void proof.
 #[derive(
     Clone,
     Debug,
@@ -1138,6 +1140,18 @@ pub(super) fn select_event(
     locator: SccpSourceLocatorV1,
 ) -> Result<SccpNormalizedEventV1, SccpLcError> {
     match selector {
+        EthereumEventSelectorV1::Finalized(reference) => {
+            let log = log_at(receipt, reference.log_index)?;
+            let decoded =
+                FinalizedLogV1::decode(&log.topics, &log.data).map_err(EthereumLcError::Event)?;
+            Ok(SccpNormalizedEventV1::Finalized {
+                emitter: SccpSourceEmitterV1::Evm(log.address),
+                message_id: decoded.message_id,
+                nonce: decoded.nonce,
+                amount: Some(decoded.token_amount),
+                locator,
+            })
+        }
         EthereumEventSelectorV1::TransferToTaira(reference) => {
             let log = log_at(receipt, reference.log_index)?;
             let decoded = TransferToTairaLogV1::decode(&log.topics, &log.data)
@@ -1204,7 +1218,7 @@ fn select_voids(
     })
 }
 
-/// Verify an Ethereum inbound or void proof.
+/// Verify an Ethereum inbound, finalized-mint or void proof.
 pub(super) fn verify_proof<V: SccpLcStateView + ?Sized>(
     profile: &EthereumChainProfileV1,
     view: &V,
@@ -1981,6 +1995,95 @@ mod tests {
                 now
             ),
             Err(EthereumLcError::Event(AbiError::WrongTopic).into())
+        );
+    }
+
+    #[test]
+    fn finalized_proof_binds_receipt_emitter_nonce_and_exact_taira_units() {
+        let chain = SyntheticBeaconChainV1::mainnet();
+        let now = chain.slot_unix_ms(slot(300));
+        let memory = installed(&chain, now);
+        let finalized = FinalizedLogV1 {
+            message_id: [0x74; 32],
+            nonce: 9,
+            recipient: [0x42; 20],
+            token_amount: 1_500_000_000,
+        };
+        let (topics, data) = finalized.encode();
+        let log = crate::ethereum_source::EthereumLogV1 {
+            address: EMITTER,
+            topics,
+            data,
+        };
+        let (header, receipt_proof) = inbound_block(&chain, vec![log]);
+        let proof = EthereumSourceProofV1 {
+            anchor: EthereumProofAnchorV1::FinalityUpdate(Box::new(
+                chain.finality_update_for(execution_of(&header), slot(200)),
+            )),
+            ancestry: EthereumAncestryV1::SameBlock,
+            event_header: header.clone(),
+            transaction_index: 1,
+            receipt_proof,
+            event: EthereumEventSelectorV1::Finalized(EthereumLogRefV1 { log_index: 0 }),
+        };
+        let verified = verify_proof(
+            &ETHEREUM_MAINNET,
+            &memory,
+            &light_client(&memory),
+            &proof,
+            now,
+        )
+        .expect("authenticated finalized log");
+        assert_eq!(
+            verified.event,
+            SccpNormalizedEventV1::Finalized {
+                emitter: SccpSourceEmitterV1::Evm(EMITTER),
+                message_id: finalized.message_id,
+                nonce: 9,
+                amount: Some(1_500_000_000),
+                locator: SccpSourceLocatorV1 {
+                    source_height: 1_000,
+                    block_hash: execution_of(&header).block_hash,
+                    index_in_block: 1,
+                },
+            }
+        );
+        let mut wrong_log = proof.clone();
+        wrong_log.event = EthereumEventSelectorV1::Finalized(EthereumLogRefV1 { log_index: 1 });
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_log,
+                now
+            )
+            .is_err()
+        );
+        let mut wrong_receipt = proof.clone();
+        wrong_receipt.transaction_index = 0;
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_receipt,
+                now
+            )
+            .is_err()
+        );
+        let mut wrong_kind = proof;
+        wrong_kind.event =
+            EthereumEventSelectorV1::TransferToTaira(EthereumLogRefV1 { log_index: 0 });
+        assert!(
+            verify_proof(
+                &ETHEREUM_MAINNET,
+                &memory,
+                &light_client(&memory),
+                &wrong_kind,
+                now
+            )
+            .is_err()
         );
     }
 

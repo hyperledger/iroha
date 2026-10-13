@@ -213,6 +213,7 @@ fn paid(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         at,
         crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

@@ -159,7 +159,7 @@ impl IsoLifecycleAuthorization {
         &self.parties
     }
 
-    /// Return the exact original transaction hash whose commitment may authorize settlement.
+    /// Return the exact original transaction hash whose successful execution may authorize settlement.
     pub(crate) fn settlement_transaction_hash(
         &self,
         message_type: &str,
@@ -3278,14 +3278,14 @@ impl Iso20022BridgeRuntime {
             IsoLifecycleApplyError::PersistenceUnavailable => MsgError::ValidationFailed,
         })
     }
-    /// Apply a lifecycle message while requiring exact committed-transaction evidence.
+    /// Apply a lifecycle message requiring caller-authenticated successful execution of the exact transaction.
     pub(crate) fn apply_inbound_lifecycle_message_with_evidence(
         &self,
         message_id: &str,
         message_type: &str,
         parsed: &ParsedMessage,
         authorization: &IsoLifecycleAuthorization,
-        committed_transaction_hash: Option<&str>,
+        applied_transaction_hash: Option<&str>,
     ) -> Result<(IsoLifecycleOutcome, IsoMessageStatus), IsoLifecycleApplyError> {
         let _state_guard = self.state_lock.lock();
         let referenced_message_id =
@@ -3318,7 +3318,7 @@ impl Iso20022BridgeRuntime {
                     .transaction_hash
                     .as_deref()
                     .ok_or(MsgError::ValidationFailed)?;
-                if committed_transaction_hash != Some(expected_hash)
+                if applied_transaction_hash != Some(expected_hash)
                     || original.transaction_hash.as_deref() != Some(expected_hash)
                 {
                     return Err(MsgError::ValidationFailed.into());

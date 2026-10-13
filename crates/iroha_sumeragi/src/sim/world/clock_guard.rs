@@ -1,12 +1,14 @@
 //! The application clock guard of the simulator's toy application (§4.5): per-machine wall
 //! clocks, block times stamped by the payload builders (CT3), the executor rules CT1 and CT5 for
 //! executions with `certified = false`, and the oracle O-TIME (§13.2): the time of every
-//! committed block exceeds every honest wall clock by at most `2·max_clock_drift_ms`.
+//! committed block exceeds every honest wall clock by at most `2·max_clock_drift_ms`, and
+//! every due-work block is fresh at its first genuine honest Prepare.
 //!
 //! The guard is application-level (the node driver's executor, `iroha_core`); the sans-IO core
 //! only emits the `certified` flag of `Action::Execute`. It is modelled here so that the
 //! deterministic simulator can show liveness under skewed honest clocks and the certified-time
-//! bound, and so that its mutations (MS51, MS52) are killed by named simulator tests (§13.4).
+//! bounds, and so that its mutations (MS51, MS52, MS65, MS66) are killed by named simulator
+//! tests (§13.4).
 //!
 //! TODO: the block time is the builder's stamp `wall + lead`, not the canonical
 //! `max(parent + cadence, …)` of the real application, so a committed post-dated block does not
@@ -93,6 +95,9 @@ pub struct GuardState {
     pub events: Vec<GuardEvent>,
     /// Every committed block with a block time, in first-commit order.
     pub certified: Vec<CertifiedTime>,
+    /// Due-work blocks already checked at their first genuine honest Prepare; later
+    /// certified re-proposals and commits need not still be fresh (§4.5).
+    first_due_prepares: BTreeSet<(usize, Hash32)>,
 }
 
 impl GuardState {
@@ -114,6 +119,7 @@ impl GuardState {
             builds: vec![0; machines],
             events: Vec::new(),
             certified: Vec::new(),
+            first_due_prepares: BTreeSet::new(),
         }
     }
 
@@ -130,19 +136,64 @@ impl GuardState {
     }
 
     /// The guard rule `block_time` violates at wall time `wall` (CT1 before CT5), if any.
-    /// MS52 deletes CT1.
+    /// MS52 deletes CT1, MS65 deletes CT5, and MS66 removes CT1's drift allowance.
     pub fn violated(&self, t: u64, due: bool, wall: i64) -> Option<GuardRule> {
         let t = i64::try_from(t).unwrap_or(i64::MAX);
-        let drift = i64::try_from(self.max_clock_drift_ms).unwrap_or(i64::MAX);
+        let drift = if cfg!(sumeragi_mutation = "MS66") {
+            0
+        } else {
+            i64::try_from(self.max_clock_drift_ms).unwrap_or(i64::MAX)
+        };
         let lag = i64::try_from(self.due_work_max_lag_ms).unwrap_or(i64::MAX);
         if t > wall.saturating_add(drift) && !cfg!(sumeragi_mutation = "MS52") {
             return Some(GuardRule::ClockAhead);
         }
-        (due && wall.saturating_sub(t) > lag).then_some(GuardRule::StaleDueWork)
+        (due && wall.saturating_sub(t) > lag && !cfg!(sumeragi_mutation = "MS65"))
+            .then_some(GuardRule::StaleDueWork)
     }
 }
 
 impl World {
+    /// O-TIME's lower bound is checked once per due-work block at its first genuine honest
+    /// Prepare, not at a later certified re-proposal or commit, which may be arbitrarily late.
+    pub(in crate::sim) fn check_first_due_prepare(
+        &mut self,
+        machine: usize,
+        slot: crate::sim::crypto::SigSlot,
+        block_hash: Hash32,
+    ) {
+        if self.clock_guard.is_none() {
+            return;
+        }
+        let Some(&inst) = self.inst_by_id.get(&slot.instance) else {
+            return;
+        };
+        let Some(replica) = self.machines[machine].replicas[inst] else {
+            return;
+        };
+        let Some(block) = self.local_body(replica, slot.height, &block_hash) else {
+            return self.fail("O-TIME: first honest Prepare has no original body".to_owned());
+        };
+        let payload = block.payload().as_slice();
+        let Some(t) = block_time(payload).filter(|_| payload_due(payload)) else {
+            return;
+        };
+        let wall = self.wall_ms(machine);
+        let guard = self.clock_guard.as_mut().expect("guarded world");
+        if !guard.first_due_prepares.insert((inst, block_hash)) {
+            return;
+        }
+        let lag = i64::try_from(guard.due_work_max_lag_ms).unwrap_or(i64::MAX);
+        let age = wall.saturating_sub(i64::try_from(t).unwrap_or(i64::MAX));
+        if age > lag {
+            self.fail(format!(
+                "O-TIME: first honest Prepare of due-work block at instance {inst} height {} \
+                 has age {age} ms > due_work_max_lag_ms = {lag} ms",
+                slot.height,
+            ));
+        }
+    }
+
     /// Machine `m`'s wall clock (ms): its monotonic clock plus its wall offset (§4.5).
     pub fn wall_ms(&self, m: usize) -> i64 {
         let local = i64::try_from(self.machines[m].clock.local(self.now)).unwrap_or(i64::MAX);

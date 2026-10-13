@@ -248,6 +248,10 @@ fn native_capture_for(
     let native_finality_frame = native_finality.to_canonical_bytes().unwrap();
     let event_commitment = decision.execution().event_commitment.unwrap();
     let certificate = decision.block().commit_certificate().unwrap();
+    assert_eq!(
+        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+        Some(decision.result())
+    );
     let core_header: iroha_sumeragi::message::BlockHeader =
         norito::decode_canonical(certificate.consensus_header()).unwrap();
     let qc: iroha_sumeragi::message::Qc =
@@ -291,11 +295,12 @@ fn native_capture_for(
         "event_box_hash_preimage_hex": (hex::encode(&hash_preimage)),
         "event_box_hash_hex": (HashOf::new(&boxed).to_string()),
         "event_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<KagemushaLoadCommittedV1>())),
-        "result_preimage_hex": (hex::encode(decision.commitment().preimage().unwrap())),
+        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
         "result_hash_hex": (hex::encode(decision.result().0)),
         "result_height": (decision.height()),
-        "result_alignment": (core::mem::align_of::<ExecutionResultCommitment>()),
-        "result_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<ExecutionResultCommitment>())),
+        "result_header_bytes": (crate::sumeragi_finality::certified_result::X_LEN),
+        "result_body_alignment": (core::mem::align_of::<ExecutionResultCommitment>()),
+        "result_body_codec_identity_hex": (hex::encode(norito::schema::identity::frame_hash::<ExecutionResultCommitment>())),
         "execution_commitment_frame_hex": (hex::encode(norito::encode_canonical(decision.execution()).unwrap())),
         "execution_commitment_alignment": (core::mem::align_of::<ExecutionCommitment>()),
         "event_commitment_root_hex": (hex::encode(event_commitment.root().as_ref())),
@@ -392,8 +397,8 @@ fn schedule_capture(schedule: &crate::sumeragi_finality::ScheduleOutcome) -> nor
             "selection_anchor_hex": (hex::encode(boundary.selection_anchor.as_ref())),
             "predecessor_context_id_hex": (hex::encode(boundary.predecessor_context_id)),
         }))),
-        // This complete-graph frame is deliberately named: R uses the compact
-        // ResultWire projection, whose exact bytes are captured separately.
+        // The result body uses the compact ResultWire projection; R also binds the
+        // original fixed header X. Their exact joined bytes are captured separately.
         "standalone_complete_graph": (codec_capture(schedule)),
     })
 }
@@ -410,10 +415,14 @@ fn npos_schedule_capture() -> norito::json::Value {
                 .map(|proof| {
                     let decision = verifier.verify_retained_decision(proof).unwrap();
                     let certificate = decision.block().commit_certificate().unwrap();
+                    assert_eq!(
+                        crate::sumeragi_finality::result_of_preimage(certificate.result_preimage()),
+                        Some(decision.result())
+                    );
                     norito::json!({
                         "height": (decision.height()),
                         "proof_frame_hex": (hex::encode(norito::encode_canonical(proof).unwrap())),
-                        "result_preimage_hex": (hex::encode(decision.commitment().preimage().unwrap())),
+                        "result_preimage_hex": (hex::encode(certificate.result_preimage())),
                         "result_hash_hex": (hex::encode(decision.result().0)),
                         "block_hash_hex": (hex::encode(decision.block().hash().as_ref())),
                         "consensus_block_hash_hex": (hex::encode(decision.core_hash().0)),
@@ -451,9 +460,26 @@ fn saved_capture(name: &str, expected: &norito::json::Value) -> norito::json::Va
     norito::json::from_slice(&std::fs::read(path).expect("native capture")).unwrap()
 }
 
+fn assert_native_result_capture(row: &norito::json::Value) {
+    use crate::sumeragi_finality::{CertifiedResultScope, CertifiedResultV1, result_of_preimage};
+    let preimage = hex::decode(row["result_preimage_hex"].as_str().unwrap()).unwrap();
+    let result = CertifiedResultV1::decode(&preimage, CertifiedResultScope::TairaGlobal).unwrap();
+    assert_eq!(result.preimage().unwrap(), preimage);
+    assert_eq!(
+        hex::encode(result_of_preimage(&preimage).unwrap().0),
+        row["result_hash_hex"].as_str().unwrap(),
+    );
+    assert!(result_of_preimage(&result.commitment().preimage().unwrap()).is_none());
+}
+
 #[test]
 fn npos_schedule_proof_bytes_match_independent_native_capture() {
     let expected = npos_schedule_capture();
+    for case in expected["cases"].as_array().unwrap() {
+        for block in case["blocks"].as_array().unwrap() {
+            assert_native_result_capture(block);
+        }
+    }
     assert_eq!(
         saved_capture("ordinary_load_npos_schedule_v1.json", &expected),
         expected
@@ -464,6 +490,7 @@ fn npos_schedule_proof_bytes_match_independent_native_capture() {
 fn canonical_receipt_and_event_proof_bytes_match_independent_native_capture() {
     let expected = native_capture();
     let saved = saved_capture("ordinary_load_receipt_v1.json", &expected);
+    assert_native_result_capture(&saved);
     assert_eq!(
         saved, expected,
         "receipt/event frame, transcript, codec identity and exact typed-hash preimage must all match the pinned native capture"
@@ -485,6 +512,7 @@ fn canonical_receipt_and_event_proof_bytes_match_independent_native_capture() {
 fn first_load_receipt_and_event_match_independent_native_capture() {
     let expected = first_load_capture();
     let saved = saved_capture("ordinary_first_load_receipt_v1.json", &expected);
+    assert_native_result_capture(&saved);
     assert_eq!(saved, expected);
     let bytes = hex::decode(saved["receipt_frame_hex"].as_str().unwrap()).unwrap();
     let receipt: KagemushaWalletLoadReceiptV1 = norito::decode_canonical(&bytes).unwrap();

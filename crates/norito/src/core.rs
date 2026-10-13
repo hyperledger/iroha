@@ -67,7 +67,10 @@ pub use prepared_sequence::{
 pub use prepared_string::{StringDestinationError, borrow_canonical_string, decode_string_into};
 mod decode_attempt;
 pub use decode_attempt::classify_decode_attempt;
-pub use decode_attempt::{DecodeAttemptError, DecodeAttemptErrorKind, ScopedDecodeResourceError};
+pub use decode_attempt::{
+    DecodeAttemptError, DecodeAttemptErrorKind, DecodeLocalRefusal, DecodeLocalRefusalKind,
+    ScopedDecodeResourceError,
+};
 mod byte_sequence;
 #[doc(hidden)]
 pub use byte_sequence::{decode_byte_element_sequence_into, visit_binary_sequence_with_count};
@@ -7367,15 +7370,21 @@ fn match_canonical_payload(
     }
     Ok(exact.matched_len())
 }
-struct TypedFieldSlot<T> {
+pub(crate) struct TypedFieldSlot<T> {
     value: Option<T>,
 }
 impl<T> TypedFieldSlot<T> {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { value: None }
     }
-    fn into_value(mut self) -> Result<T, Error> {
+    pub(crate) fn into_value(mut self) -> Result<T, Error> {
+        self.take_value()
+    }
+    pub(crate) fn take_value(&mut self) -> Result<T, Error> {
         self.value.take().ok_or(Error::LengthMismatch)
+    }
+    pub(crate) fn value(&self) -> Result<&T, Error> {
+        self.value.as_ref().ok_or(Error::LengthMismatch)
     }
 }
 impl<T> ErasedFieldSlot for TypedFieldSlot<T>
@@ -7521,6 +7530,21 @@ fn decode_field_erased(
     // canonical consumption against the original field in both cases.
     note_payload_access(bytes, used);
     Ok(used)
+}
+/// Decode into one caller-retained value slot, returning no large owned temporary through
+/// the framing and resource-scope stack. The slot owns cleanup on every failure or unwind.
+pub(crate) fn decode_field_canonical_into_slot<T>(
+    bytes: &[u8],
+    slot: &mut TypedFieldSlot<T>,
+) -> Result<(), Error>
+where
+    T: for<'de> crate::DeserializePayload<'de> + crate::SerializePayload,
+{
+    let used = decode_field_erased(bytes, FieldDecodeBoundary::Canonical, slot)?;
+    if used != bytes.len() {
+        return Err(Error::LengthMismatch);
+    }
+    Ok(())
 }
 /// Decode a field payload using the canonical codec implementation without
 /// requiring a specialized `DecodeFromSlice` implementation.

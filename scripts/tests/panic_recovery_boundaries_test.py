@@ -80,6 +80,10 @@ def test_daemon_recoverable_workers_have_no_bare_blocking(relative: str) -> None
         "crates/iroha_core/src/executor_asset_lock_admission_tests.rs",
         "crates/iroha_core/src/executor/root_scope.rs",
         "crates/iroha_core/src/executor/root_scope/tests.rs",
+        "crates/iroha_core/src/executor_dpn_domain_enrollment_tests.rs",
+        "crates/iroha_core/src/executor_opaque_sccp_record_tests.rs",
+        "crates/iroha_core/src/executor/fee_sponsor_multisig.rs",
+        "crates/iroha_core/src/executor/fee_sponsor_multisig_tests.rs",
     ),
 )
 def test_core_recovery_support_seals_exact_permission_include(
@@ -1910,21 +1914,22 @@ def test_nested_amx_support_refuses_missing_original_even_with_guessed_sibling(t
     assert failures == ["crates/iroha_core/src/executor/root_scope/tests.rs:1: mod must name one static local source file"]
 
 
-def test_support_include_seals_full_original_caller(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ("asset_lock_admission", "sns_attempt"))
+def test_support_include_seals_full_original_caller(tmp_path: Path, name: str) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     parent.mkdir(parents=True)
     executor = parent / "executor.rs"
-    included = parent / "executor_sns_attempt_tests.rs"
+    included = parent / f"executor_{name}_tests.rs"
     executor.write_text(
-        '#[cfg(test)] mod tests { include!("executor_sns_attempt_tests.rs"); }\n',
+        f'#[cfg(test)] mod tests {{ include!("executor_{name}_tests.rs"); }}\n',
         encoding="utf-8",
     )
     included.write_text("fn sns_attempt() { original_root_and_scope(); }\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert failures == []
     assert included.resolve() in sources
-    assert Path("crates/iroha_core/src/executor_sns_attempt_tests.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path(f"crates/iroha_core/src/executor_{name}_tests.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
     records, _, counts = module.torii_boundary_inventory(tmp_path, sources)
     included.write_text("fn sns_attempt() { substituted_root_and_scope(); }\n", encoding="utf-8")
     observed = module.torii_boundary_inventory(tmp_path)
@@ -1935,25 +1940,26 @@ def test_support_include_seals_full_original_caller(tmp_path: Path) -> None:
     assert any("source inventory drifted" in error for error in failures), failures
 
 
-def test_support_include_refuses_absence_and_guessed_sibling(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ("asset_lock_admission", "sns_attempt"))
+def test_support_include_refuses_absence_and_guessed_sibling(tmp_path: Path, name: str) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     parent.mkdir(parents=True)
     executor = parent / "executor.rs"
-    original = parent / "executor_sns_attempt_tests.rs"
-    guessed = parent / "executor_sns_attempts_tests.rs"
+    original = parent / f"executor_{name}_tests.rs"
+    guessed = parent / f"executor_{name}s_tests.rs"
     executor.write_text(
-        '#[cfg(test)] mod tests { include!("executor_sns_attempt_tests.rs"); }\n',
+        f'#[cfg(test)] mod tests {{ include!("executor_{name}_tests.rs"); }}\n',
         encoding="utf-8",
     )
     guessed.write_text("fn guessed_attempt() {}\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert original.resolve() not in sources
     assert guessed.resolve() not in sources
-    assert Path("crates/iroha_core/src/executor_sns_attempts_tests.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path(f"crates/iroha_core/src/executor_{name}s_tests.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
     assert failures == [
         "crates/iroha_core/src/executor.rs:1: include! source path is missing "
-        "or not a regular file: executor_sns_attempt_tests.rs"
+        f"or not a regular file: executor_{name}_tests.rs"
     ]
 
 

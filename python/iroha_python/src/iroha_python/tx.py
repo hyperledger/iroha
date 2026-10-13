@@ -1399,7 +1399,11 @@ class TransactionDraft:
         plan: Optional[SettlementPlan] = None,
         metadata: MetadataLike = None,
     ) -> TransactionDraft:
-        """Append a delivery-versus-payment settlement instruction."""
+        """Append DvP using ``reference$canonical_owner`` as the settlement ID.
+
+        The owner must be an actual debited account. Reuse the exact identity and
+        terms when recovering a carrier; bare business references are rejected.
+        """
 
         effective_plan = plan or SettlementPlan()
         metadata_payload = _normalize_metadata(metadata) if metadata is not None else None
@@ -1423,7 +1427,11 @@ class TransactionDraft:
         plan: Optional[SettlementPlan] = None,
         metadata: MetadataLike = None,
     ) -> TransactionDraft:
-        """Append a payment-versus-payment settlement instruction."""
+        """Append PvP using ``reference$canonical_owner`` as the settlement ID.
+
+        The owner must be an actual debited account. Reuse the exact identity and
+        terms when recovering a carrier; bare business references are rejected.
+        """
 
         effective_plan = plan or SettlementPlan()
         metadata_payload = _normalize_metadata(metadata) if metadata is not None else None

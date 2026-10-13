@@ -744,7 +744,7 @@ fn component_fee_and_canonical_bounds_refuse_without_publication_or_lost_resourc
     );
     variants.push(changed);
     let mut changed = request.clone();
-    changed.options.deadline = Instant::now() - Duration::from_secs(1);
+    changed.options.deadline = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     variants.push(changed);
     let mut changed = request.clone();
     changed

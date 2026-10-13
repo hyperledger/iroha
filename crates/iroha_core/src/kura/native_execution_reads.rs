@@ -238,6 +238,21 @@ impl Kura {
         &self,
         store: &mut BlockStore,
     ) -> Result<StableCanonicalBlockStoreMetadata> {
+        // Failure to reacquire the original pathname is source unavailability,
+        // not proof that the retained journal's authenticated bytes are corrupt.
+        // Keep this classification at the metadata identity boundary only;
+        // frame, slot and byte validation errors retain their own classification.
+        self.native_frame_journal_binding_inner(store)
+            .map_err(|error| match error {
+                Error::IO(source, path) => Error::NativeJournalUnavailable(source, path),
+                error => error,
+            })
+    }
+
+    fn native_frame_journal_binding_inner(
+        &self,
+        store: &mut BlockStore,
+    ) -> Result<StableCanonicalBlockStoreMetadata> {
         let journals = self.canonical_block_store_metadata(&store.path_to_blockchain)?;
         let bind = |expected: &StableSidecarMetadata, file: &FileWrap| -> Result<()> {
             let opened = secure_file_metadata::from_file(&file.file)
@@ -881,10 +896,10 @@ mod native_execution_read_tests {
                     "{journal}: {kind}"
                 );
                 assert!(
-                    chain
-                        .kura()
-                        .native_frame_read(2, original.block_hash())
-                        .is_err(),
+                    matches!(
+                        chain.kura().native_frame_read(2, original.block_hash()),
+                        Err(Error::NativeJournalUnavailable(_, _))
+                    ),
                     "a fresh owner cannot adopt {journal}: {kind}"
                 );
                 assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
@@ -980,5 +995,35 @@ impl Kura {
         store.read_block_data(slot.start, &mut bytes).unwrap();
         *bytes.last_mut().expect("native frame is nonempty") ^= 1;
         store.write_block_data(slot.start, &bytes).unwrap();
+    }
+}
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+impl Kura {
+    /// Replace only the original durable frame's certificate, preserving its header and
+    /// exact occupied slot extent. The hash/index and cached executed source stay unchanged.
+    pub fn replace_native_certificate_for_test(
+        &self,
+        height: NonZeroUsize,
+        certificate: iroha_data_model::block::CommitCertificate,
+    ) {
+        let mut store = self.block_store.lock();
+        let slot = store
+            .read_block_index(u64::try_from(height.get() - 1).unwrap())
+            .unwrap();
+        assert!(!slot.is_evicted());
+        let mut bytes = vec![0; usize::try_from(slot.length).unwrap()];
+        store.read_block_data(slot.start, &mut bytes).unwrap();
+        let mut original = iroha_data_model::block::decode_framed_signed_block(&bytes).unwrap();
+        let original_hash = original.hash();
+        original.set_commit_certificate(Some(certificate));
+        assert_eq!(original.hash(), original_hash, "only certificate changes");
+        let replacement = original.encode_wire().unwrap();
+        assert_eq!(
+            replacement.len(),
+            bytes.len(),
+            "original occupied slot extent"
+        );
+        store.write_block_data(slot.start, &replacement).unwrap();
     }
 }

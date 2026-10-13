@@ -180,7 +180,6 @@ macro_rules! define_original_musubi_group {
         impl StateBlock<'_> {
             /// Retain fourteen original paired map readers once under the same scope.
             /// Every pre-installation failure returns the unchanged move-only scope.
-            #[expect(clippy::result_large_err,reason="refusal returns the original move-only scope without allocating an error wrapper")]
             pub(crate) fn start_original_musubi_group_read(&mut self,scope:OwnedAllocationScope)
                 ->Result<(),(OwnedAllocationScope,RetainedMusubiGroupReadError)> {
                 let fields=self.fields.as_mut().expect("original State fields");

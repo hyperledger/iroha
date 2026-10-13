@@ -69,10 +69,10 @@ use iroha_data_model::{
         PrivacyP256PointV1, PrivacyParameterIdV1, PrivacyPgcAccountBootstrapV1,
         PrivacyPgcAccountV1, PrivacyPgcBootstrapProofBytesV1, PrivacyPolicyIdV1, PrivacyPoolIdV1,
         PrivacyPoolNamespaceV1, PrivacyProofBytesV1, PrivacyProofEnvelopeV1,
-        PrivacyProofManagedPoolBootstrapV1, PrivacyProofV1, PrivacyRootV1,
-        PrivacyStatementDigestV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
-        PrivacyVeRangeBitLengthV1, PrivacyZkAcePolicyLifecycleV1, PrivacyZkAcePolicyRecordV1,
-        VeRangeTransparentRangeStatementV1, ZkAcePqAuthorizationStatementV1,
+        PrivacyProofManagedPoolBootstrapV1, PrivacyProofV1, PrivacyRootV1, PrivacyStatementV1,
+        PrivacyTransactionIntentDigestV1, PrivacyVeRangeBitLengthV1, PrivacyZkAcePolicyLifecycleV1,
+        PrivacyZkAcePolicyRecordV1, VeRangeTransparentRangeStatementV1,
+        ZkAcePqAuthorizationStatementV1,
     },
     transaction::SignedTransaction,
     zk::{ZkAcePrivacyPublicInputsV1, derive_zk_ace_privacy_authorization_digest},
@@ -210,50 +210,30 @@ fn finish_transaction_v1(
     }
     signed_payload_v1(payload, expected_intent, private_key)
 }
+/// Bind the proof-free envelope used only to derive a transaction intent.
 fn placeholder_envelope_v1(
     profile: CompiledPrivacyProfileV1,
     statement: PrivacyStatementV1,
     proof: PrivacyProofV1,
-) -> PrivacyProofEnvelopeV1 {
-    PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement,
-        proof,
-    }
+) -> Result<PrivacyProofEnvelopeV1, PrivacyReleaseEvidenceErrorClassV1> {
+    final_envelope_v1(profile, statement, proof)
 }
+/// Bind the canonical envelope and require the compiled profile's identities.
+///
+/// The canonical binder derives every envelope identity from the statement;
+/// this builder additionally refuses a statement whose context was not built
+/// from `profile`.
 fn final_envelope_v1(
     profile: CompiledPrivacyProfileV1,
     statement: PrivacyStatementV1,
     proof: PrivacyProofV1,
 ) -> Result<PrivacyProofEnvelopeV1, PrivacyReleaseEvidenceErrorClassV1> {
-    let statement_digest = statement
-        .digest()
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(statement, proof)
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
-    Ok(PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement,
-        proof,
-    })
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
+    Ok(envelope)
 }
 fn secret_scalar_v1(
     master: [u8; 32],
@@ -338,7 +318,7 @@ pub fn build_privacy_release_zk_ace_network_action_v1(
             profile,
             PrivacyStatementV1::ZkAcePqAuthorizationV1(statement.clone()),
             PrivacyProofV1::ZkAcePqAuthorizationV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     let authorization_inputs =
@@ -424,7 +404,7 @@ pub fn build_privacy_release_verange_network_action_v1(
             profile,
             draft_statement,
             PrivacyProofV1::VeRangeTransparentRangeV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     let typed_statement = PrivacyStatementV1::VeRangeTransparentRangeV1(statement.clone());
@@ -553,7 +533,7 @@ pub fn build_privacy_release_bootle_lantern_network_action_v1(
             profile,
             PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement.clone()),
             PrivacyProofV1::IrohaBootleLanternAnoncredV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     let mut attributes = [[0_u8; 8]; 8];
@@ -916,7 +896,7 @@ pub fn build_privacy_release_anonymous_pgc_network_action_v1(
             profile,
             PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement.clone()),
             PrivacyProofV1::AnonymousPgcKOutOfNV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     let typed_statement = PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement.clone());
@@ -1098,7 +1078,7 @@ pub fn build_privacy_release_fcmp_network_action_v1(
             profile,
             PrivacyStatementV1::MoneroFcmpPlusPlusV1(statement.clone()),
             PrivacyProofV1::MoneroFcmpPlusPlusV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     let typed_statement = PrivacyStatementV1::MoneroFcmpPlusPlusV1(statement.clone());
@@ -1201,7 +1181,7 @@ pub fn build_privacy_release_ivm_private_note_network_action_v1(
             profile,
             PrivacyStatementV1::IrohaIvmPrivateNoteStarkV1(statement.clone()),
             PrivacyProofV1::IrohaIvmPrivateNoteStarkV1(PrivacyProofBytesV1::new(Vec::new())),
-        ),
+        )?,
     )?;
     statement.context.transaction_intent_digest = intent;
     statement.action_digest = statement

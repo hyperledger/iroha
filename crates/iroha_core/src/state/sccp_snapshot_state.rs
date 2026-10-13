@@ -21,6 +21,7 @@ use crate::smartcontracts::isi::sccp::{
     },
     store,
 };
+use crate::state::deserialize::StateRestoreError;
 use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocationReservation};
 
 /// Snapshot syntax and original resource refusal remain distinct through the State reader.
@@ -29,6 +30,9 @@ pub enum SccpRestoreError {
     /// Malformed canonical current or predecessor data.
     #[error(transparent)]
     Json(#[from] json::Error),
+    /// The original enclosing map or Cell allocation refused restoration.
+    #[error(transparent)]
+    Storage(#[from] mv::storage::AdmittedStorageError),
     /// The complete current/undo graph was refused before any partial owner was created.
     #[error("snapshot SCCP original graph admission refused: {0}")]
     Admission(#[from] AllocationRefusal),
@@ -41,41 +45,163 @@ pub enum SccpRestoreError {
     /// Pause, panel or endorsement graph failed without discarding its original refusal.
     #[error("SCCP pause State: {0}")]
     Pause(#[from] PauseRecordError),
+    /// Fixed reconciliation snapshot decoder refused its original local resources.
+    #[error("SCCP reconciliation snapshot decoder: {0}")]
+    ReconciliationDecode(norito::core::DecodeResourceError),
 }
 
-/// Admit every immutable graph before constructing the replacement storage.
-/// TODO: fund the enclosing decoded map and MV map-node allocations at their owners.
-fn admit_generations(
-    decoded: &Storage<u64, SccpCommitteeGenerationV1>,
+/// Check the exact refund reserve in both restored cuts before either becomes visible.
+/// One original-pool scalar scratch map groups the outbound rows of each cut; no
+/// message payload or historical graph is copied during this restore-time check.
+fn validate_pending_refunds(
+    outbound: &mut Storage<[u8; 32], iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1>,
+    refunds: &mut crate::smartcontracts::isi::sccp::reconciliation_store::Refunds,
     budget: &AllocationBudget,
-    reservation: &mut AllocationReservation,
-) -> Result<Storage<u64, RetainedSccpGeneration>, SccpRestoreError> {
+) -> Result<(), SccpRestoreError> {
+    use crate::smartcontracts::isi::sccp::reconciliation_store::{Key, Refunds};
+    use iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1;
+
+    fn invalid() -> SccpRestoreError {
+        json::Error::InvalidField {
+            field: "sccp_pending_refund_amount".into(),
+            message: "refund amounts differ from exact current or predecessor pending records"
+                .into(),
+        }
+        .into()
+    }
+    fn image<'a>(
+        outbound: impl Iterator<Item = (&'a [u8; 32], &'a SccpOutboundMessageRecordV1)>,
+        refunds: impl Iterator<Item = (&'a Key, &'a u128)>,
+        budget: &AllocationBudget,
+    ) -> Result<(), SccpRestoreError> {
+        let sums = Refunds::try_new_admitted(budget.clone())?;
+        sums.try_with_admitted_block(|block| {
+            for (_, record) in outbound {
+                if !record.status.is_refund_pending() {
+                    continue;
+                }
+                let key = (record.network, record.revision);
+                let sum = block
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(0_u128)
+                    .checked_add(record.amount)
+                    .ok_or_else(invalid)?;
+                if sum != 0 {
+                    block
+                        .try_insert_admitted(key, sum)
+                        .map_err(|(_, error)| SccpRestoreError::Storage(error))?;
+                }
+            }
+            if !block
+                .iter()
+                .map(|(key, value)| (*key, *value))
+                .eq(refunds.map(|(key, value)| (*key, *value)))
+            {
+                return Err(invalid());
+            }
+            Ok(())
+        })
+        .map_err(|error| match error {
+            mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+            mv::storage::AdmittedBlockError::Callback(original) => original,
+        })
+    }
+    let outbound = outbound.history();
+    let refunds = refunds.history();
+    image(outbound.current().iter(), refunds.current().iter(), budget)?;
+    image(
+        outbound.iter_before_block(),
+        refunds.iter_before_block(),
+        budget,
+    )
+}
+
+/// Authenticate each reconciliation's quarantine and open-window supply bound in both cuts.
+/// A fixed rate names historical backing, so a closed window imposes no bound on today's
+/// remaining liability after claims and refunds have consumed it.
+fn validate_reconciliation_routes(
+    records: &mut crate::smartcontracts::isi::sccp::reconciliation_store::Records,
+    routes: &mut Storage<SccpNetworkV1, iroha_data_model::sccp::registry::SccpRouteV1>,
+) -> Result<(), SccpRestoreError> {
+    let records = records.history();
+    let routes = routes.history();
+    let current = records.current().iter().map(|(key, record)| {
+        (
+            record,
+            routes
+                .current()
+                .get(&key.0)
+                .and_then(|route| route.revisions.get(&key.1)),
+        )
+    });
+    let previous = records.iter_before_block().map(|(key, record)| {
+        (
+            record,
+            routes
+                .get_before_block(&key.0)
+                .and_then(|route| route.revisions.get(&key.1)),
+        )
+    });
+    for (record, revision) in current.chain(previous) {
+        if !revision.is_some_and(|revision| {
+            revision.quarantine.is_some()
+                && (record.rho.is_some()
+                    || revision
+                        .liability
+                        .checked_add(record.forged_supply)
+                        .is_some())
+        }) {
+            return Err(json::Error::InvalidField {
+                field: "sccp_reconciliations".into(),
+                message: "reconciliation lacks its exact quarantined revision or open supply bound"
+                    .into(),
+            }
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Preserve both exact MV cuts in original-pool immutable anchor map nodes.
+fn admit_anchor_chunks(
+    decoded: &Storage<u64, [u8; 32]>,
+    budget: &AllocationBudget,
+) -> Result<AnchorStorage, SccpRestoreError> {
     let snapshot = decoded.snapshot();
-    let mut current = BTreeMap::new();
-    let mut undo = BTreeMap::new();
-    for (key, value) in snapshot.current().iter() {
-        current.insert(
-            *key,
-            RetainedSccpGeneration::admit_prepaid(value, budget, reservation)?,
-        );
-    }
-    for (key, value) in snapshot.revert_map().iter() {
-        undo.insert(
-            *key,
-            value
-                .as_ref()
-                .map(|value| RetainedSccpGeneration::admit_prepaid(value, budget, reservation))
-                .transpose()?,
-        );
-    }
-    Ok(Storage::from_snapshot_parts(current, undo))
+    AnchorStorage::try_restore_admitted(budget.clone(), |current, undo| {
+        for (key, value) in snapshot.current().iter() {
+            current(*key, *value)?;
+        }
+        for (key, value) in snapshot.revert_map().iter() {
+            undo(*key, *value)?;
+        }
+        Ok::<(), SccpRestoreError>(())
+    })
+    .map_err(|error| match error {
+        mv::storage::AdmittedBlockError::Admission(original) => original.into(),
+        mv::storage::AdmittedBlockError::Callback(original) => original,
+    })
+}
+
+/// Admit the original scalar current/undo Cell owners before publishing any field.
+fn admit_scalar<T: mv::Value>(
+    decoded: Cell<T>,
+    budget: &AllocationBudget,
+) -> Result<Cell<T, iroha_allocation::AllocationCharge>, SccpRestoreError> {
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| {
+            owner.initialize(
+                decoded.view().get().clone(),
+                decoded.predecessor_view().get().clone(),
+            )
+        })
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
 }
 
 /// Rebuild the destination-work index from the canonical current and exact undo records.
 /// This index carries no independent authority and never requires a historical scan per block.
-fn destination_pending_index(
-    generations: &Storage<u64, RetainedSccpGeneration>,
-) -> Storage<u64, ()> {
+fn destination_pending_index(generations: &CommitteeStorage) -> Storage<u64, ()> {
     let snapshot = generations.snapshot();
     let pending =
         |record: &RetainedSccpGeneration| record.end.is_some() && record.dest_cleared_lc.is_none();
@@ -98,12 +224,11 @@ fn destination_pending_index(
 }
 
 /// Preserve exact predecessor presence while admitting both actual anchor allocations.
-/// TODO: fund the enclosing Cell EBR allocations at the State cell owner.
 fn admit_anchors(
     decoded: &Cell<Vec<SccpAnchorV1>>,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
-) -> Result<Cell<RetainedSccpAnchors>, SccpRestoreError> {
+) -> Result<Cell<RetainedSccpAnchors, iroha_allocation::AllocationCharge>, SccpRestoreError> {
     let current = RetainedSccpAnchors::admit_prepaid(decoded.view().get(), budget, reservation)?;
     let undo = decoded
         .predecessor_view()
@@ -111,14 +236,9 @@ fn admit_anchors(
         .as_ref()
         .map(|value| RetainedSccpAnchors::admit_prepaid(value, budget, reservation))
         .transpose()?;
-    Ok(Cell::from_values_charged(
-        current,
-        undo,
-        mv::cell::CellAllocationCharges::new(
-            concread::ebrcell::Untracked,
-            concread::ebrcell::Untracked,
-        ),
-    ))
+    mv::cell::CellInitialization::try_reserve(budget)
+        .map(|owner| owner.initialize(current, undo))
+        .map_err(|error| scalar_cell_custody::admission_error(error).into())
 }
 use iroha_data_model::{
     bridge::SccpNetworkV1,
@@ -126,7 +246,7 @@ use iroha_data_model::{
         commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         fast_pause::{SccpFastPauseRoundV1, SccpFastPauseV1, SccpPanelRoleV1, SccpPausePanelV1},
-        generation::{SCCP_ANCHOR_CHUNK_SIZE_V1, SccpAnchorV1, SccpCommitteeGenerationV1},
+        generation::{SCCP_ANCHOR_CHUNK_SIZE_V1, SccpAnchorV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
         light_client::{
@@ -166,7 +286,6 @@ fn admit_pause_map<K: mv::Key, V: mv::Value, R: mv::Value>(
 }
 
 /// Preserve absent predecessors separately from a predecessor whose panel is absent.
-/// TODO: fund the enclosing Cell EBR allocations at the State cell owner.
 fn admit_panel(
     decoded: &Cell<Option<SccpPausePanelV1>>,
     budget: &AllocationBudget,
@@ -215,7 +334,6 @@ fn pause_map_demand<K: mv::Key, V: mv::Value>(
 
 /// Compute all actual retained data/control allocations before requesting any credit.
 fn snapshot_graph_demand(
-    generations: &Storage<u64, SccpCommitteeGenerationV1>,
     anchors: &Cell<Vec<SccpAnchorV1>>,
     fast_pauses: &Storage<SccpNetworkV1, SccpFastPauseV1>,
     rounds: &Storage<(SccpNetworkV1, SccpPanelRoleV1), SccpFastPauseRoundV1>,
@@ -228,15 +346,6 @@ fn snapshot_graph_demand(
             .ok_or(AllocationRefusal::DemandOverflow)?;
         Ok(())
     };
-    let generations = generations.snapshot();
-    for (_, row) in generations.current().iter() {
-        add(RetainedSccpGeneration::admission_demand(row)?)?;
-    }
-    for (_, row) in generations.revert_map().iter() {
-        if let Some(row) = row {
-            add(RetainedSccpGeneration::admission_demand(row)?)?;
-        }
-    }
     add(RetainedSccpAnchors::admission_demand(anchors.view().get())?)?;
     if let Some(prior) = anchors.predecessor_view().get() {
         add(RetainedSccpAnchors::admission_demand(prior)?)?;
@@ -272,6 +381,8 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
     pub(super) sccp_committee_generations: snapshot_storage::SnapshotStorage,
     pub(super) sccp_committee_current: Cell<u64>,
+    pub(super) sccp_forgery_offences: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_forgery_max_generation: Cell<Option<u64>>,
     pub(super) sccp_liability_clock: Cell<u64>,
     pub(super) sccp_degraded_run: Cell<u32>,
     pub(super) sccp_anchor_open: Cell<Vec<SccpAnchorV1>>,
@@ -292,6 +403,9 @@ pub(crate) struct SnapshotSccpState {
     pub(super) sccp_governance_revisions: snapshot_storage::SnapshotStorage,
     pub(super) sccp_inbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_pending_counts: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_reconciliations: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_reconciliation_proven: snapshot_storage::SnapshotStorage,
+    pub(super) sccp_pending_refund_amount: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_clients: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_sets: snapshot_storage::SnapshotStorage,
     pub(super) sccp_light_client_checkpoints: snapshot_storage::SnapshotStorage,
@@ -327,6 +441,8 @@ macro_rules! serialize_sccp_fields {
             cell sccp_reset_nonce,
             store sccp_committee_generations,
             cell sccp_committee_current,
+            store sccp_forgery_offences,
+            cell sccp_forgery_max_generation,
             cell sccp_liability_clock,
             cell sccp_degraded_run,
             cell sccp_anchor_open,
@@ -347,6 +463,9 @@ macro_rules! serialize_sccp_fields {
             store sccp_governance_revisions,
             store sccp_inbound_messages,
             store sccp_pending_counts,
+            store sccp_reconciliations,
+            store sccp_reconciliation_proven,
+            store sccp_pending_refund_amount,
             store sccp_light_clients,
             store sccp_light_client_sets,
             store sccp_light_client_checkpoints,
@@ -449,7 +568,7 @@ impl SnapshotSccpState {
         self,
         world: &mut World,
         budget: &AllocationBudget,
-    ) -> Result<(), SccpRestoreError> {
+    ) -> Result<(), StateRestoreError> {
         validate_cell(&self.sccp_parameters, "sccp_parameters", valid_parameters)?;
         validate_cell(
             &self.sccp_reset_nonce,
@@ -467,12 +586,166 @@ impl SnapshotSccpState {
                 Err("invalid panel structure".to_owned())
             }
         })?;
-        let committee_generations = self
-            .sccp_committee_generations
-            .decode::<u64, SccpCommitteeGenerationV1>(
-                "sccp_committee_generations",
-                |key, value| *key == value.generation && value.is_well_formed(),
-            )?;
+        let committee_generations = self.sccp_committee_generations.decode_generations(budget)?;
+        let forgery_offences = self.sccp_forgery_offences.decode_forgery_offences(budget)?;
+        let max_current = *self.sccp_forgery_max_generation.view().get();
+        let max_previous = *self.sccp_forgery_max_generation.predecessor_view().get();
+        let snapshot = forgery_offences.snapshot();
+        for (key, previous) in snapshot.revert_map().iter() {
+            if previous
+                .as_ref()
+                .is_some_and(|id| snapshot.current().get(key) != Some(id))
+            {
+                return Err(invalid(
+                    "sccp_forgery_offences",
+                    "permanent offence was removed or rebound",
+                )
+                .into());
+            }
+        }
+        let evidence = world.consensus_evidence.snapshot();
+        // SCCP bodies are permanent; only the independent penalty metadata may change.
+        for (id, old) in evidence.revert_map().iter() {
+            if let Some(old) = old {
+                if matches!(
+                    old.evidence,
+                    iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(_)
+                ) && evidence
+                    .current()
+                    .get(id)
+                    .is_none_or(|current| &**current != &**old)
+                {
+                    return Err(invalid(
+                        "consensus_evidence",
+                        "permanent SCCP evidence body was removed or rebound",
+                    )
+                    .into());
+                }
+            }
+        }
+        // Reconstruct both exact cuts without a copied graph or an intermediate map.
+        let offence_at = |key: &sccp_forgery_custody::OffenceKey, previous: bool| {
+            if previous {
+                if let Some(old) = snapshot.revert_map().get(key) {
+                    return old.as_ref();
+                }
+            }
+            snapshot.current().get(key)
+        };
+        let evidence_at = |id: &Hash, previous: bool| {
+            if previous {
+                if let Some(old) = evidence.revert_map().get(id) {
+                    return old.as_ref();
+                }
+            }
+            evidence.current().get(id)
+        };
+        for previous in [false, true] {
+            for key in snapshot
+                .current()
+                .iter()
+                .map(|(key, _)| key)
+                .chain(snapshot.revert_map().iter().map(|(key, _)| key))
+            {
+                let Some(id) = offence_at(key, previous) else {
+                    continue;
+                };
+                let record = evidence_at(&Hash::prehashed(*id), previous).ok_or_else(|| {
+                    invalid(
+                        "sccp_forgery_offences",
+                        "offence lacks its permanent evidence record in current/undo cut",
+                    )
+                })?;
+                let iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(material) =
+                    &record.evidence
+                else {
+                    return Err(invalid(
+                        "sccp_forgery_offences",
+                        "native evidence cannot back an SCCP offence",
+                    )
+                    .into());
+                };
+                let (generation, lane, validator) = &**key;
+                if record.sccp_evidence_id() != Some(*id)
+                    || material.generation != *generation
+                    || !material
+                        .offenders
+                        .iter()
+                        .any(|o| o.lane_id == *lane && o.validator == *validator)
+                {
+                    return Err(invalid(
+                        "sccp_forgery_offences",
+                        "offence/evidence original tuple differs",
+                    )
+                    .into());
+                }
+            }
+            for id in evidence
+                .current()
+                .iter()
+                .map(|(id, _)| id)
+                .chain(evidence.revert_map().iter().map(|(id, _)| id))
+            {
+                let Some(record) = evidence_at(id, previous) else {
+                    continue;
+                };
+                if let iroha_data_model::block::consensus::RecordedEvidenceV1::SccpForgery(
+                    material,
+                ) = &record.evidence
+                {
+                    let exact = record
+                        .sccp_evidence_id()
+                        .ok_or_else(|| invalid("consensus_evidence", "invalid SCCP identity"))?;
+                    if *id != Hash::prehashed(exact) {
+                        return Err(invalid("consensus_evidence", "SCCP record key differs").into());
+                    }
+                    for offender in &material.offenders {
+                        let key = sccp_forgery_custody::OffenceKey::try_copy(
+                            material.generation,
+                            offender.lane_id,
+                            &offender.validator,
+                            budget,
+                        )?;
+                        if offence_at(&key, previous) != Some(&exact) {
+                            return Err(invalid(
+                                "sccp_forgery_offences",
+                                "SCCP record lacks its exact permanent offence in current/undo cut",
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
+        }
+        drop(evidence);
+        let current_max = snapshot
+            .current()
+            .iter()
+            .map(|(key, _)| key.generation())
+            .max();
+        let previous_max = snapshot
+            .current()
+            .iter()
+            .filter(|(key, _)| snapshot.revert_map().get(key).is_none())
+            .map(|(key, _)| key.generation())
+            .chain(
+                snapshot
+                    .revert_map()
+                    .iter()
+                    .filter_map(|(key, value)| value.as_ref().map(|_| key.generation())),
+            )
+            .max();
+        if max_current != current_max || max_previous.unwrap_or(max_current) != previous_max {
+            return Err(invalid(
+                "sccp_forgery_max_generation",
+                "maximum does not match permanent current/undo offences",
+            )
+            .into());
+        }
+        // Fund replacement scalar controls under the same original offence pool before publication.
+        let forgery_max_generation =
+            sccp_forgery_custody::initialize_max(max_current, max_previous, budget)?;
+        drop(snapshot);
         let anchor_chunks = self
             .sccp_anchor_chunks
             .decode::<u64, [u8; 32]>("sccp_anchor_chunks", store::anchor_chunks::valid_entry)?;
@@ -489,7 +762,7 @@ impl SnapshotSccpState {
         let history_leaves = self
             .sccp_history_leaves
             .decode::<u64, (u64, [u8; 32])>("sccp_history_leaves", |_, _| true)?;
-        let outbound_messages = self
+        let mut outbound_messages = self
             .sccp_outbound_messages
             .decode::<[u8; 32], SccpOutboundMessageRecordV1>("sccp_outbound_messages", |_, _| {
                 true
@@ -520,7 +793,7 @@ impl SnapshotSccpState {
                 "sccp_fast_pause_rounds",
                 |key, value| key.0.is_external() && value.has_valid_shape(),
             )?;
-        let routes = self
+        let mut routes = self
             .sccp_routes
             .decode::<SccpNetworkV1, SccpRouteV1>("sccp_routes", store::routes::valid_entry)?;
         let destination_words = self
@@ -541,6 +814,35 @@ impl SnapshotSccpState {
                 "sccp_pending_counts",
                 store::pending_counts::valid_entry,
             )?;
+        use crate::smartcontracts::isi::sccp::reconciliation_store as reconciliation;
+        let mut reconciliations = self.sccp_reconciliations.decode_reconciliation_fixed::<
+            reconciliation::Key, iroha_data_model::sccp::reconciliation::SccpReconciliationStateV1,
+        >("sccp_reconciliations", budget, reconciliation::valid_record)?;
+        let mut reconciliation_proven = self
+            .sccp_reconciliation_proven
+            .decode_reconciliation_fixed::<reconciliation::ProofKey, u128>(
+                "sccp_reconciliation_proven",
+                budget,
+                |key, amount| reconciliation::valid_key(&(key.0, key.1)) && *amount > 0,
+            )?;
+        let mut pending_refund_amount = self
+            .sccp_pending_refund_amount
+            .decode_reconciliation_fixed::<reconciliation::Key, u128>(
+                "sccp_pending_refund_amount",
+                budget,
+                |key, amount| reconciliation::valid_key(key) && *amount > 0,
+            )?;
+        let reconciliation_due = reconciliation::rebuild_due(&reconciliations, budget)?;
+        if !reconciliation::validate_proof_sums(&mut reconciliations, &mut reconciliation_proven) {
+            return Err(json::Error::InvalidField {
+                field: "sccp_reconciliation_proven".into(),
+                message: "proof amounts differ from exact current or predecessor forged supply"
+                    .into(),
+            }
+            .into());
+        }
+        validate_pending_refunds(&mut outbound_messages, &mut pending_refund_amount, budget)?;
+        validate_reconciliation_routes(&mut reconciliations, &mut routes)?;
         let light_clients = self
             .sccp_light_clients
             .decode::<SccpNetworkV1, SccpLightClientV1>("sccp_light_clients", |_, _| true)?;
@@ -567,15 +869,14 @@ impl SnapshotSccpState {
             )?;
         // Every structural check and graph admission precedes the first World publication.
         let bytes = snapshot_graph_demand(
-            &committee_generations,
             &self.sccp_anchor_open,
             &fast_pauses,
             &rounds,
             &self.sccp_pause_panel,
         )?;
-        let mut reservation = budget.try_reserve_bytes(bytes)?;
-        let committee_generations =
-            admit_generations(&committee_generations, budget, &mut reservation)?;
+        let mut reservation = budget
+            .try_reserve_bytes(bytes)
+            .map_err(SccpRestoreError::from)?;
         let anchor_open = admit_anchors(&self.sccp_anchor_open, budget, &mut reservation)?;
         let fast_pauses = admit_pause_map(
             &fast_pauses,
@@ -592,14 +893,20 @@ impl SnapshotSccpState {
         let panel = admit_panel(&self.sccp_pause_panel, budget, &mut reservation)?;
         debug_assert_eq!(reservation.remaining_bytes(), 0);
         let destination_pending_generations = destination_pending_index(&committee_generations);
+        let anchor_chunks = admit_anchor_chunks(&anchor_chunks, budget)?;
+        let committee_current = admit_scalar(self.sccp_committee_current, budget)?;
+        let liability_clock = admit_scalar(self.sccp_liability_clock, budget)?;
+        let degraded_run = admit_scalar(self.sccp_degraded_run, budget)?;
         world.sccp_destination_pending_generations = destination_pending_generations;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
         world.sccp_committee_generations = committee_generations;
-        world.sccp_committee_current = self.sccp_committee_current;
-        world.sccp_liability_clock = self.sccp_liability_clock;
-        world.sccp_degraded_run = self.sccp_degraded_run;
+        world.sccp_committee_current = committee_current;
+        world.sccp_liability_clock = liability_clock;
+        world.sccp_degraded_run = degraded_run;
         world.sccp_anchor_open = anchor_open;
+        world.sccp_forgery_offences = forgery_offences;
+        world.sccp_forgery_max_generation = forgery_max_generation;
         world.sccp_anchor_chunks = anchor_chunks;
         world.sccp_block_leaves = block_leaves;
         world.sccp_block_commitments = block_commitments;
@@ -617,6 +924,10 @@ impl SnapshotSccpState {
         world.sccp_governance_revisions = governance_revisions;
         world.sccp_inbound_messages = inbound_messages;
         world.sccp_pending_counts = pending_counts;
+        world.sccp_reconciliations = reconciliations;
+        world.sccp_reconciliation_proven = reconciliation_proven;
+        world.sccp_pending_refund_amount = pending_refund_amount;
+        world.sccp_reconciliation_due = reconciliation_due;
         world.sccp_light_clients = light_clients;
         world.sccp_light_client_sets = light_client_sets;
         world.sccp_light_client_checkpoints = light_client_checkpoints;

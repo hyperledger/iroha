@@ -81,41 +81,6 @@ impl Kura {
         Ok(())
     }
 
-    /// Simulate loss of a canonical body while retaining its exact recovery metadata.
-    ///
-    /// Unlike normal eviction, this test-only fault may affect unfinished Native
-    /// publication work. It retains the indexed wire length so authenticated
-    /// remote recovery must restore the exact canonical frame.
-    ///
-    /// # Errors
-    /// Returns an error when the height is absent or its storage cannot be updated.
-    #[cfg(test)]
-    pub(crate) fn remove_block_body_for_recovery_test(&self, height: NonZeroUsize) -> Result<()> {
-        let _prune_guard = self.prune_lock.lock();
-        let _canonical_chain_guard = self.canonical_chain_lock.lock();
-        let _write_guard = self.block_store_write_lock.lock();
-        let index = u64::try_from(height.get().saturating_sub(1))?;
-        let mut store = self.block_store.lock();
-        let block_index = store.read_block_index(index)?;
-        let count = store.read_durable_index_count()?;
-        let path = store.da_block_path(u64::try_from(height.get())?);
-        let before_bytes = Self::file_len_or_zero(&path)?;
-        let accounting_mutation = self.begin_total_disk_usage_mutation();
-        store.write_block_index(index, EVICTED_BLOCK_START, block_index.length)?;
-        store.remove_da_block_file(u64::try_from(height.get())?)?;
-        store.publish_commit_marker(count)?;
-        drop(store);
-        if let Some((_, cached)) = self
-            .block_data
-            .lock()
-            .get_mut(height.get().saturating_sub(1))
-        {
-            *cached = None;
-        }
-        self.update_total_disk_usage_delta(before_bytes, 0);
-        accounting_mutation.finish();
-        Ok(())
-    }
     /// Remove the local DA cache only after a canonical body was genuinely evicted.
     ///
     /// This test-only hook models a remote-only historical block so downstream

@@ -19,7 +19,8 @@ use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 
 use super::{
-    KAGEMUSHA_WALLET_VERSION_V1, WalletResult, WalletVersionsV1,
+    KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1, WalletResult,
+    WalletVersionsV1, decode_frame_v1,
     digest::{
         KagemushaWalletObjectDigestDomainV1 as ObjectDomain, KagemushaWalletSignerOutputV1,
         KagemushaWalletSigningDomainV1 as Domain, WalletFieldItemsV1, WalletTranscriptV1,
@@ -3183,8 +3184,8 @@ pub struct KagemushaWalletReceiptBodyV1 {
     /// Operation-dependent proof digest ([`kagemusha_wallet_proof_digest_v1`]), a σ-field
     /// value.
     pub proof_digest: [u8; 32],
-    /// Recovery capsule digest.
-    pub capsule_digest: [u8; 32],
+    /// Opaque public randomized capsule commitment identifier; never a private custody hash.
+    pub capsule_commitment: [u8; 32],
     /// Full canonical Payment digest of a Receive, a σ-field value; zero for every other
     /// operation.
     pub payment_digest: [u8; 32],
@@ -3196,19 +3197,19 @@ impl KagemushaWalletReceiptBodyV1 {
     /// # Errors
     ///
     /// Rejects an invalid statement, a statement for another scheme, a zero or noncanonical
-    /// proof digest, a zero capsule digest, a noncanonical Payment digest, and a Payment digest
+    /// proof digest, a zero capsule commitment, a noncanonical Payment digest, and a Payment digest
     /// present or absent against the operation (present exactly for Receive).
     pub fn derive(
         signer: &KagemushaWalletReceiptSignerV1,
         statement: &KagemushaWalletStatementV1,
         proof_digest: &[u8; 32],
-        capsule_digest: [u8; 32],
+        capsule_commitment: [u8; 32],
         payment_digest: [u8; 32],
     ) -> WalletResult<Self> {
         statement.validate()?;
         require_scheme_v1("receipt.scheme_id", &statement.scheme_id, &signer.scheme_id)?;
         require_nonzero_field_v1("receipt.proof_digest", proof_digest)?;
-        require_nonzero_v1("receipt.capsule_digest", &capsule_digest)?;
+        require_nonzero_v1("receipt.capsule_commitment", &capsule_commitment)?;
         require_canonical_field_v1("receipt.payment_digest", &payment_digest)?;
         let receive = statement.effect.kind() == KagemushaWalletOperationKindV1::Receive;
         if receive == is_zero_v1(&payment_digest) {
@@ -3225,7 +3226,7 @@ impl KagemushaWalletReceiptBodyV1 {
             successor: statement.successor,
             statement_digest: statement.statement_digest()?,
             proof_digest: *proof_digest,
-            capsule_digest,
+            capsule_commitment,
             payment_digest,
         })
     }
@@ -3245,7 +3246,7 @@ impl KagemushaWalletReceiptBodyV1 {
             .write(self.predecessor.write(transcript))
             .digest(&self.statement_digest)
             .digest(&self.proof_digest)
-            .digest(&self.capsule_digest)
+            .digest(&self.capsule_commitment)
             .digest(&self.payment_digest)
             .finish()
     }
@@ -3271,8 +3272,8 @@ pub struct KagemushaWalletReceiptV1 {
     pub version: u16,
     /// Operation identity; recomputed from the statement by every verifier.
     pub operation_id: [u8; 32],
-    /// Digest of the frozen recovery capsule body.
-    pub capsule_digest: [u8; 32],
+    /// Opaque public identifier `P_bytes(kgwcapc1, canonical(C))`, signed by the payment key.
+    pub capsule_commitment: [u8; 32],
     /// Full canonical Payment digest of a Receive; zero otherwise.
     pub payment_digest: [u8; 32],
     /// Payment-key signature over the receipt signing message (`kgwrcpt1`).
@@ -3291,7 +3292,7 @@ impl KagemushaWalletReceiptV1 {
         credential: &KagemushaWalletCredentialV1,
         statement: &KagemushaWalletStatementV1,
         proof_digest: &[u8; 32],
-        capsule_digest: [u8; 32],
+        capsule_commitment: [u8; 32],
         payment_digest: [u8; 32],
         signer_output: KagemushaWalletSignerOutputV1<'_>,
     ) -> WalletResult<Self> {
@@ -3301,7 +3302,7 @@ impl KagemushaWalletReceiptV1 {
             &signer,
             statement,
             proof_digest,
-            capsule_digest,
+            capsule_commitment,
             payment_digest,
         )?;
         let signature = kagemusha_wallet_freeze_signature_v1(
@@ -3313,7 +3314,7 @@ impl KagemushaWalletReceiptV1 {
         let receipt = Self {
             version: KAGEMUSHA_WALLET_VERSION_V1,
             operation_id: body.operation_id,
-            capsule_digest,
+            capsule_commitment,
             payment_digest,
             signature,
         };
@@ -3330,7 +3331,7 @@ impl KagemushaWalletReceiptV1 {
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("receipt.version", self.version)?;
         require_nonzero_field_v1("receipt.operation_id", &self.operation_id)?;
-        require_nonzero_v1("receipt.capsule_digest", &self.capsule_digest)?;
+        require_nonzero_v1("receipt.capsule_commitment", &self.capsule_commitment)?;
         require_canonical_field_v1("receipt.payment_digest", &self.payment_digest)?;
         self.signature.validate()?;
         Ok(())
@@ -3353,7 +3354,7 @@ impl KagemushaWalletReceiptV1 {
             signer,
             statement,
             proof_digest,
-            self.capsule_digest,
+            self.capsule_commitment,
             self.payment_digest,
         )?;
         if body.operation_id != self.operation_id {
@@ -3483,6 +3484,28 @@ impl KagemushaWalletPackageV1 {
             return Err(invalid_v1("package.receipt.payment_digest"));
         }
         Ok(())
+    }
+
+    /// Decode one exact canonical Package frame for `expected_scheme_id` within the
+    /// complete message bound, then validate its self-contained structure.
+    ///
+    /// This does not verify the receipt signature, σ or Ω, or establish custody authority.
+    /// Consumers must still run the required signature, proof and retained-custody checks.
+    ///
+    /// # Errors
+    ///
+    /// Rejects, in order, an oversized frame, a noncanonical frame, any unsupported nested
+    /// version, another scheme, and what [`Self::validate`] rejects.
+    pub fn decode_canonical(bytes: &[u8], expected_scheme_id: &[u8; 32]) -> WalletResult<Self> {
+        let package: Self = decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
+        package.require_versions()?;
+        require_scheme_v1(
+            "package.scheme_id",
+            &package.statement.scheme_id,
+            expected_scheme_id,
+        )?;
+        package.validate()?;
+        Ok(package)
     }
 
     /// Operation-dependent `proof_digest` of this package (§4.1).

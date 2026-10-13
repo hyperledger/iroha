@@ -362,12 +362,12 @@ fn contract_arguments_are_admitted_before_decode_and_bind_local_schema() -> Resu
         parse_contract_arguments(r#"{"next":"7"}"#)?,
         false,
     )?;
-    validate_trusted_intent(&artifact, &intent, &payload, false)?;
+    validate_trusted_intent(&artifact, &intent, payload.as_ref(), false)?;
     assert!(
         validate_trusted_intent(
             &artifact,
             &intent,
-            &Some(norito::json!({"next":"8"})),
+            Some(&norito::json!({"next":"8"})),
             false
         )
         .is_err()

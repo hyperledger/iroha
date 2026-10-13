@@ -2204,17 +2204,17 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
     }
     if !guardrails.stark_enabled {
         return Err(invalid_parameter(format!(
-            "{label} native BFV AIR STARK verification is disabled by node configuration"
+            "{label} native BFV AIR STARK verification is disabled by the committed ZK validity policy"
         )));
     }
     if outer_proof_bytes_len > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
-            "{label} proof exceeds node-configured STARK envelope byte cap"
+            "{label} proof exceeds the committed STARK envelope byte cap"
         )));
     }
     if envelope.proof_bytes.len() > guardrails.stark_max_envelope_bytes {
         return Err(invalid_parameter(format!(
-            "{label} STARK public-input wrapper exceeds node-configured STARK envelope byte cap"
+            "{label} STARK public-input wrapper exceeds the committed STARK envelope byte cap"
         )));
     }
     let open =
@@ -2223,7 +2223,7 @@ fn verify_soracloud_fhe_full_bootstrap_arithmetic_stark_air(
         })?;
     if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
         return Err(invalid_parameter(format!(
-            "{label} native BFV AIR envelope exceeds node-configured STARK proof byte cap"
+            "{label} native BFV AIR envelope exceeds the committed STARK proof byte cap"
         )));
     }
     let native: crate::zk_stark::StarkVerifyEnvelopeV1 =

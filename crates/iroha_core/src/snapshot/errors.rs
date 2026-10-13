@@ -254,13 +254,6 @@ pub(super) enum TryWriteError {
         #[source]
         reason: crate::execution_attempt::ExecutionDeferred,
     },
-    /// Snapshot at height `{height}` is waiting for its in-flight durable commit tuple: {reason}
-    CommitEvidenceDeferred {
-        /// Height encoded by the serialized snapshot itself.
-        height: u64,
-        /// Missing publication step that a later snapshot interval must retry.
-        reason: String,
-    },
 }
 
 #[cfg(test)]

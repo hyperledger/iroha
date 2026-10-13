@@ -1014,7 +1014,8 @@ mod canonical_evidence_reader_tests {
         let mut index = Vec::new();
         for block in &fixture.blocks {
             let wire = block.canonical_wire().expect("real canonical frame");
-            let bare = iroha_version::codec::EncodeVersioned::encode_versioned(block.as_ref());
+            let mut bare = vec![wire.version()];
+            bare.extend_from_slice(wire.payload());
             assert_ne!(wire.as_framed(), bare.as_slice());
             assert!(iroha_data_model::block::decode_framed_signed_block(wire.as_framed()).is_ok());
             assert!(iroha_data_model::block::decode_framed_signed_block(&bare).is_err());

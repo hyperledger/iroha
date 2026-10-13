@@ -46,8 +46,6 @@ import org.hyperledger.iroha.sdk.core.model.JsonValue
 import org.hyperledger.iroha.sdk.core.model.NetworkId
 import org.hyperledger.iroha.sdk.core.model.TransactionPayload
 import org.hyperledger.iroha.sdk.core.model.WirePayload
-import org.hyperledger.iroha.sdk.core.model.instructions.ProofAttachment
-import org.hyperledger.iroha.sdk.core.model.instructions.ProofVerifierKeyRef
 import org.hyperledger.iroha.sdk.nexus.UaidPortfolioQuery
 import org.hyperledger.iroha.sdk.norito.NoritoAdapters
 import org.hyperledger.iroha.sdk.norito.NoritoCodec
@@ -1204,11 +1202,6 @@ class HttpClientTransportTest {
             ByteArray(32) { 0x31 }.also { it[it.lastIndex] = 0x33 },
             "ping",
         )
-        val attachment = ProofAttachment(
-            "pipa-r/pasta",
-            byteArrayOf(1, 2, 3),
-            ProofVerifierKeyRef("pipa-r/pasta", "draft_substitution"),
-        )
         val substitutions = listOf(
             base.copy(networkId = TestNetworkIds.fromSeed(0x32L)),
             base.copy(authority = testAccountId(0x32)),
@@ -1216,7 +1209,6 @@ class HttpClientTransportTest {
             base.copy(metadata = mapOf("attacker" to JsonValue.bool(true))),
             base.copy(timeToLiveMs = 99_999L),
             base.copy(nonce = 7L),
-            base.copy(attachments = listOf(attachment)),
             base.copy(feePayment = testFeePayment(5_001L)),
         )
 
@@ -1695,11 +1687,6 @@ class HttpClientTransportTest {
             metadata = metadata,
         )
         val substitutedInner = listOf(canonicalTestInstruction(2))
-        val attachment = ProofAttachment(
-            "pipa-r/pasta",
-            byteArrayOf(4, 5, 6),
-            ProofVerifierKeyRef("pipa-r/pasta", "multisig_substitution"),
-        )
         val substitutions = listOf(
             base.copy(networkId = TestNetworkIds.fromSeed(0x42L)),
             base.copy(authority = testAccountId(0x42)),
@@ -1713,7 +1700,6 @@ class HttpClientTransportTest {
             base.copy(metadata = metadata + ("validation_fee_assessment" to retailFeeAssessmentFixture())),
             base.copy(timeToLiveMs = 99_999L),
             base.copy(nonce = 9L),
-            base.copy(attachments = listOf(attachment)),
             base.copy(feePayment = testFeePayment(1L)),
         )
 

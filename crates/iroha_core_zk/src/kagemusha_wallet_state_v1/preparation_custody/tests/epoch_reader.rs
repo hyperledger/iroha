@@ -58,6 +58,14 @@ fn sealed_epoch_index_restores_verified_authority_for_current_and_older_receipts
         root,
     )
     .unwrap();
+    let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let refused = norito::with_decode_limits_scope(no_allocation, || {
+        custody.load_finality_reader(&genesis, 1)
+    })
+    .unwrap_err();
+    assert!(matches!(refused, Error::DecodeResource(ref cause)
+        if cause.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit));
+    assert_eq!(custody.epochs, root);
     assert_eq!(
         custody
             .load_finality_reader(&genesis, 1)

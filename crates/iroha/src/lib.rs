@@ -24,6 +24,7 @@ pub mod sm;
 pub mod sns;
 pub mod stream;
 pub mod subscriptions;
+pub mod workflow;
 pub use error::{
     ApiError, ApiErrorDetails, CanonicalDecodeFailure, Error, NativeFinalityDecodeFailure, Result,
     StatusFailureReason, TransactionPreparationError, TransactionSigningError, TransportErrorKind,

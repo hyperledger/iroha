@@ -180,7 +180,7 @@ pub(crate) fn load_pairs(
             "exact complete source identity"
         );
         let artifact = |hex_text: &str, expected_hash: &str| {
-            assert!(hex_text.len() <= MAX_ARTIFACT_BYTES * 2 && hex_text.len() % 2 == 0);
+            assert!(hex_text.len() <= MAX_ARTIFACT_BYTES * 2 && hex_text.len().is_multiple_of(2));
             let bytes = hex::decode(hex_text).expect("native artifact hex");
             assert_eq!(hex::encode(&bytes), hex_text, "canonical lowercase hex");
             assert_eq!(

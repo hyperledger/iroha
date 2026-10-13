@@ -30,6 +30,17 @@ pub const FRAME_OVERHEAD: u32 = 64 * 1024
     + crate::types::MAX_COMMITTEE_SIZE as u32 * (crate::types::MAX_PUBLIC_KEY_LEN + 64) as u32
     + crate::types::MAX_CONTROL_WITNESS_BYTES as u32
     + 32;
+
+/// Transport frame budget for a committed payload and its sync response.
+///
+/// The local sync budget includes one payload and its certificate/header allowance. The
+/// transport must also retain the bounded outer response allowance, so an admissible chain
+/// leaves room for both. This is a configured budget, not a claim about measured wire length.
+/// [`validate_chain`] also checks that the minimum local sync budget is representable.
+#[must_use]
+pub const fn minimum_transport_frame_bytes(max_block_bytes: u32) -> u64 {
+    max_block_bytes as u64 + 2 * FRAME_OVERHEAD as u64
+}
 /// Upper bound of `T_max_eff` (2^40 ms ≈ 35 years). Up to this bound [`view_timeout`] and
 /// [`level_cap`] are exact in 128-bit arithmetic.
 // SPEC: §9.4 does not bound `T_max_eff`; the clamp only matters for absurd chain parameters.
@@ -158,7 +169,11 @@ pub fn validate_chain(chain: &ChainParams, transport_limit: u64) -> Result<(), C
     if chain.payload_retry_interval == 0 {
         return Err(ConfigError::PayloadRetryIntervalZero);
     }
-    if u64::from(chain.max_block_bytes) + u64::from(FRAME_OVERHEAD) > transport_limit {
+    #[cfg(not(sumeragi_mutation = "ML31"))]
+    let needed = minimum_transport_frame_bytes(chain.max_block_bytes);
+    #[cfg(sumeragi_mutation = "ML31")]
+    let needed = u64::from(chain.max_block_bytes) + u64::from(FRAME_OVERHEAD);
+    if chain.max_block_bytes.checked_add(FRAME_OVERHEAD).is_none() || needed > transport_limit {
         return Err(ConfigError::MaxBlockBytesAboveTransport);
     }
     Ok(())
@@ -169,13 +184,27 @@ pub fn validate_chain(chain: &ChainParams, transport_limit: u64) -> Result<(), C
 /// # Errors
 /// Invalid chain/layout bounds or an unencodable admitted payload maximum.
 pub fn validate_height(config: &HeightConfig, transport_limit: u64) -> Result<(), ConfigError> {
-    validate_chain(&config.params, transport_limit)?;
-    config
-        .epoch
+    validate_height_parts(&config.epoch, &config.params, transport_limit)
+}
+
+/// Validate the inline height fields before an owner materializes its committee graph.
+///
+/// This is the sole chain/layout/transport relation used by [`validate_height`].
+/// It neither admits a committee nor authenticates the origin of these parameters.
+///
+/// # Errors
+/// Returns the same first chain, layout or payload-bound error as [`validate_height`].
+pub fn validate_height_parts(
+    epoch: &crate::types::EpochConfig,
+    params: &ChainParams,
+    transport_limit: u64,
+) -> Result<(), ConfigError> {
+    validate_chain(params, transport_limit)?;
+    epoch
         .da_layout
         .validate()
         .map_err(ConfigError::AvailabilityLayout)?;
-    if u64::from(config.params.max_block_bytes) > config.epoch.da_layout.max_payload_size_bytes {
+    if u64::from(params.max_block_bytes) > epoch.da_layout.max_payload_size_bytes {
         return Err(ConfigError::PayloadAboveAvailabilityLimit);
     }
     Ok(())
@@ -455,6 +484,44 @@ impl Pacemaker {
 mod tests {
     use super::*;
     use crate::types::{Committee, PublicKey};
+
+    #[test]
+    fn borrowed_height_fields_preserve_exact_chain_layout_transport_error_order() {
+        let original = config(4, ChainParams::default());
+        let mut candidates = vec![original.clone()];
+        let mut changed = original.clone();
+        changed.params.block_time = changed.params.payload_retry_interval + 1;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.params.block_time = 0;
+        changed.params.payload_retry_interval = 0;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.epoch.da_layout.max_payload_size_bytes = 1;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.epoch.da_layout.parity_shards = 0;
+        candidates.push(changed);
+        let mut changed = original.clone();
+        changed.params.block_time = changed.params.payload_retry_interval + 1;
+        changed.epoch.da_layout.parity_shards = 0;
+        candidates.push(changed);
+        for candidate in candidates {
+            for limit in [0, u64::from(candidate.params.max_block_bytes), u64::MAX] {
+                assert_eq!(
+                    validate_height_parts(&candidate.epoch, &candidate.params, limit),
+                    validate_height(&candidate, limit)
+                );
+            }
+        }
+        let mut conflicting = original;
+        conflicting.params.block_time = conflicting.params.payload_retry_interval + 1;
+        conflicting.epoch.da_layout.parity_shards = 0;
+        assert_eq!(
+            validate_height_parts(&conflicting.epoch, &conflicting.params, 0),
+            Err(ConfigError::BlockTimeAbovePayloadRetry)
+        );
+    }
 
     #[test]
     fn height_configuration_requires_valid_encodable_signed_layout() {
@@ -909,7 +976,7 @@ mod tests {
         );
         assert_eq!(FRAME_OVERHEAD, 264_224);
         let local = LocalParams::default();
-        assert_eq!(local.sync_max_bytes, 16 * 1024 * 1024);
+        assert_eq!(local.sync_max_bytes, 16 * 1024 * 1024 + FRAME_OVERHEAD);
         let with_payload = |max_block_bytes: u32| {
             config(
                 4,
@@ -926,27 +993,65 @@ mod tests {
             validate_local(&local, &[&with_payload(served + 1)]),
             Err(ConfigError::SyncMaxBytesTooSmall)
         );
-        // The transport frame: the payload plus the overhead fits exactly, one byte over does
-        // not, whatever the node's sync setting is.
-        let transport = 16 * 1024 * 1024 + u64::from(FRAME_OVERHEAD);
+        // The transport budget includes both the entry and outer response allowances.
+        let transport = 16 * 1024 * 1024 + 2 * u64::from(FRAME_OVERHEAD);
         let largest = with_payload(16 * 1024 * 1024);
         assert_eq!(validate_chain(&largest.params, transport), Ok(()));
         assert_eq!(
             validate_chain(&with_payload(16 * 1024 * 1024 + 1).params, transport),
             Err(ConfigError::MaxBlockBytesAboveTransport)
         );
-        // Open relation recorded by the contract (owner X.2): the chain rule admits a 16 MiB
-        // payload, but the default sync response cannot serve it.
+        assert_eq!(validate_local(&local, &[&largest]), Ok(()));
         assert_eq!(
-            validate_local(&local, &[&largest]),
-            Err(ConfigError::SyncMaxBytesTooSmall)
+            u64::from(local.sync_max_bytes) + u64::from(FRAME_OVERHEAD),
+            transport
+        );
+        assert!(transport <= 17 * 1024 * 1024);
+    }
+
+    /// A committed payload must leave at least one local sync setting that can serve it.
+    #[test]
+    fn det_l31_chain_parameters_leave_a_feasible_sync_frame_budget() {
+        let chain = ChainParams::default();
+        assert_eq!(chain.max_block_bytes, 16 * 1024 * 1024);
+        let required = minimum_transport_frame_bytes(chain.max_block_bytes);
+        let minimum_sync = u64::from(chain.max_block_bytes) + u64::from(FRAME_OVERHEAD);
+        assert_eq!(required, minimum_sync + u64::from(FRAME_OVERHEAD));
+        assert_eq!(validate_chain(&chain, required), Ok(()));
+        assert_eq!(
+            validate_chain(&chain, required - 1),
+            Err(ConfigError::MaxBlockBytesAboveTransport)
+        );
+        // The former payload-only test accepted this budget, although no sync setting fits.
+        assert_eq!(
+            validate_chain(&chain, minimum_sync),
+            Err(ConfigError::MaxBlockBytesAboveTransport)
+        );
+        assert_eq!(
+            minimum_transport_frame_bytes(u32::MAX),
+            u64::from(u32::MAX) + 2 * u64::from(FRAME_OVERHEAD)
+        );
+        let representable = ChainParams {
+            max_block_bytes: u32::MAX - FRAME_OVERHEAD,
+            ..chain
+        };
+        assert_eq!(validate_chain(&representable, u64::MAX), Ok(()));
+        assert_eq!(
+            validate_chain(
+                &ChainParams {
+                    max_block_bytes: representable.max_block_bytes + 1,
+                    ..chain
+                },
+                u64::MAX
+            ),
+            Err(ConfigError::MaxBlockBytesAboveTransport)
         );
     }
 
     #[test]
     fn chain_validation() {
         let chain = ChainParams::default();
-        let limit = u64::from(chain.max_block_bytes) + u64::from(FRAME_OVERHEAD);
+        let limit = minimum_transport_frame_bytes(chain.max_block_bytes);
         assert_eq!(validate_chain(&chain, limit), Ok(()));
         assert_eq!(
             validate_chain(&chain, limit - 1),

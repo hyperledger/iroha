@@ -2,7 +2,7 @@
 
 pub(crate) use iroha_data_model::sumeragi_finality::authenticated_genesis;
 
-/// Committed NPoS schedule and evidence-delay parameters.
+/// Committed NPoS evidence-delay parameters.
 pub(crate) mod parameters;
 
 #[cfg(test)]

@@ -108,7 +108,7 @@ where
 fn versioned_framed_block_with_layout(block: &SignedBlock, candidate: LayoutCandidate) -> Vec<u8> {
     let (payload, flags) = layout_payload_with_flags(block, candidate);
     let mut framed = Vec::with_capacity(1 + Header::SIZE + payload.len());
-    framed.push(block.encode_versioned()[0]);
+    framed.push(SignedBlock::WIRE_VERSION);
     framed.extend_from_slice(
         &frame_bare_with_header_flags::<SignedBlock>(&payload, flags)
             .expect("frame signed block payload"),

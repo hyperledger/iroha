@@ -1,11 +1,23 @@
 //! Deterministic consumers of the retained SCCP pause State (§4.14.2, §4.14.7).
 //!
 //! This module grants no pause authority. The endorsement/enactment producer and the
-//! forgery/quarantine State owner remain separate unfinished workstreams.
+//! forgery evidence publication remain separate authority owners.
 
 use super::store;
 use crate::state::{StateReadOnly, WorldReadOnly};
-use iroha_data_model::{bridge::SccpNetworkV1, sccp::registry::SccpRouteActivationV1};
+use iroha_data_model::{
+    bridge::SccpNetworkV1,
+    sccp::registry::{SccpRouteActivationV1, SccpRouteRevisionV1},
+};
+
+/// Whether the immutable forgery floor or permanent quarantine holds a route revision.
+/// Reconciliation remains separately authenticated; no activation or pause clears this gate.
+pub(super) fn forgery_or_quarantine(
+    world: &(impl WorldReadOnly + ?Sized),
+    revision: &SccpRouteRevisionV1,
+) -> bool {
+    revision.forgery_held(store::forgery_max_generation(world)) || revision.quarantine.is_some()
+}
 
 /// A committed timestamp must belong to this exact captured original history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -84,8 +96,7 @@ pub fn fast_destination(
 /// The currently represented Taira hold predicate. Activation and `enabled` remain
 /// independent persisted facts; no consumer rewrites either when a fast pause expires.
 ///
-/// TODO: Integrate the real pending-forgery/quarantine owner from WP-S6. No empty or
-/// fabricated owner is consulted here, and this predicate does not qualify that rule.
+/// Forgery, permanent quarantine and the two pause tracks retain their independent gates.
 #[must_use]
 pub fn taira(
     world: &(impl WorldReadOnly + ?Sized),
@@ -93,16 +104,22 @@ pub fn taira(
     revision: u32,
     timestamp_ms: Option<u64>,
 ) -> bool {
-    taira_from_parts(
-        store::parameters::get(world)
-            .as_ref()
-            .is_some_and(|params| params.enabled),
-        store::routes::get(world, &network)
-            .and_then(|route| route.revisions.get(&revision))
-            .map(|r| r.activation),
-        store::fast_pauses::get(world, &network),
-        timestamp_ms,
-    )
+    store::routes::get(world, &network)
+        .and_then(|route| route.revisions.get(&revision))
+        .is_some_and(|record| {
+            !super::reconciliation::is_reconciled(world, network, revision)
+                && forgery_or_quarantine(world, record)
+        })
+        || taira_from_parts(
+            store::parameters::get(world)
+                .as_ref()
+                .is_some_and(|params| params.enabled),
+            store::routes::get(world, &network)
+                .and_then(|route| route.revisions.get(&revision))
+                .map(|r| r.activation),
+            store::fast_pauses::get(world, &network),
+            timestamp_ms,
+        )
 }
 
 /// One exact hold kernel over borrowed current or pre-block facts.
@@ -229,3 +246,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "hold/forgery_tests.rs"]
+mod forgery_tests;

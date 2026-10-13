@@ -77,7 +77,7 @@ use iroha_data_model::{
         PrivacyCompiledProfileCatalogV1, PrivacyExact12CapabilityManifestV1, PrivacyProtocolIdV1,
         validate_privacy_capability_archive_v1,
     },
-    proof::{ProofAttachment, ProofAttachmentList},
+    proof::ProofAttachment,
     smart_contract::ContractAddress,
     sorafs::orderbook_submission::{
         parse_sorafs_orderbook_cancel_reason_v1, parse_sorafs_orderbook_decimal_u64_v1,
@@ -994,7 +994,8 @@ fn i105_discriminant_hint(input: &str) -> Option<u16> {
     AccountAddress::i105_discriminant(input).ok()
 }
 fn scoped_chain_discriminant_for_literal(input: &str) -> napi::Result<ChainDiscriminantGuard> {
-    let prefix = AccountAddress::i105_discriminant(input).map_err(account_address_err)?;
+    let prefix =
+        AccountAddress::i105_discriminant(input).map_err(|error| account_address_err(&error))?;
     Ok(ChainDiscriminantGuard::enter(prefix))
 }
 /// Build a canonical public `AssetId` literal from definition/account parts.
@@ -2013,7 +2014,7 @@ fn parse_sm2_signature(bytes: &[u8]) -> napi::Result<Sm2Signature> {
     Sm2Signature::from_bytes(&array)
         .map_err(|err| napi::Error::new(napi::Status::InvalidArg, err.to_string()))
 }
-fn account_address_err(err: AccountAddressError) -> napi::Error {
+fn account_address_err(err: &AccountAddressError) -> napi::Error {
     codec_to_napi(iroha_js_codec::account_address_err(err))
 }
 fn codec_to_napi(error: iroha_js_codec::CodecError) -> napi::Error {
@@ -6170,10 +6171,23 @@ fn decode_canonical_signed_transaction_v1(bytes: &[u8]) -> napi::Result<SignedTr
     Ok(transaction)
 }
 #[allow(clippy::too_many_arguments)] // mirrors TransactionBuilder inputs for clarity
+/// Declare one proof attachment as the execution proof carrier of a proved IVM executable.
+fn ivm_proved_execution_plan(
+    attachment: &ProofAttachment,
+) -> napi::Result<iroha_data_model::transaction::SignedAttachmentPlanV1> {
+    let mut plan = iroha_data_model::transaction::SignedAttachmentPlanV1::new();
+    plan.push_action(
+        iroha_data_model::transaction::signed_attachments::PlannedActionV1::ivm_proved_execution(
+            attachment,
+        )
+        .map_err(norito_to_napi)?,
+    );
+    Ok(plan)
+}
 fn configure_transaction_builder(
     mut builder: TransactionBuilder,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<iroha_data_model::transaction::SignedAttachmentPlanV1>,
     creation_time_ms: Option<i64>,
     ttl_ms: Option<i64>,
     nonce: Option<u32>,
@@ -6203,7 +6217,11 @@ fn configure_transaction_builder(
     }
     builder = builder.with_metadata(metadata);
     if let Some(attachments) = attachments {
-        builder = builder.with_attachments(attachments);
+        // The executable and every other signed field are final here, so the
+        // declared actions are validated against the payload they are bound to.
+        builder = builder
+            .with_attachment_plan(attachments)
+            .map_err(norito_to_napi)?;
     }
     Ok(builder)
 }
@@ -6229,7 +6247,7 @@ fn assemble_executable_transaction(
     executable: Executable,
     fee_payment: FeePaymentIntent,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<iroha_data_model::transaction::SignedAttachmentPlanV1>,
     creation_time_ms: Option<i64>,
     ttl_ms: Option<i64>,
     nonce: Option<u32>,
@@ -6928,7 +6946,8 @@ fn require_matching_i105_discriminant(
     account: &str,
     label: &str,
 ) -> napi::Result<()> {
-    let actual = AccountAddress::i105_discriminant(account).map_err(account_address_err)?;
+    let actual =
+        AccountAddress::i105_discriminant(account).map_err(|error| account_address_err(&error))?;
     if actual != expected {
         return Err(napi::Error::new(
             napi::Status::InvalidArg,
@@ -6965,8 +6984,8 @@ pub fn build_transfer_asset_payload(
             "source asset holding id must not contain surrounding whitespace",
         ));
     }
-    let authority_discriminant =
-        AccountAddress::i105_discriminant(&authority).map_err(account_address_err)?;
+    let authority_discriminant = AccountAddress::i105_discriminant(&authority)
+        .map_err(|error| account_address_err(&error))?;
     require_matching_i105_discriminant(
         authority_discriminant,
         &destination_account_id,
@@ -7463,7 +7482,8 @@ pub fn sign_quoted_ivm_proved_transaction_payload(
     payload.fee_payment = quoted_fee_payment;
     let builder = TransactionBuilder::from_payload(payload)
         .map_err(norito_to_napi)?
-        .with_attachments(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?);
+        .with_attachment_plan(ivm_proved_execution_plan(&attachment)?)
+        .map_err(norito_to_napi)?;
     let algorithm = parse_crypto_algorithm(private_key_algorithm.as_deref())?;
     let private_key = PrivateKey::from_bytes(algorithm, secret.as_ref()).map_err(norito_to_napi)?;
     let signed = sign_js_transaction(
@@ -7582,7 +7602,7 @@ pub fn build_ivm_proved_transaction_payload(
         TransactionBuilder::new(network_id, authority, fee_payment)
             .with_executable(Executable::IvmProved(proved)),
         metadata,
-        Some(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?),
+        Some(ivm_proved_execution_plan(&attachment)?),
         creation_time_ms,
         ttl_ms,
         nonce,
@@ -7640,7 +7660,7 @@ pub fn build_ivm_proved_transaction(
         Executable::IvmProved(proved),
         fee_payment,
         metadata,
-        Some(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?),
+        Some(ivm_proved_execution_plan(&attachment)?),
         creation_time_ms,
         ttl_ms,
         nonce,
@@ -8730,12 +8750,12 @@ mod tests {
     #[test]
     fn canonical_kotodama_binding_returns_full_artifact_manifest() {
         let request = canonical_kotodama_request(
-            r#"seiyaku Demo { permission RunDemo;
+            r"seiyaku Demo { permission RunDemo;
                 hajimari() {}
                 kaizen() {}
                 kotoage fn run() authorize(RunDemo) {}
                 view fn ping() authorize(anyone) -> int { return 1; }
-            }"#,
+            }",
         );
         let result = compile_kotodama_request(&request).expect("compile canonical Kotodama source");
         assert!(result.ok);
@@ -8801,7 +8821,7 @@ mod tests {
     }
     #[test]
     fn canonical_kotodama_request_preserves_source_name_and_selects_zk_policy() {
-        let source = r#"
+        let source = r"
 seiyaku Privacy { permission CanCommitPrivateInput;
   kotoage fn commit() authorize(CanCommitPrivateInput) {
     let Secret<int> value = crypto::private_input(0);
@@ -8810,7 +8830,7 @@ seiyaku Privacy { permission CanCommitPrivateInput;
     crypto::commit_output();
   }
 }
-"#;
+";
         let request = JsKotodamaCompileRequest {
             artifacts: Vec::new(),
             source: source.to_owned(),
@@ -13617,12 +13637,16 @@ seiyaku Privacy { permission CanCommitPrivateInput;
                 .expect("decode");
         assert_eq!(quoted_tx.fee_payment_intent(), &quoted);
         assert_eq!(
-            quoted_tx.attachments(),
-            Some(
-                &ProofAttachmentList::try_from(vec![attachment.clone()])
-                    .expect("one attachment is a valid bounded proof list"),
-            )
+            quoted_tx.proof_attachments_v1().expect("execution carrier"),
+            vec![attachment.clone()]
         );
+        assert_eq!(
+            quoted_tx.attachments().expect("attachments").actions()[0].operation,
+            iroha_data_model::transaction::ActionOperationV1::IvmProvedExecution
+        );
+        quoted_tx
+            .validate_signed_attachments_v1()
+            .expect("statements are bound to the quoted payload");
         quoted_tx
             .verify_signature()
             .expect("quoted transaction signature verifies");
@@ -13650,8 +13674,10 @@ seiyaku Privacy { permission CanCommitPrivateInput;
             }
             other => panic!("expected IvmProved executable, got {other:?}"),
         }
-        let attachments = tx.attachments().expect("proof attachments");
-        assert_eq!(attachments.as_slice(), [attachment]);
+        assert_eq!(
+            tx.proof_attachments_v1().expect("execution carrier"),
+            vec![attachment]
+        );
         assert_eq!(
             result.hash.as_ref(),
             tx.hash().as_ref(),
@@ -13957,7 +13983,10 @@ seiyaku Privacy { permission CanCommitPrivateInput;
                 DomainId::try_new("sbp", "universal").expect("destination asset domain"),
                 "pkr".parse().expect("destination asset name"),
             ),
-            settlement_id: "fx_1".parse().expect("settlement id"),
+            settlement_id: iroha_data_model::isi::SettlementId::new(
+                sample_account("payer"),
+                "fx_1".parse().expect("settlement reference"),
+            ),
             recipient: AccountId::new(
                 KeyPair::random_with_algorithm(Algorithm::Ed25519)
                     .public_key()

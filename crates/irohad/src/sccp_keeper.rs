@@ -21,8 +21,11 @@
 //! instead of paying. Ethereum and BSC advances use HTTP endpoints, TON advances ADNL
 //! liteservers.
 //!
-//! TODO: WP-S3: the keepalive duty (`[sccp.keeper].keepalive`, `keepalive_stagger_ms`, §4.7.4)
-//! on its own schedule, which does no network I/O.
+//! **Progress keepalives** (`[sccp.keeper].keepalive`, §4.7.4) run independently of
+//! remote light clients for heartbeats and reconciliation deadlines. Each current validator
+//! waits its canonical committee stagger (one second per rank for reconciliation), retires
+//! its stale pending carrier, and signs fresh due work with the keeper key.
+//! Parliament item scheduling awaits the authoritative due-work iterator.
 //!
 //! TODO: WP-S6: the watch duty (`[sccp.keeper].watch`) over the registered destinations, and
 //! the L5 feed that also advances a light client whose finalized source time lags the deadline
@@ -53,6 +56,8 @@
 //!
 //! TODO(ws34): export the health states as telemetry gauges; they are logged today.
 
+#[path = "sccp_keeper/keepalive.rs"]
+mod keepalive;
 #[path = "sccp_keeper/key_store.rs"]
 mod key_store;
 
@@ -144,18 +149,36 @@ pub fn start(
         key_dir = %dir.display(),
         "SCCP keeper key loaded"
     );
-    // TODO: WP-S3: start the keepalive duty here when `config.keepalive`, staggered by
-    // `config.keepalive_stagger` per canonical committee index (§4.7.4).
     // TODO: WP-S6: start the watch duty here when `config.watch`.
     // Seeds the starting endpoints and jitter per node, so validators sharing the compiled
     // endpoint lists spread over them.
     let seed = endpoint_seed(peer.to_string().as_bytes());
-    start_advances(
-        Arc::new(NodeHost { state, queue, key }),
-        light_client_config,
-        seed,
-        shutdown_signal,
-    )
+    let host = Arc::new(NodeHost { state, queue, key });
+    if !config.keepalive {
+        return start_advances(host, light_client_config, seed, shutdown_signal);
+    }
+    let keepalive_host = keepalive::NodeKeeper {
+        host: Arc::clone(&host),
+        peer: peer.clone(),
+        stagger: config.keepalive_stagger,
+    };
+    let task = tokio::task::spawn(async move {
+        let advance_shutdown = shutdown_signal.clone();
+        let advances = async move {
+            if light_client_config.enabled {
+                let config = Arc::new(light_client_config);
+                let lanes = build(Arc::clone(&config), seed).await;
+                run(lanes, host, config, advance_shutdown).await;
+            } else {
+                advance_shutdown.receive().await;
+            }
+        };
+        tokio::join!(
+            advances,
+            keepalive::run(Arc::new(keepalive_host), shutdown_signal)
+        );
+    });
+    Some(Child::new(task, OnShutdown::Wait(SHUTDOWN_WAIT)))
 }
 
 /// Start the light-client advance duty as a supervised task, or return `None` when it is
@@ -395,6 +418,17 @@ fn submit_transaction(
     key: &KeyPair,
     instruction: InstructionBox,
 ) -> eyre::Result<()> {
+    submit_transaction_at(state, queue, key, instruction, wall_clock_ms())
+}
+
+/// Submit against the wall-clock sample used for the keeper's local due decision.
+fn submit_transaction_at(
+    state: &State,
+    queue: &Queue,
+    key: &KeyPair,
+    instruction: InstructionBox,
+    creation_time_ms: u64,
+) -> eyre::Result<()> {
     let authority = AccountId::new(key.public_key().clone());
     let mut payload = TransactionBuilder::new(
         *state.network_id_ref(),
@@ -404,6 +438,7 @@ fn submit_transaction(
     .with_instructions([instruction])
     .into_payload()
     .wrap_err("build SCCP transaction")?;
+    payload.creation_time_ms = creation_time_ms;
     let route = queue
         .route_payload_plan_with_state(&payload, state)
         .wrap_err("route SCCP transaction")?;
@@ -423,6 +458,7 @@ fn submit_transaction(
             quote_view.world(),
             quote_view.nexus(),
             quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
             observation_time_ms,
             sccp_committed_time_ms,
@@ -1307,7 +1343,7 @@ mod tests {
     }
 
     /// An empty node: committed state without SCCP and a local queue.
-    fn node() -> (Arc<State>, Arc<Queue>) {
+    pub(super) fn node() -> (Arc<State>, Arc<Queue>) {
         let state = Arc::new(State::new_for_testing(
             World::new(),
             Kura::blank_kura_for_testing(),
@@ -1364,12 +1400,18 @@ mod tests {
 
         // Later starts keep the key, also when only the key is needed.
         assert!(started(&config, SccpLightClientKeeper::default()));
-        assert!(!started(&config, idle()), "no duty is enabled");
+        assert!(
+            started(&config, idle()),
+            "heartbeat duty runs independently"
+        );
+        let mut no_duties = config.clone();
+        no_duties.keepalive = false;
+        assert!(!started(&no_duties, idle()), "no duty is enabled");
         assert_eq!(std::fs::read(&key_file).expect("key file"), key);
 
         // The key is generated even when the light-client duty is off.
         let other = tempfile::tempdir().expect("temporary directory");
-        assert!(!started(&keeper_config(other.path()), idle()));
+        assert!(started(&keeper_config(other.path()), idle()));
         assert!(
             other
                 .path()
@@ -1471,7 +1513,8 @@ mod tests {
                 .set_parameter(Parameter::Custom(CustomParameter::new(
                     consensus_metadata::handshake_meta_id(),
                     iroha_primitives::json::Json::new(metadata),
-                )));
+                )))
+                .expect("install the signed SCCP handshake fixture");
             block.commit();
         }
         let state = Arc::new(State::new_for_testing(

@@ -155,12 +155,14 @@ final class TransactionPayloadAdapter implements TypeAdapter<TransactionPayload>
       new ProofVerifierKeyRefAdapter();
   private static final TypeAdapter<ProofAttachment> PROOF_ATTACHMENT_ADAPTER =
       new ProofAttachmentAdapter();
-  private static final TypeAdapter<List<ProofAttachment>> PROOF_ATTACHMENT_SEQUENCE_ADAPTER =
-      NoritoAdapters.sequence(PROOF_ATTACHMENT_ADAPTER);
-  private static final TypeAdapter<List<ProofAttachment>> PROOF_ATTACHMENT_LIST_ADAPTER =
-      new ProofAttachmentListAdapter();
+  static final String SIGNED_ATTACHMENTS_UNSUPPORTED =
+      "TransactionPayload.attachments: SignedAttachmentsV1 (ordered intent descriptor and "
+          + "signed attachment occurrences) is not supported by this SDK codec; only a "
+          + "transaction without attachments can be encoded or decoded";
+  private static final TypeAdapter<List<ProofAttachment>> SIGNED_ATTACHMENTS_ADAPTER =
+      new SignedAttachmentsUnsupportedAdapter();
   private static final TypeAdapter<Optional<List<ProofAttachment>>> ATTACHMENTS_OPTION_ADAPTER =
-      NoritoAdapters.option(PROOF_ATTACHMENT_LIST_ADAPTER);
+      NoritoAdapters.option(SIGNED_ATTACHMENTS_ADAPTER);
   private static final String INSTRUCTION_BOX_SCHEMA =
       "(alloc::string::String, alloc::vec::Vec<u8>)";
   private static final String CUSTOM_INSTRUCTION_SCHEMA =
@@ -562,16 +564,23 @@ final class TransactionPayloadAdapter implements TypeAdapter<TransactionPayload>
     }
   }
 
-  private static final class ProofAttachmentListAdapter
+  /**
+   * The ninth payload field carries {@code SignedAttachmentsV1}: the ordered intent descriptor and
+   * the signed inline attachment occurrences ({@code norito.md}, "Signed attachments and ordered
+   * intent"; shared vectors in {@code fixtures/zk/signed_attachments_v1/vectors.json}). This codec
+   * does not implement that schema. It encodes and decodes the {@code None} form only and refuses
+   * every other value, so it can never emit or accept the retired proof-attachment list layout.
+   */
+  private static final class SignedAttachmentsUnsupportedAdapter
       implements TypeAdapter<List<ProofAttachment>> {
     @Override
     public void encode(final NoritoEncoder encoder, final List<ProofAttachment> value) {
-      encodeSizedField(encoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER, value);
+      throw new IllegalArgumentException(SIGNED_ATTACHMENTS_UNSUPPORTED);
     }
 
     @Override
     public List<ProofAttachment> decode(final NoritoDecoder decoder) {
-      return decodeSizedField(decoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER);
+      throw new IllegalArgumentException(SIGNED_ATTACHMENTS_UNSUPPORTED);
     }
   }
 

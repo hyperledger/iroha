@@ -731,13 +731,16 @@ fn network_xor_resolver_requires_exact_committed_identity() {
             .is_none()
     );
     let mut parameters = world.parameters.block();
-    parameters.get_mut().set_parameter(Parameter::Custom(
-        SumeragiNposParameters {
-            xor_asset_definition_id: other.clone(),
-            ..Default::default()
-        }
-        .into_custom_parameter(),
-    ));
+    parameters
+        .get_mut()
+        .set_parameter(Parameter::Custom(
+            SumeragiNposParameters {
+                xor_asset_definition_id: other.clone(),
+                ..Default::default()
+            }
+            .into_custom_parameter(),
+        ))
+        .expect("valid fixture parameters");
     parameters.commit();
     assert_eq!(
         resolve_network_xor_asset_definition(&world.view(), &other.to_string(), 0)
@@ -1645,6 +1648,7 @@ impl From<crate::state::StateBlockStartError<BlockValidationError>> for BlockVal
             crate::state::StateBlockStartError::ExecutionDeferred(error) => {
                 Self::ExecutionDeferred(error)
             }
+            crate::state::StateBlockStartError::GovernanceDueUnavailable(error) => Self::GovernanceDueUnavailable(error),
             crate::state::StateBlockStartError::Stage(error) => error,
             crate::state::StateBlockStartError::Policy(error) => {
                 Self::ExecutionContextInvalid(error)
@@ -1662,6 +1666,8 @@ pub enum BlockValidationError {
         /// State generation observed before the unfinished attempt returned.
         observed_generation: u64,
     },
+    /// Original native parent history is unavailable or contradicts its retained source: {0}
+    NativeHistory(crate::sumeragi::certified_chain::ChainReadError),
     /// Local State view could not be captured before candidate validation: {0}
     StateView(#[source] crate::state::StateViewError),
     /// Local World storage admission failed before State execution: {0}
@@ -1670,6 +1676,8 @@ pub enum BlockValidationError {
     EvidencePreparation(crate::state::EvidencePreparationError),
     /// Local execution did not complete: {0}
     ExecutionDeferred(crate::execution_attempt::ExecutionDeferred),
+    /// The shared Parliament due-work dependency is unavailable: {0}
+    GovernanceDueUnavailable(crate::smartcontracts::isi::sccp::keepalive::DueWorkUnavailable),
     /// Local hash-history admission failed before State execution: {0}
     BlockHashAdmission(crate::state::BlockHashAdmissionError),
     /// Local membership-history admission failed before State execution: {0}
@@ -4570,12 +4578,14 @@ pub(crate) mod valid {
                 false,
                 None,
                 None,
+                None,
             )
         }
         /// Execute the exact original nonempty proposal bound by its native consensus header.
         /// The source is verified before certified lane merges expand its execution inputs.
         /// Transaction validation, deterministic execution and original State generation checks
         /// remain mandatory; the native consensus certificate owns block authentication.
+        /// AMX legs and parent services borrow only the original Worker's completed owners.
         #[allow(clippy::too_many_arguments)]
         pub(crate) fn validate_sumeragi_block<'state>(
             block: SignedBlock,
@@ -4588,36 +4598,8 @@ pub(crate) mod valid {
             native_header: &iroha_sumeragi::message::BlockHeader,
             native_payload: &[u8],
             state: &'state State,
-        ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
-            Self::validate_sumeragi_block_with_amx(
-                block,
-                topology,
-                genesis_account,
-                block_cadence,
-                consensus_mode,
-                root_scope,
-                expansion,
-                native_header,
-                native_payload,
-                state,
-                None,
-            )
-        }
-
-        /// The same validator borrowing only the original Worker's completed leg owners.
-        #[allow(clippy::too_many_arguments)]
-        pub(crate) fn validate_sumeragi_block_with_amx<'state>(
-            block: SignedBlock,
-            topology: &Topology,
-            genesis_account: &AccountId,
-            block_cadence: Duration,
-            consensus_mode: iroha_data_model::parameter::system::ConsensusMode,
-            root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
-            expansion: crate::sumeragi::lanes::merge::Expansion<'state>,
-            native_header: &iroha_sumeragi::message::BlockHeader,
-            native_payload: &[u8],
-            state: &'state State,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service: Option<&crate::sumeragi::certified_chain::ParentServicePreparation>,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             if let Err(error) = expansion.validate_publication(state) {
                 return WithEvents::new(Err((
@@ -4676,6 +4658,7 @@ pub(crate) mod valid {
                 true,
                 None,
                 amx_legs,
+                parent_service,
             )
             .with_authenticated_rejection(
                 authenticated_header,
@@ -4760,6 +4743,7 @@ pub(crate) mod valid {
             allow_empty_block: bool,
             mut send_events: Option<&mut dyn FnMut(PipelineEventBox)>,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service: Option<&crate::sumeragi::certified_chain::ParentServicePreparation>,
         ) -> WithEvents<Result<(ValidBlock, Box<StateBlock<'state>>), Error>> {
             let total_start = Instant::now();
             let stateless_start = Instant::now();
@@ -4977,6 +4961,7 @@ pub(crate) mod valid {
                 genesis.as_ref(),
                 validation_profile.sccp_height_source(),
                 amx_legs,
+                parent_service,
             ) {
                 drop(state_block);
                 record_timings(&mut timings, stateless_elapsed, Some(execution_start));
@@ -5470,15 +5455,13 @@ pub(crate) mod valid {
         fn amx_deadline_error(
             error: iroha_data_model::sumeragi_amx::AmxError,
         ) -> BlockValidationError {
-            match error {
-                iroha_data_model::sumeragi_amx::AmxError::Resource(original)
-                    if !cfg!(all(test, sumeragi_core_mutation = "HC162")) =>
-                {
+            match crate::sumeragi::amx::classified_decode_refusal(&error) {
+                Some(original) if !cfg!(all(test, sumeragi_core_mutation = "HC162")) => {
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(original),
                     )
                 }
-                other => Self::execution_context_error(other.to_string()),
+                _ => Self::execution_context_error(error.to_string()),
             }
         }
         fn execution_context_error(message: impl Into<String>) -> BlockValidationError {
@@ -5628,6 +5611,36 @@ pub(crate) mod valid {
             use crate::smartcontracts::isi::sccp::eligibility::EligibilityRead as _;
             let parent =
                 crate::smartcontracts::isi::sccp::eligibility::BlockParent(&state_block.world);
+            use crate::smartcontracts::isi::sccp::keepalive;
+            let mut keepalives = 0usize;
+            for entrypoint in block.network_entrypoints() {
+                let signed = match entrypoint {
+                    TransactionEntrypoint::External(signed) => signed,
+                    TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
+                    TransactionEntrypoint::SealedCommitment(_) => continue,
+                };
+                let count = keepalive::count(signed.instructions());
+                keepalives = keepalives.saturating_add(count);
+                keepalive::check_count(keepalives).map_err(Self::execution_context_error)?;
+                if count != 0 && !keepalive::valid_shape(signed.payload()) {
+                    return Err(Self::execution_context_error(
+                        "invalid standalone Keepalive shape",
+                    ));
+                }
+            }
+            if keepalives != 0 {
+                let time_ms = u64::try_from(block.header().creation_time().as_millis())
+                    .map_err(|_| Self::execution_context_error("Keepalive block time overflow"))?;
+                match keepalive::due_from(&parent, block.header().height().get(), time_ms) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Err(Self::execution_context_error("KeepaliveNotDue"));
+                    }
+                    Err(error) => {
+                        return Err(BlockValidationError::GovernanceDueUnavailable(error));
+                    }
+                }
+            }
             if parent.parameters().is_none() {
                 return Ok(());
             }
@@ -6298,6 +6311,7 @@ pub(crate) mod valid {
                 genesis,
                 crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1::Unauthenticated,
                 None,
+                None,
             )
         }
         /// Execute and seal ordinary outputs. `sccp_height` names the authenticated consensus
@@ -6311,6 +6325,9 @@ pub(crate) mod valid {
             genesis: Option<&AuthenticatedGenesisOutputSource>,
             sccp_height: crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1,
             amx_legs: Option<&mut crate::sumeragi::amx::NativeAmxLegPreparations>,
+            parent_service_preparation: Option<
+                &crate::sumeragi::certified_chain::ParentServicePreparation,
+            >,
         ) -> Result<(), BlockValidationError> {
             let start = Instant::now();
             let mut timings = timings;
@@ -6332,6 +6349,25 @@ pub(crate) mod valid {
                     ));
                 }
                 None
+            } else if let Some(prepared) = parent_service_preparation {
+                prepared
+                    .authenticate(&*state_block, block)
+                    .map_err(|error| match error {
+                        crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
+                            Self::execution_context_error(reason)
+                        }
+                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                            error,
+                        ) => BlockValidationError::NativeHistory(error),
+                        crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
+                            BlockValidationError::LocalStorageRecoveryRequired {
+                                reason: error.to_string(),
+                            }
+                        }
+                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
+                            BlockValidationError::ExecutionDeferred(reason)
+                        }
+                    })?
             } else {
                 let reader =
                     crate::sumeragi::certified_chain::CertifiedChain::new_for_parent_service(
@@ -6351,6 +6387,9 @@ pub(crate) mod valid {
                         crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
                             Self::execution_context_error(reason)
                         }
+                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                            error,
+                        ) => BlockValidationError::NativeHistory(error),
                         crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
                             BlockValidationError::LocalStorageRecoveryRequired {
                                 reason: error.to_string(),
@@ -6959,21 +6998,29 @@ pub(crate) mod valid {
         #[test]
         fn amx_deadline_finalizer_preserves_exact_local_refusal_without_rejection() {
             use iroha_data_model::sumeragi_amx::AmxError;
-            use norito::core::DecodeResourceError;
 
             for original in [
-                DecodeResourceError::AllocationFailed { bytes: 57 },
-                DecodeResourceError::TotalAllocationExceeded {
-                    attempted: 99,
-                    limit: 73,
-                },
+                norito::core::classify_decode_attempt(|| {
+                    Err::<(), _>(norito::Error::AllocationFailed { bytes: 57 })
+                })
+                .unwrap_err(),
+                norito::with_decode_limits_scope(
+                    norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 73, 64),
+                    || {
+                        norito::core::classify_decode_attempt(|| {
+                            norito::core::reserve_decode_allocation(99)
+                        })
+                    },
+                )
+                .unwrap_err(),
             ] {
+                let expected = original.local_refusal().unwrap();
                 let mapped = ValidBlock::amx_deadline_error(AmxError::Resource(original));
                 assert!(matches!(
                     &mapped,
                     BlockValidationError::StateStorageAdmission(
                         crate::state::StateStorageAdmissionError::AmxDecode(retained)
-                    ) if *retained == original
+                    ) if *retained == expected
                 ));
                 assert_eq!(
                     map_block_err_to_reason(&mapped),
@@ -7980,7 +8027,9 @@ pub(crate) mod valid {
             params.sumeragi.key_overlap_grace_blocks = 2;
             params.sumeragi.key_expiry_grace_blocks = 1;
             let mut world = World::new();
-            world.parameters = mv::cell::Cell::new(params);
+            world.parameters = mv::cell::Cell::new(
+                crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+            );
             insert_consensus_key(
                 &mut world,
                 "leader",
@@ -8941,6 +8990,7 @@ mod event {
         use iroha_data_model::block::error::BlockRejectionReason as Reason;
         Some(match err {
             BlockValidationError::NativeSourceChanged { .. }
+            | BlockValidationError::NativeHistory(_)
             | BlockValidationError::DaIndexHydration(_)
             | BlockValidationError::LocalStorageRecoveryRequired { .. }
             | BlockValidationError::StateView(_)
@@ -8948,6 +8998,7 @@ mod event {
             | BlockValidationError::StateStorageAdmission(_)
             | BlockValidationError::EvidencePreparation(_)
             | BlockValidationError::ExecutionDeferred(_)
+            | BlockValidationError::GovernanceDueUnavailable(_)
             | BlockValidationError::BlockHashAdmission(_)
             | BlockValidationError::MembershipAdmission(_) => return None,
             BlockValidationError::HasCommittedTransactions => Reason::ContainsCommittedTransactions,
@@ -8965,6 +9016,7 @@ mod event {
             BlockValidationError::MerkleRootMismatch => Reason::MerkleRootMismatch,
             BlockValidationError::TransactionAccept(fail) => match fail {
                 AcceptTransactionFail::TransactionLimit(_)
+                | AcceptTransactionFail::SignedAttachments(_)
                 | AcceptTransactionFail::SignatureVerification(_)
                 | AcceptTransactionFail::UnexpectedGenesisAccountSignature
                 | AcceptTransactionFail::TransactionDomainMismatch(_)
@@ -9473,7 +9525,7 @@ pub(crate) mod tests {
         component_chain_with_genesis_parameters(state, Vec::new())
     }
 
-    fn component_chain_with_genesis_parameters(
+    pub(crate) fn component_chain_with_genesis_parameters(
         state: State,
         genesis_parameters: Vec<iroha_data_model::parameter::Parameter>,
     ) -> crate::sumeragi::test_chain::CertifiedTestChain {
@@ -9491,7 +9543,7 @@ pub(crate) mod tests {
         let crypto = state.crypto();
         let zk = state.zk_snapshot();
         let chain_id = state.chain_id_ref().clone();
-        let pipeline = state.pipeline.clone();
+        let pipeline = state.installed_pipeline().clone();
         let fraud = state.fraud_monitoring.clone();
         let governance = state.gov.clone();
         #[cfg(feature = "telemetry")]
@@ -9530,7 +9582,9 @@ pub(crate) mod tests {
         params.transaction = params
             .transaction
             .with_ingress_enforcement(require_height_ttl, require_sequence);
-        world.parameters = mv::cell::Cell::new(params);
+        world.parameters = mv::cell::Cell::new(
+            crate::state::StateParameters::try_from(params).expect("valid fixture parameters"),
+        );
         let kura = Kura::blank_kura_for_testing();
         let query_handle = LiveQueryStore::start_test();
         let state = State::new_with_chain_and_network_id_for_testing(
@@ -9558,11 +9612,11 @@ pub(crate) mod tests {
         .expect("load proof-verification executor policy");
         state.world.executor =
             mv::cell::Cell::new(crate::executor::Executor::UserProvided(executor));
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
-        let mut zk = state.zk.clone();
+        let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
         zk.max_verify_calls_per_tx = 2;
@@ -9588,7 +9642,8 @@ pub(crate) mod tests {
             ),
         )
         .into();
-        let expected_confidential_gas = crate::gas::confidential_gas_cost(&instruction);
+        let expected_confidential_gas =
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS);
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority,
@@ -9671,7 +9726,7 @@ pub(crate) mod tests {
                     .expect("canonical test chain id");
             let (authority, keypair) = gen_account_in("wonderland");
             let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-            let mut pipeline = state.pipeline.clone();
+            let mut pipeline = state.installed_pipeline().clone();
             pipeline.parallel_apply = parallel_apply;
             pipeline.parallel_overlay = true;
             pipeline.workers = 2;
@@ -9680,7 +9735,10 @@ pub(crate) mod tests {
             let state = native_chain.state();
             let instruction =
                 InstructionBox::from(Log::new(Level::INFO, "meter ordinary overlay".into()));
-            let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+            let expected_gas = crate::gas::meter_instructions(
+                core::slice::from_ref(&instruction),
+                &crate::gas::DEFAULT_ZK_GAS,
+            );
             assert!(expected_gas > 0, "the fixture must consume gas");
             let accepted = [0_u64, 1_u64, 2_u64]
                 .into_iter()
@@ -9765,7 +9823,7 @@ pub(crate) mod tests {
         let (authority, keypair) = gen_account_in("wonderland");
         let (missing_account, _) = gen_account_in("missing");
         let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
@@ -9776,7 +9834,10 @@ pub(crate) mod tests {
             "rejected_overlay_marker".parse().expect("metadata key"),
             Json::new("must roll back"),
         ));
-        let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+        let expected_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(expected_gas > 0, "the fixture must consume gas");
         let transaction = TransactionBuilder::new(
             state.network_id,
@@ -10353,7 +10414,7 @@ seiyaku DynamicAccessCounter { permission CanWriteCounters;
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;
@@ -10569,7 +10630,7 @@ seiyaku DynamicTarget { permission CanWriteCounters;
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;

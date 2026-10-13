@@ -32,7 +32,10 @@ fn state(maximum: u32) -> State {
         LiveQueryStore::start_test(),
     );
     let mut parameters = state.world.parameters.block();
-    parameters.get_mut().set_parameter(parameter(maximum));
+    parameters
+        .get_mut()
+        .set_parameter(parameter(maximum))
+        .expect("valid fixture parameters");
     parameters.commit();
     state
 }
@@ -57,7 +60,8 @@ fn captured_time_count_is_independent_from_network_transaction_limit() {
         .get_mut()
         .set_parameter(Parameter::Block(BlockParameter::MaxTransactions(
             NonZeroU64::new(u64::MAX).unwrap(),
-        )));
+        )))
+        .expect("valid fixture parameters");
     parameters.commit();
     let block = state.block(header());
     assert_eq!(block.time_trigger_invocation_limit().unwrap(), 17);
@@ -128,7 +132,11 @@ fn replacement_limit_comes_from_reverted_world_and_its_own_stage() {
     let state = state(2);
     {
         let mut world = state.world.block();
-        world.parameters.get_mut().set_parameter(parameter(9));
+        world
+            .parameters
+            .get_mut()
+            .set_parameter(parameter(9))
+            .expect("valid fixture parameters");
         world.commit();
     }
     let mut replacement = state
@@ -242,7 +250,8 @@ fn foreign_source_or_invalid_restored_capacity_cannot_mint_a_plan() {
         policy.max_outputs = 1;
         parameters
             .get_mut()
-            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)));
+            .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(policy)))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let mut block = state.block(source.header());
@@ -397,13 +406,20 @@ fn gas_limit_is_frozen_from_the_actual_world_before_start_effects() {
     };
     {
         let mut parameters = state.world.parameters.block();
-        parameters.set_parameter(gas(11));
+        parameters
+            .set_parameter(gas(11))
+            .expect("valid fixture parameters");
         parameters.commit();
     }
     let block = state
         .block_with_pristine_stage(header(), |block| {
             assert_eq!(block.gas_limit_per_block, 11);
-            block.world.parameters.get_mut().set_parameter(gas(22));
+            block
+                .world
+                .parameters
+                .get_mut()
+                .set_parameter(gas(22))
+                .expect("valid fixture parameters");
             Ok::<(), core::convert::Infallible>(())
         })
         .unwrap();
@@ -428,12 +444,20 @@ fn replacement_gas_limit_comes_from_the_reverted_world() {
     };
     {
         let mut world = state.world.block();
-        world.parameters.get_mut().set_parameter(gas(11));
+        world
+            .parameters
+            .get_mut()
+            .set_parameter(gas(11))
+            .expect("valid fixture parameters");
         world.commit();
     }
     let mut tip = state.block(header());
     assert_eq!(tip.gas_limit_per_block, 11);
-    tip.world.parameters.get_mut().set_parameter(gas(22));
+    tip.world
+        .parameters
+        .get_mut()
+        .set_parameter(gas(22))
+        .expect("valid fixture parameters");
     tip.commit_world_overlay_for_testing().unwrap();
     assert_eq!(state.block(header()).gas_limit_per_block, 22);
     let replacement = state.block_and_revert(header());
@@ -517,14 +541,16 @@ fn same_genesis_parameter_writes_cannot_replace_either_frozen_profile() {
                     .get_mut()
                     .set_parameter(Parameter::Block(BlockParameter::ExecutionOutput(
                         changed_output,
-                    )));
+                    )))
+                    .expect("valid fixture parameters");
                 transaction
                     .world
                     .parameters
                     .get_mut()
                     .set_parameter(Parameter::Block(BlockParameter::MaxTimeTriggerInvocations(
                         nonzero!(1_u32),
-                    )));
+                    )))
+                    .expect("valid fixture parameters");
                 transaction.apply();
                 Ok::<(), String>(())
             })

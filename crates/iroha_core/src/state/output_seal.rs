@@ -8,11 +8,10 @@ use crate::queue::RoutingDecision;
 /// Block validation supplies the actual fragment count before attachment.
 /// Rows, sources, receipts, transcripts and applying policy remain State-owned.
 pub(crate) struct ExecutionOutputSealMetadata {
+    /// Exact fixed-width X produced by the same post-execution finalizer.
+    pub(crate) sccp_finality_header: iroha_data_model::sumeragi_finality::SccpFinalityHeaderV1,
     /// Actual fragment count after the finalizer's deterministic State changes.
     pub(crate) committed_fragment_count: u64,
-    /// Exact fixed-size finality header produced by this execution's SCCP tail.
-    pub(crate) sccp_finality_header:
-        iroha_data_model::sumeragi_finality::certified_result::SccpFinalityHeaderV1,
 }
 
 /// Keep source-specific validation errors intact across State's consuming seal.
@@ -445,9 +444,7 @@ impl StateBlock<'_> {
                 || metadata.sccp_finality_header.height() != block.header().height().get()
                 || metadata.sccp_finality_header.timestamp_ms() != block.header().creation_time_ms
             {
-                return Err(
-                    "SCCP finality header differs from the original execution carrier".into(),
-                );
+                return Err("SCCP finality header differs from its original execution".into());
             }
             let fragments = u64::try_from(state.committed_fragment_count())
                 .map_err(|_| "committed fragment count exceeds u64")?;

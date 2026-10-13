@@ -1,0 +1,119 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "replacement_must_be_a_new_transaction",
+  "category": "replacement_identity",
+  "rules": [
+    "no_replacement_while_unresolved"
+  ],
+  "description": "A driver that rebuilds the bytes of the rejected identity instead of refreshing its context is refused: a replacement that repeats an earlier identity of the step is a binding mismatch and is never dispatched.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "replacement-must-be-a-new-transaction",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction",
+        "max_transaction_identities": 2
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "rejected"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "rejected",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [
+            0
+          ],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "script": {
+        "builds": [
+          "repeat_payload"
+        ],
+        "signs": [
+          "ok"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "sign",
+          "step": 0,
+          "resumable": true
+        },
+        "effects": [
+          "build:0#2",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "ready_to_sign",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

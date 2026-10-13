@@ -21,6 +21,8 @@ thiserror = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+# Machine-readable resource observations use the workspace JSON codec.
+norito = { workspace = true, features = ["json"] }
 # Independent SHA-3 implementation the digests and the in-crate Keccak rounds are
 # cross-checked against. All hashing of the library itself uses the backend's
 # erasing sponge.

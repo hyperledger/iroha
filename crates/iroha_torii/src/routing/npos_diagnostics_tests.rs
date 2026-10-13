@@ -81,7 +81,8 @@ fn npos_diagnostics_distinguishes_absence_from_malformed_original_policy() {
         .set_parameter(Parameter::Custom(CustomParameter::new(
             SumeragiNposParameters::parameter_id(),
             iroha_primitives::json::Json::new(norito::json!({"unexpected": "shape"})),
-        )));
+        )))
+        .expect("valid fixture parameters");
     let error = sumeragi_npos_diagnostics(&tx.world).unwrap_err();
     assert!(
         matches!(

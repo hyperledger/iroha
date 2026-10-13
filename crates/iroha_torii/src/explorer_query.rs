@@ -620,13 +620,13 @@ async fn execute(
         }
         "explorer_transactions" => {
             routing::handle_v1_explorer_transactions_admitted(
-                state, telemetry, visibility, native, None, block, None, asset, admission,
+                state, telemetry, visibility, native, None, block, asset, admission,
             )
             .await?
         }
         "explorer_transactions_latest" => {
             routing::handle_v1_explorer_transactions_latest_admitted(
-                state, telemetry, visibility, native, None, block, None, asset, admission,
+                state, telemetry, visibility, native, None, block, asset, admission,
             )
             .await?
         }
@@ -635,7 +635,6 @@ async fn execute(
                 account: account("account")?,
                 authority: None,
                 transaction_hash,
-                status: None,
                 block,
                 kind: None,
                 asset_id: asset,
@@ -932,6 +931,85 @@ mod tests {
         );
         assert!(page.next_cursor.is_none());
         assert!(page.total.is_none());
+    }
+
+    #[test]
+    fn history_status_predicates_preserve_boolean_rows_and_cursor_scope() {
+        for (spec, status_field, identity_field) in [
+            (&TRANSACTIONS, "status", "hash"),
+            (&LATEST_TRANSACTIONS, "status", "hash"),
+            (&INSTRUCTIONS, "transaction_status", "transaction_hash"),
+            (
+                &LATEST_INSTRUCTIONS,
+                "transaction_status",
+                "transaction_hash",
+            ),
+        ] {
+            let scan = |statuses: &[(&str, u64)], cursor: Option<&str>| {
+                let items = statuses
+                    .iter()
+                    .map(|(status, block)| {
+                        let mut row = Map::new();
+                        row.insert(identity_field.into(), Value::from(FAUCET_LITERAL));
+                        row.insert(status_field.into(), Value::from(*status));
+                        row.insert("block".into(), Value::from(*block));
+                        row.insert("index".into(), Value::from(0_u64));
+                        Value::Object(row)
+                    })
+                    .collect::<Vec<_>>();
+                norito::json!({"items":items,"pagination":{"next_cursor":cursor}})
+            };
+            let filter = field(status_field).eq("Committed");
+            let query = standalone_scan(spec, ListQuery::new().filter(filter.clone()), [1; 32])
+                .expect("status predicate");
+            assert!(query.selectors.is_empty());
+            assert_eq!(query.rows.filter.as_ref(), Some(&filter));
+            let empty = query
+                .page(scan(&[("Rejected", 7)], Some("native-next")))
+                .expect("bounded rejected candidate page");
+            assert!(empty.items.is_empty());
+            let token = empty
+                .next_cursor
+                .expect("filtered pages retain their continuation");
+            let next = standalone_scan(
+                spec,
+                ListQuery::new().filter(filter).cursor(token.clone()),
+                [1; 32],
+            )
+            .expect("same status predicate resumes");
+            assert_eq!(next.native.cursor.as_deref(), Some("native-next"));
+            let page = next
+                .page(scan(&[("Committed", 8), ("Rejected", 9)], None))
+                .expect("committed rows");
+            assert_eq!(page.items.len(), 1);
+            assert_eq!(page.items[0][status_field].as_str(), Some("Committed"));
+            assert!(page.next_cursor.is_none());
+            assert!(
+                standalone_scan(
+                    spec,
+                    ListQuery::new()
+                        .filter(field(status_field).eq("Rejected"))
+                        .cursor(token),
+                    [1; 32]
+                )
+                .is_err()
+            );
+            let boolean = field(status_field).eq("Committed").or(field(status_field)
+                .ne("Committed")
+                .and(field("block").eq(9)));
+            let query = standalone_scan(spec, ListQuery::new().filter(boolean), [1; 32])
+                .expect("full Boolean status predicate");
+            let page = query
+                .page(scan(
+                    &[("Committed", 8), ("Rejected", 7), ("Rejected", 9)],
+                    None,
+                ))
+                .expect("Boolean rows");
+            assert_eq!(page.items.len(), 2);
+            assert_eq!(page.items[0][status_field].as_str(), Some("Committed"));
+            assert_eq!(page.items[1][status_field].as_str(), Some("Rejected"));
+            assert_eq!(page.items[1]["block"].as_u64(), Some(9));
+        }
     }
 
     #[test]

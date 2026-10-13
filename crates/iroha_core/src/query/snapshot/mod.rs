@@ -1255,7 +1255,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 10);
         let state = Arc::new(state);
         let params = QueryParams {
             pagination: Pagination::default(),
@@ -1322,7 +1322,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 10);
         let state = Arc::new(state);
         let params = QueryParams {
             pagination: Pagination::default(),
@@ -1687,7 +1687,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 10);
         let state = Arc::new(state);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "missing".to_owned(),
@@ -1718,7 +1718,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let mut state = State::new_with_chain(world, kura, store.clone(), ChainId::from("chain"));
-        state.pipeline.query_stored_min_gas_units = 10;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 10);
         let state = Arc::new(state);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "missing".to_owned(),
@@ -1818,7 +1818,7 @@ mod tests {
         let kura = Kura::blank_kura_for_testing();
         let store = LiveQueryStore::start_test();
         let mut state = State::new(world, kura, store.clone());
-        state.pipeline.query_stored_min_gas_units = 10;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 10);
         let cursor = iroha_data_model::query::parameters::ForwardCursor {
             query: "q".to_owned(),
             cursor: nonzero_ext::nonzero!(1_u64),

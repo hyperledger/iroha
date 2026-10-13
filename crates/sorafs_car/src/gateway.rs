@@ -1208,12 +1208,15 @@ impl ProviderDescriptor {
             })?),
             None => None,
         };
-        let token = decode_stream_token(&input.stream_token_b64).map_err(|source| {
-            GatewayBuildError::InvalidStreamToken {
-                provider_id: provider_id_hex.clone(),
-                source,
+        let token = match decode_stream_token(&input.stream_token_b64) {
+            Ok(token) => token,
+            Err(source) => {
+                return Err(GatewayBuildError::InvalidStreamToken {
+                    provider_id: provider_id_hex.into_boxed_str(),
+                    source,
+                });
             }
-        })?;
+        };
         token.verify(&gateway_public_key).map_err(|source| {
             GatewayBuildError::InvalidStreamTokenSignature {
                 provider_id: provider_id_hex.clone(),
@@ -1639,7 +1642,7 @@ pub enum GatewayBuildError {
     },
     #[error("provider `{provider_id}` stream token decode error: {source}")]
     InvalidStreamToken {
-        provider_id: String,
+        provider_id: Box<str>,
         source: StreamTokenDecodeError,
     },
     #[error("provider `{provider_id}` stream token signature is invalid: {source}")]

@@ -26,6 +26,8 @@ use norito::codec::{Decode, Encode};
 
 mod generation;
 pub use generation::*;
+mod reconciliation;
+pub use reconciliation::*;
 pub mod views;
 pub use views::*;
 
@@ -531,11 +533,34 @@ pub struct SccpLcProfileStatusV1 {
     pub supported_until_ms: Option<u64>,
 }
 
+/// Original committed identities of the two emergency panels.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Decode,
+    Encode,
+    norito::derive::JsonSerialize,
+    norito::derive::JsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(no_fast_from_json, decode_from_slice, deny_unknown_fields)]
+#[norito_schema(name = "iroha_sccp::api::SccpPausePanelIdsV1")]
+pub struct SccpPausePanelIdsV1 {
+    /// Primary panel identity from the committed draw.
+    pub primary: [u8; 32],
+    /// Backup panel identity from the same committed draw.
+    pub backup: [u8; 32],
+}
+
 /// `GET /v1/sccp/capabilities`: the Taira identity, parameters and light-client profiles a
 /// wallet reads before any flow (§6, §7.1).
 ///
-/// TODO: Torii work package (TT-A1): add the coalition floor, forgery-hold summary,
-/// seated panel ids and launch-gate state when their committed owners are available.
+/// TODO: Torii work package (TT-A1): add the coalition slashable floor once its
+/// authoritative stake calculation is available.
 #[derive(
     Debug,
     Clone,
@@ -564,6 +589,16 @@ pub struct SccpCapabilitiesV1 {
     pub current_generation: Option<SccpCurrentGenerationV1>,
     /// Current committed liability clock.
     pub liability_clock: u64,
+    /// Highest generation with recorded native forgery evidence, absent before any offence.
+    #[norito(required)]
+    pub forgery_max_generation: Option<u64>,
+    /// Current committed primary and backup panel identities, in that order.
+    #[norito(required)]
+    pub pause_panel_ids: Option<SccpPausePanelIdsV1>,
+    /// Qualified Parliament ballot availability; false forbids every SCCP proposal.
+    pub parliament_binding_ballot_available: bool,
+    /// Complete quarantine reconciliation availability, the other registration launch leg.
+    pub reconciliation_available: bool,
     /// SCCP parameters; `None` when SCCP does not exist on this network.
     #[norito(required)]
     pub parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>,

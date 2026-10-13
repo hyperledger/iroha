@@ -1321,7 +1321,19 @@ async fn snapshot_missing_space_directory_section_rejects_without_manifest_histo
 async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     let tmp_root = tempdir().unwrap();
     let store_dir = tmp_root.path().join("snapshot");
-    let state = state_factory();
+    let mut state = state_factory();
+    let parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
+    let mut nexus = state.nexus_snapshot();
+    nexus.staking.unbonding_delay = std::time::Duration::from_millis(
+        parameters
+            .committee_validity_ms
+            .checked_add(parameters.forgery_evidence_grace_ms)
+            .expect("fixture liability interval fits"),
+    );
+    nexus.staking.max_slash_bps = 1;
+    // The original writer and restore both use this exact pinned policy; a
+    // default delay cannot cover the retained generations' complete liability.
+    state.install_pre_genesis_nexus_for_testing(nexus);
     for seed in [1, 2] {
         let mut block = state.world.block();
         crate::smartcontracts::isi::sccp::test_support::populate_every_sccp_map(
@@ -1372,9 +1384,13 @@ async fn signed_snapshot_roundtrip_preserves_every_sccp_map() {
     use crate::state::WorldReadOnly as _;
     use mv::storage::StorageReadOnly as _;
     let world = restored.world.view();
+    assert_eq!(world.sccp_committee_generations().len(), 2);
+    assert_eq!(world.sccp_anchor_chunks().len(), 2);
+    assert_eq!(world.sccp_anchor_open().as_slice().len(), 1);
+    assert_eq!(world.sccp_block_leaves().len(), 2);
+    assert_eq!(*world.sccp_committee_current(), 2);
     assert_eq!(world.sccp_block_commitments().len(), 2);
     assert_eq!(world.sccp_history_leaves().len(), 2);
-    assert_eq!(world.sccp_block_leaves().len(), 2);
     assert_eq!(*world.sccp_reset_nonce(), Some([3; 32]));
     assert!(world.sccp_parameters().is_some());
 }

@@ -2,7 +2,6 @@ package org.hyperledger.iroha.sdk.core.model
 
 import java.util.Collections
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
-import org.hyperledger.iroha.sdk.core.model.instructions.ProofAttachment
 
 private const val MAX_U32 = 0xffff_ffffL
 private const val DEFAULT_TRANSACTION_TTL_MS = 100_000L
@@ -14,8 +13,10 @@ private const val DEFAULT_TRANSACTION_TTL_MS = 100_000L
  * instruction lists, by-reference contract calls, IVM bytecode, and flat mixed batches. `authority`
  * must use the canonical I105 account literal. `networkId` is the exact canonical hash identity of
  * the genesis header. `nonce` uses a [Long] carrier for the full nonzero unsigned 32-bit wire range.
- * Proof attachments are part of the signed payload and therefore affect both authorization
- * signatures and the canonical transaction identifier.
+ * Attachments are part of the signed payload and therefore affect both authorization signatures
+ * and the canonical transaction identifier. On the wire the field is `SignedAttachmentsV1` (the
+ * ordered intent descriptor and signed attachment occurrences). The canonical attachment codec
+ * validates its inline bytes, descriptor and binding before accepting a signed payload.
  */
 class TransactionPayload(
     val networkId: NetworkId,
@@ -27,7 +28,7 @@ class TransactionPayload(
     val feePayment: FeePaymentIntent,
 
     metadata: Map<String, JsonValue> = emptyMap(),
-    attachments: List<ProofAttachment>? = null,
+    val attachments: SignedAttachmentsV1? = null,
 ) {
     private val _metadata: Map<String, JsonValue> = Collections.unmodifiableMap(
         metadata.toMap().also { values ->
@@ -37,17 +38,7 @@ class TransactionPayload(
             }
         },
     )
-    private val _attachments: List<ProofAttachment>? =
-        attachments?.let { values ->
-            Collections.unmodifiableList(
-                values.map { requireNotNull(it) { "attachments must not contain null" } },
-            )
-        }
-
     val metadata: Map<String, JsonValue> get() = _metadata
-
-    /** Ordered execution proof attachments included in the signed transaction intent. */
-    val attachments: List<ProofAttachment>? get() = _attachments
 
     init {
         requireCanonicalI105Address(authority, "authority")
@@ -70,7 +61,7 @@ class TransactionPayload(
         feePayment: FeePaymentIntent = this.feePayment,
 
         metadata: Map<String, JsonValue> = this.metadata,
-        attachments: List<ProofAttachment>? = this.attachments,
+        attachments: SignedAttachmentsV1? = this.attachments,
     ): TransactionPayload = TransactionPayload(
         networkId = networkId,
         authority = authority,
@@ -96,7 +87,7 @@ class TransactionPayload(
             && feePayment == other.feePayment
 
             && _metadata == other._metadata
-            && _attachments == other._attachments
+            && attachments == other.attachments
     }
 
     override fun hashCode(): Int {
@@ -109,7 +100,7 @@ class TransactionPayload(
         result = 31 * result + feePayment.hashCode()
 
         result = 31 * result + _metadata.hashCode()
-        result = 31 * result + (_attachments?.hashCode() ?: 0)
+        result = 31 * result + (attachments?.hashCode() ?: 0)
         return result
     }
 }

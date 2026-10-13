@@ -268,8 +268,18 @@ fn synchronous_effect_preparation_releases_prefix_while_waiting_for_the_last_ori
     let worker_state = Arc::clone(&state);
     let worker = std::thread::spawn(move || {
         let mut cleanup = StateEffectLocks::new(&worker_state);
+        let mut registration =
+            crate::unit_test_support::release_registration(&worker_state.ivm_execution_budget());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let _ = started_tx.send(());
-        cleanup.prepare_blocking();
+        while let Err((_, wait)) = cleanup.try_prepare() {
+            // The caller waits only after releasing its actual acquired prefix.
+            // Retry keeps the same cleanup owner and exact source observation.
+            cleanup.release_writers();
+            runtime.block_on(wait.wait_for_release(&mut registration));
+        }
         let complete = cleanup.complete;
         drop(cleanup);
         let _ = done_tx.send(complete);

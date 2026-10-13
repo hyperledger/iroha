@@ -52,7 +52,7 @@ mod public_contract_creation_fees {
                     LiveQueryStore::start_test(),
                     ChainId::from("public-contract-fees"),
                 );
-                let mut pipeline = state.pipeline.clone();
+                let mut pipeline = state.installed_pipeline().clone();
                 pipeline.parallel_overlay = true;
                 pipeline.parallel_apply = parallel_apply;
                 pipeline.workers = 2;

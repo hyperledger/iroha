@@ -426,5 +426,5 @@ class PrivacyExact12CapabilityManifestV1Test {
         List(count) { value }.joinToString(",", "[", "]")
 
     private fun consensusLimits(): String =
-        """{"max_actions_per_transaction":1,"max_actions_per_block":2,"max_proof_bytes_per_action":9437184,"max_action_bytes":9437184,"max_privacy_bytes_per_transaction":9437184,"max_privacy_bytes_per_block":18874368,"max_statement_and_encrypted_output_bytes_per_transaction":262144,"max_nullifiers_per_action":8,"max_commitments_per_action":8,"retained_root_count":2048}"""
+        """{"max_actions_per_transaction":1,"max_actions_per_block":2,"max_proof_bytes_per_action":9437184,"max_action_bytes":9699840,"max_privacy_bytes_per_transaction":9699840,"max_privacy_bytes_per_block":16711680,"max_statement_and_encrypted_output_bytes_per_transaction":262144,"max_nullifiers_per_action":8,"max_commitments_per_action":8,"retained_root_count":2048}"""
 }

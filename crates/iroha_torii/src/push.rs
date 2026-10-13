@@ -2872,7 +2872,7 @@ mod tests {
     impl RestartedPushGenesis {
         fn new(source: &iroha_core::sumeragi::test_chain::CertifiedTestChain) -> Self {
             use iroha_core::{
-                state::{StateReadOnly as _, WorldReadOnly as _},
+                state::WorldReadOnly as _,
                 sumeragi::{
                     block_store::{KuraBlockStore, Staging},
                     crypto::BlsCrypto,
@@ -2948,6 +2948,7 @@ mod tests {
             );
             let (events, _) = tokio::sync::broadcast::channel(16);
             let executor = StateExecutor::spawn(ExecutorContext {
+                time_source: iroha_primitives::time::TimeSource::new_system(),
                 state: Arc::clone(&state),
                 root_scope: source.root_scope(),
                 native_context_archive: Arc::new(
@@ -4128,13 +4129,16 @@ mod tests {
             .reconcile(&bridge, PushReplayTarget::Height(1))
             .unwrap();
         // Replace only fixture State history under its real publication owner.
+        // Retain the successor height so the genesis-only guard cannot reject
+        // before the operation's original cursor binding is checked.
         // The unchanged durable cursor still matches this operation's receipt,
         // so the mandatory current-State binding check is the rejecting control.
         state.block_hashes.block_and_revert().commit_for_tests();
         let mut replacement = state.block_hashes.block_and_revert();
         replacement.push_for_tests(replacement_hash);
+        replacement.push_for_tests(replacement_hash);
         replacement.commit_for_tests();
-        assert_eq!(state.committed_height(), 1);
+        assert_eq!(state.committed_height(), 2);
         assert!(matches!(
             rebound.reconcile(&bridge, PushReplayTarget::Height(1)),
             Err(PushReplayError::Fatal(PushError::Storage(reason)))

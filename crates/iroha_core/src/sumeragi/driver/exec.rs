@@ -44,7 +44,10 @@ use iroha_sumeragi::{
     },
 };
 
-use super::{persist::Backoff, traits::PublicationError};
+use super::{
+    persist::Backoff,
+    traits::{PublicationDeferral, PublicationError},
+};
 
 // Every execution queue retains its own preadmitted release custody. Shared wire
 // ingress admission and nested execution-graph funding have separate owners.
@@ -146,7 +149,7 @@ pub enum ExecDone {
         /// Whether the original block is durable.
         durable: bool,
         /// Exact local refusal when the historical authority read did not finish.
-        deferred: Option<crate::execution_attempt::ExecutionDeferred>,
+        deferred: Option<PublicationDeferral>,
     },
     /// `Commit`: the original atomic epoch/configuration output, or a local failure.
     Committed(Result<Box<AppliedConfig>, PublicationError>),
@@ -464,7 +467,7 @@ pub struct ExecSched {
     stage: Stage,
     /// The head commit is durable in the block store (a re-prepare skips the append).
     appended: bool,
-    append_refusal: Option<crate::execution_attempt::ExecutionDeferred>,
+    append_refusal: Option<PublicationDeferral>,
     /// Original local preparation refusal stays with the queued committed decision.
     preparation_refusal: Option<super::traits::PublicationDeferral>,
     /// Prepaid before Core starts; rearming never allocates while the pool is exhausted.
@@ -1042,6 +1045,21 @@ impl ExecSched {
         self.release_waker = waker;
     }
 
+    /// Bind all original prepaid release nodes to the native loop thread. This
+    /// startup operation grants no capacity and creates no replacement waiter.
+    /// Arbitrary callbacks retain ordinary physical-writer deferral semantics.
+    pub(crate) fn bind_release_thread(&mut self, thread: std::thread::Thread) {
+        if !cfg!(all(test, sumeragi_core_mutation = "HC252")) {
+            self.commit_registration.bind_thread(thread.clone());
+        }
+        self.payload_retry.registration.bind_thread(thread.clone());
+        self.witness_retry.registration.bind_thread(thread.clone());
+        self.drive_retry.registration.bind_thread(thread.clone());
+        for slot in self.inbound.iter_mut() {
+            slot.retry.registration.bind_thread(thread.clone());
+        }
+    }
+
     fn clear_commit_wait(&mut self) {
         self.commit_registration.cancel();
         self.commit_wait = None;
@@ -1291,14 +1309,11 @@ impl ExecSched {
                     self.appended = true;
                     self.stage = Stage::Appended;
                 } else {
-                    let release = self.append_refusal.as_ref().and_then(|reason| {
-                        match reason.allocation_refusal() {
-                            Some(iroha_allocation::AllocationRefusal::Capacity {
-                                release, ..
-                            }) => Some(release.clone()),
-                            _ => None,
-                        }
-                    });
+                    let release = self
+                        .append_refusal
+                        .as_ref()
+                        .and_then(PublicationDeferral::release_wait)
+                        .cloned();
                     self.retain_commit_wait(CommitWaitPhase::Append, release);
                     self.retry(now, "append", "block store write failed");
                 }
@@ -1607,7 +1622,7 @@ mod refusal_tests {
             0,
             ExecDone::Appended {
                 durable: false,
-                deferred: Some(refusal.clone().into()),
+                deferred: Some(PublicationDeferral::Execution(refusal.clone().into())),
             },
         );
         assert_eq!(

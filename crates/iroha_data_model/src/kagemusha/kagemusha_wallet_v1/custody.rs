@@ -48,6 +48,10 @@ use super::{
 #[path = "custody_tests.rs"]
 pub(super) mod custody_tests;
 
+#[cfg(test)]
+#[path = "capsule_commitment_tests.rs"]
+mod capsule_commitment_tests;
+
 const DIGEST_BYTES: usize = 32;
 
 /// Exact `output` transcript bytes:
@@ -367,7 +371,8 @@ impl KagemushaWalletMarkerV1 {
     /// capsule's head state.
     pub fn require_capsule(&self, capsule: &KagemushaWalletRecoveryCapsuleV1) -> WalletResult<()> {
         self.validate()?;
-        let head = capsule.head_marker_state()?;
+        let head = capsule.head_marker_state();
+        let capsule = capsule.body();
         require_scheme_v1("marker.scheme_id", &self.scheme_id, &capsule.scheme_id)?;
         if self.wallet_id != capsule.wallet_id {
             return Err(invalid_v1("marker.wallet_id"));
@@ -683,12 +688,12 @@ const fn required_retained_roles_v1(
     }
 }
 
-/// Private recovery capsule frozen before the receipt is signed (§4.1).
+/// Complete private recovery body, validated and frozen before an independent opening is drawn.
 ///
 /// It holds the actual next state, the statement, Ω(pred) for Send, Unload and Retiring, the
 /// step proof σ, the Payment digest a Receive receipt binds, the required map nodes, the
 /// retained input bytes (the fold witnesses, §4.1) and the receipt-free output descriptor;
-/// the receipt signs its digest `H("capsule", frame)`.
+/// every byte is bound by the randomized capsule commitment signed in the receipt.
 ///
 /// Each map opening is one depth-32 indexed-tree opening transcript of §3.2 (owner answer A2):
 /// a leaf opening or an empty-slot opening, each with exactly 32 siblings.
@@ -696,9 +701,9 @@ const fn required_retained_roles_v1(
 // checks only each opening's layout.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
-    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1"
+    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryBodyV1"
 )]
-pub struct KagemushaWalletRecoveryCapsuleV1 {
+pub struct KagemushaWalletRecoveryBodyV1 {
     /// Wire version; exactly [`KAGEMUSHA_WALLET_VERSION_V1`].
     pub version: u16,
     /// Scheme.
@@ -730,7 +735,7 @@ pub struct KagemushaWalletRecoveryCapsuleV1 {
     pub output: KagemushaWalletOutputDescriptorV1,
 }
 
-impl KagemushaWalletRecoveryCapsuleV1 {
+impl KagemushaWalletRecoveryBodyV1 {
     /// Decode the one mandatory quota-refresh witness, absent for every other effect.
     /// Its original frame remains covered by the capsule and signed receipt digest.
     /// This checks canonical shape; the transition owner must authenticate its root
@@ -902,31 +907,28 @@ impl KagemushaWalletRecoveryCapsuleV1 {
         Ok(())
     }
 
-    /// Head marker state selecting this capsule's successor (§4.2).
+    /// Consume this body and retain its exact canonical frame before opening sampling.
+    ///
+    /// The fixed-width wrapper capacity is checked with a zero placeholder opening;
+    /// no commitment is evaluated and no opening is chosen by this operation.
     ///
     /// # Errors
-    ///
-    /// Rejects an invalid capsule or a capsule frame that cannot be digested.
-    pub fn head_marker_state(&self) -> WalletResult<KagemushaWalletMarkerStateV1> {
-        Ok(KagemushaWalletMarkerStateV1::Head {
-            sequence: self.statement.sequence,
-            operation_id: self.operation_id,
-            head: self.statement.successor,
-            capsule_digest: self.capsule_digest()?,
-            predecessor_capsule_digest: self.predecessor_capsule_digest,
+    /// Rejects every invalid body and a body whose complete wrapper would exceed the cap.
+    pub fn freeze(self) -> WalletResult<KagemushaWalletFrozenRecoveryBodyV1> {
+        let body_frame = self.to_canonical_bytes()?;
+        let _ = encode_frame_v1(
+            &KagemushaWalletRecoveryCapsuleFrameV1 {
+                body_frame: body_frame.clone(),
+                opening: [0; 32],
+            },
+            KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1,
+        )?;
+        let body_digest = kagemusha_wallet_digest_v1(Role::CapsuleBody, &body_frame);
+        Ok(KagemushaWalletFrozenRecoveryBodyV1 {
+            body: self,
+            body_frame,
+            body_digest,
         })
-    }
-
-    /// Capsule digest `H("capsule", canonical frame)` signed by the receipt.
-    ///
-    /// # Errors
-    ///
-    /// Rejects what [`Self::to_canonical_bytes`] rejects.
-    pub fn capsule_digest(&self) -> WalletResult<[u8; 32]> {
-        Ok(kagemusha_wallet_digest_v1(
-            Role::Capsule,
-            &self.to_canonical_bytes()?,
-        ))
     }
 
     /// Validate and encode the bounded canonical frame.
@@ -954,6 +956,322 @@ impl KagemushaWalletRecoveryCapsuleV1 {
     }
 }
 
+/// Immutable canonical recovery body, before its independent opening is sampled.
+///
+/// This owner exposes no mutable body reference and is consumed when it is sealed.
+#[derive(Clone, PartialEq, Eq)]
+pub struct KagemushaWalletFrozenRecoveryBodyV1 {
+    body: KagemushaWalletRecoveryBodyV1,
+    body_frame: Vec<u8>,
+    body_digest: [u8; 32],
+}
+
+impl core::fmt::Debug for KagemushaWalletFrozenRecoveryBodyV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KagemushaWalletFrozenRecoveryBodyV1")
+            .finish_non_exhaustive()
+    }
+}
+
+impl KagemushaWalletFrozenRecoveryBodyV1 {
+    /// The validated immutable recovery body.
+    #[must_use]
+    pub const fn body(&self) -> &KagemushaWalletRecoveryBodyV1 {
+        &self.body
+    }
+
+    /// Bind one independently sampled canonical Fp opening to this frozen body.
+    ///
+    /// Zero is a valid opening. The caller samples only after freezing the body,
+    /// and must not reuse an opening for another body. This function never samples,
+    /// reduces or replaces an opening, including on a zero-identifier refusal.
+    ///
+    /// # Errors
+    /// Rejects a noncanonical opening, an invalid compiled parameter or a zero
+    /// public identifier. The complete wrapper must remain within the private cap.
+    pub fn seal(self, opening: [u8; 32]) -> WalletResult<KagemushaWalletRecoveryCapsuleV1> {
+        let opening = zeroize::Zeroizing::new(opening);
+        let point = capsule_point_v1::<iroha_pasta::Eq>(&self.body_digest, &opening)?;
+        let receipt_commitment = super::poseidon::kagemusha_wallet_poseidon_bytes_v1(
+            super::poseidon::KAGEMUSHA_WALLET_CAPSULE_COMMITMENT_DOMAIN_V1,
+            &point,
+        );
+        require_nonzero_v1("capsule.commitment", &receipt_commitment)?;
+        let wire = KagemushaWalletRecoveryCapsuleFrameV1 {
+            body_frame: self.body_frame,
+            opening: *opening,
+        };
+        let frame = encode_frame_v1(&wire, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1)?;
+        let custody_digest = kagemusha_wallet_digest_v1(Role::Capsule, &frame);
+        Ok(KagemushaWalletRecoveryCapsuleV1 {
+            body: Box::new(self.body),
+            wire,
+            frame,
+            custody_digest,
+            receipt_commitment,
+        })
+    }
+}
+
+/// The only wire form of a private recovery capsule: exact canonical B, then r.
+/// Only the validated owner is exposed to callers; this private DTO carries no cache.
+#[derive(Clone, PartialEq, Eq, Decode, Encode, norito::NoritoSchema)]
+#[norito_schema(
+    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1"
+)]
+pub(super) struct KagemushaWalletRecoveryCapsuleFrameV1 {
+    pub(super) body_frame: Vec<u8>,
+    pub(super) opening: [u8; 32],
+}
+
+/// Validated immutable private wrapper W and its distinct custody/public identities.
+///
+/// Only canonical construction or decode can create this owner. Its retained frame
+/// authenticates both B and r. No point is duplicated on disk; C is recomputed from
+/// the opening and the compiled Eq generator tuple before this owner is created.
+/// Cached digests cannot outlive validation or become stale through mutation.
+#[derive(Clone, PartialEq, Eq, norito::NoritoSchema)]
+#[norito_schema(
+    name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRecoveryCapsuleV1"
+)]
+pub struct KagemushaWalletRecoveryCapsuleV1 {
+    // Keep the wire owner aligned like its two-field DTO, independent of Body's u128 fields.
+    body: Box<KagemushaWalletRecoveryBodyV1>,
+    wire: KagemushaWalletRecoveryCapsuleFrameV1,
+    frame: Vec<u8>,
+    custody_digest: [u8; 32],
+    receipt_commitment: [u8; 32],
+}
+
+impl Drop for KagemushaWalletRecoveryCapsuleV1 {
+    fn drop(&mut self) {
+        // Exact durable W is never rewritten; erase only this discarded in-memory copy.
+        zeroize::Zeroize::zeroize(&mut self.frame);
+    }
+}
+
+impl core::fmt::Debug for KagemushaWalletRecoveryCapsuleV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KagemushaWalletRecoveryCapsuleV1")
+            .finish_non_exhaustive()
+    }
+}
+
+impl KagemushaWalletRecoveryCapsuleV1 {
+    /// The validated immutable body B; callers cannot replace its proof or fields.
+    #[must_use]
+    pub fn body(&self) -> &KagemushaWalletRecoveryBodyV1 {
+        &self.body
+    }
+
+    /// Private selected-custody identity H("capsule", W), never a public receipt value.
+    #[must_use]
+    pub const fn custody_digest(&self) -> [u8; 32] {
+        self.custody_digest
+    }
+
+    /// Opaque public identifier `P_bytes(kgwcapc1, canonical(C))` signed by the receipt.
+    #[must_use]
+    pub const fn receipt_commitment(&self) -> [u8; 32] {
+        self.receipt_commitment
+    }
+
+    /// Borrow the exact private frame, including its retained opening.
+    #[must_use]
+    pub fn as_canonical_bytes(&self) -> &[u8] {
+        &self.frame
+    }
+
+    /// Copy the exact private frame; retries never regenerate its opening or body.
+    #[must_use]
+    pub fn to_canonical_bytes(&self) -> Vec<u8> {
+        self.frame.clone()
+    }
+
+    /// The operation-dependent proof digest already validated in B.
+    ///
+    /// # Errors
+    /// Returns the underlying proof-digest validation error.
+    pub fn proof_digest(&self) -> WalletResult<[u8; 32]> {
+        self.body.proof_digest()
+    }
+
+    /// The private marker state selecting this exact wrapper.
+    #[must_use]
+    pub fn head_marker_state(&self) -> KagemushaWalletMarkerStateV1 {
+        KagemushaWalletMarkerStateV1::Head {
+            sequence: self.body.statement.sequence,
+            operation_id: self.body.operation_id,
+            head: self.body.statement.successor,
+            capsule_digest: self.custody_digest,
+            predecessor_capsule_digest: self.body.predecessor_capsule_digest,
+        }
+    }
+
+    /// Decode exact W, validate B/r and restore identities from the retained opening.
+    ///
+    /// # Errors
+    /// Rejects oversized or noncanonical wrapper/body frames, the wrong scheme,
+    /// invalid body fields, a noncanonical opening or a zero public identifier.
+    pub fn decode_canonical(bytes: &[u8], expected_scheme_id: &[u8; 32]) -> WalletResult<Self> {
+        let wire: KagemushaWalletRecoveryCapsuleFrameV1 =
+            decode_frame_v1(bytes, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1)?;
+        let body =
+            KagemushaWalletRecoveryBodyV1::decode_canonical(&wire.body_frame, expected_scheme_id)?;
+        let restored = body.freeze()?.seal(wire.opening)?;
+        if restored.as_canonical_bytes() != bytes {
+            return Err(invalid_v1("capsule.frame"));
+        }
+        Ok(restored)
+    }
+}
+
+impl core::fmt::Debug for KagemushaWalletRecoveryCapsuleFrameV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KagemushaWalletRecoveryCapsuleFrameV1")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for KagemushaWalletRecoveryCapsuleFrameV1 {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.opening);
+        zeroize::Zeroize::zeroize(&mut self.body_frame);
+    }
+}
+
+impl iroha_schema::TypeId for KagemushaWalletRecoveryCapsuleV1 {
+    fn id() -> String {
+        "KagemushaWalletRecoveryCapsuleV1".into()
+    }
+}
+
+impl IntoSchema for KagemushaWalletRecoveryCapsuleV1 {
+    fn type_name() -> String {
+        "KagemushaWalletRecoveryCapsuleV1".into()
+    }
+
+    fn update_schema_map(map: &mut iroha_schema::MetaMap) {
+        use iroha_schema::{Declaration, Metadata, NamedFieldsMeta};
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Struct(NamedFieldsMeta {
+                declarations: vec![
+                    Declaration {
+                        name: "body_frame".into(),
+                        ty: core::any::TypeId::of::<Vec<u8>>(),
+                    },
+                    Declaration {
+                        name: "opening".into(),
+                        ty: core::any::TypeId::of::<[u8; 32]>(),
+                    },
+                ],
+            }));
+            Vec::<u8>::update_schema_map(map);
+            <[u8; 32]>::update_schema_map(map);
+        }
+    }
+}
+
+impl norito::SerializePayload for KagemushaWalletRecoveryCapsuleV1 {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        norito::SerializePayload::serialize(&self.wire, writer)
+    }
+
+    fn encoded_len_hint(&self) -> Option<usize> {
+        norito::SerializePayload::encoded_len_hint(&self.wire)
+    }
+
+    fn encoded_len_exact(&self) -> Option<usize> {
+        norito::SerializePayload::encoded_len_exact(&self.wire)
+    }
+}
+
+impl<'de> norito::DeserializePayload<'de> for KagemushaWalletRecoveryCapsuleV1 {
+    fn deserialize(archived: &'de norito::core::Archived<Self>) -> Self {
+        Self::try_deserialize(archived).expect("validated canonical KAGEMUSHA recovery capsule")
+    }
+
+    fn try_deserialize(archived: &'de norito::core::Archived<Self>) -> Result<Self, norito::Error> {
+        let bytes =
+            norito::core::payload_slice_from_ptr(core::ptr::from_ref(archived).cast::<u8>())?;
+        let (value, used) = <Self as norito::core::DecodeFromSlice>::decode_from_slice(bytes)?;
+        if used != bytes.len() {
+            return Err(norito::Error::LengthMismatch);
+        }
+        Ok(value)
+    }
+}
+
+impl<'de> norito::core::DecodeFromSlice<'de> for KagemushaWalletRecoveryCapsuleV1 {
+    fn decode_from_slice(bytes: &'de [u8]) -> Result<(Self, usize), norito::Error> {
+        let (wire, used) =
+            norito::core::decode_field_prefix::<KagemushaWalletRecoveryCapsuleFrameV1>(bytes)?;
+        // This path also handles capsules nested in an enclosing Norito object.
+        // Decode B canonically, retain exactly the supplied r, and rebuild every cache;
+        // no unchecked cache-bearing representation can be deserialized.
+        let restored = (|| -> WalletResult<Self> {
+            let body: KagemushaWalletRecoveryBodyV1 =
+                decode_frame_v1(&wire.body_frame, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1)?;
+            body.require_versions()?;
+            body.freeze()?.seal(wire.opening)
+        })()
+        .map_err(|error| norito::Error::Message(error.to_string()))?;
+        Ok((restored, used))
+    }
+}
+
+/// The exact existing Eq IPA g[0], g[1], w tuple; no caller can replace it.
+const CAPSULE_BASES_V1: [[u8; 32]; 3] = [
+    [
+        0x45, 0x06, 0x5e, 0xd0, 0x79, 0xbf, 0x38, 0x97, 0x58, 0xf5, 0x91, 0x13, 0x10, 0x95, 0xef,
+        0x41, 0x93, 0x10, 0xe8, 0xc7, 0x08, 0xa8, 0x05, 0x85, 0x2b, 0x9b, 0x77, 0xbe, 0xd8, 0xc7,
+        0xec, 0xbd,
+    ],
+    [
+        0xe0, 0xc0, 0x80, 0x26, 0x86, 0xd3, 0xed, 0x57, 0x1f, 0x7f, 0x33, 0x99, 0x52, 0x6b, 0x24,
+        0x46, 0x0b, 0x16, 0xac, 0xe4, 0x61, 0xeb, 0xda, 0x9d, 0xcf, 0xe6, 0xe5, 0xb7, 0xb2, 0x98,
+        0xc1, 0x8c,
+    ],
+    [
+        0x75, 0x20, 0xd9, 0x6f, 0x3e, 0x5c, 0xd4, 0x17, 0x60, 0x36, 0x71, 0x51, 0x60, 0x8b, 0x54,
+        0x82, 0x18, 0x83, 0xc1, 0x0c, 0x4b, 0x9a, 0x4f, 0xf2, 0xbe, 0xae, 0x22, 0x7b, 0xef, 0x94,
+        0xbc, 0xab,
+    ],
+];
+
+fn capsule_point_v1<C: iroha_pasta::PastaCurve<ScalarExt = iroha_pasta::Fp>>(
+    body_digest: &[u8; 32],
+    opening: &[u8; 32],
+) -> WalletResult<[u8; 32]> {
+    use iroha_pasta::{Fp, PastaField};
+    let scalar = |bytes: &[u8; 32]| {
+        let mut limbs = zeroize::Zeroizing::new([0_u64; 4]);
+        for (limb, chunk) in limbs.iter_mut().zip(bytes.chunks_exact(8)) {
+            let mut word = zeroize::Zeroizing::new([0; 8]);
+            word.copy_from_slice(chunk);
+            *limb = u64::from_le_bytes(*word);
+        }
+        Option::<Fp>::from(Fp::from_canonical_limbs(*limbs))
+            .ok_or_else(|| invalid_v1("capsule.opening"))
+    };
+    let mut low = [0; 32];
+    let mut high = [0; 32];
+    low[..16].copy_from_slice(&body_digest[..16]);
+    high[..16].copy_from_slice(&body_digest[16..]);
+    let scalars = zeroize::Zeroizing::new([scalar(&low)?, scalar(&high)?, scalar(opening)?]);
+    let point = |bytes| {
+        Option::<C>::from(C::from_bytes(bytes))
+            .ok_or_else(|| invalid_v1("capsule.commitment_parameters"))
+    };
+    // `*` is the existing fixed-length constant-time secret-scalar kernel, unlike
+    // public variable-time MSM. Decompression sees only the compiled public bases.
+    let commitment = point(&CAPSULE_BASES_V1[0])? * scalars[0]
+        + point(&CAPSULE_BASES_V1[1])? * scalars[1]
+        + point(&CAPSULE_BASES_V1[2])? * scalars[2];
+    // Identity C has its one canonical zero encoding and is accepted here.
+    Ok(commitment.to_bytes())
+}
+
 // ---------------------------------------------------------------------------------------
 // Completion record (§4.1, design §5.2)
 // ---------------------------------------------------------------------------------------
@@ -973,7 +1291,7 @@ pub struct KagemushaWalletCompletionRecordV1 {
     pub wallet_id: [u8; 32],
     /// Operation identity.
     pub operation_id: [u8; 32],
-    /// Digest of the capsule the receipt signs.
+    /// Private H("capsule", W) selecting the exact wrapper; not the signed public commitment.
     pub capsule_digest: [u8; 32],
     /// Commit receipt.
     pub receipt: KagemushaWalletReceiptV1,
@@ -994,13 +1312,13 @@ impl KagemushaWalletCompletionRecordV1 {
     ) -> WalletResult<Self> {
         let record = Self {
             version: KAGEMUSHA_WALLET_VERSION_V1,
-            wallet_id: capsule.wallet_id,
-            operation_id: capsule.operation_id,
-            capsule_digest: capsule.capsule_digest()?,
+            wallet_id: capsule.body().wallet_id,
+            operation_id: capsule.body().operation_id,
+            capsule_digest: capsule.custody_digest(),
             receipt,
             output,
         };
-        record.validate()?;
+        record.require_capsule(capsule)?;
         Ok(record)
     }
 
@@ -1009,7 +1327,9 @@ impl KagemushaWalletCompletionRecordV1 {
     /// # Errors
     ///
     /// Rejects another version, zero identities, an invalid receipt or one for another
-    /// operation or capsule, and empty or oversized output bytes.
+    /// operation, and empty or oversized output bytes. This format check cannot
+    /// authenticate the private/public capsule join; use [`Self::require_capsule`]
+    /// or [`Self::verify`] with the selected immutable owner for that authority.
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("completion.version", self.version)?;
         require_nonzero_v1("completion.wallet_id", &self.wallet_id)?;
@@ -1019,18 +1339,37 @@ impl KagemushaWalletCompletionRecordV1 {
         if self.receipt.operation_id != self.operation_id {
             return Err(invalid_v1("completion.receipt.operation_id"));
         }
-        if self.receipt.capsule_digest != self.capsule_digest {
-            return Err(invalid_v1("completion.receipt.capsule_digest"));
-        }
         if self.output.is_empty() || self.output.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
             return Err(invalid_v1("completion.output"));
         }
         Ok(())
     }
 
+    /// Authenticate both private custody and the distinct signed public commitment.
+    ///
+    /// # Errors
+    /// Rejects invalid record fields, another private wrapper, wallet or operation,
+    /// or a receipt whose commitment does not derive from that exact wrapper.
+    pub fn require_capsule(&self, capsule: &KagemushaWalletRecoveryCapsuleV1) -> WalletResult<()> {
+        self.validate()?;
+        if capsule.custody_digest() != self.capsule_digest {
+            return Err(invalid_v1("completion.capsule_digest"));
+        }
+        if capsule.body().wallet_id != self.wallet_id {
+            return Err(invalid_v1("completion.wallet_id"));
+        }
+        if capsule.body().operation_id != self.operation_id {
+            return Err(invalid_v1("completion.operation_id"));
+        }
+        if capsule.receipt_commitment() != self.receipt.capsule_commitment {
+            return Err(invalid_v1("completion.receipt.capsule_commitment"));
+        }
+        Ok(())
+    }
+
     /// Verify the record against its capsule under `credential` (design §9.3).
     ///
-    /// The record is valid iff the receipt verifies over the capsule digest, the output decodes
+    /// The record is valid iff the receipt verifies over the capsule commitment, the output decodes
     /// as the capsule's kind, its embedded receipt equals the record's, its statement, Ω(pred)
     /// and σ are the capsule's, its receipt binds the capsule's Payment digest, and its
     /// receipt-free parts rebuild the capsule's output descriptor. A Send output is the
@@ -1048,15 +1387,10 @@ impl KagemushaWalletCompletionRecordV1 {
         credential: &KagemushaWalletCredentialV1,
         capsule: &KagemushaWalletRecoveryCapsuleV1,
     ) -> WalletResult<KagemushaWalletPackageDigestsV1> {
-        self.validate()?;
-        if capsule.capsule_digest()? != self.capsule_digest {
-            return Err(invalid_v1("completion.capsule_digest"));
-        }
-        if capsule.wallet_id != self.wallet_id || credential.body.wallet_id != self.wallet_id {
+        self.require_capsule(capsule)?;
+        let capsule = capsule.body();
+        if credential.body.wallet_id != self.wallet_id {
             return Err(invalid_v1("completion.wallet_id"));
-        }
-        if capsule.operation_id != self.operation_id {
-            return Err(invalid_v1("completion.operation_id"));
         }
         let package = if capsule.kind == KagemushaWalletOperationKindV1::Send {
             let payment =
@@ -1256,7 +1590,7 @@ impl WalletVersionsV1 for KagemushaWalletMarkerV1 {
     }
 }
 
-impl WalletVersionsV1 for KagemushaWalletRecoveryCapsuleV1 {
+impl WalletVersionsV1 for KagemushaWalletRecoveryBodyV1 {
     fn require_versions(&self) -> WalletResult<()> {
         require_version_v1("capsule.version", self.version)?;
         self.successor_state.require_versions()?;

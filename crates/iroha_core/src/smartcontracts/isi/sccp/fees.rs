@@ -9,7 +9,8 @@
 //! admitted, counted and executed as exempt exactly when it is eligible. A transaction of an
 //! exempt shape that is not eligible is never refused for that: it pays the ordinary fee.
 //!
-//! An eligible transaction is exempt when it succeeds. When it fails, the executor charges
+//! Eligible forgery evidence is exempt only on success; R-EX rejects a failed carrier.
+//! For other eligible transactions that fail, the executor charges
 //! the ordinary Nexus fee within its signed fee intent, when that intent covers the fee and
 //! the payer can pay it (`ExecutionFeeExemption::ExemptOnSuccess`).
 
@@ -67,11 +68,22 @@ pub(crate) fn exempt_class_from(
     payload: &TransactionPayload,
     committed_time_ms: Option<u64>,
 ) -> Option<SccpExemptClassV1> {
+    if super::keepalive::valid_shape(payload) {
+        return payload
+            .creation_time_ms
+            .checked_add(1)
+            .filter(|time| super::keepalive::due_from(source, 0, *time) == Ok(true))
+            .map(|_| SccpExemptClassV1::Keepalive);
+    }
     if source.parameters().is_none() {
         return None;
     }
     let class = admission::exempt_shape(payload)?;
     let eligible = match class {
+        SccpExemptClassV1::Keepalive => {
+            unreachable!("shared carrier handled before SCCP-only exemptions")
+        }
+        SccpExemptClassV1::ForgeryEvidence => true,
         SccpExemptClassV1::KeeperAdvance { .. } => single::<AdvanceSccpLightClientV1>(payload)
             .is_some_and(light_clients::keeper_advance_eligible),
         SccpExemptClassV1::SelfClaim => self_claim::eligible_from(

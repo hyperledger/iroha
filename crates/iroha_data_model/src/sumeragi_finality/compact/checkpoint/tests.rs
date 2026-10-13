@@ -258,23 +258,9 @@ fn resign(qc: &mut Qc) {
     qc.signers = iroha_sumeragi::types::Bitmap::from_indices(4, [0, 1, 2]).unwrap();
     let shares: Vec<_> = keys[..3]
         .iter()
-        .map(|key| {
-            iroha_crypto::Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &qc.preimage())
-                    .unwrap(),
-            )
-        })
+        .map(|key| consensus::sign_preimage(key.private_key(), &qc.preimage()).unwrap())
         .collect();
-    let refs: Vec<_> = shares
-        .iter()
-        .map(iroha_crypto::Signature::payload)
-        .collect();
-    qc.agg_sig = AggregateSignature(
-        iroha_crypto::bls_normal_aggregate_signatures(&refs)
-            .unwrap()
-            .try_into()
-            .unwrap(),
-    );
+    qc.agg_sig = AggregateSignature(consensus::aggregate(&shares).unwrap());
 }
 
 /// Produce synthetic execution DATA signed by the genuine four-validator fixture keys.

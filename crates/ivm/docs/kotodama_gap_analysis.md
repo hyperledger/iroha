@@ -82,11 +82,12 @@ Recursive value types, recursive calls, `while`, and unproved loop bounds fail
 closed.
 
 Every artifact carries a positive `max_cycles` value in its hash-covered
-execution header. The node's `pipeline.ivm_max_cycles_upper_bound` is a
-mandatory non-zero configuration value (default `1_000_000`) used by admission
-and every execution path. The value is file-configured only: a zero
-configuration value is rejected, and neither environment variables nor
-on-chain custom parameters can override the node policy.
+execution header. The chain's `ivm_max_cycles_upper_bound` is a mandatory
+non-zero field (default `1_000_000`) of the committed
+`pipeline_validity_policy_v1` parameter, used by admission and every execution
+path. An authorized `SetParameter` changes it from the next block and a zero
+value is rejected; neither a node configuration file nor an environment
+variable can set it.
 
 ## Security boundaries
 

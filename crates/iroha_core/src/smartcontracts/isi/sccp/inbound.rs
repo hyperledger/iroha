@@ -98,7 +98,7 @@ pub fn bind_transfer_event(
             }
             Ok(*locator)
         }
-        SccpNormalizedEventV1::Void { .. } => {
+        SccpNormalizedEventV1::Void { .. } | SccpNormalizedEventV1::Finalized { .. } => {
             Err(refuse("the proof does not prove a transfer to Taira"))
         }
     }

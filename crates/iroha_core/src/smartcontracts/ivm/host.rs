@@ -623,6 +623,10 @@ pub struct CoreHostImpl<QS> {
     access_log_enabled: bool,
     zk_verify_limits: ivm::host::ZkVerifyLimits,
     zk_gas_schedule: ivm::gas::ZkGasScheduleV1,
+    /// Verification gas schedule of the block this host executes in, installed
+    /// with the block's frozen ZK settings by [`Self::set_zk_config`]. It prices
+    /// the proof-bearing instructions the host queues.
+    confidential_gas: iroha_config::parameters::actual::ConfidentialGas,
     stark_config: iroha_config::parameters::actual::Stark,
     pipa_r_config: iroha_config::parameters::actual::PipaR,
     crypto: Arc<iroha_config::parameters::actual::Crypto>,
@@ -3093,6 +3097,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -3224,6 +3229,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -3309,6 +3315,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             access_log_enabled: false,
             zk_verify_limits: ivm::host::ZkVerifyLimits::default(),
             zk_gas_schedule: ivm::gas::ZkGasScheduleV1::default(),
+            confidential_gas: crate::gas::DEFAULT_ZK_GAS,
             stark_config: iroha_config::parameters::actual::Stark::default(),
             pipa_r_config: iroha_config::parameters::actual::PipaR::default(),
             crypto,
@@ -4200,6 +4207,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             cfg.gas.per_proof_byte,
         );
         self.zk_gas_schedule = schedule;
+        self.confidential_gas = cfg.gas;
         self.default.set_zk_gas_schedule(schedule);
         self.zk_verify_limits = ivm::host::ZkVerifyLimits {
             max_verify_batch: cfg.max_verify_batch,
@@ -5175,6 +5183,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             })
             .collect()
     }
+    /// Extract queued effects for the test overlay builders, retaining their context.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_queued_effects_with_contract_runtime_context(
         &mut self,
         contract_runtime_context: Option<ContractRuntimeExecutionContext>,
@@ -5186,7 +5196,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.durable_state_authorizations.clear();
         mem::take(&mut self.durable_state_overlay)
     }
-    /// Drain durable writes together with the immutable authorization for each write.
+    /// Extract test overlay writes with the immutable authorization for each write.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_durable_state_overlay_with_authorizations(
         &mut self,
     ) -> (
@@ -5198,8 +5209,9 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             mem::take(&mut self.durable_state_authorizations),
         )
     }
-    /// Drain completed AXT states so deterministic proof replay can persist them after
-    /// verification using the same lane/height materialization as raw execution.
+    /// Extract completed AXT states for test overlays that compare proof replay with
+    /// raw execution using the same lane and height materialization.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn drain_completed_axt_states(&mut self) -> Vec<axt::HostAxtState> {
         mem::take(&mut self.completed_axt)
     }
@@ -5389,6 +5401,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         )?;
         let confidential_gas_delta = crate::gas::sum_confidential_gas_costs(
             queued.iter().filter_map(QueuedEffect::instruction),
+            &self.confidential_gas,
         );
         let completed_axt = mem::take(&mut self.completed_axt);
         let durable_state_overlay = mem::take(&mut self.durable_state_overlay);
@@ -5423,6 +5436,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         authority: &AccountId,
         contract_runtime_context: Option<&ContractRuntimeExecutionContext>,
     ) -> Result<Vec<InstructionBox>, ValidationFail> {
+        self.confidential_gas = tx.zk.gas;
         self.take_execution_artifacts(contract_runtime_context.cloned())?
             .apply_to_transaction(tx, authority)
     }
@@ -5743,18 +5757,21 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         }
         (instructions, sequence)
     }
-    fn create_nfts_for_all_instructions_gas(instructions: &[InstructionBox]) -> u64 {
+    fn create_nfts_for_all_instructions_gas(&self, instructions: &[InstructionBox]) -> u64 {
         instructions
             .iter()
             .fold(0_u64, |gas, instruction| {
-                gas.saturating_add(crate::gas::meter_instruction(instruction))
+                gas.saturating_add(crate::gas::meter_instruction(
+                    instruction,
+                    &self.confidential_gas,
+                ))
             })
             .max(Self::create_nfts_for_all_gas())
     }
     #[cfg(test)]
     fn create_nfts_for_all_gas_quote(&self) -> u64 {
         let (instructions, _) = self.create_nfts_for_all_preview();
-        Self::create_nfts_for_all_instructions_gas(&instructions)
+        self.create_nfts_for_all_instructions_gas(&instructions)
     }
     fn axt_verify_gas(payload_len: usize) -> u64 {
         AXT_VERIFY_GAS_BASE.saturating_add(
@@ -8525,7 +8542,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         )
     }
     fn queue_instruction(&mut self, instr: InstructionBox) -> u64 {
-        let gas = crate::gas::meter_instruction(&instr);
+        let gas = crate::gas::meter_instruction(&instr, &self.confidential_gas);
         let queued = QueuedEffect {
             payload: crate::smartcontracts::ivm::host::QueuedEffectPayload::Instruction(instr),
             authority: self.effect_authority(),
@@ -8544,7 +8561,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         instruction: InstructionBox,
     ) -> Result<u64, ivm::VMError> {
         self.ensure_instruction_queue_allowed(&instruction)?;
-        let gas = crate::gas::meter_instruction(&instruction);
+        let gas = crate::gas::meter_instruction(&instruction, &self.confidential_gas);
         ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
         let queued_gas = self.queue_instruction(instruction);
         debug_assert_eq!(queued_gas, gas);
@@ -8626,7 +8643,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         let asset_id = AssetId::of(asset_def.clone(), from.clone());
         let isi = Transfer::asset_quantity(asset_id, amount.clone(), to.clone());
         let instruction = InstructionBox::from(TransferBox::from(isi));
-        let gas = crate::gas::meter_instruction(&instruction);
+        let gas = crate::gas::meter_instruction(&instruction, &self.confidential_gas);
         if self.try_reserve_serialized_output(&instruction, 1) {
             self.fastpq_batch_entries
                 .as_mut()
@@ -9049,7 +9066,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             commit_height,
         }
     }
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     fn flush_durable_state(
         &mut self,
         tx: &mut StateTransaction<'_, '_>,
@@ -10287,7 +10304,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                 // Sample convenience: create one NFT per known account (from snapshot)
                 ivm::syscalls::SYSCALL_CREATE_NFTS_FOR_ALL_USERS => {
                     let (instructions, next_sequence) = self.create_nfts_for_all_preview();
-                    let exact_gas = Self::create_nfts_for_all_instructions_gas(&instructions);
+                    let exact_gas = self.create_nfts_for_all_instructions_gas(&instructions);
                     ivm::host::preflight_reserved_syscall_gas(vm, exact_gas)?;
                     let gas = instructions.into_iter().fold(0_u64, |gas, instruction| {
                         gas.saturating_add(self.queue_instruction(instruction))
@@ -10311,8 +10328,8 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                         iroha_data_model::parameter::SmartContractParameter::ExecutionDepth(depth),
                     );
                     let instr = InstructionBox::from(SetParameter::new(param));
-                    let gas =
-                        crate::gas::meter_instruction(&instr).max(Self::smartcontract_depth_gas());
+                    let gas = crate::gas::meter_instruction(&instr, &self.confidential_gas)
+                        .max(Self::smartcontract_depth_gas());
                     ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
                     let _queued_gas = self.queue_instruction(instr);
                     Ok(gas)
@@ -10343,7 +10360,8 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                                 ballot_proof: proof,
                                 nullifier: sb.nullifier,
                             });
-                            let gas = crate::gas::meter_instruction(&instruction);
+                            let gas =
+                                crate::gas::meter_instruction(&instruction, &self.confidential_gas);
                             ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
                             if pending_hash.is_some() {
                                 debug_assert_eq!(
@@ -13017,7 +13035,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_SMART_CONTRACT_CODE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13045,7 +13063,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             &mut vm,
         );
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13087,7 +13105,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             &mut vm,
         );
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13227,7 +13245,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_ACTIVATE_CONTRACT_INSTANCE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13258,7 +13276,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_DEACTIVATE_CONTRACT_INSTANCE, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13407,7 +13425,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ivm::Memory::INPUT_START);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SMART_CONTRACT_BYTES, &mut vm);
         let expected = InstructionBox::from(request.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13424,7 +13442,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_ACCOUNT, &mut vm);
         let expected = InstructionBox::from(Register::account(Account::new(expected_account)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13524,7 +13542,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_ACCOUNT, &mut vm);
         let expected = InstructionBox::from(Unregister::account(account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13566,7 +13584,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             )
             .with_mintable(mintable),
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13646,7 +13664,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_ASSET, &mut vm);
         let expected = InstructionBox::from(Unregister::asset_definition(asset_def));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13682,7 +13700,8 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let retired_blob_evidence_ptr =
             store_tlv(&mut vm, PointerType::Blob, &norito_blob(&evidence_hashes));
         let assert_queued = |host: &mut CoreHost, res, expected: InstructionBox| {
-            let expected_gas = crate::gas::meter_instruction(&expected);
+            let expected_gas =
+                crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
             assert_eq!(res, Ok(expected_gas));
             assert_eq!(host.queued, vec![expected]);
             host.queued.clear();
@@ -13808,7 +13827,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(request);
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13837,7 +13856,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(RegisterPeerWithPop::new(peer_id, vec![0xAB, 0xCD]));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
         request_map.insert("unknown".to_owned(), norito::json::Value::Null);
@@ -13861,7 +13880,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_UNREGISTER_PEER, &mut vm);
         let expected = InstructionBox::from(Unregister::peer(peer_id));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13971,7 +13990,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         let mut role = Role::new(RoleId::new(role_name), authority);
         role = role.add_permission(Permission::new("read_assets".to_string(), Json::new(())));
         let expected = InstructionBox::from(Register::role(role));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -13995,7 +14014,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, name_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_DELETE_ROLE, &mut vm);
         let expected = InstructionBox::from(Unregister::role(RoleId::new(role_name)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14012,7 +14031,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, role_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_GRANT_ROLE, &mut vm);
         let expected = InstructionBox::from(Grant::account_role(RoleId::new(role_name), account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14029,7 +14048,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, role_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REVOKE_ROLE, &mut vm);
         let expected = InstructionBox::from(Revoke::account_role(RoleId::new(role_name), account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14049,7 +14068,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             Permission::new(perm_name.as_ref().to_string(), Json::new(())),
             account,
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14067,7 +14086,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, perm_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REVOKE_PERMISSION, &mut vm);
         let expected = InstructionBox::from(Revoke::account_permission(permission, account));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14085,7 +14104,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_ADD_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(AddSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14103,7 +14122,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(RemoveSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14126,7 +14145,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, pk_ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_SIGNATORY, &mut vm);
         let expected = InstructionBox::from(RemoveSignatory::new(account, public_key));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14142,7 +14161,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(11, quorum.get().into());
         let res = host.syscall(ivm::syscalls::SYSCALL_SET_ACCOUNT_QUORUM, &mut vm);
         let expected = InstructionBox::from(SetAccountQuorum::new(account, quorum));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14170,7 +14189,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_CREATE_TRIGGER, &mut vm);
         let expected = InstructionBox::from(Register::trigger(trigger));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14211,7 +14230,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         .with_metadata(action.metadata.clone());
         let expected =
             InstructionBox::from(Register::trigger(Trigger::new(trigger_id, expected_action)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14262,7 +14281,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         .with_metadata(action.metadata.clone());
         let expected =
             InstructionBox::from(Register::trigger(Trigger::new(trigger_id, expected_action)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14397,7 +14416,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
         vm.set_register(10, ptr);
         let res = host.syscall(ivm::syscalls::SYSCALL_REMOVE_TRIGGER, &mut vm);
         let expected = InstructionBox::from(Unregister::trigger(TriggerId::new(name)));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14419,7 +14438,7 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             key,
             Json::from(true),
         ));
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(res, Ok(expected_gas));
         assert_eq!(host.queued, vec![expected]);
     }
@@ -14506,7 +14525,10 @@ seiyaku PrivilegedBinding { permission CanAdministerContract;
             .expect("mint syscall");
         let asset_id = AssetId::of(asset_def, authority);
         let isi = Mint::asset_quantity(5u64, asset_id);
-        let expected = crate::gas::meter_instruction(&InstructionBox::from(MintBox::from(isi)));
+        let expected = crate::gas::meter_instruction(
+            &InstructionBox::from(MintBox::from(isi)),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert_eq!(gas, expected);
     }
     #[test]
@@ -16157,11 +16179,24 @@ seiyaku OuterCaller {
                 expected_register.clone()
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_transfer)
-            .saturating_add(crate::gas::meter_instruction(&expected_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister))
-            .saturating_add(crate::gas::meter_instruction(&expected_register));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_transfer, &crate::gas::DEFAULT_ZK_GAS)
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_set,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_invoice_set,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_unregister,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_register,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ));
         assert_eq!(gas, expected_gas);
         #[cfg(feature = "telemetry")]
         {
@@ -16336,7 +16371,10 @@ seiyaku OuterCaller {
         assert_eq!(
             billing_gas,
             QueuedEffect::instructions(&billing_host.queued).fold(0_u64, |gas, instruction| {
-                gas.saturating_add(crate::gas::meter_instruction(instruction))
+                gas.saturating_add(crate::gas::meter_instruction(
+                    instruction,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
             })
         );
         let mut expected_billed_state = subscription_state.clone();
@@ -16405,7 +16443,10 @@ seiyaku OuterCaller {
             Json::new(expected_state),
         ));
         assert_eq!(host.queued, vec![expected_set.clone()]);
-        assert_eq!(gas, crate::gas::meter_instruction(&expected_set));
+        assert_eq!(
+            gas,
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+        );
     }
     #[test]
     fn subscription_plan_metadata_rejects_negative_usage_unit_price() {
@@ -16657,10 +16698,20 @@ seiyaku OuterCaller {
                 expected_register.clone()
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_set)
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister))
-            .saturating_add(crate::gas::meter_instruction(&expected_register));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_invoice_set,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_unregister,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_register,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ));
         assert_eq!(gas, expected_gas);
     }
     #[test]
@@ -16829,9 +16880,16 @@ seiyaku OuterCaller {
                 expected_unregister.clone(),
             ]
         );
-        let expected_gas = crate::gas::meter_instruction(&expected_set)
-            .saturating_add(crate::gas::meter_instruction(&expected_invoice_set))
-            .saturating_add(crate::gas::meter_instruction(&expected_unregister));
+        let expected_gas =
+            crate::gas::meter_instruction(&expected_set, &crate::gas::DEFAULT_ZK_GAS)
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_invoice_set,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ))
+                .saturating_add(crate::gas::meter_instruction(
+                    &expected_unregister,
+                    &crate::gas::DEFAULT_ZK_GAS,
+                ));
         assert_eq!(gas, expected_gas);
     }
     #[test]
@@ -16842,8 +16900,10 @@ seiyaku OuterCaller {
             InstructionBox::from(Log::new(iroha_logger::Level::INFO, "one".to_string()));
         let instr_two =
             InstructionBox::from(Log::new(iroha_logger::Level::WARN, "two".to_string()));
-        let expected = crate::gas::meter_instruction(&instr_one)
-            .saturating_add(crate::gas::meter_instruction(&instr_two));
+        let expected =
+            crate::gas::meter_instruction(&instr_one, &crate::gas::DEFAULT_ZK_GAS).saturating_add(
+                crate::gas::meter_instruction(&instr_two, &crate::gas::DEFAULT_ZK_GAS),
+            );
         let gas = host.queue_instructions(vec![instr_one.clone(), instr_two.clone()]);
         assert_eq!(gas, expected);
         assert_eq!(host.queued, vec![instr_one, instr_two]);
@@ -17166,23 +17226,15 @@ seiyaku OuterCaller {
     }
     #[test]
     fn unaffordable_proof_instruction_preserves_queue_and_verification_latch() {
-        let _gas_lock = crate::gas::lock_confidential_gas_for_tests();
-        struct ResetConfidentialGas;
-        impl Drop for ResetConfidentialGas {
-            fn drop(&mut self) {
-                crate::gas::configure_confidential_gas(
-                    crate::gas::ConfidentialGasSchedule::default(),
-                );
-            }
-        }
-        let _reset = ResetConfidentialGas;
-        crate::gas::configure_confidential_gas(crate::gas::ConfidentialGasSchedule {
-            base_verify: u64::MAX,
+        // The schedule is the host's own value (the block's frozen ZK settings),
+        // so this test cannot disturb any other host in the process.
+        let extreme_gas = iroha_config::parameters::actual::ConfidentialGas {
+            proof_base: u64::MAX,
             per_public_input: u64::MAX,
             per_proof_byte: u64::MAX,
             per_nullifier: u64::MAX,
             per_commitment: u64::MAX,
-        });
+        };
         let backend: iroha_schema::Ident = "pipa-r/pasta".into();
         let proof = ProofAttachment::new_ref(
             backend.clone(),
@@ -17210,6 +17262,7 @@ seiyaku OuterCaller {
         vm.set_register(15, ivm_sys::SMARTCONTRACT_INSTRUCTION_TAG_SUBMIT_BALLOT);
         let pending_hash = [0x42; 32];
         let mut host = local_contract_host((*ALICE_ID).clone());
+        host.confidential_gas = extreme_gas;
         Arc::make_mut(&mut host.zk_last_env_hash_ballot).push_back(pending_hash);
         let error = vm
             .run_with_host(&mut host)
@@ -17337,7 +17390,6 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
     }
     #[test]
     fn execute_instruction_syscall_accepts_code_literal_ballot_instruction() {
-        let _gas_lock = crate::gas::lock_confidential_gas_for_tests();
         let authority = (*ALICE_ID).clone();
         let mut host = CoreHost::new(authority);
         bind_test_contract_runtime(&mut host, 303);
@@ -17712,7 +17764,10 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
         }
         let asset_id = AssetId::of(asset_def, from.clone());
         let isi = Transfer::asset_quantity(asset_id, amount, to);
-        let expected = crate::gas::meter_instruction(&InstructionBox::from(TransferBox::from(isi)));
+        let expected = crate::gas::meter_instruction(
+            &InstructionBox::from(TransferBox::from(isi)),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert_eq!(gas, expected);
         assert!(host.queued.is_empty());
         assert_eq!(host.fastpq_batch_entries.as_ref().map(Vec::len), Some(1));
@@ -17883,7 +17938,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
                 destination.clone(),
             )));
             assert_eq!(
-                crate::gas::meter_instruction(&expected),
+                crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS),
                 crate::gas::BASE_TRANSFER
             );
             assert_eq!(host.queued, vec![expected]);
@@ -18212,7 +18267,7 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             .syscall(ivm_sys::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut vm)
             .expect("apply batch");
         let expected = InstructionBox::from(batch.clone());
-        let expected_gas = crate::gas::meter_instruction(&expected);
+        let expected_gas = crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS);
         assert_eq!(gas, expected_gas);
         assert_eq!(host.queued, vec![expected]);
     }
@@ -18297,7 +18352,10 @@ seiyaku OpaqueInstructionSubmission { permission AssetTransferRole;
             .syscall(ivm_sys::SYSCALL_TRANSFER_V1_BATCH_APPLY, &mut control_vm)
             .expect("current canonical amount passes through the same frame construction");
         let expected = InstructionBox::from(current);
-        assert_eq!(gas, crate::gas::meter_instruction(&expected));
+        assert_eq!(
+            gas,
+            crate::gas::meter_instruction(&expected, &crate::gas::DEFAULT_ZK_GAS)
+        );
         assert_eq!(control_host.queued, vec![expected]);
         let payload = norito::core::frame_bare_with_header_flags::<TransferAssetBatch>(
             &forged_payload,
@@ -22227,7 +22285,8 @@ seiyaku Callee { permission AssetOps;
             ),
         )
         .into();
-        let confidential_gas_delta = crate::gas::confidential_gas_cost(&instruction);
+        let confidential_gas_delta =
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS);
         assert!(confidential_gas_delta > 0);
         let artifacts = HostExecutionArtifacts {
             queued: vec![QueuedEffect {
@@ -25152,10 +25211,14 @@ seiyaku DurableOwner {
     fn from_state_hydrates_zk_snapshots() {
         let mut world = World::new();
         let mut parameters = world.parameters.block();
-        parameters.get_mut().smart_contract.max_output_items =
+        let mut original = (**parameters.get()).clone();
+        original.smart_contract.max_output_items =
             NonZeroU64::new(23).expect("non-zero item limit");
-        parameters.get_mut().smart_contract.max_output_bytes =
+        original.smart_contract.max_output_bytes =
             NonZeroU64::new(65_536).expect("non-zero byte limit");
+        parameters
+            .replace(original)
+            .expect("valid fixture parameters");
         parameters.commit();
         let asset_def_id: AssetDefinitionId =
             iroha_data_model::asset::AssetDefinitionId::derive_from_components(

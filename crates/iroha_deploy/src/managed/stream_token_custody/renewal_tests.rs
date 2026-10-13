@@ -1109,7 +1109,8 @@ impl Fixture {
         let Action::Enroll { validity, .. } = &original.action else {
             unreachable!()
         };
-        let retained = attempts::generated(
+        let inspection = body_history::NativeClosureInspector::new(original, &account, deadline);
+        let retained = attempts::generated_native(
             directory,
             original.dispatch_purpose()?,
             original.digest()?,
@@ -1117,6 +1118,7 @@ impl Fixture {
             authorization,
             deadline,
             Some(validity.expires_at_unix_ms),
+            &inspection,
             |attempt| {
                 original
                     .request(attempt.terms(), attempt.observation()?, deadline)?

@@ -826,11 +826,16 @@ pub fn bucket_account_id(
 // Storage rent (§5.3.5)
 // ---------------------------------------------------------------------------------------------
 
-/// Upper bound of the minter's account state in bits (code and maximal data), the size
-/// `MINTER_FLOOR` is computed for (`SCCP_MINTER_STATE_BITS`).
-pub const TON_MINTER_STATE_BITS: u64 = 124_000;
-/// Upper bound of the minter's account state in cells (`SCCP_MINTER_STATE_CELLS`).
-pub const TON_MINTER_STATE_CELLS: u64 = 265;
+/// Account-state bit allowance used for `MINTER_FLOOR` (`SCCP_MINTER_STATE_BITS`).
+///
+/// The compiled-code sample with 31 committee members, three checkpoints, maximal
+/// supplies and counters, and eight retry records uses 113,633 bits in 222 cells.
+/// TODO: establish a bound or funded storage policy for arbitrary retained retry
+/// history; this sample does not establish a global account-state bound.
+pub const TON_MINTER_STATE_BITS: u64 = 115_000;
+/// Account-state cell allowance for the sample described by [`TON_MINTER_STATE_BITS`]
+/// (`SCCP_MINTER_STATE_CELLS`).
+pub const TON_MINTER_STATE_CELLS: u64 = 225;
 /// Storage period of `MINTER_FLOOR` and `BUCKET_FLOOR`: 100 years (`SCCP_FLOOR_SECONDS`).
 pub const TON_FLOOR_SECONDS: u64 = 3_153_600_000;
 /// TON mainnet basechain storage price per bit and 2^16 seconds (`ConfigParam 18`).
@@ -1374,12 +1379,12 @@ mod tests {
         assert_eq!(ton_storage_fee(1, 1, 0, 1, 500), 1);
         assert_eq!(ton_storage_fee(0, 1, 1, 1, 500), 0);
         assert_eq!(ton_storage_fee(65_536, 2, 3, 1, 500), 1_502);
-        // MINTER_FLOOR at mainnet prices: 256 500 units per 2^16 s over 100 years
+        // MINTER_FLOOR at mainnet prices: 227 500 units per 2^16 s over 100 years
         assert_eq!(
             ton_minter_floor_at_mainnet_prices(),
-            (256_500_u128 * 3_153_600_000).div_ceil(65_536)
+            (227_500_u128 * 3_153_600_000).div_ceil(65_536)
         );
-        assert_eq!(ton_minter_floor_at_mainnet_prices(), 12_342_810_059);
+        assert_eq!(ton_minter_floor_at_mainnet_prices(), 10_947_326_661);
     }
 
     /// The value of `const <name> = <integer>` in a Tolk source.

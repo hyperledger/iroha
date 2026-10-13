@@ -4,11 +4,13 @@
 //! counter rule, the proof sizes and known-answer values.
 //!
 //! The extended variant is FAEST-derived and has no official vectors: the
-//! known-answer values at the end are this implementation's own output, pinned so
-//! that an independent implementation can be compared with it value by value.
+//! known-answer values at the end were reproduced with the independent Python
+//! reference, including each leaf/hash intermediate and the full commitment.
+//! `fixtures/extended_v1/generate.py` records their inputs and regeneration command;
+//! the fixture records the reference source hashes.
 //! Nothing here is a statement about its security.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use iroha_zkp_vole::{
     bavc::{
@@ -1244,7 +1246,8 @@ fn known_answer_values_of_the_extended_construction() {
     println!("chall1_input_digest = {}", hex(&input_digest));
     println!("chall1_output = {}", hex(&challenge));
 
-    // Pinned: this implementation's own values (see the module documentation).
+    // Pin every intermediate to the independent Python reference, not only the
+    // aggregate digest, so a regression identifies the first mismatching layer.
     let pinned = shake256(
         &[
             &h0,
@@ -1258,6 +1261,37 @@ fn known_answer_values_of_the_extended_construction() {
     );
     println!("pinned = {}", hex(&pinned));
     assert_eq!(hex(&pinned), PINNED);
+    let fixture: HashMap<_, _> = include_str!("fixtures/extended_v1/affine_salted_tvs.txt")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split_once(" = "))
+        .collect();
+    let observed: [(&str, &[u8]); 12] = [
+        ("h0_output", &h0),
+        ("leaf_node_key", node_key),
+        ("leaf_sd", &sd),
+        ("leaf_b0", &expanded[32..128]),
+        ("leaf_b1", &expanded[128..]),
+        ("leaf_c0", &com[..96]),
+        ("leaf_c1", &com[96..]),
+        ("bavc_commitment", commitment.commitment()),
+        ("h5_squeezed", &squeezed),
+        ("chall1_input_digest", &input_digest),
+        ("chall1_output", &challenge),
+        ("pinned", &pinned),
+    ];
+    assert_eq!(
+        fixture.len(),
+        observed.len(),
+        "every fixture field is checked"
+    );
+    for (name, bytes) in observed {
+        assert_eq!(
+            Some(hex(bytes).as_str()),
+            fixture.get(name).copied(),
+            "{name}"
+        );
+    }
 }
 
 /// SHAKE256 (16 bytes) of `H_0 || sd || b0 || b1 || c0 || c1 || com ||

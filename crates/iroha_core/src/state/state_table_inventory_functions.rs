@@ -120,6 +120,14 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         1,
         UseOwner::Roots(&["execution_witness_roots", "validation_fee_policy_snapshot"]),
     ),
+    // Retains the original Begin proof across proof, pending-admission and delivered owners;
+    // its write path serves the certified ordinary_writes_root, not a whole-State digest.
+    function(
+        "crates/iroha_core/src/query/native_receipts/amx_begins.rs",
+        "original_begin",
+        1,
+        UseOwner::Roots(&["execution_witness_roots"]),
+    ),
     function(
         "crates/iroha_core/src/query/native_receipts/amx_read.rs",
         "complete",
@@ -223,10 +231,22 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
     function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/forgery.rs",
+        "original_source",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/light_clients.rs",
         "verify_source_proof",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/original_read.rs",
+        "anchor_chunk",
+        1,
+        UseOwner::Accumulator("sccp_anchor_accumulator"),
     ),
     function(
         "crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs",
@@ -295,20 +315,26 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/read/control.rs",
-        "control_proof_from_native",
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "block_proof",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/read/membership.rs",
-        "assemble",
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "control_proof",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
     function(
-        "crates/iroha_core/src/smartcontracts/isi/sccp/read/message.rs",
-        "message_proof_from_native",
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "history_path",
+        1,
+        UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/read/native.rs",
+        "message_proof",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
     ),
@@ -317,6 +343,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         "history_path_view",
         1,
         UseOwner::Accumulator("sccp_message_accumulator"),
+    ),
+    function(
+        "crates/iroha_core/src/smartcontracts/isi/sccp/store.rs",
+        "get",
+        1,
+        UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),
     function(
         "crates/iroha_core/src/smartcontracts/isi/settlement/atomic.rs",
@@ -353,42 +385,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
         "get_original_contract_with_code_hash",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_action_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_by_call_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_contracts_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_data_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_pipeline_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
-    ),
-    function(
-        "crates/iroha_core/src/smartcontracts/isi/triggers/set_authority_capture.rs",
-        "capture_time_authority_table",
-        1,
-        UseOwner::Roots(&["state_table_substrate"]),
     ),
     function(
         "crates/iroha_core/src/smartcontracts/isi/triggers/set_contract_capture.rs",
@@ -681,7 +677,7 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/state.rs",
         "refresh_axt_policies_from_directory",
-        3,
+        2,
         UseOwner::Roots(&["axt_policy_snapshot"]),
     ),
     function(
@@ -1088,6 +1084,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state/native_execution_tip.rs",
+        "restored_genesis_record",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/state/native_execution_tip.rs",
         "validate_native_execution_authorization",
         1,
         UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
@@ -1281,12 +1283,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     function(
         "crates/iroha_core/src/tx.rs",
         "authenticated_signed_replay_alias",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/tx.rs",
-        "canonical_carrier_membership_hashes",
         1,
         UseOwner::Other(Use::Record, RECORD_IDENTITY),
     ),

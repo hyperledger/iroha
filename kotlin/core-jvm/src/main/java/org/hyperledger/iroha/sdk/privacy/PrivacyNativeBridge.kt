@@ -477,7 +477,7 @@ class PrivacyNativeBridge private constructor() {
             require(archive.isNotEmpty() && archive.size <= EXACT12_CAPABILITY_MANIFEST_MAX_BYTES) {
                 "invalid Exact12 capability manifest length"
             }
-            require(instructionArchive.isNotEmpty() && instructionArchive.size <= 9 * 1024 * 1024) {
+            require(instructionArchive.isNotEmpty() && instructionArchive.size <= PRIVACY_SUBMIT_PROOF_FRAME_MAX_BYTES_V1) {
                 "Exact12 submit-proof instruction length is outside the release bound"
             }
             val manifestSnapshot = archive.copyOf()
@@ -517,10 +517,27 @@ class PrivacyNativeBridge private constructor() {
             return archive.copyOf()
         }
 
+        /** Typed Rust normalization for hash preimages only; never construction admission. */
+        internal fun submitProofIntentProjectionV1(archive: ByteArray): PrivacySubmitProofIntentProjectionV1 {
+            require(archive.isNotEmpty() && archive.size <= PRIVACY_SUBMIT_PROOF_FRAME_MAX_BYTES_V1) {
+                "submit-proof instruction exceeds its canonical byte bound"
+            }
+            check(nativeAvailable) { "native typed privacy intent projection is unavailable" }
+            val snapshot = archive.copyOf()
+            val projected = try {
+                nativeSubmitProofIntentProjectionV1(snapshot)
+            } finally { snapshot.fill(0) }
+            require(projected != null && projected.isNotEmpty() && projected.size <= PRIVACY_SUBMIT_PROOF_FRAME_MAX_BYTES_V1) {
+                "submit-proof instruction is not canonical typed Norito"
+            }
+            return PrivacySubmitProofIntentProjectionV1(requireNotNull(projected))
+        }
+
         private fun loadLibrary(): Boolean =
             try {
                 System.loadLibrary(LIBRARY_NAME)
                 nativeBridgeAbiVersion() == REQUIRED_BRIDGE_ABI_VERSION &&
+                    nativeSubmitProofIntentProjectionV1(null) == null &&
                     nativeConfidentialDerivationContractRevisionV3() ==
                     CONFIDENTIAL_DERIVATION_CONTRACT_REVISION_V3 &&
                     nativeValidateExact12CapabilityManifestForNetworkV1(null, null) ==
@@ -535,6 +552,8 @@ class PrivacyNativeBridge private constructor() {
             } catch (_: LinkageError) {
                 false
             }
+
+        @JvmStatic private external fun nativeSubmitProofIntentProjectionV1(archive: ByteArray?): ByteArray?
 
         @JvmStatic private external fun nativeBridgeAbiVersion(): Int
 
@@ -620,4 +639,10 @@ class PrivacyNativeBridge private constructor() {
             archive: ByteArray?,
         ): Int
     }
+}
+
+/** Internal hash-preimage bytes cannot be passed as an admitted submission model. */
+internal class PrivacySubmitProofIntentProjectionV1 internal constructor(bytes: ByteArray) {
+    private val encoded = bytes.copyOf()
+    internal fun bytes(): ByteArray = encoded.copyOf()
 }

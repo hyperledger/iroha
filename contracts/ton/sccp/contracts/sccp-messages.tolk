@@ -218,7 +218,40 @@ struct (0x53434339) SccpConsumeReverted {
 struct (0x53435931) SccpRetry {
     queryId: uint64
     response: address
+    operationId: uint64
+}
+
+/// One reserved original operation. Its first 168 bits bind every bounce to
+/// an immutable operation, stage and attempt before any optional data is read.
+struct (0x53435231) SccpRecoveryDispatch {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
     nonce: uint64
+    count: uint16
+    amount: uint96
+}
+
+/// Queries an existing receipt; never repeats the original effect.
+struct (0x53435232) SccpRecoveryConfirm {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+}
+
+/// Deletes exactly one completed stage's receipt, including on retry.
+struct (0x53435233) SccpRecoveryDrop {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+}
+
+/// Authenticated result: missing, applied, rejected, or deletion confirmed.
+struct (0x53435234) SccpRecoveryAck {
+    operationId: uint64
+    stage: uint8
+    attempt: uint64
+    result: uint8
 }
 
 /// TEP-74 burn notification extended with the SCCP recipient (§5.3.3).

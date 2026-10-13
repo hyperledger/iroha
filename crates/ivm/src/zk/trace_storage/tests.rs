@@ -135,14 +135,14 @@ fn actual_pc_destructor_scrubs_before_original_credit_refund() {
 
 #[test]
 fn empty_pc_snapshot_retains_already_admitted_future_observations() {
-    let original = AllocationBudget::new(8 * size_of::<u64>());
+    let original = AllocationBudget::new(size_of::<[u64; 8]>());
     let mut log = PcTraceLog::new(Some(&original));
     prepare(&mut log, 1, &original).unwrap();
     assert!(log.as_slice().is_empty());
     let mut copy = original
         .with_deferred_refund_notifications(|scope| log.try_clone_allocation(Some(scope)))
         .unwrap();
-    assert_eq!(original.reserved_bytes(), 8 * size_of::<u64>());
+    assert_eq!(original.reserved_bytes(), size_of::<[u64; 8]>());
     original.set_limit_bytes(0);
     log.record_reserved(11);
     copy.record_reserved(19);

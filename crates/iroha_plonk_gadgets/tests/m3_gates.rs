@@ -90,6 +90,8 @@ use sha2::{Digest as _, Sha256};
 mod advice_schedule;
 #[path = "m3_gates/export_descriptors.rs"]
 mod export_descriptors;
+#[path = "m3_gates/public_key_shapes.rs"]
+mod public_key_shapes;
 
 /// The circuit size of every gate.
 const K: u32 = 16;

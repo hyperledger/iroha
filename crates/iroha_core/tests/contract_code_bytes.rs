@@ -237,6 +237,92 @@ fn register_contract_code_bytes_respects_size_cap() {
     let s = format!("{err}");
     assert!(s.contains("code bytes exceed cap"));
 }
+/// The default cap (the committed parameter absent) is 16 MiB and inclusive: an artifact
+/// of exactly the default passes the size check and fails later as no contract artifact,
+/// and one byte more is refused for its size. The portable ceiling of the cap parameter is
+/// inclusive as well: exactly 2,147,483,647 is accepted and one more is refused.
+#[test]
+fn contract_code_caps_admit_exactly_the_limit_and_reject_one_byte_over() {
+    use iroha_core::smartcontracts::Execute;
+    use iroha_data_model::{
+        isi::smart_contract_code::RegisterSmartContractBytes,
+        parameter::custom::{CustomParameter, CustomParameterId},
+        prelude::*,
+    };
+    const DEFAULT_CAP: usize = 16 * 1024 * 1024;
+    const PORTABLE_CAP: u64 = 2_147_483_647;
+    let kura = Kura::blank_kura_for_testing();
+    let query = LiveQueryStore::start_test();
+    let kp = checked_random_contract_code_keypair();
+    let (pubkey, _) = kp.clone().into_parts();
+    let dom: DomainId = DomainId::try_new("wonderland", "universal").unwrap();
+    let auth = AccountId::of(pubkey);
+    let domain = Domain::new(dom.clone()).build(&auth);
+    let account = Account::new(auth.clone()).build(&auth);
+    let world = World::with([domain], [account], std::iter::empty::<AssetDefinition>());
+    let state = State::new_for_testing(world, kura, query);
+    let header =
+        iroha_data_model::block::BlockHeader::new(nonzero_ext::nonzero!(1_u64), None, None, 0, 0);
+    let mut block = state.block(header);
+    let mut stx = block.transaction();
+    let permission: Permission =
+        iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode.into();
+    Grant::account_permission(permission, auth.clone())
+        .execute(&auth, &mut stx)
+        .expect("grant contract lifecycle authority");
+    let register = |code: Vec<u8>, stx: &mut iroha_core::state::StateTransaction<'_, '_>| {
+        RegisterSmartContractBytes {
+            artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
+                iroha_model_base::topology::DataSpaceId::UNIVERSAL,
+                ivm::contract_code_hash(&code),
+            ),
+            code,
+        }
+        .execute(&auth, stx)
+        .map_err(|error| format!("{error}"))
+    };
+    // The default applies: no custom cap is committed.
+    let at_default = register(vec![0xA5; DEFAULT_CAP], &mut stx)
+        .expect_err("the filler bytes are no contract artifact");
+    assert!(
+        !at_default.contains("code bytes exceed cap"),
+        "an artifact of exactly the default cap passes the size check: {at_default}"
+    );
+    let over_default =
+        register(vec![0xA5; DEFAULT_CAP + 1], &mut stx).expect_err("one byte over the default cap");
+    assert!(
+        over_default.contains("code bytes exceed cap: 16777217 > 16777216"),
+        "{over_default}"
+    );
+    // A committed cap is inclusive in the same comparison: exactly the cap is registered.
+    let program = minimal_ivm_program(1);
+    let set_cap = |value: u64, stx: &mut iroha_core::state::StateTransaction<'_, '_>| {
+        let id = CustomParameterId("max_contract_code_bytes".parse().unwrap());
+        SetParameter::new(Parameter::Custom(CustomParameter::new(
+            id,
+            iroha_primitives::json::Json::new(value),
+        )))
+        .execute(&auth, stx)
+    };
+    let exact = u64::try_from(program.len()).expect("program length fits u64");
+    set_cap(exact - 1, &mut stx).expect("lower the cap below the program");
+    let over_cap =
+        register(program.clone(), &mut stx).expect_err("one byte over the committed cap");
+    assert!(
+        over_cap.contains(&format!("code bytes exceed cap: {exact} > {}", exact - 1)),
+        "{over_cap}"
+    );
+    set_cap(exact, &mut stx).expect("set the cap to the program length");
+    register(program, &mut stx).expect("a program of exactly the committed cap is registered");
+    // The portable ceiling of the cap itself.
+    set_cap(PORTABLE_CAP, &mut stx).expect("a cap of exactly the portable ceiling is accepted");
+    let over_portable =
+        set_cap(PORTABLE_CAP + 1, &mut stx).expect_err("one above the portable ceiling");
+    assert_smart_contract_error(
+        &over_portable,
+        "max_contract_code_bytes exceeds the portable consensus limit: 2147483648 > 2147483647",
+    );
+}
 #[test]
 fn native_contract_upload_accepts_out_of_order_chunks_and_cleans_up_on_finalize() {
     use iroha_core::smartcontracts::Execute;

@@ -47,17 +47,21 @@ fn ton(master_account: [u8; 32]) -> SccpDeploymentV1 {
     })
 }
 
+fn pin() -> SccpCommitteePinV1 {
+    SccpCommitteePinV1 {
+        generation: 7,
+        committee_root: [0xa5; 32],
+        start_height: 11,
+        until_ms: 90_000,
+    }
+}
+
 fn register(network: SccpNetworkV1, deployment: SccpDeploymentV1) -> SccpGovernanceActionV1 {
     SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
         network,
         revision: 1,
         deployment,
-        initial_committee: crate::sccp::deployment::SccpCommitteePinV1 {
-            generation: 1,
-            committee_root: [0x44; 32],
-            start_height: 1,
-            until_ms: 1_801_209_600_000,
-        },
+        initial_committee: pin(),
         max_wrapped_supply: 21_000_000_000_000_000,
     })
 }
@@ -97,8 +101,9 @@ fn checkpoint() -> SccpLcCheckpointDataV1 {
     }
 }
 
-/// One valid action of every kind, in variant order, with pairwise distinct destination words.
-fn every_action() -> Vec<SccpGovernanceActionV1> {
+/// Route, control, light-client and parameter actions in variant order.
+/// Native hold/reconciliation actions have separate fixtures to respect the 16-action limit.
+fn lifecycle_actions() -> Vec<SccpGovernanceActionV1> {
     vec![
         register(ETH, evm([0x22; 20])),
         SccpGovernanceActionV1::ActivateRevision(revision(ETH, 1)),
@@ -131,6 +136,111 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
         }),
         activate_profile(BSC, 2),
     ]
+}
+
+#[test]
+fn reconciliation_opening_has_a_nonempty_exact_json_window() {
+    let opening = |revision, window_ms| {
+        SccpGovernanceActionV1::OpenSccpReconciliation(SccpOpenReconciliationActionV1 {
+            network: ETH,
+            revision,
+            window_ms,
+        })
+    };
+    for window in [1, JSON_MAX] {
+        let action = opening(1, window);
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&17_u32.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    assert!(matches!(
+        validate(vec![opening(1, 0)]),
+        Err(SccpGovernanceStaticError::ZeroReconciliationWindow { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(0, 1)]),
+        Err(SccpGovernanceStaticError::ZeroRevision { .. })
+    ));
+    assert!(matches!(
+        validate(vec![opening(1, JSON_MAX + 1)]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+}
+
+#[test]
+fn native_hold_actions_bind_subjects_wire_shapes_and_exact_json_generations() {
+    let progress = |generation, committee_root| {
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Generation {
+                generation,
+                committee_root,
+            },
+        })
+    };
+    let frozen = SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+        SccpAttestDeploymentProgressActionV1 {
+            network: ETH,
+            revision: 1,
+            at: SccpDeploymentProgressV1::Frozen,
+        },
+    );
+    let quarantine = SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 1));
+    for (action, index) in [
+        (progress(JSON_MAX, [3; 32]), 15_u32),
+        (frozen, 15),
+        (quarantine, 16),
+    ] {
+        assert_eq!(action.subject(), SccpGovernanceSubjectV1::ForgeryHold(ETH));
+        assert_eq!(action.network(), Some(ETH));
+        assert_eq!(action.first_json_u64_violation(), None);
+        assert!(action.encode().starts_with(&index.encode()));
+        roundtrip(&action);
+        assert_rejects_unknown_field(&action, &[]);
+        assert!(validate(vec![action]).is_ok());
+    }
+    roundtrip(&SccpGovernanceSubjectV1::ForgeryHold(ETH));
+    assert!(
+        SccpGovernanceSubjectV1::ForgeryHold(ETH)
+            .encode()
+            .starts_with(&5_u32.encode())
+    );
+    for bad in [progress(0, [3; 32]), progress(1, [0; 32])] {
+        assert!(matches!(
+            validate(vec![bad]),
+            Err(SccpGovernanceStaticError::InvalidDeploymentProgress { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![progress(JSON_MAX + 1, [3; 32])]),
+        Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+    ));
+    for action in [
+        SccpGovernanceActionV1::QuarantineSccpRevision(revision(ETH, 0)),
+        SccpGovernanceActionV1::AttestSccpDeploymentProgress(
+            SccpAttestDeploymentProgressActionV1 {
+                network: ETH,
+                revision: 0,
+                at: SccpDeploymentProgressV1::Frozen,
+            },
+        ),
+    ] {
+        assert!(matches!(
+            validate(vec![action]),
+            Err(SccpGovernanceStaticError::ZeroRevision { .. })
+        ));
+    }
+    assert!(matches!(
+        validate(vec![SccpGovernanceActionV1::QuarantineSccpRevision(
+            revision(TAIRA, 1)
+        )]),
+        Err(SccpGovernanceStaticError::TairaNetwork { .. })
+    ));
 }
 
 fn activate_profile(network: SccpNetworkV1, version: u32) -> SccpGovernanceActionV1 {
@@ -176,7 +286,7 @@ fn constants_match_the_spec() {
 }
 
 #[test]
-fn every_action_maps_to_its_spec_subject() {
+fn lifecycle_actions_map_to_their_spec_subject() {
     let expected = [
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(ETH),
@@ -193,7 +303,7 @@ fn every_action_maps_to_its_spec_subject() {
         SccpGovernanceSubjectV1::Parameters,
         SccpGovernanceSubjectV1::LightClient(BSC),
     ];
-    let actions = every_action();
+    let actions = lifecycle_actions();
     assert_eq!(actions.len(), expected.len());
     for (action, subject) in actions.iter().zip(expected) {
         assert_eq!(action.subject(), subject, "{action:?}");
@@ -202,7 +312,7 @@ fn every_action_maps_to_its_spec_subject() {
 
 #[test]
 fn action_network_is_the_subject_network() {
-    let networks: Vec<_> = every_action()
+    let networks: Vec<_> = lifecycle_actions()
         .iter()
         .map(SccpGovernanceActionV1::network)
         .collect();
@@ -255,7 +365,7 @@ fn subject_order_is_variant_then_value() {
 
 #[test]
 fn subjects_are_sorted_and_deduplicated() {
-    let full = proposal(every_action());
+    let full = proposal(lifecycle_actions());
     assert_eq!(
         full.subjects(),
         vec![
@@ -308,7 +418,7 @@ fn base_revision_from_pair() {
 
 #[test]
 fn valid_proposals_pass_static_validation() {
-    assert_eq!(validate(every_action()), Ok(()));
+    assert_eq!(validate(lifecycle_actions()), Ok(()));
     let full: Vec<_> = (0..16)
         .map(|index| {
             SccpGovernanceActionV1::SetTairaPaused(SccpSetTairaPausedActionV1 {
@@ -318,7 +428,7 @@ fn valid_proposals_pass_static_validation() {
         })
         .collect();
     assert_eq!(validate(full), Ok(()));
-    let mut with_revisions = proposal(every_action());
+    let mut with_revisions = proposal(lifecycle_actions());
     for (index, entry) in with_revisions.base_revisions.iter_mut().enumerate() {
         entry.revision = u64::try_from(index).expect("small index") * 3;
     }
@@ -328,7 +438,7 @@ fn valid_proposals_pass_static_validation() {
 #[test]
 fn network_id_and_action_count_are_checked() {
     assert_eq!(
-        proposal(every_action()).validate_static(&network_id(2)),
+        proposal(lifecycle_actions()).validate_static(&network_id(2)),
         Err(SccpGovernanceStaticError::NetworkIdMismatch)
     );
     assert_eq!(
@@ -455,12 +565,7 @@ fn register_route_cap_and_deployment_are_checked() {
             network,
             revision: 1,
             deployment,
-            initial_committee: crate::sccp::deployment::SccpCommitteePinV1 {
-                generation: 1,
-                committee_root: [0x44; 32],
-                start_height: 1,
-                until_ms: 1_801_209_600_000,
-            },
+            initial_committee: pin(),
             max_wrapped_supply: cap,
         })
     };
@@ -722,7 +827,7 @@ fn set_parameters_is_checked() {
 #[test]
 fn base_revisions_must_equal_the_sorted_subject_list() {
     let live = network_id(1);
-    let valid = proposal(every_action());
+    let valid = proposal(lifecycle_actions());
     assert_eq!(valid.validate_static(&live), Ok(()));
 
     let mut missing = valid.clone();
@@ -768,7 +873,7 @@ fn base_revisions_must_equal_the_sorted_subject_list() {
 #[test]
 fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
     let live = network_id(1);
-    let mut at = proposal(every_action());
+    let mut at = proposal(lifecycle_actions());
     for entry in &mut at.base_revisions {
         entry.revision = JSON_MAX;
     }
@@ -831,8 +936,8 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
             "{field}"
         );
     }
-    // Every unchanged fixture keeps each u64 inside the exact JSON range.
-    for action in every_action() {
+    // Actions without u64 fields never report a violation.
+    for action in lifecycle_actions() {
         assert_eq!(action.first_json_u64_violation(), None, "{action:?}");
     }
     // Validation reports the JSON bound when no earlier rule catches the value.
@@ -860,7 +965,7 @@ fn json_u64_invariant_is_exact_at_two_to_the_fifty_three() {
 
 #[test]
 fn every_type_roundtrips_through_binary_and_json() {
-    for action in every_action() {
+    for action in lifecycle_actions() {
         roundtrip(&action);
         roundtrip(&action.subject());
     }
@@ -872,7 +977,7 @@ fn every_type_roundtrips_through_binary_and_json() {
     roundtrip(&register(TON, ton([0x33; 32])));
     roundtrip(&register(BSC, evm([0x34; 20])));
     roundtrip(&release(u128::MAX, "\u{3042} memo"));
-    let mut proposal = proposal(every_action());
+    let mut proposal = proposal(lifecycle_actions());
     proposal.base_revisions[0].revision = 11;
     roundtrip(&proposal);
     roundtrip(&SccpGovernanceProposalV1 {
@@ -905,7 +1010,7 @@ fn proposal_json_is_closed_and_amounts_are_decimal_strings() {
 #[test]
 fn unknown_action_and_subject_tags_are_rejected() {
     // 13 was the bridge-key fault clearing; it stays unassigned.
-    for unsupported_tag in [13_u32, 15, 16, u32::MAX] {
+    for unsupported_tag in [13_u32, 18, 19, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -917,7 +1022,7 @@ fn unknown_action_and_subject_tags_are_rejected() {
         );
     }
     // 4 was the bridge-key fault subject; it stays unassigned.
-    for unsupported_tag in [4_u32, 5, u32::MAX] {
+    for unsupported_tag in [4_u32, 6, u32::MAX] {
         let mut encoded = unsupported_tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -959,7 +1064,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
         );
     }
     // Every action that survives keeps its codec index: the freed 13 is a hole, not a shift.
-    let actions = every_action();
+    let actions = lifecycle_actions();
     let indices: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
     assert_eq!(actions.len(), indices.len());
     for (action, index) in actions.iter().zip(indices) {
@@ -979,7 +1084,7 @@ fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
 }
 
 #[test]
-fn register_route_requires_a_current_committee_pin_and_rejects_retired_fields() {
+fn register_route_requires_the_native_pin_and_rejects_retired_roster_fields() {
     let action = register(ETH, evm([0x22; 20]));
     let mut value = norito::json::to_value(&action).expect("value");
     let payload = value
@@ -1007,107 +1112,6 @@ fn register_route_requires_a_current_committee_pin_and_rejects_retired_fields() 
     );
     let hostile = norito::json::to_json(&value).expect("json");
     assert!(norito::json::from_json::<SccpGovernanceActionV1>(&hostile).is_err());
-}
-
-#[test]
-fn register_route_pin_is_mandatory_closed_and_roundtrips() {
-    let action = register(ETH, evm([0x22; 20]));
-    roundtrip(&action);
-    let valid = norito::json::to_value(&action).unwrap();
-    for field in ["generation", "committee_root", "start_height", "until_ms"] {
-        let mut missing = valid.clone();
-        missing
-            .as_object_mut()
-            .unwrap()
-            .get_mut("payload")
-            .unwrap()
-            .as_object_mut()
-            .unwrap()
-            .get_mut("initial_committee")
-            .unwrap()
-            .as_object_mut()
-            .unwrap()
-            .remove(field);
-        assert!(
-            norito::json::from_value::<SccpGovernanceActionV1>(missing).is_err(),
-            "{field}"
-        );
-    }
-    let mut missing = valid.clone();
-    missing
-        .as_object_mut()
-        .unwrap()
-        .get_mut("payload")
-        .unwrap()
-        .as_object_mut()
-        .unwrap()
-        .remove("initial_committee");
-    assert!(norito::json::from_value::<SccpGovernanceActionV1>(missing).is_err());
-    let mut unknown = valid;
-    unknown
-        .as_object_mut()
-        .unwrap()
-        .get_mut("payload")
-        .unwrap()
-        .as_object_mut()
-        .unwrap()
-        .get_mut("initial_committee")
-        .unwrap()
-        .as_object_mut()
-        .unwrap()
-        .insert(
-            "retired_digest".to_owned(),
-            norito::json::Value::from(1_u64),
-        );
-    assert!(norito::json::from_value::<SccpGovernanceActionV1>(unknown).is_err());
-}
-
-#[test]
-fn register_route_pin_shape_and_each_json_integer_bound_are_checked() {
-    type PinIntegerSetter = fn(&mut SccpCommitteePinV1, u64);
-
-    let SccpGovernanceActionV1::RegisterRoute(original) = register(ETH, evm([0x22; 20])) else {
-        unreachable!()
-    };
-    for edit in [
-        |pin: &mut SccpCommitteePinV1| pin.generation = 0,
-        |pin: &mut SccpCommitteePinV1| pin.committee_root = [0; 32],
-        |pin: &mut SccpCommitteePinV1| pin.start_height = 0,
-        |pin: &mut SccpCommitteePinV1| pin.until_ms = 0,
-    ] {
-        let mut candidate = original;
-        edit(&mut candidate.initial_committee);
-        assert_eq!(
-            validate(vec![SccpGovernanceActionV1::RegisterRoute(candidate)]),
-            Err(SccpGovernanceStaticError::InvalidInitialCommittee { action: 0 })
-        );
-    }
-    let updates: [(&str, PinIntegerSetter); 3] = [
-        ("generation", |p: &mut SccpCommitteePinV1, v| {
-            p.generation = v
-        }),
-        ("start_height", |p: &mut SccpCommitteePinV1, v| {
-            p.start_height = v
-        }),
-        ("until_ms", |p: &mut SccpCommitteePinV1, v| p.until_ms = v),
-    ];
-    for (field, update) in updates {
-        let mut candidate = original;
-        update(&mut candidate.initial_committee, JSON_MAX);
-        let at = SccpGovernanceActionV1::RegisterRoute(candidate);
-        assert_eq!(at.first_json_u64_violation(), None);
-        assert_eq!(validate(vec![at]), Ok(()));
-        for value in [JSON_MAX + 1, u64::MAX] {
-            update(&mut candidate.initial_committee, value);
-            let beyond = SccpGovernanceActionV1::RegisterRoute(candidate);
-            let detail = beyond.first_json_u64_violation().unwrap();
-            assert!(detail.contains(field));
-            assert_eq!(
-                validate(vec![beyond]),
-                Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
-            );
-        }
-    }
 }
 
 #[test]
@@ -1152,4 +1156,93 @@ fn trusted_checkpoints_are_refused_for_ton() {
             .to_string()
             .contains("reads none")
     );
+}
+
+#[test]
+fn register_route_native_pin_is_required_and_shape_checked() {
+    let valid = register(ETH, evm([0x22; 20]));
+    assert_eq!(validate(vec![valid.clone()]), Ok(()));
+    let mut missing = norito::json::to_value(&valid).expect("JSON");
+    missing
+        .as_object_mut()
+        .unwrap()
+        .get_mut("payload")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("initial_committee");
+    assert!(
+        norito::json::from_json::<SccpGovernanceActionV1>(
+            &norito::json::to_json(&missing).unwrap()
+        )
+        .is_err()
+    );
+    for (bad_pin, error) in [
+        (
+            SccpCommitteePinV1 {
+                generation: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                start_height: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                until_ms: 0,
+                ..pin()
+            },
+            SccpNativeDataError::ZeroPinCoordinate,
+        ),
+        (
+            SccpCommitteePinV1 {
+                committee_root: [0; 32],
+                ..pin()
+            },
+            SccpNativeDataError::ZeroCommitteeRoot,
+        ),
+    ] {
+        let mut action = valid.clone();
+        let SccpGovernanceActionV1::RegisterRoute(ref mut value) = action else {
+            unreachable!()
+        };
+        value.initial_committee = bad_pin;
+        assert_eq!(
+            validate(vec![action]),
+            Err(SccpGovernanceStaticError::InvalidCommitteePin { action: 0, error })
+        );
+    }
+    assert_rejects_unknown_field(&valid, &["payload", "initial_committee"]);
+}
+
+#[test]
+fn register_route_native_pin_checks_each_exact_json_u64_boundary() {
+    for coordinate in 0..3 {
+        for at_bound in [true, false] {
+            let mut action = register(ETH, evm([0x22; 20]));
+            let SccpGovernanceActionV1::RegisterRoute(ref mut value) = action else {
+                unreachable!()
+            };
+            let field = match coordinate {
+                0 => &mut value.initial_committee.generation,
+                1 => &mut value.initial_committee.start_height,
+                _ => &mut value.initial_committee.until_ms,
+            };
+            *field = JSON_MAX + u64::from(!at_bound);
+            assert_eq!(action.first_json_u64_violation().is_none(), at_bound);
+            if at_bound {
+                assert_eq!(validate(vec![action]), Ok(()));
+            } else {
+                assert!(matches!(
+                    validate(vec![action]),
+                    Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { .. })
+                ));
+            }
+        }
+    }
 }

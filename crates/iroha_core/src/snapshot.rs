@@ -993,9 +993,6 @@ impl SnapshotMaker {
                     iroha_logger::debug!(height, %reason, "Deferring snapshot until original commit-evidence resources are available");
                     self.commit_evidence_refusal = Some(reason);
                 }
-                Err(error @ TryWriteError::CommitEvidenceDeferred { .. }) => {
-                    iroha_logger::debug!(%error, "Deferring snapshot until commit evidence is complete");
-                }
                 Err(error) => {
                     iroha_logger::error!(%error, "Failed to create a snapshot of state");
                 }
@@ -3112,8 +3109,10 @@ pub fn try_read_snapshot_with_limits(
         expected_chain_id,
         expected_network_id,
         &|state| {
+            // The restored World decides validity; `zk` supplies local resources only.
             state
-                .set_zk(zk.clone())
+                .install_node_zk(zk.clone())
+                .map(|_ignored| ())
                 .map_err(TryReadError::ZkConfigInstall)
         },
         #[cfg(feature = "telemetry")]

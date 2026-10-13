@@ -711,11 +711,13 @@ impl State {
             );
         }
         let result = {
-            // Acquire only storage overlays, under the caller's original pool.
+            // Storage controls belong to the State's original execution pool. The
+            // caller's separate budget still funds snapshot and response material.
             // State::block would also initialize height-bound execution state.
+            let execution_budget = self.ivm_execution_budget();
             let world = self
                 .world
-                .try_block(budget)
+                .try_block(&execution_budget)
                 .map_err(WorldStateSnapshotError::Acquisition)?;
             let expected = world.state_accumulator.get();
             if expected.root()? != cut.applied_root || expected.entries() != cut.applied_entries {

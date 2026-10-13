@@ -44,7 +44,7 @@ fn selected(f: &WalletFixtureV1) -> SelectedV1 {
         &store,
         enrollment
             .record()
-            .select(capsule.head_marker_state().expect("head"), BOOT_A)
+            .select(capsule.head_marker_state(), BOOT_A)
             .expect("select"),
     );
     let capability = selected.selected_capability().expect("capability");
@@ -82,11 +82,11 @@ fn wallet_advance_v1_completion_frame_trait_matches_g1() {
     assert!(Record::decode_frame(&frame, &[9; 32]).is_err());
     assert_eq!(
         KagemushaWalletCompletionFrameV1::operation_id(&record),
-        capsule.operation_id
+        capsule.body().operation_id
     );
     assert_eq!(
         KagemushaWalletCompletionFrameV1::capsule_digest(&record),
-        capsule.capsule_digest().expect("digest")
+        capsule.custody_digest()
     );
     assert_eq!(
         <Record as KagemushaWalletFrozenFrameV1>::OBJECT,
@@ -163,7 +163,7 @@ fn wallet_advance_v1_completion_stage_load_and_release() {
             KagemushaWalletCopyV1::BOTH
                 .map(|copy| {
                     crate::kagemusha_wallet_advance_v1::KagemushaWalletCompletionNameV1 {
-                        operation_id: s.capsule.operation_id,
+                        operation_id: s.capsule.body().operation_id,
                         copy,
                     }
                 })
@@ -214,7 +214,7 @@ fn wallet_advance_v1_completion_stage_adopts_existing_record() {
     let second = completion_for(&f, &s.capsule, 0x04);
     assert_ne!(first, second);
     // Only the replica of an earlier attempt survived.
-    let names = kagemusha_wallet_completion_names_v1(&s.capsule.operation_id);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
     let frame = first.to_canonical_bytes().expect("frame");
     s.store.write_new(
         &dir(&f),
@@ -260,7 +260,7 @@ fn wallet_advance_v1_completion_stage_adopts_existing_record() {
 fn wallet_advance_v1_completion_stage_replaces_invalid_unreleased_copies() {
     let f = wallet_fixture(0x34);
     let s = selected(&f);
-    let names = kagemusha_wallet_completion_names_v1(&s.capsule.operation_id);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
     s.store.write_new(&dir(&f), &names[0], b"torn");
     s.store.write_new(&dir(&f), &names[1], b"torn");
     let record = completion_for(&f, &s.capsule, 0x05);
@@ -297,7 +297,7 @@ fn wallet_advance_v1_completion_stage_rejects_foreign_record() {
     assert!(s.fs.visible_names(&dir(&f)).is_empty());
     // An invalid copy that cannot be removed stops staging; nothing is written.
     let record = completion_for(&f, &s.capsule, 0x07);
-    let names = kagemusha_wallet_completion_names_v1(&s.capsule.operation_id);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
     let racing = s.fs.fork();
     let store = KagemushaWalletDurableStoreV1::new(racing.clone());
     racing.place_unsynced(&dir(&f), names[0].as_str(), b"");
@@ -338,7 +338,7 @@ fn wallet_advance_v1_completion_released_loss_is_never_resigned() {
         .release(staged.completion_digest, BOOT_A)
         .expect("release");
     let expected = KagemushaWalletCompletionExpectationV1::for_marker(&released).expect("released");
-    let names = kagemusha_wallet_completion_names_v1(&s.capsule.operation_id);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
     let load = || {
         kagemusha_wallet_load_completion_v1::<_, Record>(
             &s.store,
@@ -518,7 +518,7 @@ fn wallet_advance_v1_completion_stage_refuses_superseded_capability() {
         .release(staged.completion_digest, BOOT_A)
         .expect("release");
     publish(&s.store, released);
-    let names = kagemusha_wallet_completion_names_v1(&s.capsule.operation_id);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
     s.store.remove_file(&dir(&f), &names[0]);
     s.store.remove_file(&dir(&f), &names[1]);
     let fresh = completion_for(&f, &s.capsule, 0x0d);

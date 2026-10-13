@@ -1,0 +1,206 @@
+{
+  "cases": [
+    {
+      "envelope_budget_after_proof": 101996,
+      "proof_bytes": 160148,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 143360,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 4480,
+        "multiplication_corrections": 880,
+        "opening": 11024,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "registration",
+      "row": "candidate",
+      "test_record_max": 166172,
+      "work_components": {
+        "aes_blocks_conservative": 1872026,
+        "backend_shake_calls_including_mu": 744,
+        "column_bytes": 4490,
+        "conversion_fold_byte_xors": 57175660,
+        "conversion_scratch_payload_max": 40410,
+        "ggm_nodes": 12799,
+        "leaf_slots": 6400,
+        "lifted_column_payload": 1149440,
+        "lifted_row_payload": 1146880,
+        "raw_column_payload": 1113520,
+        "reconstructed_leaves": 6367,
+        "small_vole_max_depth": 8,
+        "volehash_mixed_field_products": 179234,
+        "zkhash_mixed_field_products": 145154
+      }
+    },
+    {
+      "envelope_budget_after_fixed_crypto_fields": 28665,
+      "envelope_budget_after_proof": 29132,
+      "proof_bytes": 233012,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 214016,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 6688,
+        "multiplication_corrections": 880,
+        "opening": 11024,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "vote",
+      "row": "candidate",
+      "test_records": {
+        "1000": 361596,
+        "3": 233980,
+        "500": 297596
+      },
+      "work_components": {
+        "aes_blocks_conservative": 2750672,
+        "backend_shake_calls_including_mu": 744,
+        "column_bytes": 6698,
+        "conversion_fold_byte_xors": 85292332,
+        "conversion_scratch_payload_max": 60282,
+        "ggm_nodes": 12799,
+        "leaf_slots": 6400,
+        "lifted_column_payload": 1714688,
+        "lifted_row_payload": 1712128,
+        "raw_column_payload": 1661104,
+        "reconstructed_leaves": 6367,
+        "small_vole_max_depth": 8,
+        "volehash_mixed_field_products": 267554,
+        "zkhash_mixed_field_products": 217864
+      }
+    },
+    {
+      "envelope_budget_after_proof": 152646,
+      "proof_bytes": 109498,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 94080,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 4480,
+        "multiplication_corrections": 870,
+        "opening": 9664,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "registration",
+      "row": "comparator",
+      "test_record_max": 115522,
+      "work_components": {
+        "aes_blocks_conservative": 18056976,
+        "backend_shake_calls_including_mu": 725,
+        "column_bytes": 4495,
+        "conversion_fold_byte_xors": 552147820,
+        "conversion_scratch_payload_max": 58435,
+        "ggm_nodes": 122879,
+        "leaf_slots": 61440,
+        "lifted_column_payload": 1150720,
+        "lifted_row_payload": 1146880,
+        "raw_column_payload": 1123750,
+        "reconstructed_leaves": 61418,
+        "small_vole_max_depth": 12,
+        "volehash_mixed_field_products": 179234,
+        "zkhash_mixed_field_products": 145154
+      }
+    },
+    {
+      "envelope_budget_after_fixed_crypto_fields": 103603,
+      "envelope_budget_after_proof": 104070,
+      "proof_bytes": 158074,
+      "proof_fields": {
+        "challenge": 32,
+        "coefficients": 192,
+        "corrections": 140448,
+        "counter": 4,
+        "iv_pre": 16,
+        "masked_witness": 6688,
+        "multiplication_corrections": 870,
+        "opening": 9664,
+        "salt": 32,
+        "u_tilde": 128
+      },
+      "role": "vote",
+      "row": "comparator",
+      "test_records": {
+        "1000": 286658,
+        "3": 159042,
+        "500": 222658
+      },
+      "work_components": {
+        "aes_blocks_conservative": 26532660,
+        "backend_shake_calls_including_mu": 725,
+        "column_bytes": 6703,
+        "conversion_fold_byte_xors": 823369708,
+        "conversion_scratch_payload_max": 87139,
+        "ggm_nodes": 122879,
+        "leaf_slots": 61440,
+        "lifted_column_payload": 1715968,
+        "lifted_row_payload": 1712128,
+        "raw_column_payload": 1675750,
+        "reconstructed_leaves": 61418,
+        "small_vole_max_depth": 12,
+        "volehash_mixed_field_products": 267554,
+        "zkhash_mixed_field_products": 217864
+      }
+    }
+  ],
+  "combined_input_cap": 425984,
+  "complete_certificate": false,
+  "encoding_inventory": {
+    "1000": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 128114,
+      "list_frame_sha3_permutations": 1780,
+      "raw_list": 128000,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 35726,
+      "vote_authorization_digest_frame": 128536,
+      "vote_authorization_digest_sha3_permutations": 1786,
+      "vote_mu_frame": 128506,
+      "vote_test_statement": 128576
+    },
+    "3": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 498,
+      "list_frame_sha3_permutations": 7,
+      "raw_list": 384,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 163342,
+      "vote_authorization_digest_frame": 920,
+      "vote_authorization_digest_sha3_permutations": 13,
+      "vote_mu_frame": 890,
+      "vote_test_statement": 960
+    },
+    "500": {
+      "ballot_fixed_cryptographic_fields_including_profile": 467,
+      "list_digest_frame": 64114,
+      "list_frame_sha3_permutations": 891,
+      "raw_list": 64000,
+      "registration_mu_frame_max": 5946,
+      "registration_test_statement_max": 6016,
+      "remaining_list_cap_after_digest_frame": 99726,
+      "vote_authorization_digest_frame": 64536,
+      "vote_authorization_digest_sha3_permutations": 897,
+      "vote_mu_frame": 64506,
+      "vote_test_statement": 64576
+    }
+  },
+  "production_terms_remaining": [
+    "Production Norito envelope header/layout/flags and canonical field mappings",
+    "Chain binding, validity-window representation and admission work-stamp encoding",
+    "Registration transaction/signature framing and authenticated seal/list-context encoding",
+    "Complete verifier operation schedule, including framing, CRT and relation arithmetic",
+    "Complete allocation lifetimes, provider scratch, stack and allocator overhead"
+  ],
+  "profile_qualified": false,
+  "schema": "parliament-ballot-b6-resource-accounting-v1"
+}

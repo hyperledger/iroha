@@ -181,25 +181,12 @@ impl PyPrivacyExact12CapabilityManifestV1 {
         }
         let statement = PrivacyStatementV1::IrohaZkX509StarkP256V1(statement.clone());
         self.require_governed_statement(&statement)?;
-        let context = *statement.context();
         let protocol_id = statement.protocol_id();
-        let envelope = PrivacyProofEnvelopeV1 {
-            wire_magic: Default::default(),
-            catalog_commitment: Default::default(),
-            protocol_id,
-            proof_system_id: protocol_id.expected_proof_system(),
-            engine_id: protocol_id.expected_engine(),
-            parameter_id: context.parameter_id,
-            parameter_digest: context.parameter_digest,
-            verifier_digest: context.verifier_digest,
-            statement_schema_digest: context.statement_schema_digest,
-            engine_manifest_digest: context.engine_manifest_digest,
-            statement_digest: statement
-                .digest()
-                .map_err(|_| PyValueError::new_err("Exact12 statement encoding failed"))?,
+        let envelope = PrivacyProofEnvelopeV1::bind_v1(
             statement,
-            proof: PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof.to_vec())),
-        };
+            PrivacyProofV1::IrohaZkX509StarkP256V1(PrivacyProofBytesV1::new(proof.to_vec())),
+        )
+        .map_err(|_| PyValueError::new_err("Exact12 statement encoding failed"))?;
         let activation = self
             .manifest
             .protocols

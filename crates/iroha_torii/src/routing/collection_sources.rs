@@ -1048,7 +1048,6 @@ fn contract_emission_page(
                         entrypoint,
                         entrypoint_hash: entrypoint.hash(),
                         result: &network.result,
-                        block_hash: block.hash(),
                     })
                 }
                 _ => None,
@@ -1253,7 +1252,7 @@ fn contract_activity_row(
     transaction: &iroha_data_model::query::CommittedTransaction,
     position: iroha_core::smartcontracts::isi::tx::TransactionHistoryPosition,
 ) -> Option<Map> {
-    let projection = contract_activity_projection_from_tx(position.height() as usize, transaction)?;
+    let projection = contract_activity_projection_from_tx(transaction)?;
     let Value::Object(mut row) = contract_activity_projections_to_json(&[projection]).pop()? else {
         return None;
     };

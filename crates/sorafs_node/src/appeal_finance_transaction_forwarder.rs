@@ -2710,7 +2710,7 @@ mod tests {
         NetworkId,
         asset::AssetDefinitionId,
         block::BlockHeader,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         transaction::{FeePaymentIntent, TransactionBuilder, signed::MultisigSignatures},
     };
     use std::sync::{Arc, Mutex};
@@ -3249,14 +3249,14 @@ mod tests {
             )
             .with_instructions([InstructionBox::from(drawdown_operation())])
         };
-        let attachments = ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+        let attachments = vec![ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "appeal-sidecar-vk"),
-        )])
-        .expect("one attachment is a valid bounded proof list");
+        )];
         let attached = transaction_builder()
-            .with_attachments(attachments)
+            .with_proof_attachments(attachments)
+            .expect("valid proof carriers")
             .try_sign(signer.private_key())
             .unwrap();
         assert!(attached.verify_signature().is_ok());

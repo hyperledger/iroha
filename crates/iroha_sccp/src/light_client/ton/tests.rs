@@ -266,6 +266,29 @@ fn failed_transactions_and_void_events_are_classified() {
 }
 
 #[test]
+fn finalized_proof_binds_the_minter_transaction_without_inventing_an_amount() {
+    let chain = SyntheticTonChainV1::new([5; 32]);
+    let (memory, _) = installed(&chain);
+    let event = SyntheticTonEventV1::Finalized {
+        message_id: [0x73; 32],
+        nonce: 19,
+    };
+    let proof = event_proof(&chain, event.clone(), true);
+    let verified = verify(&memory, &proof, LATER_MS).expect("finalized source proof");
+    assert!(matches!(verified.event, SccpNormalizedEventV1::Finalized {
+        emitter: SccpSourceEmitterV1::Ton(MINTER), message_id, nonce: 19,
+        amount: None, locator: SccpSourceLocatorV1 { source_height: 10, .. },
+    } if message_id == [0x73; 32]));
+    assert_eq!(
+        verify(&memory, &event_proof(&chain, event, false), LATER_MS),
+        Err(TonLcError::Native(TonNativeSourceError::UnsuccessfulTransaction).into())
+    );
+    let mut other = proof;
+    other.minter = [9; 32];
+    assert!(verify(&memory, &other, LATER_MS).is_err());
+}
+
+#[test]
 fn back_links_reach_older_masterchain_blocks() {
     let chain = SyntheticTonChainV1::new([6; 32]);
     let (memory, _) = installed(&chain);

@@ -93,7 +93,9 @@ impl State {
         &self,
         mut nexus: iroha_config::parameters::actual::Nexus,
     ) -> Result<iroha_config::parameters::actual::Nexus, LaneLifecycleError> {
-        let runtime = runtime_catalog_from_world(&self.world.view())?;
+        // Decode from the same protected parameter-cell version without acquiring the
+        // unrelated World inventory; all catalog and baseline checks below stay native.
+        let runtime = runtime_catalog_from_parameters(self.world.parameters.view().get())?;
         nexus.dataspace_catalog =
             runtime_catalog_dataspaces(&nexus.configured_dataspace_catalog, runtime.as_ref())?;
         // An absent overlay still has an authoritative physical baseline once
@@ -124,7 +126,9 @@ impl State {
         baseline
             .validate_materialized_source_projection()
             .map_err(runtime_catalog_invalid)?;
-        let runtime = runtime_catalog_from_world(&self.world.view())?;
+        // Decode from the same protected parameter-cell version without acquiring the
+        // unrelated World inventory; all catalog and baseline checks below stay native.
+        let runtime = runtime_catalog_from_parameters(self.world.parameters.view().get())?;
         let expected_dataspaces =
             runtime_catalog_dataspaces(&nexus.configured_dataspace_catalog, runtime.as_ref())?;
         if expected_dataspaces != nexus.dataspace_catalog {

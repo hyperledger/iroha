@@ -895,7 +895,7 @@ fn assert_original_lane_observer_record(
     use iroha_data_model::block::consensus::EvidencePenaltyStatus;
     let view = state.view();
     let record = view.world().consensus_evidence().get(&key).unwrap();
-    assert_eq!(record.evidence, *proof);
+    assert_eq!(record.native_evidence(), Some(proof));
     assert_eq!(record.recorded_at_height, carrier);
     assert_eq!(record.penalty_status, EvidencePenaltyStatus::Pending);
     assert_eq!(
@@ -1383,6 +1383,7 @@ fn funded_original_lane_slashing_scenario(complete_replacement: bool) {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             created_at_ms,
             crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)

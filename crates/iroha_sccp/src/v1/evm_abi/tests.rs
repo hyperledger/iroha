@@ -856,6 +856,56 @@ fn voided_log_roundtrip() {
 }
 
 #[test]
+fn finalized_log_roundtrip_and_strict_fields() {
+    let log = FinalizedLogV1 {
+        message_id: [7; 32],
+        nonce: u64::MAX,
+        recipient: [4; 20],
+        token_amount: u128::MAX,
+    };
+    let (topics, data) = log.encode();
+    assert_eq!(
+        topics[0],
+        keccak256(&[b"SccpFinalized(bytes32,uint64,address,uint256)"])
+    );
+    assert_eq!(FinalizedLogV1::decode(&topics, &data), Ok(log));
+    assert_eq!(
+        FinalizedLogV1::decode(&topics[..3], &data),
+        Err(AbiError::WrongTopicCount)
+    );
+    let mut changed = topics.clone();
+    changed[0] = TOPIC_VOIDED;
+    assert_eq!(
+        FinalizedLogV1::decode(&changed, &data),
+        Err(AbiError::WrongTopic)
+    );
+    for index in [2, 3] {
+        let mut dirty = topics.clone();
+        dirty[index][0] = 1;
+        assert_eq!(
+            FinalizedLogV1::decode(&dirty, &data),
+            Err(AbiError::DirtyWord)
+        );
+    }
+    for length in [0, 31, 33, 64] {
+        assert_eq!(
+            FinalizedLogV1::decode(&topics, &vec![0; length]),
+            Err(AbiError::BadLength)
+        );
+    }
+    assert_eq!(
+        FinalizedLogV1::decode(&topics, &[0; 32]),
+        Err(AbiError::BadAmount)
+    );
+    let mut overflow = data;
+    overflow[15] = 1;
+    assert_eq!(
+        FinalizedLogV1::decode(&topics, &overflow),
+        Err(AbiError::BadAmount)
+    );
+}
+
+#[test]
 fn evm_helpers() {
     for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
         assert_eq!(evm_account(network, &[1; 20]), Ok(vec![1; 20]));

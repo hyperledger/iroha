@@ -61,11 +61,11 @@ impl<'a> FoldCustodyV1<'a> {
             return Err(Error::WitnessLost("fold predecessor custody"));
         }
         if let Some((before, source)) = before.zip(sources.before.as_ref()) {
-            source.require(store, &before.frozen.capsule.successor_state)?;
+            source.require(store, &before.frozen.capsule.body().successor_state)?;
         }
         sources
             .after
-            .require(store, &after.frozen.capsule.successor_state)?;
+            .require(store, &after.frozen.capsule.body().successor_state)?;
         pending.validate()?;
         Ok(Self {
             store: Store(store),
@@ -104,8 +104,8 @@ impl<'a> FoldCustodyV1<'a> {
         let before = self
             .before
             .ok_or(Error::WitnessLost("fold native predecessor"))?;
-        if plan.source != valid(before.frozen.capsule.capsule_digest())?
-            || plan.request.kind() != self.after.frozen.capsule.kind
+        if plan.source != before.frozen.capsule.custody_digest()
+            || plan.request.kind() != self.after.frozen.capsule.body().kind
         {
             return Err(Error::WitnessLost("fold preparation source"));
         }
@@ -113,7 +113,7 @@ impl<'a> FoldCustodyV1<'a> {
             .before_source
             .clone()
             .ok_or(Error::WitnessLost("fold preparation snapshot"))?;
-        let mut state = before.frozen.capsule.successor_state;
+        let mut state = before.frozen.capsule.body().successor_state;
         if plan.request.kind().consumes_lineage() {
             state.core.pending_outgoing_root = self.initial_pending.root();
             selected.maps.replace_pending(self.initial_pending.clone());
@@ -151,7 +151,11 @@ impl<'a> FoldCustodyV1<'a> {
             .as_ref()
             .ok_or(Error::WitnessLost("fold predecessor snapshot"))?;
         let before = self.before.ok_or(Error::WitnessLost("fold predecessor"))?;
-        source.original(self.store.0, &before.frozen.capsule.successor_state, role)
+        source.original(
+            self.store.0,
+            &before.frozen.capsule.body().successor_state,
+            role,
+        )
     }
 
     /// Read the released successor's own original; renewal never rewrites history.
@@ -164,7 +168,7 @@ impl<'a> FoldCustodyV1<'a> {
     ) -> Result<Option<Vec<u8>>, Error> {
         self.after_source.original(
             self.store.0,
-            &self.after.frozen.capsule.successor_state,
+            &self.after.frozen.capsule.body().successor_state,
             role,
         )
     }
@@ -198,14 +202,15 @@ impl<'a> FoldCustodyV1<'a> {
             };
         }
         let capsule = &self.after.frozen.capsule;
-        let KagemushaWalletEffectV1::Receive { credit_id, .. } = capsule.statement.effect else {
+        let KagemushaWalletEffectV1::Receive { credit_id, .. } = capsule.body().statement.effect
+        else {
             return Err(Error::Invalid("fold credit role"));
         };
         let witness = self.credits.record(
             &mut self.store,
             &KagemushaWalletCreditDigestLeafV1 {
                 credit_id,
-                payment_digest: capsule.payment_digest,
+                payment_digest: capsule.body().payment_digest,
                 burned,
             },
         )?;
@@ -229,7 +234,7 @@ impl<'a> FoldCustodyV1<'a> {
             fee,
             request,
             ..
-        } = self.after.frozen.capsule.statement.effect
+        } = self.after.frozen.capsule.body().statement.effect
         else {
             return Err(Error::Invalid("fold pending insertion role"));
         };
@@ -258,7 +263,7 @@ impl<'a> FoldCustodyV1<'a> {
             return Ok(*witness);
         }
         let KagemushaWalletEffectV1::ArchiveSent { credit_id, .. } =
-            self.after.frozen.capsule.statement.effect
+            self.after.frozen.capsule.body().statement.effect
         else {
             return Err(Error::Invalid("fold pending removal role"));
         };
@@ -283,10 +288,11 @@ impl<'a> FoldCustodyV1<'a> {
         Error,
     > {
         let capsule = &self.after.frozen.capsule;
-        if capsule.kind != KagemushaWalletOperationKindV1::Receive {
+        if capsule.body().kind != KagemushaWalletOperationKindV1::Receive {
             return Err(Error::Invalid("fold history role"));
         }
         let mut requests = capsule
+            .body()
             .retained_inputs
             .iter()
             .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request);

@@ -72,8 +72,12 @@ fn new_state() -> State {
     let world = World::with([domain], [alice, bob], Vec::<AssetDefinition>::new());
     let mut state = State::new_for_testing(world, kura, query_handle);
     state.gov.citizenship_bond_amount = 0_u64.into();
-    state.zk.pipa_r.enabled = true;
-    state.zk.verify_timeout = Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.pipa_r.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
+        .expect("fixture ZK settings install");
     state
 }
 fn assert_instruction_error_contains(err: &InstructionExecutionError, expected: &str) {
@@ -407,7 +411,9 @@ fn zk_ballot_rejects_non_object_public_inputs() {
 fn zk_ballot_rejects_public_input_aliases() {
     let mut state = new_state();
     state.gov.min_bond_amount = 0_u64.into();
-    state.zk.max_verify_calls_per_tx = 0;
+    state
+        .edit_zk_for_testing(|zk| zk.max_verify_calls_per_tx = 0)
+        .expect("fixture ZK settings install");
     let header = BlockHeader::new(NonZeroU64::new(1).unwrap(), None, None, 0, 0);
     let mut sblock = state.block(header);
     let mut stx = sblock.transaction();

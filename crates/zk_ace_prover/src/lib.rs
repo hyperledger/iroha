@@ -14,7 +14,7 @@ use iroha_core_privacy::{
         ZK_ACE_PRIVACY_MAX_PROOF_BYTES_V1, ZkAceNativeErrorV1, ZkAceTryCryptoRngV1,
         prove_zk_ace_privacy_v1, prove_zk_ace_privacy_v1_with_rng,
     },
-    privacy_profiles::{CompiledPrivacyProfileV1, compiled_privacy_profile_v1},
+    privacy_profiles::compiled_privacy_profile_v1,
 };
 use iroha_crypto::{Hash, PrivateKey, PublicKey};
 use iroha_data_model::{
@@ -22,10 +22,9 @@ use iroha_data_model::{
     isi::privacy::SubmitPrivacyProofV1,
     prelude::{AccountId, AssetDefinitionId, NetworkId},
     privacy::{
-        PrivacyConsensusLimitsV1, PrivacyExact12CatalogCommitmentV1, PrivacyPolicyIdV1,
-        PrivacyProofBytesV1, PrivacyProofEnvelopeV1, PrivacyProofV1, PrivacyProofWireMagicV1,
-        PrivacyProtocolIdV1, PrivacyStatementContextV1, PrivacyStatementDigestV1,
-        PrivacyStatementV1, PrivacyTransactionIntentDigestV1, PrivacyZkAcePolicyLifecycleV1,
+        PrivacyConsensusLimitsV1, PrivacyPolicyIdV1, PrivacyProofBytesV1, PrivacyProofEnvelopeV1,
+        PrivacyProofV1, PrivacyProtocolIdV1, PrivacyStatementContextV1, PrivacyStatementV1,
+        PrivacyTransactionIntentDigestV1, PrivacyZkAcePolicyLifecycleV1,
         PrivacyZkAcePolicyRecordV1, PrivacyZkAcePolicyRecordValidationErrorV1,
         PrivacyZkAceReplayNullifierV1, ZkAcePqAuthorizationStatementV1,
     },
@@ -527,25 +526,15 @@ fn transaction_payload_v1(
         .into_payload()
         .map_err(|_| ZkAcePrivacyActionBuildErrorV1::InvalidTransactionContext)
 }
+/// Bind the proof-free envelope used only to derive the transaction intent.
 fn placeholder_envelope_v1(
-    profile: CompiledPrivacyProfileV1,
     statement: PrivacyStatementV1,
-) -> PrivacyProofEnvelopeV1 {
-    PrivacyProofEnvelopeV1 {
-        wire_magic: PrivacyProofWireMagicV1::default(),
-        catalog_commitment: PrivacyExact12CatalogCommitmentV1::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
+) -> Result<PrivacyProofEnvelopeV1, ZkAcePrivacyActionBuildErrorV1> {
+    PrivacyProofEnvelopeV1::bind_v1(
         statement,
-        proof: PrivacyProofV1::ZkAcePqAuthorizationV1(PrivacyProofBytesV1::new(Vec::new())),
-    }
+        PrivacyProofV1::ZkAcePqAuthorizationV1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| ZkAcePrivacyActionBuildErrorV1::EnvelopeValidation)
 }
 fn prepare_zk_ace_privacy_transfer_with_prover_v1<F>(
     context: &ZkAcePrivacyActionTransactionContextV1,
@@ -600,8 +589,7 @@ where
         replay_nullifier: PrivacyZkAceReplayNullifierV1::default(),
     };
     let draft_statement = PrivacyStatementV1::ZkAcePqAuthorizationV1(native_statement.clone());
-    let draft_payload =
-        transaction_payload_v1(context, placeholder_envelope_v1(profile, draft_statement))?;
+    let draft_payload = transaction_payload_v1(context, placeholder_envelope_v1(draft_statement)?)?;
     let transaction_intent_digest = draft_payload
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| ZkAcePrivacyActionBuildErrorV1::TransactionIntent)?;
@@ -631,21 +619,14 @@ where
     if proof_bytes != ZK_ACE_PRIVACY_MAX_PROOF_BYTES_V1 {
         return Err(ZkAcePrivacyActionBuildErrorV1::EnvelopeValidation);
     }
-    let final_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: PrivacyProofWireMagicV1::default(),
-        catalog_commitment: PrivacyExact12CatalogCommitmentV1::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: typed_statement,
-        proof: PrivacyProofV1::ZkAcePqAuthorizationV1(PrivacyProofBytesV1::new(proof)),
-    };
+    let final_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::ZkAcePqAuthorizationV1(PrivacyProofBytesV1::new(proof)),
+    )
+    .map_err(|_| ZkAcePrivacyActionBuildErrorV1::EnvelopeValidation)?;
+    if !profile.matches_envelope_v1(&final_envelope) {
+        return Err(ZkAcePrivacyActionBuildErrorV1::EnvelopeValidation);
+    }
     final_envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| ZkAcePrivacyActionBuildErrorV1::EnvelopeValidation)?;

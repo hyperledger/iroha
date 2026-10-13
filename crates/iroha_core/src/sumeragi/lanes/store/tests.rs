@@ -915,3 +915,421 @@ fn cancelled_lane_read_finishes_original_custody_before_a_different_height() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn opened_lane_store_rejects_replaced_instance_directory_and_retries_original() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let store = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    let original = root.path().join("original-instance");
+    let replacement = root.path().join("replacement-instance");
+    let payload = body.payload().as_slice().as_ptr();
+    let retained = budget.reserved_bytes();
+    fs::rename(&store.dir, &original).unwrap();
+    fs::create_dir(&store.dir).unwrap();
+    let other = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    assert_eq!(other.height(), 0);
+    let attempt = store.append(&body, &qc);
+    assert!(
+        attempt.is_err(),
+        "original lane store accepted a replaced custody namespace"
+    );
+    let error = attempt.unwrap_err();
+    assert_eq!(error.io_kind(), io::ErrorKind::Other);
+    assert!(matches!(error, Attempt::Rejected(_)));
+    assert_eq!(store.height(), 0);
+    assert_eq!(other.height(), 0);
+    assert!(!store.dir.join(frame_name(1)).exists());
+    assert!(!original.join(frame_name(1)).exists());
+    assert_eq!(fs::read_dir(&store.dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&original).unwrap().count(), 1);
+    assert_eq!(body.payload().as_slice().as_ptr(), payload);
+    assert_eq!(budget.reserved_bytes(), retained);
+    drop(other);
+    fs::rename(&store.dir, &replacement).unwrap();
+    fs::rename(&original, &store.dir).unwrap();
+    store.append(&body, &qc).unwrap();
+    assert_eq!(store.height(), 1);
+    let entry = store.entry(1).unwrap().unwrap();
+    assert_eq!(entry.commit_qc, qc);
+    assert_eq!(entry.manifest.header, *body.header());
+    assert_eq!(body.payload().as_slice().as_ptr(), payload);
+    assert!(!replacement.join(frame_name(1)).exists());
+    assert!(
+        FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source),
+        )
+        .is_err()
+    );
+}
+
+#[cfg(unix)]
+struct ReplaceInstanceAtCreate {
+    original: PathBuf,
+    current: PathBuf,
+    armed: AtomicBool,
+}
+
+#[cfg(unix)]
+impl Faults for ReplaceInstanceAtCreate {
+    fn before(&self, step: FsStep, path: &Path) -> io::Result<()> {
+        if step == FsStep::CreateTemp
+            && path.parent() == Some(self.current.as_path())
+            && self.armed.swap(false, Ordering::SeqCst)
+        {
+            fs::rename(&self.current, &self.original)?;
+            fs::create_dir(&self.current)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn lane_publication_refuses_namespace_replacement_at_create_boundary_without_foreign_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let faults = Arc::new(ReplaceInstanceAtCreate {
+        original: root.path().join("original-instance"),
+        current: root.path().join(hex::encode(source.instance().0)),
+        armed: AtomicBool::new(false),
+    });
+    let store = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        faults.clone(),
+    );
+    let payload = body.payload().as_slice().as_ptr();
+    faults.armed.store(true, Ordering::SeqCst);
+    let attempt = store.append(&body, &qc);
+    assert!(
+        attempt.is_err(),
+        "publication crossed the original lane directory custody boundary"
+    );
+    let error = attempt.unwrap_err();
+    assert_eq!(error.io_kind(), io::ErrorKind::Other);
+    assert!(matches!(error, Attempt::Rejected(_)));
+    assert!(!faults.armed.load(Ordering::SeqCst));
+    assert_eq!(store.height(), 0);
+    assert_eq!(fs::read_dir(&faults.current).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(&faults.original).unwrap().count(), 1);
+    assert!(!faults.original.join(frame_name(1)).exists());
+    let pointer = store
+        .state
+        .lock()
+        .write
+        .as_mut()
+        .unwrap()
+        .prepare(&budget)
+        .unwrap()
+        .as_ptr();
+    let retained = budget.reserved_bytes();
+    let retry = store.append(&body, &qc).unwrap_err();
+    assert_eq!(retry.io_kind(), io::ErrorKind::Other);
+    assert_eq!(
+        store
+            .state
+            .lock()
+            .write
+            .as_mut()
+            .unwrap()
+            .prepare(&budget)
+            .unwrap()
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(budget.reserved_bytes(), retained);
+    fs::remove_dir(&faults.current).unwrap();
+    fs::rename(&faults.original, &faults.current).unwrap();
+    store.append(&body, &qc).unwrap();
+    assert_eq!(store.height(), 1);
+    assert_eq!(store.entry(1).unwrap().unwrap().commit_qc, qc);
+    assert_eq!(body.payload().as_slice().as_ptr(), payload);
+    assert_eq!(fs::read_dir(&faults.current).unwrap().count(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn lane_lock_replacement_and_hardlinks_refuse_without_losing_original_append() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let store = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    let lock = store.dir.join(LOCK_NAME);
+    let original = root.path().join("original-lock");
+    let charged = budget.reserved_bytes();
+    fs::rename(&lock, &original).unwrap();
+    fs::write(&lock, []).unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
+    let error = store.append(&body, &qc).unwrap_err();
+    assert!(matches!(error, Attempt::Rejected(_)));
+    assert_eq!(error.io_kind(), io::ErrorKind::Other);
+    assert_eq!(store.height(), 0);
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert!(!store.dir.join(frame_name(1)).exists());
+    assert!(
+        FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source)
+        )
+        .is_ok(),
+        "replacement lock really permits a distinct owner"
+    );
+    fs::remove_file(&lock).unwrap();
+    fs::rename(&original, &lock).unwrap();
+    fs::hard_link(&lock, &original).unwrap();
+    assert_eq!(
+        store.append(&body, &qc).unwrap_err().io_kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    assert!(
+        FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source)
+        )
+        .is_err()
+    );
+    assert_eq!(store.height(), 0);
+    assert_eq!(budget.reserved_bytes(), charged);
+    fs::remove_file(&original).unwrap();
+    store.append(&body, &qc).unwrap();
+    assert_eq!(store.entry(1).unwrap().unwrap().commit_qc, qc);
+    assert_eq!(store.height(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn cached_lane_frame_and_retained_reader_refuse_replaced_directory_then_resume_same_source() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let store = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    store.append(&body, &qc).unwrap();
+    let mut reader = store.begin_read(source.clone()).unwrap();
+    let pointer = {
+        let mut state = store.state.lock();
+        store
+            .read_prepared(&mut state, 1)
+            .unwrap()
+            .body()
+            .payload()
+            .as_slice()
+            .as_ptr()
+    };
+    let original = root.path().join("original-instance");
+    fs::rename(&store.dir, &original).unwrap();
+    fs::create_dir(&store.dir).unwrap();
+    let replacement = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    let charged = budget.reserved_bytes();
+    assert_eq!(store.entry(1).unwrap_err().io_kind(), io::ErrorKind::Other);
+    assert_eq!(
+        store.authenticated_height().unwrap_err().io_kind(),
+        io::ErrorKind::Other
+    );
+    assert_eq!(
+        store.append(&body, &qc).unwrap_err().io_kind(),
+        io::ErrorKind::Other
+    );
+    assert!(
+        matches!(reader.poll(&budget), Err(BodyReadError::Io(error)) if error.kind() == io::ErrorKind::Other)
+    );
+    assert!(
+        matches!(store.begin_read(source.clone()), Err(BodyReadError::Io(error)) if error.kind() == io::ErrorKind::Other)
+    );
+    assert_eq!(
+        store
+            .state
+            .lock()
+            .read
+            .as_ref()
+            .unwrap()
+            .ready
+            .as_ref()
+            .unwrap()
+            .body()
+            .payload()
+            .as_slice()
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(budget.reserved_bytes(), charged);
+    assert_eq!(store.height(), 1);
+    assert_eq!(replacement.height(), 0);
+    assert_eq!(fs::read_dir(&store.dir).unwrap().count(), 1);
+    drop(replacement);
+    fs::rename(&store.dir, root.path().join("foreign-instance")).unwrap();
+    fs::rename(&original, &store.dir).unwrap();
+    let entry = store.entry(1).unwrap().unwrap();
+    assert_eq!(entry.commit_qc, qc);
+    assert_eq!(reader.source(), &source);
+    let crate::sumeragi::body_read::BodyReadPoll::Ready(restoration) =
+        reader.poll(&budget).unwrap()
+    else {
+        panic!("original source must become ready");
+    };
+    let restored = restoration
+        .complete(&budget, &*crypto)
+        .unwrap_or_else(|(_, error)| panic!("original body: {error:?}"));
+    assert_eq!(restored, body);
+    store.append(&body, &qc).unwrap();
+    assert_eq!(store.height(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn startup_retains_original_directory_before_exposing_empty_or_recovered_tip() {
+    for populated in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (body, qc, source, budget, crypto) = fixture(1025);
+        let crypto: SharedCrypto = Arc::new(crypto);
+        let store = open(
+            root.path(),
+            &source,
+            Arc::clone(&crypto),
+            &budget,
+            Arc::new(NoFaults),
+        );
+        if populated {
+            store.append(&body, &qc).unwrap();
+        }
+        let path = store.dir.clone();
+        drop(store);
+        let startup = FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source),
+        )
+        .unwrap();
+        let charged = budget.reserved_bytes();
+        let original = root.path().join("original-instance");
+        fs::rename(&path, &original).unwrap();
+        fs::create_dir(&path).unwrap();
+        let (startup, error) = startup
+            .complete()
+            .err()
+            .expect("startup must retain original namespace");
+        assert_eq!(error.io_kind(), io::ErrorKind::Other);
+        assert_eq!(startup.validated, 0);
+        assert_eq!(startup.store.height(), 0);
+        assert_eq!(budget.reserved_bytes(), charged);
+        assert_eq!(fs::read_dir(&path).unwrap().count(), 0);
+        fs::remove_dir(&path).unwrap();
+        fs::rename(&original, &path).unwrap();
+        let store = startup
+            .complete()
+            .unwrap_or_else(|(_, error)| panic!("original retry: {error}"));
+        assert_eq!(store.height(), u64::from(populated));
+        if populated {
+            assert_eq!(store.entry(1).unwrap().unwrap().commit_qc, qc);
+        }
+    }
+}
+
+#[test]
+fn pending_lane_reader_retains_the_actual_lock_after_the_store_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let store = open(
+        root.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    store.append(&body, &qc).unwrap();
+    let mut reader = store.begin_read(source.clone()).unwrap();
+    drop(store);
+    assert!(
+        FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source)
+        )
+        .is_err(),
+        "pending reader must retain its original acquired lock"
+    );
+    let crate::sumeragi::body_read::BodyReadPoll::Ready(restoration) =
+        reader.poll(&budget).unwrap()
+    else {
+        panic!("original source must be ready");
+    };
+    let restored = restoration
+        .complete(&budget, &*crypto)
+        .unwrap_or_else(|(_, error)| panic!("original body: {error:?}"));
+    assert_eq!(restored, body);
+    assert!(
+        FileLaneBlockStore::begin_open(
+            root.path(),
+            &source.instance(),
+            Arc::clone(&crypto),
+            budget.clone(),
+            schedule(&source)
+        )
+        .is_err(),
+        "completed reader still owns its exact original job"
+    );
+    drop(reader);
+    let reopened = FileLaneBlockStore::begin_open(
+        root.path(),
+        &source.instance(),
+        crypto,
+        budget.clone(),
+        schedule(&source),
+    )
+    .unwrap()
+    .complete()
+    .unwrap_or_else(|(_, error)| panic!("original startup: {error}"));
+    assert_eq!(reopened.height(), 1);
+    assert_eq!(reopened.entry(1).unwrap().unwrap().commit_qc, qc);
+}

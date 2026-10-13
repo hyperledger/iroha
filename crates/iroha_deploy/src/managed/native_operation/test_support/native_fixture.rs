@@ -416,6 +416,7 @@ fn native_quote(state: &State, payload: &TransactionPayload) -> FeeQuoteResponse
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         payload,
         header.creation_time_ms,
         iroha_core::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
@@ -634,3 +635,6 @@ pub(in crate::managed) fn policy(authority: &ServiceAuthority) -> ReserveAuthori
 #[cfg(test)]
 #[path = "native_fixture/proof_reader_tests.rs"]
 mod proof_reader_tests;
+
+#[path = "native_fixture/signed_recovery_http.rs"]
+pub(in crate::managed) mod signed_recovery_http;

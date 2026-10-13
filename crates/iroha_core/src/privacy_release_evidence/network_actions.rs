@@ -12,7 +12,7 @@ use iroha_data_model::{
         PrivacyJindoFieldElementV1, PrivacyNativeConsensusBindingV1, PrivacyOrchardActionV1,
         PrivacyOrchardPoolBootstrapV1, PrivacyPoolIdV1, PrivacyPqMaspPoolBootstrapV1,
         PrivacyProofBytesV1, PrivacyProofEnvelopeV1, PrivacyProofManagedPoolBootstrapV1,
-        PrivacyProofV1, PrivacyStatementContextV1, PrivacyStatementDigestV1, PrivacyStatementV1,
+        PrivacyProofV1, PrivacyStatementContextV1, PrivacyStatementV1,
         PrivacyTransactionIntentDigestV1, PrivacyValueBalanceDirectionV1, PrivacyValueBalanceV1,
         PrivacyVegaIssuerRecordV1, PrivacyVegaMdlDateV1,
     },
@@ -428,21 +428,14 @@ pub fn build_privacy_release_orchard_network_action_v1(
         pool_id,
         expiry_height,
     )?;
-    let draft_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement: PrivacyStatementV1::OrchardHalo2ActionsV1(statement.clone()),
-        proof: PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(Vec::new())),
-    };
+    let draft_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        PrivacyStatementV1::OrchardHalo2ActionsV1(statement.clone()),
+        PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&draft_envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let intent = transaction_payload_v1(&transaction_context, draft_envelope)?
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::FixtureConstructionFailed)?;
@@ -467,25 +460,14 @@ pub fn build_privacy_release_orchard_network_action_v1(
         return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
     }
     let typed_statement = PrivacyStatementV1::OrchardHalo2ActionsV1(statement.clone());
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: typed_statement
-            .digest()
-            .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?,
-        statement: typed_statement,
-        proof: PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(
-            proved.authorization,
-        )),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::OrchardHalo2ActionsV1(PrivacyProofBytesV1::new(proved.authorization)),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let payload = transaction_payload_v1(&transaction_context, envelope)?;
     if payload
         .validate_privacy_transaction_intent_binding_v1()
@@ -520,21 +502,14 @@ fn build_pq_masp_transaction_v1(
         compiled_privacy_profile_v1(iroha_data_model::privacy::PrivacyProtocolIdV1::PqMaspStarkV1)
             .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::FixtureConstructionFailed)?;
     statement.context = statement_context_v1(transaction_context, profile);
-    let draft_envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: PrivacyStatementDigestV1::new([0; 32]),
-        statement: PrivacyStatementV1::PqMaspStarkV1(statement.clone()),
-        proof: PrivacyProofV1::PqMaspStarkV1(PrivacyProofBytesV1::new(Vec::new())),
-    };
+    let draft_envelope = PrivacyProofEnvelopeV1::bind_v1(
+        PrivacyStatementV1::PqMaspStarkV1(statement.clone()),
+        PrivacyProofV1::PqMaspStarkV1(PrivacyProofBytesV1::new(Vec::new())),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&draft_envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let intent = transaction_payload_v1(transaction_context, draft_envelope)?
         .privacy_transaction_intent_digest_v1()
         .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::FixtureConstructionFailed)?;
@@ -560,23 +535,14 @@ fn build_pq_masp_transaction_v1(
     )
     .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::NativeProverRejected)?;
     let typed_statement = PrivacyStatementV1::PqMaspStarkV1(statement.clone());
-    let envelope = PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest: typed_statement
-            .digest()
-            .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?,
-        statement: typed_statement,
-        proof: PrivacyProofV1::PqMaspStarkV1(PrivacyProofBytesV1::new(proof)),
-    };
+    let envelope = PrivacyProofEnvelopeV1::bind_v1(
+        typed_statement,
+        PrivacyProofV1::PqMaspStarkV1(PrivacyProofBytesV1::new(proof)),
+    )
+    .map_err(|_| PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant)?;
+    if !profile.matches_envelope_v1(&envelope) {
+        return Err(PrivacyReleaseEvidenceErrorClassV1::EvidenceInvariant);
+    }
     let payload = transaction_payload_v1(transaction_context, envelope)?;
     if payload
         .validate_privacy_transaction_intent_binding_v1()

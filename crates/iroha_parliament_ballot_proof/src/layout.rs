@@ -18,42 +18,50 @@ pub const STATE_BITS: usize = 1600;
 /// Committed states of one permutation: after 2, 4, ..., 22 rounds.
 pub const GROUPS: usize = 11;
 /// Witness offsets of the first committed state of the first permutation (the
-/// commitment) and of the second (authorization value or nullifier).
-pub const PERMUTATION_OFFSETS: [usize; 2] = [
+/// commitment), second (registration authorization or nullifier), and third
+/// (vote authorization, vote only).
+pub const PERMUTATION_OFFSETS: [usize; 3] = [
     SECRET_OFFSET + SECRET_BITS,
     SECRET_OFFSET + SECRET_BITS + GROUPS * STATE_BITS,
+    SECRET_OFFSET + SECRET_BITS + 2 * GROUPS * STATE_BITS,
 ];
 /// Entries of each selector vector.
 pub const SELECTOR_BITS: usize = 32;
 /// Witness offset of the selector vector `a` (vote only).
-pub const SELECTOR_A_OFFSET: usize = PERMUTATION_OFFSETS[1] + GROUPS * STATE_BITS;
+pub const SELECTOR_A_OFFSET: usize = PERMUTATION_OFFSETS[2] + GROUPS * STATE_BITS;
 /// Witness offset of the selector vector `b` (vote only).
 pub const SELECTOR_B_OFFSET: usize = SELECTOR_A_OFFSET + SELECTOR_BITS;
 /// Witness length `l_reg` in bits.
-pub const REGISTRATION_WITNESS_BITS: usize = SELECTOR_A_OFFSET;
+pub const REGISTRATION_WITNESS_BITS: usize = PERMUTATION_OFFSETS[2];
 /// Witness length `l_vote` in bits.
 pub const VOTE_WITNESS_BITS: usize = SELECTOR_B_OFFSET + SELECTOR_BITS;
 /// Position of secret bit 0 in the initial state of every permutation.
 pub const SECRET_STATE_OFFSET: usize = 160;
 /// Constrained output bits of the commitment permutation.
 pub const COMMITMENT_BITS: usize = 1024;
-/// Constrained output bits of the authorization and nullifier permutations.
+/// Constrained output bits of the authorization permutations.
 pub const TAG_BITS: usize = 512;
+/// Constrained output bits of the nullifier permutation.
+pub const NULLIFIER_BITS: usize = 1024;
 /// Constraints of one transition block: eleven groups of 1,600.
 pub const TRANSITION_CONSTRAINTS: usize = GROUPS * STATE_BITS;
 /// Constraints the registration relation emits after Booleanity.
 pub const REGISTRATION_RELATION_CONSTRAINTS: usize =
     2 * TRANSITION_CONSTRAINTS + COMMITMENT_BITS + TAG_BITS;
 /// Constraints the vote relation emits after Booleanity.
-pub const VOTE_RELATION_CONSTRAINTS: usize =
-    REGISTRATION_RELATION_CONSTRAINTS + 2 * (SELECTOR_BITS + 1) + 1;
+pub const VOTE_RELATION_CONSTRAINTS: usize = 3 * TRANSITION_CONSTRAINTS
+    + COMMITMENT_BITS
+    + NULLIFIER_BITS
+    + TAG_BITS
+    + 2 * (SELECTOR_BITS + 1)
+    + 1;
 /// Total constraint count `M_reg` (`N_c`), Booleanity included.
 pub const REGISTRATION_CONSTRAINTS: usize =
     REGISTRATION_WITNESS_BITS + REGISTRATION_RELATION_CONSTRAINTS;
 /// Total constraint count `M_vote` (`N_c`), Booleanity included.
 pub const VOTE_CONSTRAINTS: usize = VOTE_WITNESS_BITS + VOTE_RELATION_CONSTRAINTS;
 
-/// One of the three SHAKE256 evaluations constrained by the relations.
+/// One of the four SHAKE256 evaluations constrained by the relations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Permutation {
     /// The credential commitment `C` (both relations).
@@ -62,13 +70,19 @@ pub enum Permutation {
     Authorization,
     /// The nullifier `nf` (vote).
     Nullifier,
+    /// The complete-statement authorization value `auth_v` (vote).
+    VoteAuthorization,
 }
 
 /// The permutations of `role`, in witness and constraint order.
-pub const fn permutations(role: Role) -> [Permutation; 2] {
+pub const fn permutations(role: Role) -> &'static [Permutation] {
     match role {
-        Role::Registration => [Permutation::Commitment, Permutation::Authorization],
-        Role::Vote => [Permutation::Commitment, Permutation::Nullifier],
+        Role::Registration => &[Permutation::Commitment, Permutation::Authorization],
+        Role::Vote => &[
+            Permutation::Commitment,
+            Permutation::Nullifier,
+            Permutation::VoteAuthorization,
+        ],
     }
 }
 
@@ -163,7 +177,7 @@ pub fn witness_layout(role: Role) -> Vec<Interval> {
             end: SECRET_OFFSET + SECRET_BITS,
         },
     ];
-    for (permutation, offset) in permutations(role).into_iter().zip(PERMUTATION_OFFSETS) {
+    for (permutation, offset) in permutations(role).iter().copied().zip(PERMUTATION_OFFSETS) {
         for group in 1..=GROUPS {
             let start = offset + STATE_BITS * (group - 1);
             out.push(Interval {
@@ -215,7 +229,7 @@ pub fn constraint_blocks(role: Role) -> Vec<Block> {
         push(BlockKind::SumB, 1);
         push(BlockKind::Range, 1);
     }
-    for permutation in permutations(role) {
+    for &permutation in permutations(role) {
         for group in 1..=GROUPS {
             push(
                 BlockKind::Transition {
@@ -225,7 +239,10 @@ pub fn constraint_blocks(role: Role) -> Vec<Block> {
                 STATE_BITS,
             );
         }
-        let bits = if permutation == Permutation::Commitment {
+        let bits = if matches!(
+            permutation,
+            Permutation::Commitment | Permutation::Nullifier
+        ) {
             COMMITMENT_BITS
         } else {
             TAG_BITS
@@ -257,15 +274,15 @@ mod tests {
 
     #[test]
     fn the_dimensions_are_the_frozen_ones() {
-        assert_eq!(PERMUTATION_OFFSETS, [640, 18_240]);
-        assert_eq!(SELECTOR_A_OFFSET, 35_840);
-        assert_eq!(SELECTOR_B_OFFSET, 35_872);
+        assert_eq!(PERMUTATION_OFFSETS, [640, 18_240, 35_840]);
+        assert_eq!(SELECTOR_A_OFFSET, 53_440);
+        assert_eq!(SELECTOR_B_OFFSET, 53_472);
         assert_eq!(REGISTRATION_WITNESS_BITS, 35_840);
-        assert_eq!(VOTE_WITNESS_BITS, 35_904);
+        assert_eq!(VOTE_WITNESS_BITS, 53_504);
         assert_eq!(REGISTRATION_RELATION_CONSTRAINTS, 36_736);
-        assert_eq!(VOTE_RELATION_CONSTRAINTS, 36_803);
+        assert_eq!(VOTE_RELATION_CONSTRAINTS, 55_427);
         assert_eq!(REGISTRATION_CONSTRAINTS, 72_576);
-        assert_eq!(VOTE_CONSTRAINTS, 72_707);
+        assert_eq!(VOTE_CONSTRAINTS, 108_931);
     }
 
     #[test]
@@ -277,7 +294,7 @@ mod tests {
                 assert_eq!(interval.start, next);
                 next = interval.end;
             }
-            let total = if role == Role::Vote { 35_904 } else { 35_840 };
+            let total = if role == Role::Vote { 53_504 } else { 35_840 };
             assert_eq!(next, total);
             assert_eq!((layout[0].start, layout[0].end), (0, 256));
             assert_eq!((layout[1].start, layout[1].end), (256, 640));
@@ -305,14 +322,14 @@ mod tests {
             );
         }
         let vote = witness_layout(Role::Vote);
-        assert_eq!(vote.len(), 26);
+        assert_eq!(vote.len(), 37);
         assert_eq!(
-            (vote[24].part, vote[24].start, vote[24].end),
-            (WitnessPart::SelectorA, 35_840, 35_872)
+            (vote[35].part, vote[35].start, vote[35].end),
+            (WitnessPart::SelectorA, 53_440, 53_472)
         );
         assert_eq!(
-            (vote[25].part, vote[25].start, vote[25].end),
-            (WitnessPart::SelectorB, 35_872, 35_904)
+            (vote[36].part, vote[36].start, vote[36].end),
+            (WitnessPart::SelectorB, 53_472, 53_504)
         );
         assert_eq!(witness_layout(Role::Registration).len(), 24);
     }
@@ -356,14 +373,14 @@ mod tests {
         assert_eq!(reg.len(), 25);
 
         let vote = constraint_blocks(Role::Vote);
-        assert_eq!(start_of(&vote, Booleanity), (0, 35_904));
-        assert_eq!(start_of(&vote, PrefixA), (35_904, 35_936));
-        assert_eq!(start_of(&vote, SumA), (35_936, 35_937));
-        assert_eq!(start_of(&vote, PrefixB), (35_937, 35_969));
-        assert_eq!(start_of(&vote, SumB), (35_969, 35_970));
-        assert_eq!(start_of(&vote, Range), (35_970, 35_971));
-        assert_eq!(start_of(&vote, first(Commitment)).0, 35_971);
-        assert_eq!(start_of(&vote, last(Commitment)).1, 53_571);
+        assert_eq!(start_of(&vote, Booleanity), (0, 53_504));
+        assert_eq!(start_of(&vote, PrefixA), (53_504, 53_536));
+        assert_eq!(start_of(&vote, SumA), (53_536, 53_537));
+        assert_eq!(start_of(&vote, PrefixB), (53_537, 53_569));
+        assert_eq!(start_of(&vote, SumB), (53_569, 53_570));
+        assert_eq!(start_of(&vote, Range), (53_570, 53_571));
+        assert_eq!(start_of(&vote, first(Commitment)).0, 53_571);
+        assert_eq!(start_of(&vote, last(Commitment)).1, 71_171);
         assert_eq!(
             start_of(
                 &vote,
@@ -371,10 +388,10 @@ mod tests {
                     permutation: Commitment
                 }
             ),
-            (53_571, 54_595)
+            (71_171, 72_195)
         );
-        assert_eq!(start_of(&vote, first(Nullifier)).0, 54_595);
-        assert_eq!(start_of(&vote, last(Nullifier)).1, 72_195);
+        assert_eq!(start_of(&vote, first(Nullifier)).0, 72_195);
+        assert_eq!(start_of(&vote, last(Nullifier)).1, 89_795);
         assert_eq!(
             start_of(
                 &vote,
@@ -382,9 +399,26 @@ mod tests {
                     permutation: Nullifier
                 }
             ),
-            (72_195, 72_707)
+            (89_795, 90_819)
         );
-        assert_eq!(vote.len(), 30);
+        assert_eq!(
+            start_of(&vote, first(Permutation::VoteAuthorization)).0,
+            90_819
+        );
+        assert_eq!(
+            start_of(&vote, last(Permutation::VoteAuthorization)).1,
+            108_419
+        );
+        assert_eq!(
+            start_of(
+                &vote,
+                Output {
+                    permutation: Permutation::VoteAuthorization
+                }
+            ),
+            (108_419, 108_931)
+        );
+        assert_eq!(vote.len(), 42);
         // Without gaps, and block_of finds every index.
         for blocks in [&reg, &vote] {
             let mut next = 0;

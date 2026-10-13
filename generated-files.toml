@@ -583,6 +583,25 @@ inputs = [
 check = "cargo run --locked -p ivm --features dev-tools --bin gen_proof_coverage_inventory -- --check"
 
 [[generated]]
+name = "iroha-fhe-bgv-known-answers"
+kind = "file"
+outputs = ["crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt"]
+generator = "python3 crates/iroha_fhe/tests/vectors/bgv_reference.py --write"
+generator_sources = ["crates/iroha_fhe/tests/vectors/bgv_reference.py"]
+# The reference holds its own parameters and seeds and reads no other file.
+inputs = ["crates/iroha_fhe/tests/vectors/bgv_reference.py"]
+check = "python3 crates/iroha_fhe/tests/vectors/bgv_reference.py --check"
+
+[[generated]]
+name = "iroha-fhe-bgv-cost-model-view"
+kind = "file"
+outputs = ["crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt"]
+generator = "python3 scripts/fhe_bgv_cost_model.py --rederive --write"
+generator_sources = ["scripts/fhe_bgv_cost_model.py"]
+inputs = ["specs/fhe_bgv_cost_summary.json"]
+check = "python3 scripts/fhe_bgv_cost_model.py"
+
+[[generated]]
 name = "norito-rpc-fixtures"
 kind = "file"
 outputs = [
@@ -664,6 +683,7 @@ generator_sources = [
   "tools/norito_codegen_exporter/Cargo.toml",
   "tools/norito_codegen_exporter/src/lib.rs",
   "tools/norito_codegen_exporter/src/norito_rpc.rs",
+  "tools/norito_codegen_exporter/src/norito_rpc/settlement_sources.rs",
   "xtask/Cargo.toml",
   "xtask/src/main.rs",
   "xtask/src/norito_rpc.rs",
@@ -909,6 +929,27 @@ inputs = [
   "defaults/*.toml",
 ]
 check = "bash scripts/tests/consistency.sh docker-compose"
+
+[[generated]]
+name = "bilateral-settlement-sdk-wire"
+kind = "file"
+outputs = ["fixtures/norito_rpc/bilateral_settlement_sdk_wire.properties"]
+generator = "cargo test --locked -p iroha_data_model --test bilateral_settlement_sdk_fixtures write_bilateral_settlement_sdk_fixtures -- --exact --ignored"
+generator_sources = [
+  "crates/iroha_data_model/Cargo.toml",
+  "crates/iroha_data_model/tests/bilateral_settlement_sdk_fixtures.rs",
+]
+inputs = [
+  "Cargo.lock",
+  "Cargo.toml",
+  "rust-toolchain.toml",
+  "crates/iroha_data_model/src/**/*.rs",
+  "crates/iroha_model_base/src/**/*.rs",
+  "crates/iroha_crypto/src/**/*.rs",
+  "crates/iroha_primitives/src/**/*.rs",
+  "crates/norito/src/**/*.rs",
+]
+check = "cargo test --locked -p iroha_data_model --test bilateral_settlement_sdk_fixtures bilateral_sdk_fixture_matches_current_rust_wire_and_complete_consent -- --exact"
 
 # Complete Kagami profile bundles are operator-generated release artifacts and are intentionally
 # untracked. Checked-in `.template.json` files are non-signable source references, not generated

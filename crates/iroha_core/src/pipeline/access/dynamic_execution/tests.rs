@@ -160,7 +160,7 @@ fn raw_selector_preparation_refusal_retries_the_same_state_owner() {
 #[test]
 fn resource_refusal_keeps_outer_dynamic_access_conservative() {
     let mut state = fixture();
-    state.pipeline.access_set_cache_enabled = false;
+    state.edit_pipeline_for_testing(|pipeline| pipeline.access_set_cache_enabled = false);
     let block = state.block(header());
     let budget = block.execution_budget();
     let network = iroha_data_model::NetworkId::from_genesis_hash(

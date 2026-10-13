@@ -977,7 +977,8 @@ async fn torii_proxy_candidate_peers_fail_closed_when_bindings_are_missing() {
         .get_mut()
         .set_parameter(Parameter::Custom(
             SumeragiNposParameters::default().into_custom_parameter(),
-        ));
+        ))
+        .expect("install the committed NPoS fixture parameters");
     let mut peers = block.world.peers_mut_for_testing().transaction();
     peers.clear();
     peers.push(local_peer_id.clone());

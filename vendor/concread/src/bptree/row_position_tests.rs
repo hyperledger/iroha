@@ -31,7 +31,8 @@ fn frozen_positions_capture_complete_original_rows_without_allocating_or_cloning
         let reader = without_allocations(|| frozen.reader());
         let mut positions = without_allocations(|| reader.positions());
         let observed = Cell::new(0_usize);
-        for key in 0..count {
+        assert_eq!(expected_pointers.len(), count);
+        for (key, &expected_pointer) in expected_pointers.iter().enumerate() {
             without_allocations(|| {
                 let position = positions
                     .try_next(|bound| {
@@ -53,7 +54,7 @@ fn frozen_positions_capture_complete_original_rows_without_allocating_or_cloning
                 assert_eq!((*actual_key, *value), (key, key * 3));
                 assert_eq!(
                     (std::ptr::from_ref(actual_key), std::ptr::from_ref(value)),
-                    expected_pointers[key]
+                    expected_pointer
                 );
             });
         }

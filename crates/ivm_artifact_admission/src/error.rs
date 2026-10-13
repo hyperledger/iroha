@@ -33,6 +33,10 @@ enum ArtifactFailure {
         context: &'static str,
         refusal: AllocationRefusal,
     },
+    DecodeDeferred {
+        context: &'static str,
+        original: norito::core::DecodeLocalRefusal,
+    },
 }
 
 impl ContractArtifactError {
@@ -59,7 +63,7 @@ impl ContractArtifactError {
     /// Preserve local resource ownership when a native preparation stage fails.
     ///
     /// Deterministic preparation failures remain invalid artifacts. A local
-    /// deferral retains its original allocation pool and release observation,
+    /// deferral retains its original cause and any existing pool observation,
     /// including through a metered wrapper; no guest gas is attached to it.
     /// Constructing a local deferral borrows static context and allocates nothing.
     #[doc(hidden)]
@@ -70,6 +74,9 @@ impl ContractArtifactError {
             }
             VMError::AllocationDeferred(refusal) => {
                 ArtifactFailure::AllocationDeferred { context, refusal }
+            }
+            VMError::DecodeDeferred(original) => {
+                ArtifactFailure::DecodeDeferred { context, original }
             }
             VMError::Metered { source, .. } if source.execution_deferral().is_some() => {
                 return Self::preparation(context, *source);
@@ -91,6 +98,9 @@ impl ContractArtifactError {
             ArtifactFailure::AllocationDeferred { refusal, .. } => {
                 Some(VMError::AllocationDeferred(refusal.clone()))
             }
+            ArtifactFailure::DecodeDeferred { original, .. } => {
+                Some(VMError::DecodeDeferred(original.clone()))
+            }
             ArtifactFailure::Invalid(_) | ArtifactFailure::AbiHashMismatch { .. } => None,
         }
     }
@@ -107,6 +117,7 @@ impl ContractArtifactError {
             ArtifactFailure::AllocationDeferred { refusal, .. } => {
                 VMError::AllocationDeferred(refusal)
             }
+            ArtifactFailure::DecodeDeferred { original, .. } => VMError::DecodeDeferred(original),
         }
     }
 }
@@ -124,6 +135,9 @@ impl fmt::Display for ContractArtifactError {
             ArtifactFailure::AllocationDeferred { context, refusal } => write!(
                 f, "contract preparation deferred during {context}: execution allocation deferred: {refusal}",
             ),
+            ArtifactFailure::DecodeDeferred { context, original } => write!(
+                f, "contract preparation deferred during {context}: execution decode deferred: {original}",
+            ),
         }
     }
 }
@@ -137,7 +151,48 @@ mod tests {
 
     #[test]
     fn admission_error_stays_below_large_result_threshold_without_boxing() {
-        assert!(core::mem::size_of::<ContractArtifactError>() <= 96);
+        // Keep the complete opaque scope inline, at most the ordinary 128-byte
+        // large-error threshold; allocating a Box on resource refusal is unsafe.
+        assert!(core::mem::size_of::<ContractArtifactError>() <= 128);
+    }
+
+    #[test]
+    fn canonical_metadata_refusal_retains_original_scope_through_admission() {
+        let bytes = norito::encode_canonical(&vec![17_u8; 32]).unwrap();
+        let original = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let source = VMError::DecodeDeferred(original.clone());
+        for wrapped in [
+            source.clone(),
+            VMError::Metered {
+                gas: 99,
+                source: Box::new(source.clone()),
+            },
+        ] {
+            let admission = ContractArtifactError::preparation("canonical metadata", wrapped);
+            assert_eq!(admission.local_vm_error(), Some(source.clone()));
+            assert!(admission.to_string().starts_with(
+                "contract preparation deferred during canonical metadata: execution decode deferred: "
+            ));
+            let returned = admission.into_vm_error();
+            assert_eq!(returned, source);
+            assert_eq!(returned.metered_gas(), None);
+            assert_eq!(returned.fault_kind(), None);
+            let VMError::DecodeDeferred(retained) = returned else {
+                panic!("lost scope")
+            };
+            assert_eq!(retained, original);
+        }
     }
 
     #[test]

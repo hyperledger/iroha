@@ -1,0 +1,116 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "dispatch_intent_not_durable_sends_nothing",
+  "category": "interruption_before_submission",
+  "rules": [
+    "persist_before_effect"
+  ],
+  "description": "Storage is unavailable when the dispatch ordinal is to be persisted. Nothing is sent, the signed identity stays in `signed`, and a later run dispatches that same identity for the first time.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "dispatch-intent-not-durable-sends-nothing",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ]
+      },
+      "storage_fault": {
+        "store": 6,
+        "mode": "unavailable"
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "store",
+          "resumable": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 0,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

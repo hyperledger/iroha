@@ -69,7 +69,8 @@ mod tests;
 pub const INVALID: i32 = -1;
 /// Closed, closing, or unknown opaque handle.
 pub const CLOSED: i32 = -2;
-/// Owner/handle capacity exhausted.
+/// Owner/handle capacity or an original local canonical-read budget was exhausted.
+/// No proof rejection or loss of monetary custody is implied.
 pub const RESOURCE: i32 = -3;
 /// Required authenticated native proof artifacts are unavailable.
 pub const ARTIFACTS_UNAVAILABLE: i32 = -4;
@@ -165,6 +166,11 @@ impl From<state::Error> for Failure {
                 UNAVAILABLE,
                 advance::KagemushaWalletUnavailableV1::from_io(&error),
             ),
+            E::DecodeResource(_) => Self::code(RESOURCE),
+            // Compact binary wallet readers cannot originate signed-genesis reads.
+            // Preserve an unexpected typed read until this final ABI projection;
+            // do not invent locality or an invalidity verdict from its diagnostic.
+            E::FinalityRead(_) => Self::code(INTERNAL),
             E::Invalid(_) | E::Collected => Self::code(INVALID),
             E::WitnessLost(_) => Self::code(CUSTODY_LOST),
             E::CreditConflict | E::OperationConflict => Self::code(CONFLICT),

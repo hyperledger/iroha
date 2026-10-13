@@ -23,7 +23,6 @@ use crate::{Error, Result, field::GoldilocksFp4V1 as F};
 /// Exact projected trace width for the proposed one-delta relation.
 pub(super) const TRACE_COLUMNS: usize = super::compact_public_columns::COMMITTED_COLUMN_COUNT;
 /// Number of components in the fixed power batch.
-#[cfg(test)]
 pub(super) const COMPONENTS: usize = 2 * TRACE_COLUMNS + 4;
 const TRACE_ROWS: u64 = 65_536;
 

@@ -1,12 +1,22 @@
 //! Fixed DEEP context, typed commitments and atomic whole-tape transcript.
 //!
 //! Canonical PrefixFrame/BodyV1 serialization and SHA3/SHAKE hashing are owned by
-//! `compact_sha3`. This private candidate supplies only a closed geometry and message
-//! schedule. Context construction authenticates no public statement; the caller
-//! must perform the OOD AIR identity and all opening/degree checks separately.
+//! `compact_sha3`; the frozen typed profile every input binds is owned by
+//! `transcript_profile`. This owner supplies the closed geometry of the
+//! statement context and the message schedule. Context construction
+//! authenticates no public statement; the caller must perform the OOD AIR
+//! identity and all opening/degree checks separately.
 //! The bounded engine and producer use this schedule through the offline facade.
-//! TODO: Qualify the complete protocol and authenticate ledger context before
-//! replacing the node's replay verifier or changing production admission.
+//!
+//! The schedule is the frozen binding order of the shared backend transcript:
+//! the profile, relation identity, geometry and complete statement precede
+//! every commitment; the row root precedes the constraint coefficients; the
+//! joined quotient and composition-mask root precedes the out-of-domain point;
+//! all out-of-domain answers precede the batching scalar; each FRI root
+//! precedes its folding challenge; the complete terminal precedes the query
+//! positions. The profile has zero grinding bits, so no nonce exists.
+//! TODO: B.2 supplies the exact-geometry reduction and checked security
+//! accounting of this profile; authenticated ledger context is the caller's.
 
 use fastpq_isi::{
     compact_challenge::{RawTapeErrorV1, RawTapeMessageV1, RawTapeRoundV1, RawTapeV1},
@@ -28,15 +38,19 @@ use super::{
 };
 use crate::field::{GOLDILOCKS_MODULUS_V1 as MODULUS, GoldilocksFp4V1 as F};
 
-/// Complete protocol identity; every fixed geometry field is also in the context.
-pub(super) const IDENTITY: &[u8] = b"fastpq:compact:deep-ali:sha3-256:shake256-atomic-raw:row301:qpair+composition-mask:ood604:components606:mask-lambda0+terms-lambda1-606:trace-shift2:quotient-shift1:arity16-16-8-8-4:fri-degree2n:terminal-degree2-128:q77:c87:raw93:mask162-78:omit-first-known-fiber:v1";
+/// Width of every commitment and chain digest, in bytes.
+pub(super) const COMMITMENT_BYTES: usize = Digest::BYTES;
+/// Nonresidue `c` of the quartic extension `F_p[u]/(u^4 - c)`.
+pub(super) const EXTENSION_NONRESIDUE: u64 = 7;
 /// Longest statement the context binds; published as `air::MAX_STATEMENT_BYTES`.
 pub(super) const MAX_STATEMENT_BYTES: usize = 240 * 1024;
 /// Longest relation identity; published as `air::MAX_RELATION_IDENTITY_BYTES`.
 pub(super) const MAX_RELATION_IDENTITY_BYTES: usize = 256;
 #[cfg(test)]
 const FIXTURE_RELATION_IDENTITY: &str = "fastpq:deep:explicit-context-fixture:v1";
-const OOD_VALUES: usize = 2 * COMMITTED_COLUMN_COUNT + 2;
+/// Out-of-domain answers bound before the batching challenge: both retained
+/// rows and the two quotient halves.
+pub(super) const OOD_VALUES: usize = 2 * COMMITTED_COLUMN_COUNT + 2;
 
 /// Failure of the fixed DEEP transcript or its typed input validation.
 #[derive(Debug, thiserror::Error)]
@@ -162,6 +176,12 @@ struct StatementContext {
     statement: Vec<u8>,
 }
 
+/// Nominal Norito frame of the statement context, as the profile descriptor names it.
+pub(super) fn context_frame_name() -> String {
+    use norito::schema::identity::NoritoSchema as _;
+    StatementContext::frame_name()
+}
+
 /// Full fixed profile plus caller-owned canonical public statement.
 #[derive(Clone, Debug)]
 pub(super) struct Context {
@@ -218,9 +238,36 @@ impl Context {
         Ok(())
     }
 
+    /// The frozen statement context under another prefix, for binding-mutation
+    /// tests only: `prefix` receives the encoded context and builds the framing
+    /// owner with a changed version, catalog, construction or profile.
+    #[cfg(test)]
+    pub(super) fn with_prefix_for_test(
+        identity: &str,
+        statement: &[u8],
+        prefix: impl FnOnce(
+            &[u8],
+        )
+            -> std::result::Result<FramingContext, super::compact_sha3::CandidateError>,
+    ) -> Result<Self> {
+        Self::check_envelope(identity, statement)?;
+        let encoded = Self::encode_statement_context(identity, statement)?;
+        Ok(Self {
+            framing: prefix(&encoded)?,
+        })
+    }
+
     fn with_identity(identity: &str, statement: &[u8]) -> Result<Self> {
         Self::check_envelope(identity, statement)?;
-        let encoded = norito::encode_canonical(&StatementContext {
+        let encoded = Self::encode_statement_context(identity, statement)?;
+        Ok(Self {
+            framing: FramingContext::new(&encoded)?,
+        })
+    }
+
+    /// Canonical statement context: relation, layout, geometry and statement.
+    fn encode_statement_context(identity: &str, statement: &[u8]) -> Result<Vec<u8>> {
+        Ok(norito::encode_canonical(&StatementContext {
             relation: identity.to_owned(),
             layout: LAYOUT_ID.to_owned(),
             trace_rows: fixed_u32(TRACE_ROWS),
@@ -228,7 +275,7 @@ impl Context {
             columns: fixed_u32(COMMITTED_COLUMN_COUNT),
             constraints: fixed_u32(CONSTRAINTS),
             modulus: MODULUS,
-            extension_nonresidue: 7,
+            extension_nonresidue: EXTENSION_NONRESIDUE,
             lde_root: LDE_ROOT,
             coset_offset: COSET_OFFSET,
             fri_arities: FRI_ARITIES.map(fixed_u32),
@@ -237,10 +284,7 @@ impl Context {
             query_count: fixed_u32(QUERY_COUNT),
             query_candidates: fixed_u32(QUERY_CANDIDATES),
             statement: statement.to_vec(),
-        })?;
-        Ok(Self {
-            framing: FramingContext::new(&encoded)?,
-        })
+        })?)
     }
 
     /// Retained shared public context/cache payload, including actual owner layouts.
@@ -707,3 +751,7 @@ mod retirement_tests;
 #[cfg(test)]
 #[path = "deep_binding/core_retirement_tests.rs"]
 mod core_retirement_tests;
+
+#[cfg(test)]
+#[path = "deep_binding/frozen_tests.rs"]
+mod frozen_tests;

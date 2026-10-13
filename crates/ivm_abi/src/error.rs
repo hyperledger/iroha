@@ -164,6 +164,9 @@ pub enum VMError {
     /// Original active allocation refusal, including its exact pool's release observation.
     /// This local owner is never a metered guest fault or a wire rejection.
     AllocationDeferred(AllocationRefusal),
+    /// Original canonical decoder refusal captured before its admission scope retired.
+    /// This opaque non-wire owner grants no allocation-pool wakeup or guest fault.
+    DecodeDeferred(norito::core::DecodeLocalRefusal),
     /// Host work failed after consuming a deterministic amount of syscall gas.
     ///
     /// The VM executor debits `gas` and then returns `source` so trap
@@ -346,6 +349,14 @@ impl VMError {
         match self.as_unmetered() {
             Self::ExecutionDeferred(reason) => Some(*reason),
             Self::AllocationDeferred(_) => Some(ExecutionDeferral::ActiveMemoryCapacity),
+            Self::DecodeDeferred(original) => Some(match original.kind() {
+                norito::core::DecodeLocalRefusalKind::Allocator => {
+                    ExecutionDeferral::AllocationUnavailable
+                }
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit => {
+                    ExecutionDeferral::ActiveMemoryCapacity
+                }
+            }),
             Self::HostUnavailable
             | Self::SyscallGasQuoteExceeded { .. }
             | Self::SyscallMeteringModeMismatch { .. } => {
@@ -401,6 +412,7 @@ impl VMError {
             Self::AmxBudgetExceeded { .. } => F::AmxBudgetExceeded,
             Self::ExecutionDeferred(_)
             | Self::AllocationDeferred(_)
+            | Self::DecodeDeferred(_)
             | Self::HostUnavailable
             | Self::SyscallGasQuoteExceeded { .. }
             | Self::SyscallMeteringModeMismatch { .. }
@@ -467,6 +479,9 @@ impl fmt::Display for VMError {
             VMError::ExecutionDeferred(reason) => write!(f, "execution deferred: {reason}"),
             VMError::AllocationDeferred(refusal) => {
                 write!(f, "execution allocation deferred: {refusal}")
+            }
+            VMError::DecodeDeferred(original) => {
+                write!(f, "execution decode deferred: {original}")
             }
             VMError::OutOfGas => write!(f, "out of gas"),
             VMError::OutOfMemory => write!(f, "out of memory"),
@@ -604,6 +619,7 @@ impl StdError for VMError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             VMError::Metered { source, .. } => Some(source.as_ref()),
+            VMError::DecodeDeferred(original) => Some(original),
             _ => None,
         }
     }
@@ -611,7 +627,8 @@ impl StdError for VMError {
 
 /// Preserve a local operational refusal when mapping a deterministic decode fault.
 ///
-/// The complete original error carries its finite pool/release observation.
+/// The complete original error retains its cause and any existing pool/release
+/// observation; a decoder scope never invents an allocation-pool wakeup.
 /// Converting it to malformed input would make transaction validity depend on
 /// local resource pressure. Semantic failures retain the caller's existing map.
 pub fn preserve_execution_deferral(error: VMError, malformed: VMError) -> VMError {
@@ -843,5 +860,78 @@ mod execution_deferral_tests {
             nested
         );
         assert_eq!(nested.split_metered(), (None, original));
+    }
+}
+
+#[cfg(test)]
+mod canonical_decode_deferral_tests {
+    use super::*;
+
+    #[test]
+    fn retained_codec_refusal_has_no_metered_gas_or_deterministic_fault() {
+        let bytes = norito::encode_canonical(&vec![31_u8; 8]).unwrap();
+        let cause = norito::core::with_decode_limits_scope(
+            norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::decode_canonical_for_admission::<Vec<u8>>(
+                    &bytes,
+                    norito::canonical_decode_limits(bytes.len()),
+                )
+            },
+        )
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let error = VMError::DecodeDeferred(cause.clone());
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ExecutionDeferral::ActiveMemoryCapacity)
+        );
+        assert_eq!(error.fault_kind(), None);
+        assert_eq!(VMError::metered(91, error.clone()), error);
+        let nested = VMError::Metered {
+            gas: 27,
+            source: Box::new(error.clone()),
+        };
+        assert_eq!(nested.execution_deferral(), error.execution_deferral());
+        assert_eq!(nested.fault_kind(), None);
+        assert_eq!(nested.split_metered(), (None, error.clone()));
+        assert_eq!(
+            preserve_execution_deferral(error.clone(), VMError::NoritoInvalid),
+            error
+        );
+        assert_eq!(
+            error
+                .source()
+                .unwrap()
+                .downcast_ref::<norito::core::DecodeLocalRefusal>(),
+            Some(&cause)
+        );
+        assert!(error.to_string().starts_with("execution decode deferred: "));
+    }
+
+    #[test]
+    fn captured_allocator_refusal_retains_bytes_without_a_pool_wakeup() {
+        // This synthetic decoder result exercises the established classifier trust
+        // boundary; it is not evidence of an actual physical allocation failure.
+        let cause = norito::core::classify_decode_attempt(|| {
+            Err::<(), _>(norito::Error::AllocationFailed { bytes: 127 })
+        })
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+        let error = VMError::DecodeDeferred(cause.clone());
+        assert_eq!(
+            error.execution_deferral(),
+            Some(ExecutionDeferral::AllocationUnavailable)
+        );
+        assert_eq!(error.fault_kind(), None);
+        let (gas, returned) = VMError::metered(13, error).split_metered();
+        assert_eq!(gas, None);
+        let VMError::DecodeDeferred(original) = returned else {
+            panic!("lost decoder owner")
+        };
+        assert_eq!(original, cause);
+        assert_eq!(original.allocation_bytes(), Some(127));
     }
 }

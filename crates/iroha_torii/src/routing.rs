@@ -3523,6 +3523,7 @@ fn quote_app_api_transaction_builder(
             quote_view.world(),
             quote_view.nexus(),
             quote_view.pipeline(),
+            &quote_view.zk().gas,
             &payload,
             observation_time_ms,
             sccp_committed_time_ms,
@@ -7386,7 +7387,7 @@ pub struct EvidenceListQuery {
     pub limit: Option<usize>,
     /// Offset into the snapshot list (0..=10000). Default 0.
     pub offset: Option<usize>,
-    /// Optional filter by the sole first-release kind: `NativeSumeragiEvidence`.
+    /// Optional explicit closed kind: `NativeSumeragiEvidence` or `SccpForgeryEvidence`.
     pub kind: Option<String>,
 }
 ( Debug, Default, Clone, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize,)
@@ -7426,13 +7427,13 @@ fn parse_evidence_list_usize(value: &str, field: &'static str) -> Result<usize, 
     })
 }
 fn validate_evidence_list_kind(value: &str) -> Result<(), Error> {
-    if value == "NativeSumeragiEvidence" {
+    if matches!(value, "NativeSumeragiEvidence" | "SccpForgeryEvidence") {
         Ok(())
     } else {
         Err(Error::AppQueryValidation {
             code: "sumeragi_evidence_kind_invalid",
             message: format!(
-                "unsupported evidence kind `{value}`; expected NativeSumeragiEvidence"
+                "unsupported evidence kind `{value}`; expected NativeSumeragiEvidence or SccpForgeryEvidence"
             ),
         })
     }
@@ -7521,23 +7522,16 @@ mod evidence_list_query_contract_tests {
                 sig: Signature([0; iroha_sumeragi::types::SIGNATURE_LEN]),
             };
             vote.sig = Signature(
-                iroha_crypto::Signature::from_bytes(
-                    &iroha_crypto::bls::consensus::sign_preimage(
-                        key.private_key(),
-                        &vote.preimage(),
-                    )
+                iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
                     .unwrap(),
-                )
-                .payload()
-                .try_into()
-                .unwrap(),
             );
             vote
         };
         // Transport projection only; original history remains responsible for attribution.
         let mut record = iroha_data_model::block::consensus::EvidenceRecord {
-            evidence: Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(4), vote(5)))
-                .unwrap(),
+            evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                Evidence::from_native(&NativeEvidence::VoteEquivocation(vote(4), vote(5))).unwrap(),
+            ),
             attribution: EvidenceAttribution {
                 scope: iroha_data_model::block::consensus::EvidenceScope::Root,
                 instance: [1; 32],
@@ -7557,8 +7551,18 @@ mod evidence_list_query_contract_tests {
             recorded_at_ms: 3000,
             penalty_status: EvidencePenaltyStatus::Pending,
         };
-        let frame = record.evidence.native.clone();
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        let frame = native.native.clone();
         let expected = evidence_to_json(&record).unwrap();
+        let mut wrong_scope = record.clone();
+        wrong_scope.attribution.scope =
+            iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { generation: 7 };
+        assert!(evidence_to_json(&wrong_scope).is_err());
+
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
             || evidence_to_json(&record),
@@ -7570,15 +7574,173 @@ mod evidence_list_query_contract_tests {
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
             ))
         ));
-        assert_eq!(record.evidence.native, frame);
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        assert_eq!(native.native, frame);
         assert_eq!(evidence_to_json(&record).unwrap(), expected);
-        record.evidence.native[0] ^= 1;
+        let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
+            &mut record.evidence
+        else {
+            panic!("explicit native record")
+        };
+        native.native[0] ^= 1;
         let error = evidence_to_json(&record).unwrap_err();
         assert!(matches!(
             error,
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
             ))
+        ));
+    }
+    // Syntax-only transport DATA: no signature or historical-authority acceptance is asserted.
+    fn sccp_data_record() -> iroha_data_model::block::consensus::EvidenceRecord {
+        use iroha_data_model::{
+            account::AccountId,
+            block::consensus::{
+                EvidenceAttribution, EvidenceOffender, EvidencePenaltyStatus, EvidenceRecord,
+                EvidenceScope, RecordedEvidenceV1,
+            },
+            isi::sccp::SubmitSccpForgeryEvidenceV1,
+            sccp::native::{
+                SccpAnchorWitnessV1, SccpForgeryOffenderV1, SccpForgeryRecordV1, SccpForgeryRuleV1,
+            },
+        };
+        let key =
+            iroha_crypto::KeyPair::try_from_seed(vec![43; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap();
+        let peer =
+            iroha_crypto::KeyPair::try_from_seed(vec![44; 32], iroha_crypto::Algorithm::BlsNormal)
+                .unwrap();
+        EvidenceRecord {
+            evidence: RecordedEvidenceV1::SccpForgery(Box::new(SccpForgeryRecordV1 {
+                evidence: SubmitSccpForgeryEvidenceV1 {
+                    qc: [0xa1; 116],
+                    header: [0xb2; 221],
+                    aggregate_signature: [0xc3; 96],
+                    anchor: Some(SccpAnchorWitnessV1 {
+                        core_hash: [0; 32],
+                        result: [0; 32],
+                        path: [[7; 32]; 12],
+                    }),
+                },
+                rule: SccpForgeryRuleV1::E4,
+                generation: 7,
+                start_height: 23,
+                offenders: vec![SccpForgeryOffenderV1 {
+                    signer: 0,
+                    lane_id: iroha_model_base::topology::LaneId::new(1),
+                    validator: AccountId::new(key.public_key().clone()),
+                    activation_height: 19,
+                }],
+            })),
+            attribution: EvidenceAttribution {
+                scope: EvidenceScope::SccpGeneration { generation: 7 },
+                instance: [1; 32],
+                height: 23,
+                epoch: 99,
+                context_id: [2; 32],
+                authority_generation: [3; 32],
+                offenders: vec![EvidenceOffender {
+                    signer: 0,
+                    peer_id: iroha_model_base::peer::PeerId::new(peer.public_key().clone()),
+                    lane_stake: None,
+                }],
+                safety_violation: false,
+            },
+            recorded_at_height: 42,
+            recorded_at_view: 5,
+            recorded_at_ms: 1234,
+            penalty_status: EvidencePenaltyStatus::Pending,
+        }
+    }
+    #[test]
+    fn sccp_projection_is_exact_data_and_never_native_scope_or_signature_admission() {
+        use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+        let mut record = sccp_data_record();
+        let value = evidence_to_json(&record).unwrap();
+        assert_eq!(value["kind"].as_str(), Some("SccpForgeryEvidence"));
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert_eq!(value["value"].as_object().unwrap().len(), 7);
+        let decoded: iroha_data_model::sccp::native::SccpForgeryRecordV1 =
+            norito::json::from_json(&norito::json::to_json(&value["value"]["record"]).unwrap())
+                .unwrap();
+        let RecordedEvidenceV1::SccpForgery(expected) = &record.evidence else {
+            panic!("SCCP DATA")
+        };
+        assert_eq!(&decoded, expected.as_ref());
+        assert_eq!(decoded.evidence.anchor.unwrap().result, [0; 32]);
+        assert_eq!(
+            value["value"]["attribution"]["scope"]["kind"].as_str(),
+            Some("sccp_generation")
+        );
+        assert_eq!(value["value"]["attribution"]["height"].as_u64(), Some(23));
+        assert_eq!(value["value"]["recorded_height"].as_u64(), Some(42));
+        for scope in [
+            EvidenceScope::Root,
+            EvidenceScope::SccpGeneration { generation: 8 },
+        ] {
+            record.attribution.scope = scope;
+            assert!(evidence_to_json(&record).is_err());
+        }
+        record.attribution.scope = EvidenceScope::SccpGeneration { generation: 7 };
+        record.attribution.height = 24;
+        assert!(evidence_to_json(&record).is_err());
+        // Projection alone does not insert or authenticate either retained evidence kind.
+    }
+    #[test]
+    fn evidence_kind_filter_selects_closed_material_without_native_fallback() {
+        use iroha_data_model::block::consensus::{Evidence, RecordedEvidenceV1};
+        // Deliberately malformed Native DATA: kind selection must not decode it.
+        let native = RecordedEvidenceV1::Native(Evidence { native: vec![0] });
+        let sccp = sccp_data_record().evidence;
+        let records = [&native, &sccp];
+        for (kind, expected) in [
+            (None, [true, true]),
+            (Some("NativeSumeragiEvidence"), [true, false]),
+            (Some("SccpForgeryEvidence"), [false, true]),
+        ] {
+            assert_eq!(
+                records.map(|record| evidence_matches_kind(record, kind)),
+                expected
+            );
+        }
+    }
+    #[test]
+    fn borrowed_sccp_projection_preserves_original_and_rejects_malformed_shape() {
+        use iroha_data_model::block::consensus::RecordedEvidenceV1;
+        use norito::codec::Encode as _;
+
+        let mut record = sccp_data_record();
+        let original = record.encode();
+        let expected = evidence_to_json(&record).unwrap();
+        let actual = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX),
+            || {
+                recorded_evidence_fields_to_json(
+                    &record.evidence,
+                    &record.attribution,
+                    record.recorded_at_height,
+                    record.recorded_at_view,
+                    record.recorded_at_ms,
+                    record.penalty_status,
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(record.encode(), original);
+        let RecordedEvidenceV1::SccpForgery(material) = &mut record.evidence else {
+            panic!("SCCP DATA")
+        };
+        material.offenders.clear();
+        assert!(matches!(
+            evidence_to_json(&record),
+            Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
+            )))
         ));
     }
     fn assert_safe_evidence_response_encoding_error(error: Error) {
@@ -7668,7 +7830,8 @@ mod evidence_list_query_contract_tests {
             Some("0"),
             Some("NativeSumeragiEvidence"),
         ))
-        .expect("the sole current evidence kind must be accepted");
+        .expect("the native evidence kind must be accepted");
+        EvidenceListQuery::try_from(raw_query(Some("1"), Some("0"), Some("SccpForgeryEvidence"))).expect("explicit SCCP DATA selection");
         for kind in [
             "SumeragiEquivocation",
             "DoublePrepare",
@@ -7752,16 +7915,22 @@ pub async fn handle_v1_sumeragi_evidence_list(
         .unwrap_or(SUMERAGI_EVIDENCE_LIST_DEFAULT_LIMIT as usize);
     let capacity = evidence_page_capacity(offset, limit)?;
     let world = state.world_view();
-    let iter = world.consensus_evidence().iter().map(|(_, record)| {
-        (
+    // Select the retained closed material before pagination. Projection does not
+    // authenticate SCCP evidence or enable its separate runtime admission path.
+    let iter = world
+        .consensus_evidence()
+        .iter()
+        .filter(|(_, record)| evidence_matches_kind(&record.evidence, q.kind.as_deref()))
+        .map(|(_, record)| {
             (
-                Reverse(record.recorded_at_height),
-                Reverse(record.recorded_at_view),
-                Reverse(record.recorded_at_ms),
-            ),
-            record,
-        )
-    });
+                (
+                    Reverse(record.recorded_at_height),
+                    Reverse(record.recorded_at_view),
+                    Reverse(record.recorded_at_ms),
+                ),
+                record,
+            )
+        });
     let (records, total) = collect_bounded_ranked_page(iter, offset, limit, capacity);
     let total = u64::try_from(total).map_err(|_| {
         conversion_error("Sumeragi evidence total is not representable as u64".to_owned())
@@ -7790,7 +7959,7 @@ pub async fn handle_v1_sumeragi_evidence_list(
     let items: Vec<norito::json::Value> = records
         .iter()
         .map(|record| {
-            evidence_fields_to_json(
+            recorded_evidence_fields_to_json(
                 &record.evidence,
                 &record.attribution,
                 record.recorded_at_height,
@@ -8971,9 +9140,21 @@ fn evidence_penalty_status_to_json(status: EvidencePenaltyStatus) -> Value {
     lifecycle.insert("details".into(), details);
     Value::Object(lifecycle)
 }
+fn evidence_matches_kind(
+    evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
+    kind: Option<&str>,
+) -> bool {
+    use iroha_data_model::block::consensus::RecordedEvidenceV1;
+    match kind {
+        None => true,
+        Some("NativeSumeragiEvidence") => matches!(evidence, RecordedEvidenceV1::Native(_)),
+        Some("SccpForgeryEvidence") => matches!(evidence, RecordedEvidenceV1::SccpForgery(_)),
+        Some(_) => unreachable!("kind validated before state acquisition"),
+    }
+}
 #[cfg(test)]
 fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) -> Result<Value> {
-    evidence_fields_to_json(
+    recorded_evidence_fields_to_json(
         &rec.evidence,
         &rec.attribution,
         rec.recorded_at_height,
@@ -8981,6 +9162,52 @@ fn evidence_to_json(rec: &iroha_data_model::block::consensus::EvidenceRecord) ->
         rec.recorded_at_ms,
         rec.penalty_status,
     )
+}
+fn recorded_evidence_fields_to_json(
+    evidence: &iroha_data_model::block::consensus::RecordedEvidenceV1,
+    attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
+    recorded_at_height: u64,
+    recorded_at_view: u64,
+    recorded_at_ms: u64,
+    penalty_status: EvidencePenaltyStatus,
+) -> Result<Value> {
+    use iroha_data_model::block::consensus::{EvidenceScope, RecordedEvidenceV1};
+    match evidence {
+        RecordedEvidenceV1::Native(evidence) => evidence_fields_to_json(
+            evidence,
+            attribution,
+            recorded_at_height,
+            recorded_at_view,
+            recorded_at_ms,
+            penalty_status,
+        ),
+        RecordedEvidenceV1::SccpForgery(record) => {
+            // Borrow the exact retained DATA. Shape/scope checks are not signature,
+            // historical authority, offence deduplication or penalty admission.
+            record
+                .validate_shape()
+                .map_err(|error| conversion_error(error.to_string()))?;
+            if attribution.scope
+                != (EvidenceScope::SccpGeneration {
+                    generation: record.generation,
+                })
+                || attribution.height != record.start_height
+            {
+                return Err(conversion_error("SCCP record and scope disagree".into()));
+            }
+            Ok(norito::json!({
+                "kind": "SccpForgeryEvidence",
+                "value": {
+                    "record": record, "attribution": attribution,
+                    "recorded_height": recorded_at_height,
+                    "recorded_view": recorded_at_view,
+                    "recorded_ms": recorded_at_ms,
+                    "consensus_admitted_height": recorded_at_height,
+                    "penalty_status": (evidence_penalty_status_to_json(penalty_status))
+                }
+            }))
+        }
+    }
 }
 fn evidence_fields_to_json(
     evidence: &iroha_data_model::block::consensus::Evidence,
@@ -8991,6 +9218,14 @@ fn evidence_fields_to_json(
     penalty_status: EvidencePenaltyStatus,
 ) -> Result<Value> {
     use iroha_sumeragi::message::Evidence as NativeEvidence;
+    if matches!(
+        attribution.scope,
+        iroha_data_model::block::consensus::EvidenceScope::SccpGeneration { .. }
+    ) {
+        return Err(conversion_error(
+            "native evidence has an SCCP generation scope".into(),
+        ));
+    }
     let native = evidence.decode_native().map_err(|error| match error {
         iroha_sumeragi::message::CodecError::Resource(_) => {
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
@@ -9016,7 +9251,8 @@ fn evidence_fields_to_json(
         })
         .collect::<Vec<_>>();
     Ok(norito::json!({
-        "kind": "NativeSumeragiEvidence", "class": class,
+        "kind": "NativeSumeragiEvidence", "value": {
+        "scope": (&attribution.scope), "class": class,
         "instance": (hex::encode(attribution.instance)), "height": (attribution.height),
         "epoch": (attribution.epoch), "context_id": (hex::encode(attribution.context_id)),
         "authority_generation": (hex::encode(attribution.authority_generation)),
@@ -9025,6 +9261,7 @@ fn evidence_fields_to_json(
         "recorded_height": (recorded_at_height), "recorded_view": (recorded_at_view),
         "recorded_ms": (recorded_at_ms), "consensus_admitted_height": (recorded_at_height),
         "penalty_status": (evidence_penalty_status_to_json(penalty_status))
+        }
     }))
 }
 fn reject_direct_multisig_signing(
@@ -14909,6 +15146,45 @@ fn decode_app_api_transaction_payload_b64(
         ));
     }
     Ok((payload, bytes))
+}
+#[cfg(test)]
+mod app_api_transaction_payload_bound_tests {
+    use super::decode_app_api_transaction_payload_b64;
+    use base64::Engine as _;
+
+    /// The bound `decode_app_api_transaction_payload_b64` applies to the decoded field.
+    const BOUND: usize = 16 * 1024 * 1024;
+
+    fn refusal(decoded_bytes: usize) -> String {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(vec![0_u8; decoded_bytes]);
+        match decode_app_api_transaction_payload_b64(&encoded) {
+            Ok(_) => panic!("a field of {decoded_bytes} zero bytes is no transaction payload"),
+            Err(error) => format!("{error:?}"),
+        }
+    }
+
+    #[test]
+    fn payload_field_of_exactly_the_bound_passes_the_size_checks_and_one_byte_more_is_refused() {
+        // Exactly the bound passes both size checks and reaches the payload decoder,
+        // which refuses the zero bytes for what they are, not for their length.
+        let at_bound = refusal(BOUND);
+        assert!(
+            at_bound.contains("canonical TransactionPayload"),
+            "a field of exactly the bound is refused by the decoder: {at_bound}"
+        );
+        // One byte more has the same base64 length; the decoded length refuses it.
+        let over = refusal(BOUND + 1);
+        assert!(
+            over.contains("canonical padded base64 within the protocol bound"),
+            "a field one byte above the bound is refused for its size: {over}"
+        );
+        // A longer base64 text is refused before it is decoded.
+        let longer = refusal(BOUND + 3);
+        assert!(
+            longer.contains("between 1 and 16777216 decoded bytes"),
+            "a longer field is refused by its encoded length: {longer}"
+        );
+    }
 }
 fn evaluate_contract_view_request(
     state: Arc<CoreState>,
@@ -26202,9 +26478,12 @@ pub fn handle_proof_retention_status(
 ) -> Result<iroha_torii_shared::ProofRetentionStatus> {
     let world = state.world_view();
     let height_hint = u64::try_from(state.committed_height()).unwrap_or(0);
-    let cap = state.zk.proof_history_cap;
-    let grace_blocks = state.zk.proof_retention_grace_blocks;
-    let prune_batch = state.zk.proof_prune_batch;
+    // Proof retention is committed ZK validity policy: report the effective
+    // values, not the ones this node installed.
+    let zk = state.zk_snapshot();
+    let cap = zk.proof_history_cap;
+    let grace_blocks = zk.proof_retention_grace_blocks;
+    let prune_batch = zk.proof_prune_batch;
     let retention_floor = height_hint.saturating_sub(grace_blocks);
     let mut per_backend: std::collections::BTreeMap<&str, ProofRetentionBackendSummary> =
         std::collections::BTreeMap::new();
@@ -31334,7 +31613,6 @@ struct ContractActivityProjection {
     authority: Option<String>,
     timestamp_ms: Option<u64>,
     entrypoint_hash: String,
-    block_height: u64,
     result_ok: bool,
     contract_address: String,
     contract_alias: Option<String>,
@@ -31424,25 +31702,21 @@ trait HistoryTransaction {
     fn entrypoint(&self) -> &TransactionEntrypoint;
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint>;
     fn result(&self) -> &TransactionResult;
-    fn block_hash(&self) -> HashOf<BlockHeader>;
 }
 impl HistoryTransaction for iroha_data_model::query::CommittedTransaction {
     fn entrypoint(&self) -> &TransactionEntrypoint { &self.entrypoint }
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint> { &self.entrypoint_hash }
     fn result(&self) -> &TransactionResult { self.result() }
-    fn block_hash(&self) -> HashOf<BlockHeader> { self.block_hash }
 }
 struct BorrowedNetworkTransaction<'a> {
     entrypoint: &'a TransactionEntrypoint,
     entrypoint_hash: HashOf<TransactionEntrypoint>,
     result: &'a TransactionResult,
-    block_hash: HashOf<BlockHeader>,
 }
 impl HistoryTransaction for BorrowedNetworkTransaction<'_> {
     fn entrypoint(&self) -> &TransactionEntrypoint { self.entrypoint }
     fn entrypoint_hash(&self) -> &HashOf<TransactionEntrypoint> { &self.entrypoint_hash }
     fn result(&self) -> &TransactionResult { self.result }
-    fn block_hash(&self) -> HashOf<BlockHeader> { self.block_hash }
 }
 fn history_cache_anchor(height: usize, hash: &Option<String>) -> Result<Option<HashOf<BlockHeader>>> {
     if height == 0 {
@@ -31520,7 +31794,7 @@ fn project_finalized_network_range<T>(
             let (_, output) = block.network_output_at(index)
                 .ok_or_else(|| conversion_error("validated Network output disappeared".into()))?;
             let transaction = BorrowedNetworkTransaction {
-                entrypoint, entrypoint_hash: entrypoint.hash(), result: &output.result, block_hash: block.hash(),
+                entrypoint, entrypoint_hash: entrypoint.hash(), result: &output.result,
             };
             let rows = project(height, &transaction);
             let count = projections.len().checked_add(rows.len()).ok_or_else(history_capacity_error)?;
@@ -32124,7 +32398,7 @@ fn contract_event_projections_for_height_range(
                 iroha_data_model::block::execution_output::ExecutionOutputV1::Network(network) => {
                     let entrypoint = block.network_entrypoint_at(network.input_index as usize)
                         .ok_or_else(|| conversion_error("emission output lost its Network input".into()))?;
-                    let transaction = BorrowedNetworkTransaction { entrypoint, entrypoint_hash: entrypoint.hash(), result: &network.result, block_hash: block.hash() };
+                    let transaction = BorrowedNetworkTransaction { entrypoint, entrypoint_hash: entrypoint.hash(), result: &network.result };
                     tx_fee_projection(&transaction)
                 }
                 _ => None,
@@ -32842,7 +33116,6 @@ fn project_tx(tx: &impl HistoryTransaction) -> TxProjection {
 /// Project one committed contract call into a contract-activity row; see
 /// [`bound_contract_call`] for which fields are trusted.
 fn contract_activity_projection_from_tx(
-    height: usize,
     tx: &impl HistoryTransaction,
 ) -> Option<ContractActivityProjection> {
     let call = bound_contract_call(tx)?;
@@ -32851,7 +33124,6 @@ fn contract_activity_projection_from_tx(
         authority: base.authority,
         timestamp_ms: base.timestamp_ms,
         entrypoint_hash: base.entrypoint_hash,
-        block_height: height as u64,
         result_ok: base.result_ok,
         contract_address: call.contract_address,
         contract_alias: call.contract_alias,
@@ -33514,16 +33786,6 @@ impl HistoryVisibilityReads {
             native_contract_emission_is_visible_in_block(visibility, projection, block)
         })();
         match result { Ok(allowed) => allowed, Err(error) => { reads.error = Some(error); false } }
-    }
-    fn refuse(&self, message: &str) -> bool {
-        let mut reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if reads.error.is_none() {
-            reads.error = Some(conversion_error(message.into()));
-        }
-        false
     }
     // Consuming finish is mandatory on every successful or early-return response;
     // bool filter callbacks cannot turn a read refusal into a partial successful page.
@@ -34385,18 +34647,16 @@ mod tx_query_filter_tests {
         };
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: Some(asset_id.clone()),
         };
-        assert!(filters.matches(signed, 1, tx.result()));
+        assert!(filters.matches(signed, 1));
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: Some(other_asset_id),
         };
-        assert!(!filters.matches(signed, 1, tx.result()));
+        assert!(!filters.matches(signed, 1));
     }
     routing_test! { sync instruction_matches_asset_id_handles_mint_assets
         let (authority, _) = account_with_key();
@@ -36213,12 +36473,13 @@ mod explorer_lookup_tests {
         let height = state.committed_height();
         let height_u64 = u64::try_from(height).expect("test height fits u64");
         let height = NonZeroUsize::new(height).expect("test state has a committed block");
+        let block = state
+            .block_by_height(height)
+            .expect("funded canonical history read")
+            .expect("test committed block remains available");
+        assert_eq!(block.header().height().get(), height_u64);
         ExplorerPendingBlock {
-            block: state
-                .block_by_height(height)
-                .expect("funded canonical history read")
-                .expect("test committed block remains available"),
-            height: height_u64,
+            block,
             entrypoint_index: 0,
             current_entrypoint: None,
             instruction_index: 0,
@@ -37186,7 +37447,6 @@ mod explorer_lookup_tests {
             DataspaceReadVisibility::new(BTreeSet::from([visible_dataspace]), false);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37277,7 +37537,6 @@ mod explorer_lookup_tests {
             DataspaceReadVisibility::new(BTreeSet::from([visible_dataspace]), false);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37379,7 +37638,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37439,7 +37697,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37497,7 +37754,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37550,7 +37806,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: Some(target_hash),
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37579,7 +37834,6 @@ mod explorer_lookup_tests {
         ]);
         let filters = ExplorerTransactionFilters {
             authority: None,
-            status: None,
             block: None,
             asset_id: None,
         };
@@ -37615,7 +37869,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: None,
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37648,7 +37901,6 @@ mod explorer_lookup_tests {
             account: None,
             authority: None,
             transaction_hash: Some(target_hash),
-            status: None,
             block: None,
             kind: None,
             asset_id: None,
@@ -37712,7 +37964,6 @@ mod explorer_lookup_tests {
                                 account,
                                 authority: None,
                                 transaction_hash: None,
-                                status: None,
                                 block: None,
                                 kind: None,
                                 asset_id: None,
@@ -37795,7 +38046,6 @@ mod explorer_lookup_tests {
                                 account,
                                 authority: None,
                                 transaction_hash: None,
-                                status: None,
                                 block: None,
                                 kind: None,
                                 asset_id: None,
@@ -38128,7 +38378,6 @@ mod explorer_endpoint_telemetry_tests {
                 cursor: None,
                 limit: 1,
             },
-            None,
             None,
             None,
             None,
@@ -38792,14 +39041,6 @@ pub fn handle_v1_contracts_events_sse(
     ))
 }
 
-fn committed_entrypoint_is_visible(
-    reads: &HistoryVisibilityReads, visibility: &DataspaceReadVisibility,
-    block_height: u64, entrypoint_hash: &str,
-) -> bool {
-    if visibility.can_read_all() { return true; }
-    let Ok(hash) = entrypoint_hash.parse() else { return reads.refuse("projected source hash is malformed"); };
-    reads.allows(visibility, block_height, None, hash)
-}
 fn contract_event_projection_is_visible(
     reads: &HistoryVisibilityReads,
     visibility: &DataspaceReadVisibility,
@@ -39234,7 +39475,6 @@ fn next_explorer_timer_deadline(previous: tokio::time::Instant, interval: Durati
 }
 struct ExplorerPendingBlock {
     block: SharedSignedBlock,
-    height: u64,
     entrypoint_index: usize,
     current_entrypoint: Option<(usize, HashOf<TransactionEntrypoint>)>,
     instruction_index: usize,
@@ -39255,7 +39495,7 @@ fn explorer_pending_block(
         &owner.canonical_history_budget(),
     ).map_err(crate::canonical_history::query_attempt_error)?;
     Ok(ExplorerPendingBlock {
-        block: carrier.into_block(), height, entrypoint_index: 0,
+        block: carrier.into_block(), entrypoint_index: 0,
         current_entrypoint: None, instruction_index: 0, block_emitted: false, owner,
     })
 }
@@ -42052,8 +42292,8 @@ mod cursor_mode_tests {
         mode: iroha_config::parameters::actual::QueryCursorMode,
     ) -> Arc<State> {
         let mut state = make_minimal_state(authority);
-        state.pipeline.query_default_cursor_mode = mode;
-        state.pipeline.query_stored_min_gas_units = 200;
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_default_cursor_mode = mode);
+        state.edit_pipeline_for_testing(|pipeline| pipeline.query_stored_min_gas_units = 200);
         Arc::new(state)
     }
     async fn run_query(
@@ -42510,7 +42750,8 @@ mod validation_fee_torii_ingress_tests {
             .set_parameter(Parameter::Custom(
                 iroha_data_model::parameter::system::SumeragiNposParameters::default()
                     .into_custom_parameter(),
-            ));
+            ))
+            .expect("install the committed NPoS fixture parameters");
         initial.commit();
         world
     }
@@ -43188,7 +43429,8 @@ mod validation_fee_torii_ingress_tests {
         stx.world
             .parameters_mut_for_testing()
             .get_mut()
-            .set_parameter(Parameter::Custom(custom_registry));
+            .set_parameter(Parameter::Custom(custom_registry))
+            .expect("valid fixture parameters");
         stx.apply();
         block
             .commit_world_overlay_for_testing()
@@ -46272,7 +46514,6 @@ mod contract_feed_binding_tests {
             entrypoint,
             entrypoint_hash: entrypoint.hash(),
             result,
-            block_hash: HashOf::from_untyped_unchecked(Hash::new(b"contract feed block")),
         }
     }
     routing_test! { sync non_contract_transactions_never_reach_contract_feeds
@@ -46288,7 +46529,7 @@ mod contract_feed_binding_tests {
                 "metadata alone must not create a contract event"
             );
             assert!(
-                contract_activity_projection_from_tx(4, &tx).is_none(),
+                contract_activity_projection_from_tx(&tx).is_none(),
                 "metadata alone must not create contract activity"
             );
         }
@@ -46301,7 +46542,7 @@ mod contract_feed_binding_tests {
         let ok = committed(true);
         let tx = history(&entrypoint, &ok);
         assert!(tx.result().contract_events().is_empty(), "calls do not synthesize emissions");
-        let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+        let activity = contract_activity_projection_from_tx(&tx).expect("committed call");
         assert_eq!(activity.contract_address, router_address().to_string());
         assert_eq!(activity.contract_alias.as_deref(), Some(ROUTER_ALIAS));
         assert_eq!(activity.contract_entrypoint, "route_swap");
@@ -46319,7 +46560,7 @@ mod contract_feed_binding_tests {
         let tx = history(&entrypoint, &rejected);
         assert!(tx.result().contract_events().is_empty(), "rejected calls emit nothing");
         let address = router_address().to_string();
-        let activity = contract_activity_projection_from_tx(4, &tx).expect("rejected call");
+        let activity = contract_activity_projection_from_tx(&tx).expect("rejected call");
         assert_eq!(activity.contract_address, address);
         assert_eq!(activity.contract_entrypoint, "route_swap");
         assert_eq!(activity.contract_alias, None);
@@ -46344,7 +46585,7 @@ mod contract_feed_binding_tests {
             let entrypoint = signed(metadata, Executable::ContractCall(router_call()));
             let tx = history(&entrypoint, &ok);
             assert!(tx.result().contract_events().is_empty(), "metadata never creates an emission");
-            let activity = contract_activity_projection_from_tx(4, &tx).expect("committed call");
+            let activity = contract_activity_projection_from_tx(&tx).expect("committed call");
             assert_eq!(activity.contract_entrypoint, "route_swap", "{key}");
             assert_eq!(activity.contract_alias, None, "{key}");
             assert_eq!(activity.contract_payload, None, "{key}");
@@ -46410,7 +46651,6 @@ mod tx_projection_display_tests {
             authority: Some(account.to_string()),
             timestamp_ms: Some(456),
             entrypoint_hash: "feedface".into(),
-            block_height: 9,
             result_ok: true,
             contract_address: "irohac1router".into(),
             contract_alias: Some("dlmm_router".into()),
@@ -53446,14 +53686,11 @@ pub async fn handle_v1_explorer_health(
     record_explorer_endpoint_result(&telemetry, ENDPOINT_EXPLORER_HEALTH, started, &response);
     response
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExplorerTransactionStatusFilter {
-    Committed,
-    Rejected,
-}
+// Ordinary DTO fields, including status, are filtered by explorer_query's
+// complete shared predicate after each bounded scan. Only native scan selectors
+// belong here; the public cursor binds the complete predicate separately.
 struct ExplorerTransactionFilters {
     authority: Option<AccountId>,
-    status: Option<ExplorerTransactionStatusFilter>,
     block: Option<u64>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 }
@@ -53462,7 +53699,6 @@ impl ExplorerTransactionFilters {
         &self,
         tx: &SignedTransaction,
         block_height: u64,
-        result: &TransactionResult,
     ) -> bool {
         if let Some(expected_block) = self.block {
             if block_height != expected_block {
@@ -53472,14 +53708,6 @@ impl ExplorerTransactionFilters {
         if let Some(authority) = &self.authority {
             if tx.authority() != authority {
                 return false;
-            }
-        }
-        if let Some(status) = &self.status {
-            let committed = result.as_ref().is_ok();
-            match status {
-                ExplorerTransactionStatusFilter::Committed if !committed => return false,
-                ExplorerTransactionStatusFilter::Rejected if committed => return false,
-                _ => {}
             }
         }
         if let Some(expected) = &self.asset_id {
@@ -53494,7 +53722,6 @@ struct ExplorerInstructionFilters {
     account: Option<AccountId>,
     authority: Option<AccountId>,
     transaction_hash: Option<HashOf<TransactionEntrypoint>>,
-    status: Option<ExplorerTransactionStatusFilter>,
     block: Option<u64>,
     kind: Option<ExplorerInstructionKind>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
@@ -53505,7 +53732,6 @@ impl ExplorerInstructionFilters {
         entrypoint_hash: HashOf<TransactionEntrypoint>,
         tx: &SignedTransaction,
         block_height: u64,
-        result: &TransactionResult,
     ) -> bool {
         if let Some(expected_block) = self.block {
             if block_height != expected_block {
@@ -53520,14 +53746,6 @@ impl ExplorerInstructionFilters {
         if let Some(authority) = &self.authority {
             if tx.authority() != authority {
                 return false;
-            }
-        }
-        if let Some(status) = &self.status {
-            let committed = result.as_ref().is_ok();
-            match status {
-                ExplorerTransactionStatusFilter::Committed if !committed => return false,
-                ExplorerTransactionStatusFilter::Rejected if committed => return false,
-                _ => {}
             }
         }
         true
@@ -53794,10 +54012,6 @@ fn transaction_history_filter_digest(
         &[
             filters.authority.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.block.map(crate::explorer::explorer_history_scalar_text).transpose().map_err(explorer_history_cursor_error)?,
-            filters.status.map(|status| match status {
-                ExplorerTransactionStatusFilter::Committed => crate::explorer::explorer_history_literal_text("committed"),
-                ExplorerTransactionStatusFilter::Rejected => crate::explorer::explorer_history_literal_text("rejected"),
-            }).transpose().map_err(explorer_history_cursor_error)?,
             filters.asset_id.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
         ],
     ))
@@ -53813,10 +54027,6 @@ fn instruction_history_filter_digest(
             filters.account.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.authority.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.transaction_hash.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
-            filters.status.map(|status| match status {
-                ExplorerTransactionStatusFilter::Committed => crate::explorer::explorer_history_literal_text("committed"),
-                ExplorerTransactionStatusFilter::Rejected => crate::explorer::explorer_history_literal_text("rejected"),
-            }).transpose().map_err(explorer_history_cursor_error)?,
             filters.block.map(crate::explorer::explorer_history_scalar_text).transpose().map_err(explorer_history_cursor_error)?,
             filters.kind.map(|kind| crate::explorer::explorer_history_literal_text(kind.as_str())).transpose().map_err(explorer_history_cursor_error)?,
             filters.asset_id.as_ref().map(crate::explorer::explorer_history_key_text).transpose().map_err(explorer_history_cursor_error)?,
@@ -53833,12 +54043,11 @@ pub async fn handle_v1_explorer_transactions(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
 handle_v1_explorer_transactions_sync(
-        state, telemetry, visibility, pagination, authority, block, status, asset_id,
+        state, telemetry, visibility, pagination, authority, block, asset_id,
     )
     })
 }
@@ -53849,7 +54058,6 @@ pub(crate) async fn handle_v1_explorer_transactions_admitted(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
     admission: crate::QueryAdmissionPermit,
 ) -> Result<AxResponse, Error> {
@@ -53858,7 +54066,7 @@ pub(crate) async fn handle_v1_explorer_transactions_admitted(
         "Explorer transaction history worker failed",
         move || {
             handle_v1_explorer_transactions_sync(
-                state, telemetry, visibility, pagination, authority, block, status, asset_id,
+                state, telemetry, visibility, pagination, authority, block, asset_id,
             )
         },
     )
@@ -53871,7 +54079,6 @@ fn handle_v1_explorer_transactions_sync(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     let started = std::time::Instant::now();
@@ -53884,7 +54091,6 @@ fn handle_v1_explorer_transactions_sync(
         record_account_literal_selection(&telemetry, ENDPOINT_EXPLORER_TRANSACTIONS);
         let filters = ExplorerTransactionFilters {
             authority,
-            status,
             block,
             asset_id,
         };
@@ -53916,7 +54122,6 @@ pub(crate) async fn handle_v1_explorer_transactions_latest_admitted(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
     admission: crate::QueryAdmissionPermit,
 ) -> Result<AxResponse, Error> {
@@ -53925,7 +54130,7 @@ pub(crate) async fn handle_v1_explorer_transactions_latest_admitted(
         "Explorer latest-transaction history worker failed",
         move || {
             handle_v1_explorer_transactions_latest_sync(
-                state, telemetry, visibility, pagination, authority, block, status, asset_id,
+                state, telemetry, visibility, pagination, authority, block, asset_id,
             )
         },
     )
@@ -53938,7 +54143,6 @@ fn handle_v1_explorer_transactions_latest_sync(
     pagination: crate::explorer::ExplorerCursorQuery,
     authority: Option<AccountId>,
     block: Option<u64>,
-    status: Option<ExplorerTransactionStatusFilter>,
     asset_id: Option<iroha_data_model::asset::AssetId>,
 ) -> Result<AxResponse, Error> {
     let started = std::time::Instant::now();
@@ -53951,7 +54155,6 @@ fn handle_v1_explorer_transactions_latest_sync(
         record_account_literal_selection(&telemetry, ENDPOINT_EXPLORER_TRANSACTIONS_LATEST);
         let filters = ExplorerTransactionFilters {
             authority,
-            status,
             block,
             asset_id,
         };
@@ -53982,7 +54185,6 @@ pub struct ExplorerInstructionQuery {
     pub account: Option<AccountId>,
     pub authority: Option<AccountId>,
     pub transaction_hash: Option<HashOf<TransactionEntrypoint>>,
-    pub status: Option<ExplorerTransactionStatusFilter>,
     pub block: Option<u64>,
     pub kind: Option<ExplorerInstructionKind>,
     pub asset_id: Option<iroha_data_model::asset::AssetId>,
@@ -54037,7 +54239,6 @@ fn handle_v1_explorer_instructions_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54046,7 +54247,6 @@ fn handle_v1_explorer_instructions_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54110,7 +54310,6 @@ fn handle_v1_explorer_instructions_latest_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54119,7 +54318,6 @@ fn handle_v1_explorer_instructions_latest_sync(
             account,
             authority,
             transaction_hash,
-            status,
             block,
             kind,
             asset_id,
@@ -54181,15 +54379,6 @@ fn handle_v1_explorer_transaction_detail_sync(
         &response,
     );
     response
-}
-#[cfg(test)]
-pub async fn handle_v1_explorer_instruction_detail(
-    state: Arc<CoreState>, telemetry: MaybeTelemetry, visibility: DataspaceReadVisibility,
-    hash: String,
-    index: u64,
-) -> Result<AxResponse, Error> {
-    crate::history_producer::HistoryProducerOwner::for_test().scope(||
-        handle_v1_explorer_instruction_detail_sync(state, telemetry, visibility, hash, index))
 }
 pub(crate) async fn handle_v1_explorer_instruction_detail_admitted(
     state: Arc<CoreState>, telemetry: MaybeTelemetry, visibility: DataspaceReadVisibility,
@@ -54406,9 +54595,9 @@ fn collect_transaction_summaries(
                 break 'history;
             }
             scanned_candidates = scanned_candidates.saturating_add(1);
-            if let Some((entrypoint_hash, tx, result)) =
+            if let Some((entrypoint_hash, tx, _)) =
                 external_signed_transaction_result_at(block_ref, entrypoint_index)
-                && filters.matches(tx, height, result)
+                && filters.matches(tx, height)
             {
                 out.push(crate::explorer_history::HistoryTransactionRow {
                     block: block.clone(), entrypoint_index, entrypoint_hash,
@@ -54538,7 +54727,7 @@ fn collect_instruction_history(
                 entrypoint_hash,
                 0,
             );
-            let Some((entrypoint_hash, tx, result)) =
+            let Some((entrypoint_hash, tx, _)) =
                 external_signed_transaction_result_at(block_ref, entrypoint_index)
             else {
                 if start_instruction != 0 {
@@ -54557,7 +54746,7 @@ fn collect_instruction_history(
             };
             let instruction_count = tx.instructions().explicit_instructions().count();
             let transaction_matches =
-                filters.matches_transaction(entrypoint_hash, tx, height, result);
+                filters.matches_transaction(entrypoint_hash, tx, height);
             if instruction_count == 0 || !transaction_matches {
                 if start_instruction != 0 {
                     return Err(explorer_history_cursor_error(
@@ -57187,14 +57376,6 @@ where
 fn nft_filter_candidate_ids(expr: Option<&crate::filter::FilterExpr>) -> Option<BTreeSet<NftId>> {
     exact_field_filter_candidates(expr, "id", &|value| value.as_str()?.parse().ok())
 }
-fn nft_from_key_value(id: &NftId, value: &iroha_data_model::nft::NftValue) -> Nft {
-    let details = value.clone().into_inner();
-    Nft {
-        id: id.clone(),
-        content: details.content,
-        owned_by: details.owned_by,
-    }
-}
 }
 #[cfg(all(test, feature = "app_api"))]
 routing_test! { sync nft_filter_candidate_ids_extracts_safe_exact_constraints
@@ -58769,8 +58950,15 @@ pub async fn handle_schema() -> impl IntoResponse {
     infallible_pretty_json_response(&m, "{}")
 }
 #[iroha_futures::telemetry_future]
-pub async fn handle_get_configuration(kiso: KisoHandle) -> Result<impl IntoResponse> {
-    let dto = kiso.get_dto().await?;
+pub async fn handle_get_configuration(
+    kiso: KisoHandle,
+    state: Arc<CoreState>,
+) -> Result<impl IntoResponse> {
+    let mut dto = kiso.get_dto().await?;
+    // The verification gas schedule is chain policy, not node configuration:
+    // report the schedule State charges (the committed ZK validity policy, or
+    // the protocol default).
+    dto.confidential_gas = (&state.zk_snapshot().gas).into();
     // Serialize the DTO directly so new fields (e.g., SoraNet handshake/Puzzle config)
     // are exposed without hand-maintaining this JSON shape.
     Ok(infallible_pretty_json_response(&dto, "{}"))

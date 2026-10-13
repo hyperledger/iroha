@@ -217,7 +217,6 @@ pub(crate) fn hold(mut response: Response, memory: QueryFanoutMemoryReservation)
 mod tests {
     use super::*;
     use axum::body::Bytes;
-    use http_body_util::BodyExt as _;
     use http_body_util::StreamBody;
     use std::convert::Infallible;
 

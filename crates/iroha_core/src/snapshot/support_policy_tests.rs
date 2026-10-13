@@ -112,13 +112,8 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
             sig: NativeSignature([0; SIGNATURE_LEN]),
         };
         vote.sig = NativeSignature(
-            Signature::from_bytes(
-                &iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
-                    .unwrap(),
-            )
-            .payload()
-            .try_into()
-            .unwrap(),
+            iroha_crypto::bls::consensus::sign_preimage(key.private_key(), &vote.preimage())
+                .expect("canonical native vote signature"),
         );
         vote
     };
@@ -142,29 +137,28 @@ fn snapshot_evidence_fixture(network_id: NetworkId) -> (Evidence, EvidenceAttrib
 }
 #[test]
 fn snapshot_evidence_fixture_preserves_original_signed_bytes() {
+    use iroha_crypto::{BlsNormalPopVerifiedKey, bls::consensus};
+
     let (evidence, attribution) = snapshot_evidence_fixture(snapshot_test_network_id());
     let iroha_sumeragi::message::Evidence::VoteEquivocation(first, mut second) =
         evidence.decode_native().unwrap()
     else {
         panic!("native vote pair")
     };
+    let key = (1_u8..=4)
+        .map(|seed| KeyPair::try_from_seed(vec![seed; 32], Algorithm::BlsNormal).unwrap())
+        .find(|key| key.public_key() == attribution.offenders[0].peer_id.public_key())
+        .expect("the original snapshot fixture signer");
+    let pop = iroha_crypto::bls_normal_pop_prove(key.private_key()).unwrap();
+    let admitted =
+        BlsNormalPopVerifiedKey::from_owned_uncached(key.public_key().clone(), &pop).unwrap();
     for vote in [&first, &second] {
-        Signature::from_bytes(&vote.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &vote.preimage(),
-            )
-            .unwrap();
+        let digest = consensus::ConsensusDigest::from_preimage(&vote.preimage()).unwrap();
+        assert!(consensus::verify(&admitted, &digest, &vote.sig.0));
     }
     second.epoch.context.0[0] ^= 1;
-    assert!(
-        Signature::from_bytes(&second.sig.0)
-            .verify(
-                attribution.offenders[0].peer_id.public_key(),
-                &second.preimage()
-            )
-            .is_err()
-    );
+    let changed = consensus::ConsensusDigest::from_preimage(&second.preimage()).unwrap();
+    assert!(!consensus::verify(&admitted, &changed, &second.sig.0));
 }
 fn current_generation_name(store_dir: &Path) -> String {
     let pointer_path = store_dir.join(SNAPSHOT_CURRENT_FILE_NAME);
@@ -836,7 +830,7 @@ fn staged_and_committed_wsv_hashes_commit_consensus_evidence() {
         evidence_key,
         crate::state::RetainedEvidenceRecord::from_fixture(
             EvidenceRecord {
-                evidence,
+                evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(evidence),
                 attribution,
                 recorded_at_height: 2,
                 recorded_at_view: 0,
@@ -952,7 +946,9 @@ async fn staged_snapshot_wsv_hash_commits_consensus_evidence() {
                 key,
                 crate::state::RetainedEvidenceRecord::from_fixture(
                     EvidenceRecord {
-                        evidence,
+                        evidence: iroha_data_model::block::consensus::RecordedEvidenceV1::Native(
+                            evidence,
+                        ),
                         attribution,
                         recorded_at_height: 1,
                         recorded_at_view: 0,
@@ -1012,11 +1008,13 @@ async fn canonical_wsv_hash_sorts_sumeragi_key_algorithm_set() {
     let state = state_factory();
     {
         let mut parameters = state.world.parameters.block();
-        parameters.sumeragi.key_allowed_algorithms = vec![
+        let mut consensus = parameters.sumeragi().clone();
+        consensus.key_allowed_algorithms = vec![
             Algorithm::Secp256k1,
             Algorithm::Ed25519,
             Algorithm::Secp256k1,
         ];
+        parameters.set_sumeragi(consensus);
         parameters.commit();
     }
     let first = canonical_state_snapshot_bytes_for_tests(&state);
@@ -1028,7 +1026,9 @@ async fn canonical_wsv_hash_sorts_sumeragi_key_algorithm_set() {
     );
     {
         let mut parameters = state.world.parameters.block();
-        parameters.sumeragi.key_allowed_algorithms = vec![Algorithm::Ed25519, Algorithm::Secp256k1];
+        let mut consensus = parameters.sumeragi().clone();
+        consensus.key_allowed_algorithms = vec![Algorithm::Ed25519, Algorithm::Secp256k1];
+        parameters.set_sumeragi(consensus);
         parameters.commit();
     }
     let second = canonical_state_snapshot_bytes_for_tests(&state);

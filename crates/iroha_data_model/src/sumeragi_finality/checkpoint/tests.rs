@@ -246,6 +246,7 @@ fn checkpoint_lag_two_binding_and_height_exhaustion_refuse() {
     assert!(
         verifier
             .verify(&third)
+            .map_err(invalid_read_error)
             .unwrap_err()
             .0
             .contains("height exhausted")

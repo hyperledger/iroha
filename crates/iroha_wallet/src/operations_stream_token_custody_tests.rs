@@ -463,7 +463,7 @@ fn bounded_fee_comparison_rejects_changed_assets_or_amounts_and_excessive_cardin
     }
     assert!(validate_options(&request.options).is_err());
     request.options.max_total_fees.clear();
-    request.options.deadline = Instant::now() - Duration::from_secs(1);
+    request.options.deadline = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     let root = tempfile::tempdir().unwrap();
     assert!(
         service
@@ -786,7 +786,7 @@ fn target_rejects_foreign_provider_network_revision_and_coherent_predecessor_cla
     let (config, policy) = fixture();
     let plan = enrolled_request_plan(&config, policy.clone(), false);
     plan.selection.validate(&config).unwrap();
-    let changes: &[fn(&mut StreamTokenCustodySelection)] = &[
+    let mutations: &[fn(&mut StreamTokenCustodySelection)] = &[
         |s| s.provider_id = ProviderId::new([11; 32]),
         |s| s.binding.network_id = [12; 32],
         |s| s.expected_revision += 1,
@@ -807,7 +807,7 @@ fn target_rejects_foreign_provider_network_revision_and_coherent_predecessor_cla
             s.expected_digest = record.canonical_digest().unwrap();
         },
     ];
-    for change in changes {
+    for change in mutations {
         let mut changed = plan.selection.clone();
         change(&mut changed);
         assert!(changed.validate(&config).is_err());
@@ -1538,3 +1538,6 @@ fn retained_parent_custody_inspection_keeps_native_rename_refusal_and_original_r
     assert!(!path.join("submission.json").exists());
     assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
 }
+
+#[path = "operations_terminal_reader_tests.rs"]
+mod terminal_reader_tests;

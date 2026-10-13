@@ -28,9 +28,10 @@ impl RetainedWorldField for FaultField {
     fn publication_slot<'target>(
         self: Box<Self>,
         target: &'target World,
+        scope: &iroha_allocation::OwnedAllocationScope,
     ) -> Box<dyn PreparedWorldField + 'target> {
         Box::new(PreparedFaultField {
-            original: self.original.publication_slot(target),
+            original: self.original.publication_slot(target, scope),
             after_prepare: self.after_prepare,
             target,
         })
@@ -102,8 +103,9 @@ pub(in crate::state) fn arm_first_release(
 // cannot hide a still-held later writer. No assertion executes in callbacks.
 pub(in crate::state) fn probe_fields(original: DetachedWorld<()>, target: &World) -> [usize; 3] {
     let mut counts = [0; 3];
+    let scope = original.refund_control.try_activate().unwrap();
     for field in original.fields {
-        let mut slot = field.publication_slot(target);
+        let mut slot = field.publication_slot(target, &scope);
         match slot.try_prepare() {
             Ok(()) => {
                 counts[0] += 1;
